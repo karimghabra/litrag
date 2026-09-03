@@ -60,7 +60,10 @@ $LITRAG_ROOT   (else $PROTRACKER_LIBRARY, else ~/.protracker/library)
 | File | What it is |
 |---|---|
 | `DESIGN.md` | The decisions everything follows from, the schema, the pipeline stage by stage, the graph layer, and how this compares with the lab's own scripts and the published systems. |
-| `AGENT.md` | How an assistant drives `lit`, and how to behave while doing so. |
+| `AGENT.md` | How an assistant drives `lit` — the verbs, the JSON shapes, the things that look like bugs — and how to behave while doing so. |
+| `NOTES.md` | The assistant's notebook: the libraries, what worked, standing decisions. |
+| `BACKLOG.md` | Where wants wait until they are built. |
+| `CHANGELOG.md` | What each version changed. |
 | `CLAUDE.md` | The invariants a change to this code must keep. |
 | `.claude/skills/literature/` | The `/literature` skill: a bench question in, cited passages out, gaps named as gaps. |
 

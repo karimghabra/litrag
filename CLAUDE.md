@@ -2,7 +2,10 @@
 
 One library of papers per project, built and asked from the command line.
 `DESIGN.md` records the decisions; `AGENT.md` is how an assistant drives it,
-and its conduct is binding; `README.md` is the front door.
+and its conduct is binding; `NOTES.md` is the assistant's own notebook —
+read it before talking to the user about their libraries, and keep it
+current; `BACKLOG.md` is where wants wait; `README.md` is the front door.
+The research context itself lives in Protracker's notebook.
 
 Invariants:
 
