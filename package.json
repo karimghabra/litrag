@@ -1,0 +1,25 @@
+{
+  "name": "litrag",
+  "version": "0.1.0",
+  "description": "One library of papers per project: search Europe PMC, read open-access full text into rows, embed locally, walk the graph, answer with citations. Local, SQLite, no Python.",
+  "type": "module",
+  "license": "MIT",
+  "author": "Karim Ghabra",
+  "bin": { "lit": "bin/lit.js" },
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "lit": "node --experimental-transform-types --no-warnings src/cli.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "check": "npm run typecheck && npm test"
+  },
+  "dependencies": {
+    "@huggingface/transformers": "^4.2.0",
+    "pdfjs-dist": "^6.3.289"
+  },
+  "devDependencies": {
+    "@types/node": "^24.7.0",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.0"
+  }
+}

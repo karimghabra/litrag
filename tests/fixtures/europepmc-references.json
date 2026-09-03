@@ -1,0 +1,93 @@
+{
+    "version": "6.9",
+    "hitCount": 46,
+    "request": {
+        "id": "39064362",
+        "source": "MED",
+        "offSet": 1,
+        "pageSize": 5
+    },
+    "referenceList": {
+        "reference": [
+            {
+                "id": "16383874",
+                "source": "MED",
+                "citationType": "JOURNAL ARTICLE",
+                "title": "Alternative explanation of stiffening in cross-linked semiflexible networks.",
+                "authorString": "Onck PR, Koeman T, van Dillen T, van der Giessen E.",
+                "journalAbbreviation": "Phys Rev Lett",
+                "issue": "17",
+                "pubYear": 2005,
+                "volume": "95",
+                "pageInfo": "178102",
+                "citedOrder": 1,
+                "match": "Y",
+                "essn": "1079-7114",
+                "issn": "0031-9007"
+            },
+            {
+                "id": "32534089",
+                "source": "MED",
+                "citationType": "JOURNAL ARTICLE",
+                "title": "Current methods of collagen cross-linking: Review.",
+                "authorString": "Adamiak K, Sionkowska A.",
+                "journalAbbreviation": "Int J Biol Macromol",
+                "pubYear": 2020,
+                "volume": "161",
+                "pageInfo": "550-560",
+                "citedOrder": 2,
+                "match": "Y",
+                "essn": "1879-0003",
+                "issn": "0141-8130"
+            },
+            {
+                "id": "21207932",
+                "source": "MED",
+                "citationType": "JOURNAL ARTICLE",
+                "title": "Hierarchical structure and nanomechanics of collagen microfibrils from the atomistic scale up.",
+                "authorString": "Gautieri A, Vesentini S, Redaelli A, Buehler MJ.",
+                "journalAbbreviation": "Nano Lett",
+                "issue": "2",
+                "pubYear": 2011,
+                "volume": "11",
+                "pageInfo": "757-766",
+                "citedOrder": 3,
+                "match": "Y",
+                "essn": "1530-6992",
+                "issn": "1530-6984"
+            },
+            {
+                "id": "25093879",
+                "source": "MED",
+                "citationType": "JOURNAL ARTICLE",
+                "title": "3D bioprinting of tissues and organs.",
+                "authorString": "Murphy SV, Atala A.",
+                "journalAbbreviation": "Nat Biotechnol",
+                "issue": "8",
+                "pubYear": 2014,
+                "volume": "32",
+                "pageInfo": "773-785",
+                "citedOrder": 4,
+                "match": "Y",
+                "essn": "1546-1696",
+                "issn": "1087-0156"
+            },
+            {
+                "id": "21416392",
+                "source": "MED",
+                "citationType": "JOURNAL ARTICLE",
+                "title": "Mechanical and structural contribution of non-fibrillar matrix in uniaxial tension: a collagen-agarose co-gel model.",
+                "authorString": "Lake SP, Barocas VH.",
+                "journalAbbreviation": "Ann Biomed Eng",
+                "issue": "7",
+                "pubYear": 2011,
+                "volume": "39",
+                "pageInfo": "1891-1903",
+                "citedOrder": 5,
+                "match": "Y",
+                "essn": "1573-9686",
+                "issn": "0090-6964"
+            }
+        ]
+    }
+}

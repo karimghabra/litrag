@@ -1,0 +1,7 @@
+node_modules/
+/library/
+/models/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+.scratch/

@@ -1,0 +1,2667 @@
+[
+    {
+        "source": "MED",
+        "extId": "39064362",
+        "pmcid": "PMC11278924",
+        "annotations": [
+            {
+                "prefix": "Characterization of Aligned",
+                "exact": "Collagen",
+                "postfix": "across Varied Crosslinking",
+                "tags": [
+                    {
+                        "name": "COLF1",
+                        "uri": "https://www.uniprot.org/uniprotkb/P18856/entry"
+                    }
+                ],
+                "id": "http://europepmc.org/article/MED/39064362#europepmc-c8f3c8dd643af14955921c667fa4b0a5",
+                "type": "Gene_Proteins",
+                "section": "Title (http://purl.org/dc/elements/1.1/title)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "",
+                "exact": "Collagen",
+                "postfix": "-based scaffolds have been",
+                "tags": [
+                    {
+                        "name": "COLF1",
+                        "uri": "https://www.uniprot.org/uniprotkb/P18856/entry"
+                    }
+                ],
+                "id": "http://europepmc.org/article/MED/39064362#europepmc-43aa7a904e07375e2f752b8023760510",
+                "type": "Gene_Proteins",
+                "section": "Abstract (http://purl.org/dc/terms/abstract)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "The alignment of",
+                "exact": "collagen",
+                "postfix": "fibers and the",
+                "tags": [
+                    {
+                        "name": "COLF1",
+                        "uri": "https://www.uniprot.org/uniprotkb/P18856/entry"
+                    }
+                ],
+                "id": "http://europepmc.org/article/MED/39064362#europepmc-4ea7208a01ce9380406a313b70e74c50",
+                "type": "Gene_Proteins",
+                "section": "Abstract (http://purl.org/dc/terms/abstract)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "mechanical properties of",
+                "exact": "collagen",
+                "postfix": "scaffolds.",
+                "tags": [
+                    {
+                        "name": "COLF1",
+                        "uri": "https://www.uniprot.org/uniprotkb/P18856/entry"
+                    }
+                ],
+                "id": "http://europepmc.org/article/MED/39064362#europepmc-cec2dd8bca976e0f00a89653e2063f6a",
+                "type": "Gene_Proteins",
+                "section": "Abstract (http://purl.org/dc/terms/abstract)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "the effects of",
+                "exact": "collagen",
+                "postfix": "alignment and crosslinking",
+                "tags": [
+                    {
+                        "name": "COLF1",
+                        "uri": "https://www.uniprot.org/uniprotkb/P18856/entry"
+                    }
+                ],
+                "id": "http://europepmc.org/article/MED/39064362#europepmc-799036c127aa4929d020577403c797a5",
+                "type": "Gene_Proteins",
+                "section": "Abstract (http://purl.org/dc/terms/abstract)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "parameters for fabricating",
+                "exact": "collagen",
+                "postfix": "scaffolds with desired",
+                "tags": [
+                    {
+                        "name": "COLF1",
+                        "uri": "https://www.uniprot.org/uniprotkb/P18856/entry"
+                    }
+                ],
+                "id": "http://europepmc.org/article/MED/39064362#europepmc-9d3b26fa8d847acdd20ff0860182be2e",
+                "type": "Gene_Proteins",
+                "section": "Abstract (http://purl.org/dc/terms/abstract)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "mechanical properties of",
+                "exact": "collagen",
+                "postfix": "threads.",
+                "tags": [
+                    {
+                        "name": "COLF1",
+                        "uri": "https://www.uniprot.org/uniprotkb/P18856/entry"
+                    }
+                ],
+                "id": "http://europepmc.org/article/MED/39064362#europepmc-8ecc795ed279258e1dcf3141c907c537",
+                "type": "Gene_Proteins",
+                "section": "Abstract (http://purl.org/dc/terms/abstract)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "ated electrochemically aligned",
+                "exact": "collagen",
+                "postfix": "(ELAC) and compared",
+                "tags": [
+                    {
+                        "name": "COLF1",
+                        "uri": "https://www.uniprot.org/uniprotkb/P18856/entry"
+                    }
+                ],
+                "id": "http://europepmc.org/article/MED/39064362#europepmc-38dc2058817f3a28eb471a45af2a076b",
+                "type": "Gene_Proteins",
+                "section": "Abstract (http://purl.org/dc/terms/abstract)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "with randomly distributed",
+                "exact": "collagen",
+                "postfix": "at varying crosslinking",
+                "tags": [
+                    {
+                        "name": "COLF1",
+                        "uri": "https://www.uniprot.org/uniprotkb/P18856/entry"
+                    }
+                ],
+                "id": "http://europepmc.org/article/MED/39064362#europepmc-71db3ae6594c6322f6c3be2706081700",
+                "type": "Gene_Proteins",
+                "section": "Abstract (http://purl.org/dc/terms/abstract)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "which depend on",
+                "exact": "genipin",
+                "postfix": "concentrations of 0.1%",
+                "tags": [
+                    {
+                        "name": "genipin",
+                        "uri": "http://purl.obolibrary.org/obo/CHEBI_5298"
+                    }
+                ],
+                "id": "http://europepmc.org/article/MED/39064362#europepmc-4750ee39499e1c0a8a4169e5d24f7155",
+                "type": "Chemicals",
+                "section": "Abstract (http://purl.org/dc/terms/abstract)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "indicate that aligned",
+                "exact": "collagen",
+                "postfix": "fibers and higher",
+                "tags": [
+                    {
+                        "name": "COLF1",
+                        "uri": "https://www.uniprot.org/uniprotkb/P18856/entry"
+                    }
+                ],
+                "id": "http://europepmc.org/article/MED/39064362#europepmc-bb4c1ffd2e885a77729d9d8aaf703ba8",
+                "type": "Gene_Proteins",
+                "section": "Abstract (http://purl.org/dc/terms/abstract)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "compared to random",
+                "exact": "collagen",
+                "postfix": ", significantly increases Youn",
+                "tags": [
+                    {
+                        "name": "COLF1",
+                        "uri": "https://www.uniprot.org/uniprotkb/P18856/entry"
+                    }
+                ],
+                "id": "http://europepmc.org/article/MED/39064362#europepmc-889ecf5e03ac51379f833a9b54cb8a1f",
+                "type": "Gene_Proteins",
+                "section": "Abstract (http://purl.org/dc/terms/abstract)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "h), i.e., 0.1%",
+                "exact": "genipin",
+                "postfix": "concentration with a",
+                "tags": [
+                    {
+                        "name": "genipin",
+                        "uri": "http://purl.obolibrary.org/obo/CHEBI_5298"
+                    }
+                ],
+                "id": "http://europepmc.org/article/MED/39064362#europepmc-2a65bfb79962e2945981782f98284aaf",
+                "type": "Chemicals",
+                "section": "Abstract (http://purl.org/dc/terms/abstract)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "by changing the",
+                "exact": "genipin",
+                "postfix": "concentration from 0.1%",
+                "tags": [
+                    {
+                        "name": "genipin",
+                        "uri": "http://purl.obolibrary.org/obo/CHEBI_5298"
+                    }
+                ],
+                "id": "http://europepmc.org/article/MED/39064362#europepmc-88bf4e04ca436da764090bfdcc821457",
+                "type": "Chemicals",
+                "section": "Abstract (http://purl.org/dc/terms/abstract)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "controlled fabrication of",
+                "exact": "collagen",
+                "postfix": "threads.",
+                "tags": [
+                    {
+                        "name": "COLF1",
+                        "uri": "https://www.uniprot.org/uniprotkb/P18856/entry"
+                    }
+                ],
+                "id": "http://europepmc.org/article/MED/39064362#europepmc-daa23c99d02d89e857c6d4d60814d920",
+                "type": "Gene_Proteins",
+                "section": "Abstract (http://purl.org/dc/terms/abstract)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "mechanical performance of",
+                "exact": "collagen",
+                "postfix": "scaffolds.",
+                "tags": [
+                    {
+                        "name": "COLF1",
+                        "uri": "https://www.uniprot.org/uniprotkb/P18856/entry"
+                    }
+                ],
+                "id": "http://europepmc.org/article/MED/39064362#europepmc-d2c9f7dd9de0e3be9b6377df4d2ac373",
+                "type": "Gene_Proteins",
+                "section": "Abstract (http://purl.org/dc/terms/abstract)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "precise fabrication of",
+                "exact": "collagen",
+                "postfix": "threads for desired",
+                "tags": [
+                    {
+                        "name": "COLF1",
+                        "uri": "https://www.uniprot.org/uniprotkb/P18856/entry"
+                    }
+                ],
+                "id": "http://europepmc.org/article/MED/39064362#europepmc-f56cf3fb19c27718678f61be2787af3c",
+                "type": "Gene_Proteins",
+                "section": "Abstract (http://purl.org/dc/terms/abstract)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "",
+                "exact": "Collagen",
+                "postfix": "is the primary",
+                "tags": [
+                    {
+                        "name": "COLF1",
+                        "uri": "https://www.uniprot.org/uniprotkb/P18856/entry"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-325732a3ff331249ece2df2e6f4a0bb9",
+                "type": "Gene_Proteins",
+                "section": "Introduction (http://purl.org/orb/Introduction)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "protein in most",
+                "exact": "extracellular",
+                "postfix": "matrix of the",
+                "tags": [
+                    {
+                        "name": "extracellular organelle",
+                        "uri": "http://identifiers.org/GO:0043230"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-70d2517e888e2a47c56c38140fe9458f",
+                "type": "Gene Ontology",
+                "section": "Introduction (http://purl.org/orb/Introduction)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "matrix of the",
+                "exact": "human",
+                "postfix": "body, and it",
+                "tags": [
+                    {
+                        "name": "human",
+                        "uri": "http://identifiers.org/taxonomy/9606"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-250365f8211ff5a80653159f5fb581b3",
+                "type": "Organisms",
+                "section": "Introduction (http://purl.org/orb/Introduction)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "",
+                "exact": "Collagen",
+                "postfix": ", as a biomaterial,",
+                "tags": [
+                    {
+                        "name": "COLF1",
+                        "uri": "https://www.uniprot.org/uniprotkb/P18856/entry"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-33d780d091de5a716b34299e55c482d0",
+                "type": "Gene_Proteins",
+                "section": "Introduction (http://purl.org/orb/Introduction)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "mechanical properties of",
+                "exact": "collagen",
+                "postfix": "scaffolds is by",
+                "tags": [
+                    {
+                        "name": "COLF1",
+                        "uri": "https://www.uniprot.org/uniprotkb/P18856/entry"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-ef9a743fc97fbe971899316f2810f350",
+                "type": "Gene_Proteins",
+                "section": "Introduction (http://purl.org/orb/Introduction)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "anisotropic orientation of",
+                "exact": "collagen",
+                "postfix": "fibers that mimic",
+                "tags": [
+                    {
+                        "name": "COLF1",
+                        "uri": "https://www.uniprot.org/uniprotkb/P18856/entry"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-895bfbaa2462bb18e321c7ba68cee75d",
+                "type": "Gene_Proteins",
+                "section": "Introduction (http://purl.org/orb/Introduction)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "exist to align",
+                "exact": "collagen",
+                "postfix": "fibers, the electrochemical",
+                "tags": [
+                    {
+                        "name": "COLF1",
+                        "uri": "https://www.uniprot.org/uniprotkb/P18856/entry"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-5d6197b04bf979dac10313aa51fc9ed5",
+                "type": "Gene_Proteins",
+                "section": "Introduction (http://purl.org/orb/Introduction)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "electrochemical alignment of",
+                "exact": "collagen",
+                "postfix": "(ELAC) technique is",
+                "tags": [
+                    {
+                        "name": "COLF1",
+                        "uri": "https://www.uniprot.org/uniprotkb/P18856/entry"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-d393c12520099e4e180c857edf901554",
+                "type": "Gene_Proteins",
+                "section": "Introduction (http://purl.org/orb/Introduction)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "and highly aligned",
+                "exact": "collagen",
+                "postfix": "scaffolds [ 6",
+                "tags": [
+                    {
+                        "name": "COLF1",
+                        "uri": "https://www.uniprot.org/uniprotkb/P18856/entry"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-febae0b8aa2735802b59ca9cd30a07d4",
+                "type": "Gene_Proteins",
+                "section": "Introduction (http://purl.org/orb/Introduction)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "this process, dialyzed",
+                "exact": "collagen",
+                "postfix": "solution is extruded",
+                "tags": [
+                    {
+                        "name": "COLF1",
+                        "uri": "https://www.uniprot.org/uniprotkb/P18856/entry"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-bd1940e16b17dd8de2bbdb350f64a8e3",
+                "type": "Gene_Proteins",
+                "section": "Introduction (http://purl.org/orb/Introduction)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "gradient develops, the",
+                "exact": "collagen",
+                "postfix": "molecules acquire a",
+                "tags": [
+                    {
+                        "name": "COLF1",
+                        "uri": "https://www.uniprot.org/uniprotkb/P18856/entry"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-867777e9e72cb3afdfaa60ed13e639e6",
+                "type": "Gene_Proteins",
+                "section": "Introduction (http://purl.org/orb/Introduction)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "formation of a",
+                "exact": "collagen",
+                "postfix": "thread composed of",
+                "tags": [
+                    {
+                        "name": "COLF1",
+                        "uri": "https://www.uniprot.org/uniprotkb/P18856/entry"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-c9bbb7657927a7940e1d676c8cf86c32",
+                "type": "Gene_Proteins",
+                "section": "Introduction (http://purl.org/orb/Introduction)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "of highly aligned",
+                "exact": "collagen",
+                "postfix": "fibers.",
+                "tags": [
+                    {
+                        "name": "COLF1",
+                        "uri": "https://www.uniprot.org/uniprotkb/P18856/entry"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-d1d5932dcbe8b7fc096c5f8b48811ed8",
+                "type": "Gene_Proteins",
+                "section": "Introduction (http://purl.org/orb/Introduction)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "the integrity of",
+                "exact": "collagen",
+                "postfix": "is retained after",
+                "tags": [
+                    {
+                        "name": "COLF1",
+                        "uri": "https://www.uniprot.org/uniprotkb/P18856/entry"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-df8ed1d48c81927ac925944f69b4b9c4",
+                "type": "Gene_Proteins",
+                "section": "Introduction (http://purl.org/orb/Introduction)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "alignment, and the",
+                "exact": "collagen",
+                "postfix": "is not denatured",
+                "tags": [
+                    {
+                        "name": "COLF1",
+                        "uri": "https://www.uniprot.org/uniprotkb/P18856/entry"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-baf0e4b2954877aecad328cd55b539e5",
+                "type": "Gene_Proteins",
+                "section": "Introduction (http://purl.org/orb/Introduction)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "The aligned",
+                "exact": "collagen",
+                "postfix": "fiber structures affect",
+                "tags": [
+                    {
+                        "name": "COLF1",
+                        "uri": "https://www.uniprot.org/uniprotkb/P18856/entry"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-73aedc3795323cf4377ec1d5b030b903",
+                "type": "Gene_Proteins",
+                "section": "Introduction (http://purl.org/orb/Introduction)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "the direction of",
+                "exact": "collagen",
+                "postfix": "fiber alignment [",
+                "tags": [
+                    {
+                        "name": "COLF1",
+                        "uri": "https://www.uniprot.org/uniprotkb/P18856/entry"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-3a9c51fc7e0fcc15ac364e3806b6eddf",
+                "type": "Gene_Proteins",
+                "section": "Introduction (http://purl.org/orb/Introduction)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "Better cell",
+                "exact": "activity",
+                "postfix": ", including cell proliferation",
+                "tags": [
+                    {
+                        "name": "bis(5'-nucleosyl)-tetraphosphatase activity",
+                        "uri": "http://identifiers.org/GO:0008796"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-d9d45fffe5e9a502b97f665af63c4271",
+                "type": "Gene Ontology",
+                "section": "Introduction (http://purl.org/orb/Introduction)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "cell activity, including",
+                "exact": "cell proliferation",
+                "postfix": "proliferation, adhesion, and",
+                "tags": [
+                    {
+                        "name": "trophectodermal cell proliferation",
+                        "uri": "http://identifiers.org/GO:0001834"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-2dbd31ed784c9ddefd16c4b52d6a97b8",
+                "type": "Gene Ontology",
+                "section": "Introduction (http://purl.org/orb/Introduction)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "by the aligned",
+                "exact": "collagen",
+                "postfix": "fiber structure [",
+                "tags": [
+                    {
+                        "name": "COLF1",
+                        "uri": "https://www.uniprot.org/uniprotkb/P18856/entry"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-2e32574b44eeea9845dd3272d6770a41",
+                "type": "Gene_Proteins",
+                "section": "Introduction (http://purl.org/orb/Introduction)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "to yield 3D-aligned",
+                "exact": "collagen",
+                "postfix": "scaffolds with porous",
+                "tags": [
+                    {
+                        "name": "COLF1",
+                        "uri": "https://www.uniprot.org/uniprotkb/P18856/entry"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-be81d14e1e73628ddbfbc016d8a79888",
+                "type": "Gene_Proteins",
+                "section": "Introduction (http://purl.org/orb/Introduction)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "(e.g., decorin, Bioglass,",
+                "exact": "elastin",
+                "postfix": ") to generate composite",
+                "tags": [
+                    {
+                        "name": "Col8a2",
+                        "uri": "https://www.uniprot.org/uniprotkb/P25318/entry"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-df96167b6a23ab1fc8d98ddb00cff968",
+                "type": "Gene_Proteins",
+                "section": "Introduction (http://purl.org/orb/Introduction)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "scaffold with aligned",
+                "exact": "collagen",
+                "postfix": "fiber showed a",
+                "tags": [
+                    {
+                        "name": "COLF1",
+                        "uri": "https://www.uniprot.org/uniprotkb/P18856/entry"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-e2756cb3d86c212d4a58138e300f3a06",
+                "type": "Gene_Proteins",
+                "section": "Introduction (http://purl.org/orb/Introduction)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "In addition to",
+                "exact": "collagen",
+                "postfix": "alignment, various crosslinkin",
+                "tags": [
+                    {
+                        "name": "COLF1",
+                        "uri": "https://www.uniprot.org/uniprotkb/P18856/entry"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-8347936002bfc502603b941f6b53bd87",
+                "type": "Gene_Proteins",
+                "section": "Introduction (http://purl.org/orb/Introduction)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "and stability of",
+                "exact": "collagen",
+                "postfix": "scaffolds.",
+                "tags": [
+                    {
+                        "name": "COLF1",
+                        "uri": "https://www.uniprot.org/uniprotkb/P18856/entry"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-63d9cbacc1f0d2511307a00896d1f5ff",
+                "type": "Gene_Proteins",
+                "section": "Introduction (http://purl.org/orb/Introduction)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "utilize compounds like",
+                "exact": "aldehydes",
+                "postfix": ", carbodiimides, and isocyanat",
+                "tags": [
+                    {
+                        "name": "dihydroconiferyl aldehyde",
+                        "uri": "http://purl.obolibrary.org/obo/CHEBI_165228"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-abfa8cded4b65cbf5389cdb17d87726f",
+                "type": "Chemicals",
+                "section": "Introduction (http://purl.org/orb/Introduction)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "compounds like aldehydes,",
+                "exact": "carbodiimides",
+                "postfix": ", and isocyanates to",
+                "tags": [
+                    {
+                        "name": "polybenzoxazole macromolecule",
+                        "uri": "http://purl.obolibrary.org/obo/CHEBI_53312"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-d53e76197f83ac3fec456c3c69504704",
+                "type": "Chemicals",
+                "section": "Introduction (http://purl.org/orb/Introduction)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "aldehydes, carbodiimides, and",
+                "exact": "isocyanates",
+                "postfix": "to yield robust",
+                "tags": [
+                    {
+                        "name": "isocyanates",
+                        "uri": "http://purl.obolibrary.org/obo/CHEBI_53212"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-afbedf3cfaa3ad7fb324fbfdca50e9e5",
+                "type": "Chemicals",
+                "section": "Introduction (http://purl.org/orb/Introduction)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "to yield robust",
+                "exact": "collagen",
+                "postfix": "scaffolds, but some",
+                "tags": [
+                    {
+                        "name": "COLF1",
+                        "uri": "https://www.uniprot.org/uniprotkb/P18856/entry"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-45bb8296617c14544411aed190d07a69",
+                "type": "Gene_Proteins",
+                "section": "Introduction (http://purl.org/orb/Introduction)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "",
+                "exact": "Genipin",
+                "postfix": ", derived from a",
+                "tags": [
+                    {
+                        "name": "genipin",
+                        "uri": "http://purl.obolibrary.org/obo/CHEBI_5298"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-457cd7414b87bcd010ef74c7ed384939",
+                "type": "Chemicals",
+                "section": "Introduction (http://purl.org/orb/Introduction)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "source of the",
+                "exact": "Gardenia",
+                "postfix": "fruit, is an",
+                "tags": [
+                    {
+                        "name": "gardenia",
+                        "uri": "http://identifiers.org/taxonomy/43486"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-db5bf12b8012fa3c8c437aca5322f920",
+                "type": "Organisms",
+                "section": "Introduction (http://purl.org/orb/Introduction)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "stable crosslinks between",
+                "exact": "collagen",
+                "postfix": "molecules to enhance",
+                "tags": [
+                    {
+                        "name": "COLF1",
+                        "uri": "https://www.uniprot.org/uniprotkb/P18856/entry"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-715ebccc5aecfe571f51acf299129d4a",
+                "type": "Gene_Proteins",
+                "section": "Introduction (http://purl.org/orb/Introduction)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "mechanical properties of",
+                "exact": "collagen",
+                "postfix": "scaffolds while exhibiting",
+                "tags": [
+                    {
+                        "name": "COLF1",
+                        "uri": "https://www.uniprot.org/uniprotkb/P18856/entry"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-ed1d888ba5850e0c5ad12e299c257cfe",
+                "type": "Gene_Proteins",
+                "section": "Introduction (http://purl.org/orb/Introduction)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "Modulating the",
+                "exact": "genipin",
+                "postfix": "crosslinking parameters, such",
+                "tags": [
+                    {
+                        "name": "genipin",
+                        "uri": "http://purl.obolibrary.org/obo/CHEBI_5298"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-e7696b0b0e3ebf9c001bcb6855d20cde",
+                "type": "Chemicals",
+                "section": "Introduction (http://purl.org/orb/Introduction)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "parameters, such as",
+                "exact": "genipin",
+                "postfix": "concentration and crosslinking",
+                "tags": [
+                    {
+                        "name": "genipin",
+                        "uri": "http://purl.obolibrary.org/obo/CHEBI_5298"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-3bc9af48312d74273fed9c576a0c21a5",
+                "type": "Chemicals",
+                "section": "Introduction (http://purl.org/orb/Introduction)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "",
+                "exact": "Genipin",
+                "postfix": "crosslinked ELAC thread",
+                "tags": [
+                    {
+                        "name": "genipin",
+                        "uri": "http://purl.obolibrary.org/obo/CHEBI_5298"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-f80f538d190dfa067a27c68a1d83a82c",
+                "type": "Chemicals",
+                "section": "Introduction (http://purl.org/orb/Introduction)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "ELAC threads using",
+                "exact": "genipin",
+                "postfix": "can be a",
+                "tags": [
+                    {
+                        "name": "genipin",
+                        "uri": "http://purl.obolibrary.org/obo/CHEBI_5298"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-c43778e955031a4a3115a29ae8c98066",
+                "type": "Chemicals",
+                "section": "Introduction (http://purl.org/orb/Introduction)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "iological processes, including",
+                "exact": "cell adhesion",
+                "postfix": "adhesion and proliferation",
+                "tags": [
+                    {
+                        "name": "cell adhesion",
+                        "uri": "http://identifiers.org/GO:0007155"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-ec6cc479c8ea79416c8f6ed3f0e410fe",
+                "type": "Gene Ontology",
+                "section": "Introduction (http://purl.org/orb/Introduction)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "tenogenic differentiation of",
+                "exact": "human",
+                "postfix": "MSCs [ 12",
+                "tags": [
+                    {
+                        "name": "human",
+                        "uri": "http://identifiers.org/taxonomy/9606"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-5912c859bf21c57422d93551ab5ae98f",
+                "type": "Organisms",
+                "section": "Introduction (http://purl.org/orb/Introduction)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "of the aligned",
+                "exact": "collagen",
+                "postfix": "scaffolds, including the",
+                "tags": [
+                    {
+                        "name": "COLF1",
+                        "uri": "https://www.uniprot.org/uniprotkb/P18856/entry"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-bcc948c859585a76000329715f38fc9b",
+                "type": "Gene_Proteins",
+                "section": "Introduction (http://purl.org/orb/Introduction)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "several factors, including",
+                "exact": "collagen",
+                "postfix": "fiber orientation, isoelectric",
+                "tags": [
+                    {
+                        "name": "COLF1",
+                        "uri": "https://www.uniprot.org/uniprotkb/P18856/entry"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-e56f41e45a19aceb69b684368eabd982",
+                "type": "Gene_Proteins",
+                "section": "Introduction (http://purl.org/orb/Introduction)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "and duration, and",
+                "exact": "collagen",
+                "postfix": "concentrations [ 31",
+                "tags": [
+                    {
+                        "name": "COLF1",
+                        "uri": "https://www.uniprot.org/uniprotkb/P18856/entry"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-ae9ecc1960a55e100a332860588cea4b",
+                "type": "Gene_Proteins",
+                "section": "Introduction (http://purl.org/orb/Introduction)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "between chemically crosslinked",
+                "exact": "collagen",
+                "postfix": "fibers.",
+                "tags": [
+                    {
+                        "name": "COLF1",
+                        "uri": "https://www.uniprot.org/uniprotkb/P18856/entry"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-69016382587c484188025ddf5bb29a90",
+                "type": "Gene_Proteins",
+                "section": "Introduction (http://purl.org/orb/Introduction)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "effect of varied",
+                "exact": "collagen",
+                "postfix": "alignment and crosslinking",
+                "tags": [
+                    {
+                        "name": "COLF1",
+                        "uri": "https://www.uniprot.org/uniprotkb/P18856/entry"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-07647ad1f215ebf45e3f454f26daf92d",
+                "type": "Gene_Proteins",
+                "section": "Introduction (http://purl.org/orb/Introduction)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "the behavior of",
+                "exact": "collagen",
+                "postfix": "scaffolds.",
+                "tags": [
+                    {
+                        "name": "COLF1",
+                        "uri": "https://www.uniprot.org/uniprotkb/P18856/entry"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-e0ec5cf0f4742ea2b768708707ae690a",
+                "type": "Gene_Proteins",
+                "section": "Introduction (http://purl.org/orb/Introduction)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "stress\u2013strain relationship of",
+                "exact": "collagen",
+                "postfix": "gels with collagen",
+                "tags": [
+                    {
+                        "name": "COLF1",
+                        "uri": "https://www.uniprot.org/uniprotkb/P18856/entry"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-2493f87d05a1e8d1cf34e7cbb53ac2d6",
+                "type": "Gene_Proteins",
+                "section": "Introduction (http://purl.org/orb/Introduction)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "collagen gels with",
+                "exact": "collagen",
+                "postfix": "fiber dispersion and",
+                "tags": [
+                    {
+                        "name": "COLF1",
+                        "uri": "https://www.uniprot.org/uniprotkb/P18856/entry"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-94abf8a62f5b8d78be29d981bf5840a7",
+                "type": "Gene_Proteins",
+                "section": "Introduction (http://purl.org/orb/Introduction)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "approximation to the",
+                "exact": "collagen",
+                "postfix": "fibers crosslinked microstruct",
+                "tags": [
+                    {
+                        "name": "COLF1",
+                        "uri": "https://www.uniprot.org/uniprotkb/P18856/entry"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-bdf60acef7e3adb69b15bb03a2096586",
+                "type": "Gene_Proteins",
+                "section": "Introduction (http://purl.org/orb/Introduction)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "mechanical properties of",
+                "exact": "collagen",
+                "postfix": "threads across various",
+                "tags": [
+                    {
+                        "name": "COLF1",
+                        "uri": "https://www.uniprot.org/uniprotkb/P18856/entry"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-3fd4fdb867483a94944c8393a2f11748",
+                "type": "Gene_Proteins",
+                "section": "Introduction (http://purl.org/orb/Introduction)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "to characterize the",
+                "exact": "collagen",
+                "postfix": "microstructure and mechanical",
+                "tags": [
+                    {
+                        "name": "COLF1",
+                        "uri": "https://www.uniprot.org/uniprotkb/P18856/entry"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-72cf48f2940052334fe8065a7f26a227",
+                "type": "Gene_Proteins",
+                "section": "Introduction (http://purl.org/orb/Introduction)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "The effect on",
+                "exact": "collagen",
+                "postfix": "threads\u2019 mechanical properties",
+                "tags": [
+                    {
+                        "name": "COLF1",
+                        "uri": "https://www.uniprot.org/uniprotkb/P18856/entry"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-fb4bfc2ee3795d61043a18bc5f1c59cc",
+                "type": "Gene_Proteins",
+                "section": "Introduction (http://purl.org/orb/Introduction)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "the variation of",
+                "exact": "collagen",
+                "postfix": "fiber alignment, genipin",
+                "tags": [
+                    {
+                        "name": "COLF1",
+                        "uri": "https://www.uniprot.org/uniprotkb/P18856/entry"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-a101d24388ef2477553c5299e3605a85",
+                "type": "Gene_Proteins",
+                "section": "Introduction (http://purl.org/orb/Introduction)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "collagen fiber alignment,",
+                "exact": "genipin",
+                "postfix": "concentration, and crosslinkin",
+                "tags": [
+                    {
+                        "name": "genipin",
+                        "uri": "http://purl.obolibrary.org/obo/CHEBI_5298"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-ee5a2bd69c2f0770723a45b263cdf723",
+                "type": "Chemicals",
+                "section": "Introduction (http://purl.org/orb/Introduction)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "crosslinking degree on",
+                "exact": "collagen",
+                "postfix": "threads\u2019 mechanical properties",
+                "tags": [
+                    {
+                        "name": "COLF1",
+                        "uri": "https://www.uniprot.org/uniprotkb/P18856/entry"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-4509b8295877e0527fe5fa1d1101eee6",
+                "type": "Gene_Proteins",
+                "section": "Introduction (http://purl.org/orb/Introduction)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "Acid-solubilized",
+                "exact": "type I collagen",
+                "postfix": "I collagen (PureCol,",
+                "tags": [
+                    {
+                        "name": "COL1A2",
+                        "uri": "https://www.uniprot.org/uniprotkb/C0HJP8/entry"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-080d72708ccbad1ae1ecc4c4541dd26e",
+                "type": "Gene_Proteins",
+                "section": "Methods (http://purl.org/orb/Methods)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "",
+                "exact": "Genipin",
+                "postfix": "was obtained from",
+                "tags": [
+                    {
+                        "name": "genipin",
+                        "uri": "http://purl.obolibrary.org/obo/CHEBI_5298"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-6cbc2fb6c84928c3ca3348f636c4c074",
+                "type": "Chemicals",
+                "section": "Methods (http://purl.org/orb/Methods)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "of Electrochemical Aligned",
+                "exact": "Collagen",
+                "postfix": "Threads",
+                "tags": [
+                    {
+                        "name": "COLF1",
+                        "uri": "https://www.uniprot.org/uniprotkb/P18856/entry"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-e24192efe62fec07654ad6dc9eccca1f",
+                "type": "Gene_Proteins",
+                "section": "Methods (http://purl.org/orb/Methods)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "riefly, monomeric acid-soluble",
+                "exact": "collagen",
+                "postfix": "was first dialyzed",
+                "tags": [
+                    {
+                        "name": "COLF1",
+                        "uri": "https://www.uniprot.org/uniprotkb/P18856/entry"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-e3be3fd0ef4d2e6c544db3c454457582",
+                "type": "Gene_Proteins",
+                "section": "Methods (http://purl.org/orb/Methods)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "L of ultrapure",
+                "exact": "water",
+                "postfix": ".",
+                "tags": [
+                    {
+                        "name": "water",
+                        "uri": "http://purl.obolibrary.org/obo/CHEBI_15377"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-312bebef1368faeb401a1c486b179fc9",
+                "type": "Chemicals",
+                "section": "Methods (http://purl.org/orb/Methods)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "The",
+                "exact": "water",
+                "postfix": "was refreshed every",
+                "tags": [
+                    {
+                        "name": "water",
+                        "uri": "http://purl.obolibrary.org/obo/CHEBI_15377"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-e021aa01e117db55fa7e740d2c9f456a",
+                "type": "Chemicals",
+                "section": "Methods (http://purl.org/orb/Methods)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "h, and the",
+                "exact": "collagen",
+                "postfix": "was collected after",
+                "tags": [
+                    {
+                        "name": "COLF1",
+                        "uri": "https://www.uniprot.org/uniprotkb/P18856/entry"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-1aa31803843dc25ca7f98568a02cc5b0",
+                "type": "Gene_Proteins",
+                "section": "Methods (http://purl.org/orb/Methods)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "Dialysis of acid-solubilized",
+                "exact": "collagen",
+                "postfix": "is critical for",
+                "tags": [
+                    {
+                        "name": "COLF1",
+                        "uri": "https://www.uniprot.org/uniprotkb/P18856/entry"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-8039af4129e404831021055201ed7521",
+                "type": "Gene_Proteins",
+                "section": "Methods (http://purl.org/orb/Methods)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "ELAC threads, dialyzed",
+                "exact": "collagen",
+                "postfix": "was manually extruded",
+                "tags": [
+                    {
+                        "name": "COLF1",
+                        "uri": "https://www.uniprot.org/uniprotkb/P18856/entry"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-03108ba878120893f57c635562b2eeee",
+                "type": "Gene_Proteins",
+                "section": "Methods (http://purl.org/orb/Methods)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "10 mL of",
+                "exact": "genipin",
+                "postfix": "solution ( w",
+                "tags": [
+                    {
+                        "name": "genipin",
+                        "uri": "http://purl.obolibrary.org/obo/CHEBI_5298"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-475f52462de69d89dd5f9cb3a4e4fdbb",
+                "type": "Chemicals",
+                "section": "Methods (http://purl.org/orb/Methods)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "prepared in 90%",
+                "exact": "ethanol",
+                "postfix": ".",
+                "tags": [
+                    {
+                        "name": "ethanol",
+                        "uri": "http://purl.obolibrary.org/obo/CHEBI_16236"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-801e2ceb3724c8e7da2f99060ca407d5",
+                "type": "Chemicals",
+                "section": "Methods (http://purl.org/orb/Methods)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "uncrosslinked, (2) 0.1%",
+                "exact": "genipin",
+                "postfix": "crosslinked for 1",
+                "tags": [
+                    {
+                        "name": "genipin",
+                        "uri": "http://purl.obolibrary.org/obo/CHEBI_5298"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-6e33667d5f78b598fa47e1492f4e2608",
+                "type": "Chemicals",
+                "section": "Methods (http://purl.org/orb/Methods)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "h, (3) 0.1%",
+                "exact": "genipin",
+                "postfix": "crosslinked for 4",
+                "tags": [
+                    {
+                        "name": "genipin",
+                        "uri": "http://purl.obolibrary.org/obo/CHEBI_5298"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-1481cb55adbf92c7b204a24a585f10b5",
+                "type": "Chemicals",
+                "section": "Methods (http://purl.org/orb/Methods)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "h, (4) 2%",
+                "exact": "genipin",
+                "postfix": "crosslinked for 4",
+                "tags": [
+                    {
+                        "name": "genipin",
+                        "uri": "http://purl.obolibrary.org/obo/CHEBI_5298"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-541c227ceea1cdc74ff233f307f650ea",
+                "type": "Chemicals",
+                "section": "Methods (http://purl.org/orb/Methods)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "and (5) 2%",
+                "exact": "genipin",
+                "postfix": "crosslinked for 24",
+                "tags": [
+                    {
+                        "name": "genipin",
+                        "uri": "http://purl.obolibrary.org/obo/CHEBI_5298"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-3edaa0938fd1970d4f1837a018fc49c8",
+                "type": "Chemicals",
+                "section": "Methods (http://purl.org/orb/Methods)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "and 2% are",
+                "exact": "genipin",
+                "postfix": "concentration.",
+                "tags": [
+                    {
+                        "name": "genipin",
+                        "uri": "http://purl.obolibrary.org/obo/CHEBI_5298"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-a34077e86ca3e549fe01b74d617b627e",
+                "type": "Chemicals",
+                "section": "Methods (http://purl.org/orb/Methods)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "After crosslinking with",
+                "exact": "genipin",
+                "postfix": "at 37 \u00b0C,",
+                "tags": [
+                    {
+                        "name": "genipin",
+                        "uri": "http://purl.obolibrary.org/obo/CHEBI_5298"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-63a99b6677a61e48e3d6fd3109aff955",
+                "type": "Chemicals",
+                "section": "Methods (http://purl.org/orb/Methods)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "washed in ultrapure",
+                "exact": "water",
+                "postfix": "and used for",
+                "tags": [
+                    {
+                        "name": "water",
+                        "uri": "http://purl.obolibrary.org/obo/CHEBI_15377"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-3eea973b6d59bc5482c965f98af6e760",
+                "type": "Chemicals",
+                "section": "Methods (http://purl.org/orb/Methods)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "Preparation of Random",
+                "exact": "Collagen",
+                "postfix": "Threads",
+                "tags": [
+                    {
+                        "name": "COLF1",
+                        "uri": "https://www.uniprot.org/uniprotkb/P18856/entry"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-5ee072018e156d36a543f31b2014b23b",
+                "type": "Gene_Proteins",
+                "section": "Methods (http://purl.org/orb/Methods)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "Dialyzed",
+                "exact": "collagen",
+                "postfix": "and 10\u00d7 PBS",
+                "tags": [
+                    {
+                        "name": "COLF1",
+                        "uri": "https://www.uniprot.org/uniprotkb/P18856/entry"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-e81a88721cbbe8149b83335231c7f748",
+                "type": "Gene_Proteins",
+                "section": "Methods (http://purl.org/orb/Methods)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "Following gelation, random",
+                "exact": "collagen",
+                "postfix": "was crosslinked using",
+                "tags": [
+                    {
+                        "name": "COLF1",
+                        "uri": "https://www.uniprot.org/uniprotkb/P18856/entry"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-ab52f647cbb07839c188b6f0201c3f2e",
+                "type": "Gene_Proteins",
+                "section": "Methods (http://purl.org/orb/Methods)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "mL of 0.1%",
+                "exact": "genipin",
+                "postfix": "solution for 4",
+                "tags": [
+                    {
+                        "name": "genipin",
+                        "uri": "http://purl.obolibrary.org/obo/CHEBI_5298"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-706a67ece695dae3ad86ab5b083c1c8e",
+                "type": "Chemicals",
+                "section": "Methods (http://purl.org/orb/Methods)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "Uncrosslinked random",
+                "exact": "collagen",
+                "postfix": "threads were mechanically",
+                "tags": [
+                    {
+                        "name": "COLF1",
+                        "uri": "https://www.uniprot.org/uniprotkb/P18856/entry"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-4d5d94373f49280c6683a1f433d45721",
+                "type": "Gene_Proteins",
+                "section": "Methods (http://purl.org/orb/Methods)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "and Electrochemical Aligned",
+                "exact": "Collagen",
+                "postfix": "Threads",
+                "tags": [
+                    {
+                        "name": "COLF1",
+                        "uri": "https://www.uniprot.org/uniprotkb/P18856/entry"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-d3d41977c8fc2b82a6904a406abc0340",
+                "type": "Gene_Proteins",
+                "section": "Methods (http://purl.org/orb/Methods)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "The effect of",
+                "exact": "collagen",
+                "postfix": "alignment and genipin",
+                "tags": [
+                    {
+                        "name": "COLF1",
+                        "uri": "https://www.uniprot.org/uniprotkb/P18856/entry"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-de7be4247d45f52c85847b3e70aef7d1",
+                "type": "Gene_Proteins",
+                "section": "Methods (http://purl.org/orb/Methods)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "collagen alignment and",
+                "exact": "genipin",
+                "postfix": "crosslinking conditions on",
+                "tags": [
+                    {
+                        "name": "genipin",
+                        "uri": "http://purl.obolibrary.org/obo/CHEBI_5298"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-76d278d7c9956fea13a6006efd032ff7",
+                "type": "Chemicals",
+                "section": "Methods (http://purl.org/orb/Methods)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "by employing a",
+                "exact": "Trinitrobenzene Sulfonic Acid",
+                "postfix": "Sulfonic Acid (TNB)",
+                "tags": [
+                    {
+                        "name": "tetradecyl sulfonic acid",
+                        "uri": "http://purl.obolibrary.org/obo/CHEBI_75275"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-2875fb5a6d6bf74f86222fcd2b444f8a",
+                "type": "Chemicals",
+                "section": "Methods (http://purl.org/orb/Methods)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "Sulfonic Acid (TNB)",
+                "exact": "assay",
+                "postfix": "( n =",
+                "tags": [
+                    {
+                        "name": "assay",
+                        "uri": "http://purl.obolibrary.org/obo/OBI_0000070"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-773794dd7f303f0a32c75218340a2c0b",
+                "type": "Experimental Methods",
+                "section": "Methods (http://purl.org/orb/Methods)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "is a spectrophotometric",
+                "exact": "assay",
+                "postfix": "that quantifies the",
+                "tags": [
+                    {
+                        "name": "assay",
+                        "uri": "http://purl.obolibrary.org/obo/OBI_0000070"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-8ffe0247ce5428da3c14b2f777a2cefe",
+                "type": "Experimental Methods",
+                "section": "Methods (http://purl.org/orb/Methods)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "quantifies the primary",
+                "exact": "amino",
+                "postfix": "groups and can",
+                "tags": [
+                    {
+                        "name": "amino oligosaccharide",
+                        "uri": "http://purl.obolibrary.org/obo/CHEBI_22483"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-d797672a5fc5994151f4bb26cbc48d29",
+                "type": "Chemicals",
+                "section": "Methods (http://purl.org/orb/Methods)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "of the free",
+                "exact": "amine",
+                "postfix": "groups remaining after",
+                "tags": [
+                    {
+                        "name": "amine",
+                        "uri": "http://purl.obolibrary.org/obo/CHEBI_32952"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-c9fbb819663aec1fcc6ac10b7dc3b60f",
+                "type": "Chemicals",
+                "section": "Methods (http://purl.org/orb/Methods)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "groups remaining after",
+                "exact": "genipin",
+                "postfix": "crosslinking to that",
+                "tags": [
+                    {
+                        "name": "genipin",
+                        "uri": "http://purl.obolibrary.org/obo/CHEBI_5298"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-b027c349275296803a306d14ce98f768",
+                "type": "Chemicals",
+                "section": "Methods (http://purl.org/orb/Methods)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "/ v )",
+                "exact": "sodium",
+                "postfix": "bicarbonate and 1",
+                "tags": [
+                    {
+                        "name": "sodium",
+                        "uri": "http://purl.obolibrary.org/obo/CHEBI_26712"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-1b5274ce15e36949e9590484c9658df5",
+                "type": "Chemicals",
+                "section": "Methods (http://purl.org/orb/Methods)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "v ) sodium",
+                "exact": "bicarbonate",
+                "postfix": "and 1 mL",
+                "tags": [
+                    {
+                        "name": "sodium carbonate",
+                        "uri": "http://purl.obolibrary.org/obo/CHEBI_29377"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-0fb84f3951871769d674e683b0715227",
+                "type": "Chemicals",
+                "section": "Methods (http://purl.org/orb/Methods)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "to dissolve the",
+                "exact": "collagen",
+                "postfix": "threads.",
+                "tags": [
+                    {
+                        "name": "COLF1",
+                        "uri": "https://www.uniprot.org/uniprotkb/P18856/entry"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-18c72f9e9ff5c12614118cd924eaeda7",
+                "type": "Gene_Proteins",
+                "section": "Methods (http://purl.org/orb/Methods)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "of consumed primary",
+                "exact": "amines",
+                "postfix": ", which was determined",
+                "tags": [
+                    {
+                        "name": "alkylamines",
+                        "uri": "http://purl.obolibrary.org/obo/CHEBI_22331"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-b3fce09cd18fe8d5e697458454eacc13",
+                "type": "Chemicals",
+                "section": "Methods (http://purl.org/orb/Methods)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "The effect of",
+                "exact": "collagen",
+                "postfix": "alignment and crosslinking",
+                "tags": [
+                    {
+                        "name": "COLF1",
+                        "uri": "https://www.uniprot.org/uniprotkb/P18856/entry"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-b1d32b9d0016d3cfe9913e90dd98b845",
+                "type": "Gene_Proteins",
+                "section": "Methods (http://purl.org/orb/Methods)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "graded series of",
+                "exact": "ethanol",
+                "postfix": "concentrations: 20%, 50%,",
+                "tags": [
+                    {
+                        "name": "ethanol",
+                        "uri": "http://purl.obolibrary.org/obo/CHEBI_16236"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-2cf76dda54a98a278ff420a265c14e9b",
+                "type": "Chemicals",
+                "section": "Methods (http://purl.org/orb/Methods)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "then at 100%",
+                "exact": "ethanol",
+                "postfix": "for one hour.",
+                "tags": [
+                    {
+                        "name": "ethanol",
+                        "uri": "http://purl.obolibrary.org/obo/CHEBI_16236"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-8cbf8b5dcd03a20db24d43b10e67c5d1",
+                "type": "Chemicals",
+                "section": "Methods (http://purl.org/orb/Methods)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "and Electrochemical Aligned",
+                "exact": "Collagen",
+                "postfix": "Threads using Uniaxial",
+                "tags": [
+                    {
+                        "name": "COLF1",
+                        "uri": "https://www.uniprot.org/uniprotkb/P18856/entry"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-301d0cac02c02be2f43fc83468f4d992",
+                "type": "Gene_Proteins",
+                "section": "Methods (http://purl.org/orb/Methods)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "the effect of",
+                "exact": "collagen",
+                "postfix": "alignment and genipin",
+                "tags": [
+                    {
+                        "name": "COLF1",
+                        "uri": "https://www.uniprot.org/uniprotkb/P18856/entry"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-a21b7ada65c4ee2734d75cb2bcba8533",
+                "type": "Gene_Proteins",
+                "section": "Methods (http://purl.org/orb/Methods)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "collagen alignment and",
+                "exact": "genipin",
+                "postfix": "crosslinking conditions on",
+                "tags": [
+                    {
+                        "name": "genipin",
+                        "uri": "http://purl.obolibrary.org/obo/CHEBI_5298"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-76d278d7c9956fea13a6006efd032ff7",
+                "type": "Chemicals",
+                "section": "Methods (http://purl.org/orb/Methods)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "mechanical properties of",
+                "exact": "collagen",
+                "postfix": "threads ( n",
+                "tags": [
+                    {
+                        "name": "COLF1",
+                        "uri": "https://www.uniprot.org/uniprotkb/P18856/entry"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-9a5d1cef324e769931e69a7326ab2113",
+                "type": "Gene_Proteins",
+                "section": "Methods (http://purl.org/orb/Methods)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "Briefly,",
+                "exact": "collagen",
+                "postfix": "threads were first",
+                "tags": [
+                    {
+                        "name": "COLF1",
+                        "uri": "https://www.uniprot.org/uniprotkb/P18856/entry"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-52f74a1947f8f503cb43a0e3b983387d",
+                "type": "Gene_Proteins",
+                "section": "Methods (http://purl.org/orb/Methods)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "hydrated in ultrapure",
+                "exact": "water",
+                "postfix": "for up to",
+                "tags": [
+                    {
+                        "name": "water",
+                        "uri": "http://purl.obolibrary.org/obo/CHEBI_15377"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-dc98f39a69ec9e1bed8cef97bb2df4f7",
+                "type": "Chemicals",
+                "section": "Methods (http://purl.org/orb/Methods)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "a 10 mm",
+                "exact": "collagen",
+                "postfix": "thread gauge length.",
+                "tags": [
+                    {
+                        "name": "COLF1",
+                        "uri": "https://www.uniprot.org/uniprotkb/P18856/entry"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-62cf36352f9a1f594e99de19cbf109e8",
+                "type": "Gene_Proteins",
+                "section": "Methods (http://purl.org/orb/Methods)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "the effect of",
+                "exact": "collagen",
+                "postfix": "fiber alignment and",
+                "tags": [
+                    {
+                        "name": "COLF1",
+                        "uri": "https://www.uniprot.org/uniprotkb/P18856/entry"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-44d33ede34700797f1fa655c85ad5d1c",
+                "type": "Gene_Proteins",
+                "section": "Methods (http://purl.org/orb/Methods)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "in these three",
+                "exact": "collagen",
+                "postfix": "threads ( Figure",
+                "tags": [
+                    {
+                        "name": "COLF1",
+                        "uri": "https://www.uniprot.org/uniprotkb/P18856/entry"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-3b17330f423988c02995c04a2932eb7f",
+                "type": "Gene_Proteins",
+                "section": "Methods (http://purl.org/orb/Methods)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "mechanical performance of",
+                "exact": "collagen",
+                "postfix": "threads [ 44",
+                "tags": [
+                    {
+                        "name": "COLF1",
+                        "uri": "https://www.uniprot.org/uniprotkb/P18856/entry"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-129fe3543d73d64ff3a72fc0fe47f1cc",
+                "type": "Gene_Proteins",
+                "section": "Methods (http://purl.org/orb/Methods)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "as the monomeric",
+                "exact": "collagen",
+                "postfix": "was compacted into",
+                "tags": [
+                    {
+                        "name": "COLF1",
+                        "uri": "https://www.uniprot.org/uniprotkb/P18856/entry"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-a19f076e360e758fa24f848efe42adfe",
+                "type": "Gene_Proteins",
+                "section": "Methods (http://purl.org/orb/Methods)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "was compacted into",
+                "exact": "fibrils",
+                "postfix": "in a short",
+                "tags": [
+                    {
+                        "name": "perichromatin fibrils",
+                        "uri": "http://identifiers.org/GO:0005726"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-239ce9dadaac855ba19e02d974e430c9",
+                "type": "Gene Ontology",
+                "section": "Methods (http://purl.org/orb/Methods)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "short time (reduced",
+                "exact": "fibril formation",
+                "postfix": "formation rate (",
+                "tags": [
+                    {
+                        "name": "amyloid fibril formation",
+                        "uri": "http://identifiers.org/GO:1990000"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-5dbee320a9df5b34a328a77fb39d90cc",
+                "type": "Gene Ontology",
+                "section": "Methods (http://purl.org/orb/Methods)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "not affect the",
+                "exact": "fibrils",
+                "postfix": "\u2019 interior structures and",
+                "tags": [
+                    {
+                        "name": "perichromatin fibrils",
+                        "uri": "http://identifiers.org/GO:0005726"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-a858c3d1647d2109e407e669ed2701c8",
+                "type": "Gene Ontology",
+                "section": "Methods (http://purl.org/orb/Methods)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "and Electrochemical Aligned",
+                "exact": "Collagen",
+                "postfix": "Threads",
+                "tags": [
+                    {
+                        "name": "COLF1",
+                        "uri": "https://www.uniprot.org/uniprotkb/P18856/entry"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-d3d41977c8fc2b82a6904a406abc0340",
+                "type": "Gene_Proteins",
+                "section": "Methods (http://purl.org/orb/Methods)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "TNBs",
+                "exact": "assay",
+                "postfix": "was used to",
+                "tags": [
+                    {
+                        "name": "assay",
+                        "uri": "http://purl.obolibrary.org/obo/OBI_0000070"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-8f43804fb300bf4b75d397ae5187c602",
+                "type": "Experimental Methods",
+                "section": "Methods (http://purl.org/orb/Methods)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "the impact of",
+                "exact": "genipin",
+                "postfix": "concentration and crosslinking",
+                "tags": [
+                    {
+                        "name": "genipin",
+                        "uri": "http://purl.obolibrary.org/obo/CHEBI_5298"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-84e326cde6375af61ec307240eac39fa",
+                "type": "Chemicals",
+                "section": "Methods (http://purl.org/orb/Methods)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "crosslinked with 0.1%",
+                "exact": "genipin",
+                "postfix": "concentration exhibit a",
+                "tags": [
+                    {
+                        "name": "genipin",
+                        "uri": "http://purl.obolibrary.org/obo/CHEBI_5298"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-f2ff5992af3cc442604ac1f30757058e",
+                "type": "Chemicals",
+                "section": "Methods (http://purl.org/orb/Methods)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "crosslinked using 2%",
+                "exact": "genipin",
+                "postfix": "was 50\u201360% and",
+                "tags": [
+                    {
+                        "name": "genipin",
+                        "uri": "http://purl.obolibrary.org/obo/CHEBI_5298"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-af9e8aa5d2e0caa5658d128f9313d3f9",
+                "type": "Chemicals",
+                "section": "Methods (http://purl.org/orb/Methods)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "crosslinked using 2%",
+                "exact": "genipin",
+                "postfix": "was significantly higher",
+                "tags": [
+                    {
+                        "name": "genipin",
+                        "uri": "http://purl.obolibrary.org/obo/CHEBI_5298"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-331aa779100b65742d5966062f188ded",
+                "type": "Chemicals",
+                "section": "Methods (http://purl.org/orb/Methods)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "crosslinked using 0.1%",
+                "exact": "genipin",
+                "postfix": "for all crosslinking",
+                "tags": [
+                    {
+                        "name": "genipin",
+                        "uri": "http://purl.obolibrary.org/obo/CHEBI_5298"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-b279426baf0bdb94d852149a351bee02",
+                "type": "Chemicals",
+                "section": "Methods (http://purl.org/orb/Methods)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "degree, while higher",
+                "exact": "genipin",
+                "postfix": "concentration could significan",
+                "tags": [
+                    {
+                        "name": "genipin",
+                        "uri": "http://purl.obolibrary.org/obo/CHEBI_5298"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-a8b9ff24e28e6f42c58143965f68c945",
+                "type": "Chemicals",
+                "section": "Methods (http://purl.org/orb/Methods)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "of Electrochemically Aligned",
+                "exact": "Collagen",
+                "postfix": "Threads",
+                "tags": [
+                    {
+                        "name": "COLF1",
+                        "uri": "https://www.uniprot.org/uniprotkb/P18856/entry"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-4dbfcc99bf9e04875e111bfb59634129",
+                "type": "Gene_Proteins",
+                "section": "Methods (http://purl.org/orb/Methods)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "crosslinked using 0.1%",
+                "exact": "genipin",
+                "postfix": "for 4 h",
+                "tags": [
+                    {
+                        "name": "genipin",
+                        "uri": "http://purl.obolibrary.org/obo/CHEBI_5298"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-ab8ee1ee188cacd6e5b950621b35d0e4",
+                "type": "Chemicals",
+                "section": "Methods (http://purl.org/orb/Methods)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "displayed a classic",
+                "exact": "collagen",
+                "postfix": "microstructure with loosely",
+                "tags": [
+                    {
+                        "name": "COLF1",
+                        "uri": "https://www.uniprot.org/uniprotkb/P18856/entry"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-28575b92b4cdea9c99ea2fca7fa12654",
+                "type": "Gene_Proteins",
+                "section": "Methods (http://purl.org/orb/Methods)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "0.1% and 2%",
+                "exact": "genipin",
+                "postfix": "showed packed fiber",
+                "tags": [
+                    {
+                        "name": "genipin",
+                        "uri": "http://purl.obolibrary.org/obo/CHEBI_5298"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-71e5fe64e3fe407d82b0573ec0246a78",
+                "type": "Chemicals",
+                "section": "Methods (http://purl.org/orb/Methods)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "in the 2%",
+                "exact": "genipin",
+                "postfix": "crosslinked ELAC.",
+                "tags": [
+                    {
+                        "name": "genipin",
+                        "uri": "http://purl.obolibrary.org/obo/CHEBI_5298"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-74b12a84eb2c634f2b4cc87b21acb2ed",
+                "type": "Chemicals",
+                "section": "Methods (http://purl.org/orb/Methods)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "durations for 0.1%",
+                "exact": "genipin",
+                "postfix": ", an increase in",
+                "tags": [
+                    {
+                        "name": "genipin",
+                        "uri": "http://purl.obolibrary.org/obo/CHEBI_5298"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-e3398c2fadb4487520ed8ded4fba3a13",
+                "type": "Chemicals",
+                "section": "Methods (http://purl.org/orb/Methods)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "higher packing of",
+                "exact": "collagen",
+                "postfix": "fibers.",
+                "tags": [
+                    {
+                        "name": "COLF1",
+                        "uri": "https://www.uniprot.org/uniprotkb/P18856/entry"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-16a0190a44a36d8ab4799127246bf519",
+                "type": "Gene_Proteins",
+                "section": "Methods (http://purl.org/orb/Methods)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "and Electrochemical Aligned",
+                "exact": "Collagen",
+                "postfix": "Threads",
+                "tags": [
+                    {
+                        "name": "COLF1",
+                        "uri": "https://www.uniprot.org/uniprotkb/P18856/entry"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-d3d41977c8fc2b82a6904a406abc0340",
+                "type": "Gene_Proteins",
+                "section": "Methods (http://purl.org/orb/Methods)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "crosslinking duration and",
+                "exact": "genipin",
+                "postfix": "concentration.",
+                "tags": [
+                    {
+                        "name": "genipin",
+                        "uri": "http://purl.obolibrary.org/obo/CHEBI_5298"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-80cf40b73668d740c68402775c0feba5",
+                "type": "Chemicals",
+                "section": "Methods (http://purl.org/orb/Methods)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "0.1% and 2%",
+                "exact": "genipin",
+                "postfix": "concentrations ( Figure",
+                "tags": [
+                    {
+                        "name": "genipin",
+                        "uri": "http://purl.obolibrary.org/obo/CHEBI_5298"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-66d87bdfe2f58e78196cbcc8c1a978ac",
+                "type": "Chemicals",
+                "section": "Methods (http://purl.org/orb/Methods)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "When",
+                "exact": "genipin",
+                "postfix": "concentration increased from",
+                "tags": [
+                    {
+                        "name": "genipin",
+                        "uri": "http://purl.obolibrary.org/obo/CHEBI_5298"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-887b104d60624aa9294afe68f0ad54b2",
+                "type": "Chemicals",
+                "section": "Methods (http://purl.org/orb/Methods)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "the increment of",
+                "exact": "genipin",
+                "postfix": "concentration increases crossl",
+                "tags": [
+                    {
+                        "name": "genipin",
+                        "uri": "http://purl.obolibrary.org/obo/CHEBI_5298"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-4a69487b3f616273d1011cede69d3168",
+                "type": "Chemicals",
+                "section": "Methods (http://purl.org/orb/Methods)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "h using 0.1%",
+                "exact": "genipin",
+                "postfix": "led to an",
+                "tags": [
+                    {
+                        "name": "genipin",
+                        "uri": "http://purl.obolibrary.org/obo/CHEBI_5298"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-0f4162184c2c5d6dff236ad498622e86",
+                "type": "Chemicals",
+                "section": "Methods (http://purl.org/orb/Methods)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "4 h, increasing",
+                "exact": "genipin",
+                "postfix": "concentration significantly in",
+                "tags": [
+                    {
+                        "name": "genipin",
+                        "uri": "http://purl.obolibrary.org/obo/CHEBI_5298"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-5cd60981eb8eef194127c66aa6ef582d",
+                "type": "Chemicals",
+                "section": "Methods (http://purl.org/orb/Methods)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "difference for different",
+                "exact": "genipin",
+                "postfix": "concentrations.",
+                "tags": [
+                    {
+                        "name": "genipin",
+                        "uri": "http://purl.obolibrary.org/obo/CHEBI_5298"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-030fdfe31a2da188a4dfde41365bb72d",
+                "type": "Chemicals",
+                "section": "Methods (http://purl.org/orb/Methods)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "duration and higher",
+                "exact": "genipin",
+                "postfix": "concentration, ELAC threads\u2019",
+                "tags": [
+                    {
+                        "name": "genipin",
+                        "uri": "http://purl.obolibrary.org/obo/CHEBI_5298"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-12d4530a55bce3ef9b5814adfba03bfa",
+                "type": "Chemicals",
+                "section": "Methods (http://purl.org/orb/Methods)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "mechanical properties of",
+                "exact": "collagen",
+                "postfix": "threads.",
+                "tags": [
+                    {
+                        "name": "COLF1",
+                        "uri": "https://www.uniprot.org/uniprotkb/P18856/entry"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-8ecc795ed279258e1dcf3141c907c537",
+                "type": "Gene_Proteins",
+                "section": "Methods (http://purl.org/orb/Methods)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "mechanical properties of",
+                "exact": "collagen",
+                "postfix": "threads.",
+                "tags": [
+                    {
+                        "name": "COLF1",
+                        "uri": "https://www.uniprot.org/uniprotkb/P18856/entry"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-8ecc795ed279258e1dcf3141c907c537",
+                "type": "Gene_Proteins",
+                "section": "Methods (http://purl.org/orb/Methods)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "in these two",
+                "exact": "collagen",
+                "postfix": "threads.",
+                "tags": [
+                    {
+                        "name": "COLF1",
+                        "uri": "https://www.uniprot.org/uniprotkb/P18856/entry"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-2810edd8d627112a19afa528ddc4c246",
+                "type": "Gene_Proteins",
+                "section": "Methods (http://purl.org/orb/Methods)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "relied on the",
+                "exact": "genipin",
+                "postfix": "concentration, not the",
+                "tags": [
+                    {
+                        "name": "genipin",
+                        "uri": "http://purl.obolibrary.org/obo/CHEBI_5298"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-1533ec813d3a267bfa2291d237cc83f4",
+                "type": "Chemicals",
+                "section": "Discussion (http://purl.org/orb/Discussion)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "the effect of",
+                "exact": "genipin",
+                "postfix": "concentration.",
+                "tags": [
+                    {
+                        "name": "genipin",
+                        "uri": "http://purl.obolibrary.org/obo/CHEBI_5298"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-e661673b09e3454b29816399a14dca85",
+                "type": "Chemicals",
+                "section": "Discussion (http://purl.org/orb/Discussion)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "the effect of",
+                "exact": "collagen",
+                "postfix": "fiber alignment.",
+                "tags": [
+                    {
+                        "name": "COLF1",
+                        "uri": "https://www.uniprot.org/uniprotkb/P18856/entry"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-a08e037f985c936b006e02798808bcde",
+                "type": "Gene_Proteins",
+                "section": "Discussion (http://purl.org/orb/Discussion)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "are affected by",
+                "exact": "collagen",
+                "postfix": "fiber alignment [",
+                "tags": [
+                    {
+                        "name": "COLF1",
+                        "uri": "https://www.uniprot.org/uniprotkb/P18856/entry"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-f98b0536a876e5f25fcf32d0ccef4d8f",
+                "type": "Gene_Proteins",
+                "section": "Discussion (http://purl.org/orb/Discussion)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "and ELAC threads,",
+                "exact": "collagen",
+                "postfix": "fiber alignment is",
+                "tags": [
+                    {
+                        "name": "COLF1",
+                        "uri": "https://www.uniprot.org/uniprotkb/P18856/entry"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-a9b264d12c4f6ef19404121998c45219",
+                "type": "Gene_Proteins",
+                "section": "Discussion (http://purl.org/orb/Discussion)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "key factor affecting",
+                "exact": "collagen",
+                "postfix": "threads\u2019 mechanical properties",
+                "tags": [
+                    {
+                        "name": "COLF1",
+                        "uri": "https://www.uniprot.org/uniprotkb/P18856/entry"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-36b63735f3a997773c48271cbf7c44b9",
+                "type": "Gene_Proteins",
+                "section": "Discussion (http://purl.org/orb/Discussion)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "for a higher",
+                "exact": "genipin",
+                "postfix": "concentration.",
+                "tags": [
+                    {
+                        "name": "genipin",
+                        "uri": "http://purl.obolibrary.org/obo/CHEBI_5298"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-9c3004fd525ca3dbfd4ddbca86c299c2",
+                "type": "Chemicals",
+                "section": "Discussion (http://purl.org/orb/Discussion)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "voltage applied, no",
+                "exact": "isopropanol",
+                "postfix": "incubation/drying steps) emplo",
+                "tags": [
+                    {
+                        "name": "methanol",
+                        "uri": "http://purl.obolibrary.org/obo/CHEBI_17790"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-73f7c32ae577c30ab4fb23e8d7ed9244",
+                "type": "Chemicals",
+                "section": "Discussion (http://purl.org/orb/Discussion)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "were crosslinked using 1-",
+                "exact": "ethyl",
+                "postfix": "-3-(3-dimethylaminopropyl)-car",
+                "tags": [
+                    {
+                        "name": "ethyl",
+                        "uri": "http://purl.obolibrary.org/obo/CHEBI_62801"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-c4e23f772489500da13781040f1417cd",
+                "type": "Chemicals",
+                "section": "Discussion (http://purl.org/orb/Discussion)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "hyl-3-(3-dimethylaminopropyl)-",
+                "exact": "carbodiimide",
+                "postfix": "hydrochloride (EDC) and",
+                "tags": [
+                    {
+                        "name": "carbodiimide",
+                        "uri": "http://purl.obolibrary.org/obo/CHEBI_53091"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-39ad58dcbaa0bc392cf6463b744b6ed0",
+                "type": "Chemicals",
+                "section": "Discussion (http://purl.org/orb/Discussion)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "ethylaminopropyl)-carbodiimide",
+                "exact": "hydrochloride",
+                "postfix": "(EDC) and N-hydroxysuccinimide",
+                "tags": [
+                    {
+                        "name": "hydrochloride",
+                        "uri": "http://purl.obolibrary.org/obo/CHEBI_36807"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-d7c3c175f1abedb835fa415be8d11ea5",
+                "type": "Chemicals",
+                "section": "Discussion (http://purl.org/orb/Discussion)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "for the hydrated",
+                "exact": "collagen",
+                "postfix": "prototype [ 50",
+                "tags": [
+                    {
+                        "name": "COLF1",
+                        "uri": "https://www.uniprot.org/uniprotkb/P18856/entry"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-b443af60b8cee7832e942c7a9e854cf4",
+                "type": "Gene_Proteins",
+                "section": "Discussion (http://purl.org/orb/Discussion)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "However, we used",
+                "exact": "genipin",
+                "postfix": "as the crosslinking",
+                "tags": [
+                    {
+                        "name": "genipin",
+                        "uri": "http://purl.obolibrary.org/obo/CHEBI_5298"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-811d7464c9a8e70906c22b87b7c55445",
+                "type": "Chemicals",
+                "section": "Discussion (http://purl.org/orb/Discussion)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "The",
+                "exact": "collagen",
+                "postfix": "solvent concentration was",
+                "tags": [
+                    {
+                        "name": "COLF1",
+                        "uri": "https://www.uniprot.org/uniprotkb/P18856/entry"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-2f26131f53c7cd999bedf2f8faeaad08",
+                "type": "Gene_Proteins",
+                "section": "Discussion (http://purl.org/orb/Discussion)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "% (3.1 mg/mL)",
+                "exact": "collagen",
+                "postfix": "solvent to manufacture",
+                "tags": [
+                    {
+                        "name": "COLF1",
+                        "uri": "https://www.uniprot.org/uniprotkb/P18856/entry"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-7fee8e1e52f9a3e80ca11b2fb5bfe84c",
+                "type": "Gene_Proteins",
+                "section": "Discussion (http://purl.org/orb/Discussion)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "we focused on",
+                "exact": "genipin",
+                "postfix": "concentration\u2019s influence on",
+                "tags": [
+                    {
+                        "name": "genipin",
+                        "uri": "http://purl.obolibrary.org/obo/CHEBI_5298"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-201d0da10e908289a40ee471364212a6",
+                "type": "Chemicals",
+                "section": "Discussion (http://purl.org/orb/Discussion)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "close approximation to",
+                "exact": "collagen",
+                "postfix": "gel behavior [",
+                "tags": [
+                    {
+                        "name": "COLF1",
+                        "uri": "https://www.uniprot.org/uniprotkb/P18856/entry"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-adeef7b8568719e1e46f7a4dd80e1200",
+                "type": "Gene_Proteins",
+                "section": "Discussion (http://purl.org/orb/Discussion)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "matching the real",
+                "exact": "collagen",
+                "postfix": "threads based on",
+                "tags": [
+                    {
+                        "name": "COLF1",
+                        "uri": "https://www.uniprot.org/uniprotkb/P18856/entry"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-974158f9897c7b85fa9db91f6b87323f",
+                "type": "Gene_Proteins",
+                "section": "Discussion (http://purl.org/orb/Discussion)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "predicted for random",
+                "exact": "collagen",
+                "postfix": "thread with higher",
+                "tags": [
+                    {
+                        "name": "COLF1",
+                        "uri": "https://www.uniprot.org/uniprotkb/P18856/entry"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-184d12dfec5c3931bb44767a2fab6e6e",
+                "type": "Gene_Proteins",
+                "section": "Discussion (http://purl.org/orb/Discussion)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "properties of the",
+                "exact": "collagen",
+                "postfix": "fibers were simplified",
+                "tags": [
+                    {
+                        "name": "COLF1",
+                        "uri": "https://www.uniprot.org/uniprotkb/P18856/entry"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-ff1c02b86c716ad7b337c30e883662a7",
+                "type": "Gene_Proteins",
+                "section": "Discussion (http://purl.org/orb/Discussion)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "the distribution of",
+                "exact": "collagen",
+                "postfix": "fibers in ELAC",
+                "tags": [
+                    {
+                        "name": "COLF1",
+                        "uri": "https://www.uniprot.org/uniprotkb/P18856/entry"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-ff9f1b7354ecc913cc8e29c5a4523edc",
+                "type": "Gene_Proteins",
+                "section": "Discussion (http://purl.org/orb/Discussion)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "and optimization of",
+                "exact": "collagen",
+                "postfix": "scaffolds.",
+                "tags": [
+                    {
+                        "name": "COLF1",
+                        "uri": "https://www.uniprot.org/uniprotkb/P18856/entry"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-b3060f989e33b24aace850d275103ee7",
+                "type": "Gene_Proteins",
+                "section": "Discussion (http://purl.org/orb/Discussion)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "tendon treatment and",
+                "exact": "osteogenesis",
+                "postfix": "[ 61 ].",
+                "tags": [
+                    {
+                        "name": "intramembranous bone growth",
+                        "uri": "http://identifiers.org/GO:0098867"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-dcc51bc35df76f0999a88f16dd2acac2",
+                "type": "Gene Ontology",
+                "section": "Discussion (http://purl.org/orb/Discussion)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "related to the",
+                "exact": "genipin",
+                "postfix": "concentration, not the",
+                "tags": [
+                    {
+                        "name": "genipin",
+                        "uri": "http://purl.obolibrary.org/obo/CHEBI_5298"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-578f1ee74d2a2674f1197b6f74f13ea1",
+                "type": "Chemicals",
+                "section": "Conclusion (http://purl.obolibrary.org/obo/IAO_0000615)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "Crosslinking of aligned",
+                "exact": "collagen",
+                "postfix": "fibers leads to",
+                "tags": [
+                    {
+                        "name": "COLF1",
+                        "uri": "https://www.uniprot.org/uniprotkb/P18856/entry"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-9842aeab1c1246ac636bb6c4a89916b2",
+                "type": "Gene_Proteins",
+                "section": "Conclusion (http://purl.obolibrary.org/obo/IAO_0000615)",
+                "provider": "Europe PMC"
+            },
+            {
+                "prefix": "controlled fabrication of",
+                "exact": "collagen",
+                "postfix": "threads.",
+                "tags": [
+                    {
+                        "name": "COLF1",
+                        "uri": "https://www.uniprot.org/uniprotkb/P18856/entry"
+                    }
+                ],
+                "id": "http://europepmc.org/article/PMC/PMC11278924#europepmc-daa23c99d02d89e857c6d4d60814d920",
+                "type": "Gene_Proteins",
+                "section": "Conclusion (http://purl.obolibrary.org/obo/IAO_0000615)",
+                "provider": "Europe PMC"
+            }
+        ],
+        "fullTextIdList": [
+            "PMC11278924"
+        ]
+    }
+]
