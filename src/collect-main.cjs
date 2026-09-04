@@ -24,12 +24,26 @@ let caught = 0;
 let finished = false;
 let win;
 
+let loadGen = 0;
+let lastCommit = 0;
+
 function show() {
   const p = job.papers[index];
   win.setTitle(`${index + 1}/${job.papers.length} — ${p.title}`);
   say({ event: 'open', n: index + 1, of: job.papers.length, key: p.key, title: p.title });
+  // A challenge page can wedge the renderer in a script loop, and the next
+  // navigation then queues behind the hang forever. Stop the page, load, and
+  // if nothing commits in six seconds, crash the wedged renderer and retry.
+  const gen = ++loadGen;
+  win.webContents.stop();
   // Publisher redirect chains abort loads mid-flight; the window keeps what landed.
   win.loadURL(p.link).catch(() => {});
+  setTimeout(() => {
+    if (finished || gen !== loadGen || lastCommit >= gen) return;
+    say({ event: 'unwedge', key: p.key });
+    win.webContents.forcefullyCrashRenderer();
+    win.loadURL(p.link).catch(() => {});
+  }, 6000);
 }
 
 function advance() {
@@ -65,6 +79,9 @@ app.whenReady().then(() => {
   win.webContents.setWindowOpenHandler(({ url }) => {
     win.loadURL(url).catch(() => {});
     return { action: 'deny' };
+  });
+  win.webContents.on('did-navigate', () => {
+    lastCommit = loadGen;
   });
   win.on('closed', finish);
 

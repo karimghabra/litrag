@@ -4,12 +4,13 @@
  * spawned here; the plan is the part with rules worth pinning.
  */
 
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { collectJob, inboxFileFor } from '../src/collect.ts';
 import { openDb, upsertPaper } from '../src/db.ts';
+import { reuniteNamedStrays, takeInbox } from '../src/ingest.ts';
 import { createLibrary, type Library } from '../src/library.ts';
 
 const now = '2026-09-04T09:00';
@@ -49,5 +50,41 @@ describe('the plan', () => {
     expect(inboxFileFor('pmid:12345678')).toBe('pmid_12345678.pdf');
     const job = collectJob(lib);
     for (const p of job.papers) expect(p.file).toMatch(/^[a-zA-Z0-9._-]+\.pdf$/);
+  });
+});
+
+describe('a caught file comes home by its name', () => {
+  it('is filed under the paper it was caught for, even with no DOI on its pages', () => {
+    const db = openDb(lib.dbPath);
+    try {
+      writeFileSync(join(lib.inboxDir, inboxFileFor('doi:10.1016/j.jmbbm.2012.06.012')), 'no doi in these bytes');
+      const taken = takeInbox(lib, db, now, () => {});
+      expect(taken).toEqual(['doi:10.1016/j.jmbbm.2012.06.012']);
+      const row = db.prepare('SELECT status, file FROM papers WHERE key = ?').get('doi:10.1016/j.jmbbm.2012.06.012') as { status: string; file: string };
+      expect(row.status).toBe('fetched');
+      expect(row.file).toBe('doi_10.1016_j.jmbbm.2012.06.012.pdf');
+      expect(db.prepare("SELECT COUNT(*) n FROM papers WHERE key LIKE 'sha:%'").get()).toEqual({ n: 0 });
+    } finally {
+      db.close();
+    }
+  });
+
+  it('reunites a stray an earlier ingest filed by its bytes', () => {
+    const db = openDb(lib.dbPath);
+    try {
+      const name = inboxFileFor('pmid:12345678');
+      const { key: strayKey } = upsertPaper(db, { title: `Untitled (${name})`, source: 'inbox' }, now, 'feedbeef'.repeat(8));
+      db.prepare("UPDATE papers SET file = ?, sha256 = ?, status = 'ingested' WHERE key = ?").run('sha_feedbeef.pdf', 'feedbeef'.repeat(8), strayKey);
+      const reunited = reuniteNamedStrays(db, () => {});
+      expect(reunited).toEqual(['pmid:12345678']);
+      const owner = db.prepare('SELECT status, file FROM papers WHERE key = ?').get('pmid:12345678') as { status: string; file: string };
+      expect(owner.status).toBe('fetched');
+      expect(owner.file).toBe('sha_feedbeef.pdf');
+      expect(db.prepare('SELECT COUNT(*) n FROM papers WHERE key = ?').get(strayKey)).toEqual({ n: 0 });
+      // Nothing left to reunite: a second pass is a no-op.
+      expect(reuniteNamedStrays(db, () => {})).toEqual([]);
+    } finally {
+      db.close();
+    }
   });
 });

@@ -8,6 +8,7 @@
  */
 
 import { openDb } from './db.ts';
+import { fileNameFor } from './ingest.ts';
 import type { Library } from './library.ts';
 
 export interface CollectPaper {
@@ -29,9 +30,9 @@ export interface CollectJob {
   unlinked: number;
 }
 
-/** The inbox file for a paper key — the `papers/` naming, with `.pdf`. */
+/** The inbox file for a paper key — ingest's own naming, so the caught file's name IS the paper's identity. */
 export function inboxFileFor(key: string): string {
-  return `${key.replace(/[^a-zA-Z0-9.-]+/g, '_')}.pdf`;
+  return fileNameFor(key, '.pdf');
 }
 
 /** The wanted list, most-cited first, as `lit wanted` orders it. */

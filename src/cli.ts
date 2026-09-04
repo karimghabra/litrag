@@ -421,7 +421,8 @@ async function main(argv: string[]): Promise<number> {
                 if (e.event === 'download') log(`  ↓ caught ${e.key} → inbox/${e.file}`);
                 if (e.event === 'saved') tally.saved += 1;
                 if (e.event === 'failed') (tally.failed += 1), log(`  download of ${e.key} did not finish`);
-                if (e.event === 'skip') tally.skipped += 1;
+                if (e.event === 'skip') (tally.skipped += 1), log('  skipped');
+                if (e.event === 'unwedge') log('  page was wedged — force-reloading');
               } catch {
                 /* a non-JSON line on stdout is Electron's own chatter */
               }
