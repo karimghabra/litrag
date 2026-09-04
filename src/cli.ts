@@ -15,9 +15,14 @@ import { buildGraph, graphStats } from './graph.ts';
 import { createLibrary, libraryRoot, listLibraries, modelCacheDir, openLibrary, saveManifest, type Library, type Manifest } from './library.ts';
 import { ollamaEmbedder, ollamaExtractor, ollamaHealth } from './ollama.ts';
 import { queryLibrary, runSql } from './query.ts';
+import { collectJob } from './collect.ts';
 import { lookupEuropePmc, referencesOf, searchEuropePmc } from './sources/europepmc.ts';
+import { spawn } from 'node:child_process';
 import { copyFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const HELP = `lit — the literature loop: one library of papers per project
 
@@ -47,6 +52,8 @@ usage: lit [--root DIR] [--json] <command> [args]
   refresh <lib>                         the saved searches, then fetch, ingest, and extract
   status <lib>                          counts by stage, and what needs a PDF
   wanted <lib> [--csv FILE]             the PDFs to collect, most-cited first, with doi.org links
+  collect <lib>                         one window through the wanted list: sign in, click the
+                                        PDF; a download that starts moves it on (Ctrl+Right skips)
   papers <lib>                          the papers, one line each
   query <lib> <question> [--limit N] [--no-spine] [--no-graph] [--trace]
                                         chunks with citations: words, meaning and the graph walk fused
@@ -379,6 +386,52 @@ async function main(argv: string[]): Promise<number> {
         for (const r of rows) out(`${String(r.cited_by_count ?? 0).padStart(4)} cited  ${(r.year ?? '').toString().padEnd(5)} ${r.pub_type?.includes('review') ? 'review ' : '       '} ${r.title}\n             ${link(r)}`);
         if (csv) out(`\nWrote ${csv}.`);
         return 0;
+      }
+
+      case 'collect': {
+        const lib = need(openLibrary(root, rest[0] ?? ''), rest[0]);
+        const job = collectJob(lib);
+        if (!job.papers.length) return out('Nothing is waiting for a PDF.'), 0;
+        let electron: string;
+        try {
+          electron = createRequire(import.meta.url)('electron') as unknown as string;
+        } catch {
+          throw new Error('Collect mode needs Electron for its window; `npm install` in the litrag checkout gets it.');
+        }
+        mkdirSync(lib.inboxDir, { recursive: true });
+        const jobPath = join(tmpdir(), `lit-collect-${Date.now()}.json`);
+        writeFileSync(jobPath, `${JSON.stringify(job, null, 2)}\n`);
+        log(`${job.papers.length} paper${job.papers.length === 1 ? '' : 's'} to collect${job.unlinked ? ` (${job.unlinked} more have no DOI or PMID, so no page to open)` : ''}.`);
+        log('One window, most-cited first. Sign in and click the PDF; the moment a download starts, the next paper loads. Ctrl+Right skips, Alt+Left goes back, Ctrl+Home reopens the paper page.');
+        const tally = { saved: 0, failed: 0, skipped: 0 };
+        const main = fileURLToPath(new URL('./collect-main.cjs', import.meta.url));
+        await new Promise<void>((resolve, reject) => {
+          const child = spawn(electron, [main, jobPath], { stdio: ['ignore', 'pipe', 'inherit'] });
+          let buffer = '';
+          child.stdout.on('data', (data: Buffer) => {
+            buffer += data.toString();
+            let cut;
+            while ((cut = buffer.indexOf('\n')) >= 0) {
+              const line = buffer.slice(0, cut).trim();
+              buffer = buffer.slice(cut + 1);
+              if (!line.startsWith('{')) continue;
+              try {
+                const e = JSON.parse(line) as { event: string; n?: number; of?: number; key?: string; title?: string; file?: string };
+                if (e.event === 'open') log(`${e.n}/${e.of}  ${e.title}`);
+                if (e.event === 'download') log(`  ↓ caught ${e.key} → inbox/${e.file}`);
+                if (e.event === 'saved') tally.saved += 1;
+                if (e.event === 'failed') (tally.failed += 1), log(`  download of ${e.key} did not finish`);
+                if (e.event === 'skip') tally.skipped += 1;
+              } catch {
+                /* a non-JSON line on stdout is Electron's own chatter */
+              }
+            }
+          });
+          child.on('error', reject);
+          child.on('close', () => resolve());
+        });
+        const delta = { ok: true as const, ...tally, message: `Caught ${tally.saved} PDF${tally.saved === 1 ? '' : 's'} into the inbox${tally.failed ? `; ${tally.failed} did not finish` : ''}${tally.skipped ? `; ${tally.skipped} skipped` : ''}. \`lit ingest ${lib.manifest.id}\` reads them.` };
+        return out(json ? delta : delta.message), 0;
       }
 
       case 'papers': {

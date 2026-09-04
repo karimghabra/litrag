@@ -5,15 +5,14 @@ wants as they are voiced.
 
 ## Named priorities
 
-- **Collect mode** (Karim, 2026-09-03) — the one step of the loop that
-  needs a screen: an in-app browser (in Protracker's Research tab, or a
-  small window of litrag's own) that walks the `lit wanted` list, opens
-  each DOI through the institution's proxy, lets the user sign in once and
-  click the PDF, catches the download into the inbox as `<key>.pdf`, and
-  moves on. Electron: a WebContentsView on a persistent session partition,
-  `session.on('will-download')`, the PDF plugin off so inline viewers hand
-  the file over. The click stays the user's. A few days, with a Playwright
-  test against a fake publisher page.
+- ~~**Collect mode** (Karim, 2026-09-03)~~ — built 2026-09-04 as
+  `lit collect` (issue #1): one Electron window of litrag's own, a
+  persistent session partition, `will-download` routing the file into the
+  inbox as `<key>.pdf`, and — Karim's flow, 2026-09-04 — the window moves
+  to the next paper the moment a download *starts*. The click stays the
+  user's. Still open from the original sketch: hosting it in Protracker's
+  Research tab, opening DOIs through the institution's proxy URL, and the
+  Playwright test against a fake publisher page.
 - **A bake-off of local models** on ten papers for the model stage:
   `qwen3:14b` (default), `gemma3:12b`, `qwen3:32b` at 4-bit; for
   embeddings `nomic-embed-text` (default), `bge-m3`, `mxbai-embed-large`.

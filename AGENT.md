@@ -94,6 +94,8 @@ lit extract <lib> [--limit N]                          the model stage, through 
 lit refresh <lib>                                      the saved searches, then fetch, ingest, annotate, extract
 lit snowball <lib> <paper-key>                         stage what a paper cites
 lit wanted <lib> [--csv FILE]                          the PDFs to collect, most-cited first, with links
+lit collect <lib>                                      one window through the wanted list: the user signs in
+                                                       and clicks; a download that starts moves it on
 ```
 
 **Ask it**

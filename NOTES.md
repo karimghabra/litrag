@@ -53,6 +53,22 @@ when it turns out durable. Mark inference as inference.
 
 ## Short-term memory
 
+- **2026-09-04** — First local session ran the whole loop on Karim's
+  machine. looped-ligament stands at 37 ingested / 45 needs-pdf, 1,878
+  chunks embedded (`ollama:nomic-embed-text`), model stage read 37/37 with
+  qwen3:14b (~8.6k claims), and the genipin bench question seeded from the
+  graph as hoped — though every top hit came from one OA paper
+  (doi:10.3390/mi15070851), so the paywalled canon really is the missing
+  half. Machine notes: Ollama's model store lives on `E:\ollama\models`
+  (`OLLAMA_MODELS`, User scope) because `C:` filled to zero bytes free
+  mid-pull; `pt` is not on the PATH, so init used `--project-id n156
+  --project-ref looped-ligament`; the live Protracker vault is
+  `C:\Users\ihave\AppData\Roaming\protracker\vault` (the Desktop
+  "8-10-2026" copy is stale, and `PROTRACKER_VAULT` still points at it).
+  Built `lit collect` (issue #1) the same day — Karim's PI kept hitting
+  Cloudflare challenges collecting PDFs by hand, and one window at a
+  human pace is also the pattern publishers tolerate.
+
 - **2026-09-03** — Initial commit. Not yet run on the user's machine: the
   first local session is `npm link`, `ollama pull qwen3:14b`, `lit doctor`,
   `lit init "Looped Ligament"`, the two ELAC searches, `lit refresh`, then
