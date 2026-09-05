@@ -88,6 +88,35 @@ describe('lit paper', () => {
   });
 });
 
+describe('the facts pass (#9)', () => {
+  it('leads with a parameter row when the question names one', async () => {
+    const db = openDb(lib.dbPath);
+    try {
+      const methods = sectionsOf(db, key).find((s) => s.kind === 'methods')!;
+      replaceModelRows(db, key, 'ollama:facts', [{ section: methods.id, rows: { claims: [], materials: [], methods: [], parameters: [{ entity: 'pH', value: '8.2', unit: 'pH unit', context: 'the isoelectric point of collagen sits near 8.2' }] } }], now);
+    } finally {
+      db.close();
+    }
+    const hits = await queryLibrary(lib, 'isoelectric point of collagen', embedder, { limit: 5 });
+    const fact = hits.find((h) => h.ranks.facts);
+    expect(fact).toBeDefined();
+    expect(fact!.text).toContain('8.2');
+    expect(fact!.citation.length).toBeGreaterThan(10);
+  });
+
+  it('says out loud when the library lacks a term', async () => {
+    const hits = await queryLibrary(lib, 'zirconium nanoparticle coatings', embedder, { limit: 5 });
+    expect(hits[0]!.kind).toBe('coverage');
+    expect(hits[0]!.text).toContain('"zirconium"');
+    expect(hits[0]!.text).toContain('lit search');
+  });
+
+  it('stays silent about coverage when every term is present', async () => {
+    const hits = await queryLibrary(lib, 'genipin crosslinking', embedder, { limit: 5 });
+    expect(hits.every((h) => h.kind !== 'coverage')).toBe(true);
+  });
+});
+
 describe('query --paper', () => {
   it('keeps only the named paper\'s chunks', async () => {
     const hits = await queryLibrary(lib, 'genipin crosslinking', embedder, { limit: 5, paper: key });

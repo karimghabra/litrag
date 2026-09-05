@@ -132,6 +132,11 @@ The shapes you will reason over most:
   `citation` is the string to cite: title, year, journal, DOI, section, page.
   `--paper KEY` scopes the hits to one paper ("ask this paper", #5); the
   spine is off in that case, since a paper lives in one library.
+  The answer can LEAD with two extra hit shapes (#9): a `kind: "coverage"`
+  line naming salient question words no searched library contains (so weak
+  hits never imply coverage), and facts — the model stage's parameter and
+  claim rows matching the question's words, `ranks: { facts: n }`, a
+  measured value outranking a prose claim. Chunks follow as before.
 - `wanted`: `[{ key, year, title, journal, doi, pmid, cited_by_count,
   pub_type, link, file }]`, most-cited first; `file` is the `<key>.pdf`
   inbox name a caught PDF should be saved under, so a host need not
