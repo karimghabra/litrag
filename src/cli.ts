@@ -319,8 +319,17 @@ async function main(argv: string[]): Promise<number> {
         const hits = await searchEuropePmc(query, { since: since ? Number(since) : undefined, limit: limit ? Number(limit) : 25 });
         const db = openDb(lib.dbPath);
         let created = 0;
+        let unfiled = 0;
         try {
-          for (const hit of hits) if (upsertPaper(db, hit, now).created) created += 1;
+          // A hit with no identifier — old records, mostly — cannot be filed;
+          // skip it and say so rather than dying on the classic literature.
+          for (const hit of hits) {
+            if (!hit.doi && !hit.pmid && !hit.pmcid) {
+              unfiled += 1;
+              continue;
+            }
+            if (upsertPaper(db, hit, now).created) created += 1;
+          }
           db.prepare("INSERT INTO queries (source, query, last_run, hits) VALUES ('europepmc', ?, ?, ?) ON CONFLICT(source, query) DO UPDATE SET last_run = excluded.last_run, hits = excluded.hits").run(query, now, hits.length);
         } finally {
           db.close();
@@ -329,7 +338,7 @@ async function main(argv: string[]): Promise<number> {
           lib.manifest.queries.push(query);
           saveManifest(lib);
         }
-        const delta = { ok: true as const, hits: hits.length, staged: created, message: `${hits.length} hit${hits.length === 1 ? '' : 's'}, ${created} new candidate${created === 1 ? '' : 's'} staged. \`lit fetch ${lib.manifest.id}\` gets their text.` };
+        const delta = { ok: true as const, hits: hits.length, staged: created, unfiled, message: `${hits.length} hit${hits.length === 1 ? '' : 's'}, ${created} new candidate${created === 1 ? '' : 's'} staged${unfiled ? ` (${unfiled} had no DOI, PMID or PMCID to file under)` : ''}. \`lit fetch ${lib.manifest.id}\` gets their text.` };
         if (json) return out({ ...delta, papers: hits }), 0;
         for (const h of hits) out(`${(h.year ?? '').toString().padEnd(5)} ${h.openAccess ? 'OA ' : '   '} ${h.title}${h.doi ? `  doi:${h.doi}` : ''}`);
         return out(`\n${delta.message}`), 0;
@@ -380,7 +389,7 @@ async function main(argv: string[]): Promise<number> {
         try {
           for (const query of lib.manifest.queries) {
             const hits = await searchEuropePmc(query, { limit: 50 });
-            for (const hit of hits) if (upsertPaper(db, hit, now).created) staged += 1;
+            for (const hit of hits) if ((hit.doi || hit.pmid || hit.pmcid) && upsertPaper(db, hit, now).created) staged += 1;
             log(`searched "${query}": ${hits.length} hits`);
           }
         } finally {
