@@ -7,7 +7,7 @@
  */
 
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, extname, join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { chunkSections } from './chunk.ts';
@@ -140,10 +140,10 @@ function titleGuess(front: string): string | undefined {
   return undefined;
 }
 
-/** The papers still waiting for a file, keyed by the name `collect` would give their PDF. */
-function unfiledByName(db: DatabaseSync): Map<string, string> {
-  const unfiled = db.prepare('SELECT key FROM papers WHERE file IS NULL').all() as { key: string }[];
-  return new Map(unfiled.map((p) => [fileNameFor(p.key, '.pdf'), p.key]));
+/** Every paper, keyed by the name `collect` would give its PDF. */
+function papersByName(db: DatabaseSync): Map<string, { key: string; filed: boolean }> {
+  const all = db.prepare("SELECT key, file FROM papers WHERE key NOT LIKE 'sha:%'").all() as { key: string; file: string | null }[];
+  return new Map(all.map((p) => [fileNameFor(p.key, '.pdf'), { key: p.key, filed: p.file !== null }]));
 }
 
 /**
@@ -155,19 +155,23 @@ function unfiledByName(db: DatabaseSync): Map<string, string> {
 export function takeInbox(lib: Library, db: DatabaseSync, now: string, log: Log): string[] {
   if (!existsSync(lib.inboxDir)) return [];
   const taken: string[] = [];
-  const owners = unfiledByName(db);
+  const owners = papersByName(db);
   for (const entry of readdirSync(lib.inboxDir)) {
     if (extname(entry).toLowerCase() !== '.pdf') continue;
     const from = join(lib.inboxDir, entry);
     const bytes = readFileSync(from);
     const hash = sha256(bytes);
-    const key = owners.get(entry) ?? upsertPaper(db, { title: `Untitled (${basename(entry)})`, source: 'inbox' }, now, hash).key;
+    // A file named for a paper is that paper — a second drop under the same
+    // name replaces the file (a better copy, a fresh download) and the paper
+    // is read again. Only an unrecognised name is filed by its bytes.
+    const owner = owners.get(entry);
+    const key = owner?.key ?? upsertPaper(db, { title: `Untitled (${basename(entry)})`, source: 'inbox' }, now, hash).key;
     const file = fileNameFor(key, '.pdf');
     mkdirSync(lib.papersDir, { recursive: true });
     renameSync(from, join(lib.papersDir, file));
     setPaperFile(db, key, file, hash, 'fetched');
     taken.push(key);
-    log(`inbox    ${key}  ${entry}`);
+    log(`inbox    ${key}  ${entry}${owner?.filed ? '  (replaced the file; reading again)' : ''}`);
   }
   return taken;
 }
@@ -178,20 +182,28 @@ export function takeInbox(lib: Library, db: DatabaseSync, now: string, log: Log)
  * the name was a hint; the cascade clears the stray's rows, and the owner is
  * read fresh in the same pass. Running it again finds nothing — idempotent.
  */
-export function reuniteNamedStrays(db: DatabaseSync, log: Log): string[] {
+export function reuniteNamedStrays(lib: Library, db: DatabaseSync, log: Log): string[] {
   const strays = db.prepare("SELECT key, title, file, sha256 FROM papers WHERE key LIKE 'sha:%' AND file IS NOT NULL").all() as { key: string; title: string; file: string; sha256: string | null }[];
   if (!strays.length) return [];
-  const owners = unfiledByName(db);
+  const owners = papersByName(db);
   const reunited: string[] = [];
   for (const s of strays) {
     const named = /^Untitled \((.+)\)$/.exec(s.title);
     const owner = named ? owners.get(named[1]!) : undefined;
     if (!owner) continue;
-    db.prepare("UPDATE papers SET file = ?, sha256 = ?, status = 'fetched' WHERE key = ?").run(s.file, s.sha256, owner);
+    if (owner.filed) {
+      // The named paper already has a file: this stray is a second copy of
+      // the same download. Its rows say nothing the owner's do not.
+      db.prepare('DELETE FROM papers WHERE key = ?').run(s.key);
+      rmSync(join(lib.papersDir, s.file), { force: true });
+      log(`dropped  ${s.key}  (a second copy of ${owner.key})`);
+      continue;
+    }
+    db.prepare("UPDATE papers SET file = ?, sha256 = ?, status = 'fetched' WHERE key = ?").run(s.file, s.sha256, owner.key);
     db.prepare('DELETE FROM papers WHERE key = ?').run(s.key);
-    owners.delete(named![1]!);
-    reunited.push(owner);
-    log(`reunited ${owner}  (was ${s.key})`);
+    owners.set(named![1]!, { key: owner.key, filed: true });
+    reunited.push(owner.key);
+    log(`reunited ${owner.key}  (was ${s.key})`);
   }
   return reunited;
 }
@@ -211,7 +223,7 @@ export async function ingestLibrary(lib: Library, embedder: Embedder, options: {
     // chunks are remade, so their vectors are too; the model stage's rows
     // are cleared with them and the stamp with the rows.
     if (options.reread) db.prepare("UPDATE papers SET status = 'fetched' WHERE status = 'ingested' AND file IS NOT NULL").run();
-    reuniteNamedStrays(db, log);
+    reuniteNamedStrays(lib, db, log);
     report.inbox = takeInbox(lib, db, now, log);
     for (const paper of papersByStatus(db, 'fetched')) {
       try {

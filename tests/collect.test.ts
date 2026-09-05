@@ -75,14 +75,45 @@ describe('a caught file comes home by its name', () => {
       const name = inboxFileFor('pmid:12345678');
       const { key: strayKey } = upsertPaper(db, { title: `Untitled (${name})`, source: 'inbox' }, now, 'feedbeef'.repeat(8));
       db.prepare("UPDATE papers SET file = ?, sha256 = ?, status = 'ingested' WHERE key = ?").run('sha_feedbeef.pdf', 'feedbeef'.repeat(8), strayKey);
-      const reunited = reuniteNamedStrays(db, () => {});
+      const reunited = reuniteNamedStrays(lib, db, () => {});
       expect(reunited).toEqual(['pmid:12345678']);
       const owner = db.prepare('SELECT status, file FROM papers WHERE key = ?').get('pmid:12345678') as { status: string; file: string };
       expect(owner.status).toBe('fetched');
       expect(owner.file).toBe('sha_feedbeef.pdf');
       expect(db.prepare('SELECT COUNT(*) n FROM papers WHERE key = ?').get(strayKey)).toEqual({ n: 0 });
       // Nothing left to reunite: a second pass is a no-op.
-      expect(reuniteNamedStrays(db, () => {})).toEqual([]);
+      expect(reuniteNamedStrays(lib, db, () => {})).toEqual([]);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('drops a stray that is a second copy of a paper already filed', () => {
+    const db = openDb(lib.dbPath);
+    try {
+      const name = inboxFileFor('pmid:12345678'); // filed by the reunion above
+      const { key: strayKey } = upsertPaper(db, { title: `Untitled (${name})`, source: 'inbox' }, now, 'cafebabe'.repeat(8));
+      db.prepare("UPDATE papers SET file = 'sha_cafebabe.pdf', sha256 = ?, status = 'ingested' WHERE key = ?").run('cafebabe'.repeat(8), strayKey);
+      expect(reuniteNamedStrays(lib, db, () => {})).toEqual([]);
+      expect(db.prepare('SELECT COUNT(*) n FROM papers WHERE key = ?').get(strayKey)).toEqual({ n: 0 });
+      const owner = db.prepare('SELECT file FROM papers WHERE key = ?').get('pmid:12345678') as { file: string };
+      expect(owner.file).toBe('sha_feedbeef.pdf'); // untouched
+    } finally {
+      db.close();
+    }
+  });
+
+  it('a second drop under a filed name replaces the file and reads again', () => {
+    const db = openDb(lib.dbPath);
+    try {
+      const name = inboxFileFor('pmid:12345678');
+      writeFileSync(join(lib.inboxDir, name), 'a better copy of the same paper');
+      const taken = takeInbox(lib, db, now, () => {});
+      expect(taken).toEqual(['pmid:12345678']);
+      const owner = db.prepare('SELECT status, file FROM papers WHERE key = ?').get('pmid:12345678') as { status: string; file: string };
+      expect(owner.status).toBe('fetched');
+      expect(owner.file).toBe('pmid_12345678.pdf');
+      expect(db.prepare("SELECT COUNT(*) n FROM papers WHERE key LIKE 'sha:%'").get()).toEqual({ n: 0 });
     } finally {
       db.close();
     }
