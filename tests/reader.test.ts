@@ -111,6 +111,15 @@ describe('the facts pass (#9)', () => {
     expect(hits[0]!.text).toContain('lit search');
   });
 
+  it('points across the hall when a sibling library covers the missing term', async () => {
+    const empty = createLibrary(root, { name: 'Empty Shelf', now });
+    openDb(empty.dbPath).close();
+    const hits = await queryLibrary(empty, 'genipin crosslinking', embedder, { limit: 3 });
+    expect(hits[0]!.kind).toBe('coverage');
+    expect(hits[0]!.text).toContain('Reader pilot');
+    expect(hits[0]!.text).toContain('Switch the library');
+  });
+
   it('stays silent about coverage when every term is present', async () => {
     const hits = await queryLibrary(lib, 'genipin crosslinking', embedder, { limit: 5 });
     expect(hits.every((h) => h.kind !== 'coverage')).toBe(true);

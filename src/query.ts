@@ -13,7 +13,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { allVectors, chunkViews, ftsSearch, openDb } from './db.ts';
 import { cosine, type Embedder } from './embed.ts';
 import { buildGraph, graphSearch } from './graph.ts';
-import { openLibrary, type Library } from './library.ts';
+import { listLibraries, openLibrary, type Library } from './library.ts';
 
 export interface QueryHit {
   library: string;
@@ -250,24 +250,38 @@ export async function queryLibrary(lib: Library, question: string, embedder: Emb
   const missing = libs
     .map((l) => new Set(absentTerms(l, question)))
     .reduce((acc, set) => new Set([...acc].filter((t) => set.has(t))));
-  const lead: QueryHit[] = missing.size
-    ? [{
-        library: lib.manifest.id,
-        chunk: -1,
-        paper: '',
-        title: lib.manifest.name,
-        year: null,
-        journal: null,
-        doi: null,
-        section: 'the library itself',
-        kind: 'coverage',
-        page: null,
-        text: `Nothing in this library mentions ${[...missing].map((t) => `"${t}"`).join(' or ')} — \`lit search\` can stage papers on it.`,
-        score: 1,
-        ranks: {},
-        citation: `${lib.manifest.name} — coverage`,
-      }]
-    : [];
+  let lead: QueryHit[] = [];
+  if (missing.size) {
+    // Before saying "nothing", look across the hall: a sibling library in
+    // the same root that covers the missing terms is the real answer to
+    // "why are these results unpromising" — the question went to the wrong
+    // shelf, and the line should say which shelf to ask.
+    const searched = new Set(libs.map((l) => l.manifest.id));
+    const elsewhere = listLibraries(lib.root)
+      .filter((other) => !searched.has(other.manifest.id))
+      .filter((other) => absentTerms(other, question).every((t) => !missing.has(t)))
+      .map((other) => other.manifest.name)
+      .slice(0, 2);
+    const terms = [...missing].map((t) => `"${t}"`).join(' or ');
+    lead = [{
+      library: lib.manifest.id,
+      chunk: -1,
+      paper: '',
+      title: lib.manifest.name,
+      year: null,
+      journal: null,
+      doi: null,
+      section: 'the library itself',
+      kind: 'coverage',
+      page: null,
+      text: elsewhere.length
+        ? `Nothing in the ${lib.manifest.name} library mentions ${terms} — but ${elsewhere.join(' and ')} does. Switch the library, or \`lit config ${lib.manifest.id} --include <its id>\` to share its spine.`
+        : `Nothing in the ${lib.manifest.name} library mentions ${terms} — \`lit search\` can stage papers on it.`,
+      score: 1,
+      ranks: {},
+      citation: `${lib.manifest.name} — coverage`,
+    }];
+  }
   const seen = new Set(facts.map((f) => f.text));
   return [...lead, ...facts, ...hits.filter((h) => !seen.has(h.text))];
 }
