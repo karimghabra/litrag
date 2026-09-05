@@ -208,3 +208,70 @@ export function graphStats(db: DatabaseSync, graph: Graph): GraphStats {
     topEntities: top,
   };
 }
+
+/**
+ * The graph as data, for the app's Research tab (projtracker #48, filed here
+ * as issue #3): entity and paper nodes, aggregated mention edges, citation
+ * edges. Chunk nodes stay internal — thousands of them would drown a screen
+ * that people navigate — and hubs are exported *marked* rather than dropped,
+ * so a UI can dim "collagen" instead of mysteriously lacking it.
+ */
+export interface GraphExport {
+  nodes: (
+    | { id: string; type: 'paper'; key: string; title: string; year: number | null }
+    | { id: string; type: 'entity'; name: string; kind: string; papers: number; hub: boolean }
+  )[];
+  edges: { from: string; to: string; type: 'mention' | 'citation'; weight: number }[];
+  /** The share of papers past which an entity counts as a hub. */
+  hubShare: number;
+}
+
+export function graphExport(db: DatabaseSync): GraphExport {
+  const papers = db
+    .prepare("SELECT key, title, year FROM papers WHERE status = 'ingested'")
+    .all() as { key: string; title: string; year: number | null }[];
+  const paperCount = Math.max(1, papers.length);
+  const held = new Set(papers.map((p) => p.key));
+
+  const nodes: GraphExport['nodes'] = papers.map((p) => ({
+    id: `paper:${p.key}`,
+    type: 'paper' as const,
+    key: p.key,
+    title: p.title,
+    year: p.year,
+  }));
+
+  const spread = new Map(
+    (db.prepare('SELECT entity, COUNT(DISTINCT paper) n FROM mentions GROUP BY entity').all() as {
+      entity: number;
+      n: number;
+    }[]).map((s) => [s.entity, s.n] as const),
+  );
+  for (const e of db.prepare('SELECT id, name, kind FROM entities').all() as { id: number; name: string; kind: string }[]) {
+    const papersOf = spread.get(e.id) ?? 0;
+    if (!papersOf) continue;
+    nodes.push({
+      id: `entity:${e.id}`,
+      type: 'entity',
+      name: e.name,
+      kind: e.kind,
+      papers: papersOf,
+      hub: papersOf / paperCount > HUB_SHARE && paperCount > 3,
+    });
+  }
+
+  const edges: GraphExport['edges'] = [];
+  for (const m of db
+    .prepare('SELECT entity, paper, SUM(count) c FROM mentions GROUP BY entity, paper')
+    .all() as { entity: number; paper: string; c: number }[]) {
+    if (!held.has(m.paper)) continue;
+    edges.push({ from: `entity:${m.entity}`, to: `paper:${m.paper}`, type: 'mention', weight: m.c });
+  }
+  for (const r of db
+    .prepare('SELECT DISTINCT paper, matched_paper FROM refs WHERE matched_paper IS NOT NULL')
+    .all() as { paper: string; matched_paper: string }[]) {
+    if (!held.has(r.paper) || !held.has(r.matched_paper)) continue;
+    edges.push({ from: `paper:${r.paper}`, to: `paper:${r.matched_paper}`, type: 'citation', weight: 1 });
+  }
+  return { nodes, edges, hubShare: HUB_SHARE };
+}

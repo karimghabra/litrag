@@ -112,21 +112,33 @@ export interface QueryOptions {
   graph?: boolean;
   /** Filled in with what the graph walk started from. */
   trace?: QueryTrace;
+  /**
+   * Scope the question to one paper by its key — "what does *this* paper say"
+   * (issue #5, for the app's reader). The whole ranking still runs, so the
+   * best passages of that paper surface in the same order they would in the
+   * library-wide answer; the spine is skipped because a key names a paper in
+   * this library.
+   */
+  paper?: string;
 }
 
 export async function queryLibrary(lib: Library, question: string, embedder: Embedder, options: QueryOptions = {}): Promise<QueryHit[]> {
   const limit = options.limit ?? 8;
   const trace = options.trace ?? { seeds: {} };
   const libs: Library[] = [lib];
-  if (options.spine !== false) {
+  if (options.spine !== false && !options.paper) {
     for (const key of lib.manifest.includes) {
       const included = openLibrary(lib.root, key);
       if (included && included.manifest.id !== lib.manifest.id) libs.push(included);
     }
   }
+  // A paper-scoped question needs a wider net before the filter, or a paper
+  // that is merely not in the global top-20 reads as having nothing to say.
+  const perList = options.paper ? Math.max(200, limit * 25) : Math.max(20, limit * 3);
   const hits: QueryHit[] = [];
-  for (const l of libs) hits.push(...(await queryOne(l, question, embedder, Math.max(20, limit * 3), options.graph !== false, trace)));
-  return hits.sort((a, b) => b.score - a.score).slice(0, limit);
+  for (const l of libs) hits.push(...(await queryOne(l, question, embedder, perList, options.graph !== false, trace)));
+  const scoped = options.paper ? hits.filter((h) => h.paper === options.paper) : hits;
+  return scoped.sort((a, b) => b.score - a.score).slice(0, limit);
 }
 
 /** A SELECT, and only a SELECT, against a read-only handle. */
