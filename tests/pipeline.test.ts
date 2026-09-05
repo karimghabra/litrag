@@ -1,7 +1,7 @@
-/**
+﻿/**
  * The whole loop against a scratch root: a library made for a project, a
  * candidate staged, its text fetched from a fixture, read into rows, embedded
- * with the stand-in, and asked a question — with the store readable by SQL.
+ * with the stand-in, and asked a question â€” with the store readable by SQL.
  */
 
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -114,7 +114,9 @@ describe('the pipeline', () => {
   });
 
   it('answers a question with chunks that cite the paper and the section', async () => {
-    const hits = await queryLibrary(lib, 'How does crosslinking degree change the tensile modulus of aligned collagen threads?', embedder, { limit: 5 });
+    const answer = await queryLibrary(lib, 'How does crosslinking degree change the tensile modulus of aligned collagen threads?', embedder, { limit: 5 });
+    // The facts pass and the coverage line (#9) may lead; the chunks follow.
+    const hits = answer.filter((h) => h.kind !== 'coverage' && !h.ranks.facts);
     expect(hits.length).toBe(5);
     expect(hits[0]!.paper).toBe(key);
     expect(hits[0]!.citation).toContain('Aligned Collagen');
@@ -158,9 +160,13 @@ describe('the shared spine', () => {
   it('lets an empty library answer from the ones it includes, each hit labelled', async () => {
     const spine = createLibrary(root, { name: 'Meniscus', includes: ['looped-ligament'], now });
     openDb(spine.dbPath).close();
-    const hits = await queryLibrary(spine, 'crosslinking degree and modulus', embedder, { limit: 3 });
+    const answer = await queryLibrary(spine, 'crosslinking degree and modulus', embedder, { limit: 3 });
+    const hits = answer.filter((h) => h.kind !== 'coverage' && !h.ranks.facts);
     expect(hits).toHaveLength(3);
     expect(hits.every((h) => h.library === 'looped-ligament')).toBe(true);
-    expect(await queryLibrary(spine, 'crosslinking degree and modulus', embedder, { limit: 3, spine: false })).toEqual([]);
+    // Spine off, the empty library answers with its own coverage line, not
+    // with borrowed chunks (#9).
+    const alone = await queryLibrary(spine, 'crosslinking degree and modulus', embedder, { limit: 3, spine: false });
+    expect(alone.filter((h) => h.kind !== 'coverage')).toEqual([]);
   });
 });

@@ -8,16 +8,21 @@
 
 import { list, one, parseArgs, type Args } from './args.ts';
 import { resolveProject } from './protracker.ts';
-import { allPapers, openDb, statusView, upsertPaper } from './db.ts';
+import { allPapers, attachNote, deleteNote, notesOf, openDb, paperPayload, statusView, upsertPaper } from './db.ts';
 import { hashEmbedder, localEmbedder, type Embedder } from './embed.ts';
 import { annotateLibrary, extractLibrary, fetchCandidates, ingestLibrary } from './ingest.ts';
-import { buildGraph, graphStats } from './graph.ts';
+import { buildGraph, graphExport, graphStats } from './graph.ts';
 import { createLibrary, libraryRoot, listLibraries, modelCacheDir, openLibrary, saveManifest, type Library, type Manifest } from './library.ts';
 import { ollamaEmbedder, ollamaExtractor, ollamaHealth } from './ollama.ts';
 import { queryLibrary, runSql } from './query.ts';
+import { collectJob, inboxFileFor } from './collect.ts';
 import { lookupEuropePmc, referencesOf, searchEuropePmc } from './sources/europepmc.ts';
+import { spawn } from 'node:child_process';
 import { copyFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const HELP = `lit — the literature loop: one library of papers per project
 
@@ -29,7 +34,8 @@ usage: lit [--root DIR] [--json] <command> [args]
        [--project-id ID --project-ref REF]   tie it by hand when pt is not on the PATH
        [--extract local|ollama] [--embed transformers|ollama]
        [--ollama-url URL] [--ollama-chat MODEL] [--ollama-embed MODEL]
-  config <lib> [the same flags]         change how a library extracts and embeds
+  config <lib> [the same flags]         change how a library extracts and embeds; also
+       [--project-id ID --project-ref REF | --no-project]   tie it to its project after the fact
   doctor [<lib>]                        is everything in place: root, model cache, Ollama and its models
   search <lib> <query> [--since YEAR] [--limit N]
                                         stage candidates from Europe PMC; nothing is fetched
@@ -42,14 +48,25 @@ usage: lit [--root DIR] [--json] <command> [args]
                                         parameters, through Ollama (needs --extract ollama)
   annotate <lib>                        entity nodes for free: Europe PMC's text-mined terms
                                         (chemicals, proteins, organisms, methods) per paper
-  graph <lib>                           the graph as it stands: nodes, edges, the entities that span most papers
+  graph <lib> [--min-papers N]          the graph as it stands; --json carries nodes and edges for a
+                                        drawing (entities spanning N+ papers, default 3, hubs marked)
   entities <lib> [--kind K] [--limit N] the entities, with how many papers name each
   refresh <lib>                         the saved searches, then fetch, ingest, and extract
   status <lib>                          counts by stage, and what needs a PDF
   wanted <lib> [--csv FILE]             the PDFs to collect, most-cited first, with doi.org links
+  collect <lib>                         one window through the wanted list: sign in, click the
+                                        PDF; a download that starts moves it on (Ctrl+Right skips)
   papers <lib>                          the papers, one line each
-  query <lib> <question> [--limit N] [--no-spine] [--no-graph] [--trace]
-                                        chunks with citations: words, meaning and the graph walk fused
+  paper <lib> <key>                     one paper whole: sections, chunks, mentions, notes, and
+                                        the model stage's rows — the reader's payload in one call
+  note <lib> <paper-key> <chunk> <text…> [--quote "span"]
+                                        a note on a passage — or on one highlighted span of it;
+                                        it survives a --reread by its quote
+  note rm <lib> <id>                    delete a note by id
+  notes <lib> [paper]                   the notes, with the passages they sit on
+  query <lib> <question> [--limit N] [--no-spine] [--no-graph] [--trace] [--paper KEY]
+                                        chunks with citations: words, meaning and the graph walk fused;
+                                        --paper scopes the answer to one paper
   sql <lib> <select ...> [--limit N]    read-only SQL against the store
   snowball <lib> <paper-key>            stage what a paper cites
   where                                 the library root
@@ -175,6 +192,16 @@ async function main(argv: string[]): Promise<number> {
           lib.manifest.model = lib.manifest.embedding === 'ollama' ? `ollama:${lib.manifest.ollama.embed}` : (one(flags['model']) ?? lib.manifest.model.replace(/^ollama:.*/, 'Xenova/bge-small-en-v1.5'));
         }
         for (const inc of list(flags['include'])) if (!lib.manifest.includes.includes(inc)) lib.manifest.includes.push(inc);
+        // A library made before its project existed can be tied after the
+        // fact (#10) — or untied, with --no-project.
+        const projectId = one(flags['project-id']);
+        const projectRef = one(flags['project-ref']);
+        if (projectId !== undefined) lib.manifest.projectId = projectId;
+        if (projectRef !== undefined) lib.manifest.projectRef = projectRef;
+        if (flags['no-project'] === true) {
+          delete lib.manifest.projectId;
+          delete lib.manifest.projectRef;
+        }
         saveManifest(lib);
         if (json) return out(lib.manifest), 0;
         out(`${lib.manifest.id}: extract ${lib.manifest.extract}, embed ${lib.manifest.embedding} (${lib.manifest.model})${lib.manifest.extract === 'ollama' || lib.manifest.embedding === 'ollama' ? `, Ollama at ${lib.manifest.ollama.url} — chat ${lib.manifest.ollama.chat}, embed ${lib.manifest.ollama.embed}` : ''}.`);
@@ -230,9 +257,42 @@ async function main(argv: string[]): Promise<number> {
         const db = openDb(lib.dbPath, { readOnly: true });
         try {
           const stats = graphStats(db, buildGraph(db));
-          if (json) return out(stats), 0;
+          if (json) {
+            const minPapers = Number(one(flags['min-papers']) ?? 3);
+            if (!Number.isFinite(minPapers) || minPapers < 1) throw new Error('--min-papers takes a whole number, 1 or more.');
+            return out({ ...stats, ...graphExport(db, minPapers) }), 0;
+          }
           out(`${stats.papers} papers · ${stats.chunks} chunks · ${stats.entities} entities (${stats.hubsDropped} hubs left out) · ${stats.citationEdges} citation edges · ${stats.mentionEdges} mention edges`);
           for (const e of stats.topEntities) out(`  ${String(e.papers).padStart(4)} papers  ${e.kind.padEnd(20)} ${e.name}`);
+          return 0;
+        } finally {
+          db.close();
+        }
+      }
+
+      case 'paper': {
+        const lib = need(openLibrary(root, rest[0] ?? ''), rest[0]);
+        const key = rest[1];
+        if (!key) throw new Error('Which paper? lit paper <lib> <key> — `lit papers` lists the keys.');
+        const db = openDb(lib.dbPath, { readOnly: true });
+        try {
+          const payload = paperPayload(db, key);
+          if (!payload) throw new Error(`No paper "${key}" in ${lib.manifest.id}. \`lit papers ${lib.manifest.id}\` lists the keys.`);
+          if (json) return out(payload), 0;
+          const p = payload.paper;
+          out(`${p.title}`);
+          out(`${[p.authors, p.year, p.journal].filter(Boolean).join(' · ')}${p.doi ? ` · doi:${p.doi}` : ''}\n`);
+          if (p.abstract) out(`Abstract\n  ${p.abstract}\n`);
+          const chunksBySection = new Map<number, typeof payload.chunks>();
+          for (const c of payload.chunks) {
+            const list = chunksBySection.get(c.section) ?? [];
+            list.push(c);
+            chunksBySection.set(c.section, list);
+          }
+          for (const s of payload.sections) {
+            out(`${s.heading} [${s.kind}]`);
+            for (const c of chunksBySection.get(s.id) ?? []) out(`  ${c.text}\n`);
+          }
           return 0;
         } finally {
           db.close();
@@ -259,8 +319,17 @@ async function main(argv: string[]): Promise<number> {
         const hits = await searchEuropePmc(query, { since: since ? Number(since) : undefined, limit: limit ? Number(limit) : 25 });
         const db = openDb(lib.dbPath);
         let created = 0;
+        let unfiled = 0;
         try {
-          for (const hit of hits) if (upsertPaper(db, hit, now).created) created += 1;
+          // A hit with no identifier — old records, mostly — cannot be filed;
+          // skip it and say so rather than dying on the classic literature.
+          for (const hit of hits) {
+            if (!hit.doi && !hit.pmid && !hit.pmcid) {
+              unfiled += 1;
+              continue;
+            }
+            if (upsertPaper(db, hit, now).created) created += 1;
+          }
           db.prepare("INSERT INTO queries (source, query, last_run, hits) VALUES ('europepmc', ?, ?, ?) ON CONFLICT(source, query) DO UPDATE SET last_run = excluded.last_run, hits = excluded.hits").run(query, now, hits.length);
         } finally {
           db.close();
@@ -269,7 +338,7 @@ async function main(argv: string[]): Promise<number> {
           lib.manifest.queries.push(query);
           saveManifest(lib);
         }
-        const delta = { ok: true as const, hits: hits.length, staged: created, message: `${hits.length} hit${hits.length === 1 ? '' : 's'}, ${created} new candidate${created === 1 ? '' : 's'} staged. \`lit fetch ${lib.manifest.id}\` gets their text.` };
+        const delta = { ok: true as const, hits: hits.length, staged: created, unfiled, message: `${hits.length} hit${hits.length === 1 ? '' : 's'}, ${created} new candidate${created === 1 ? '' : 's'} staged${unfiled ? ` (${unfiled} had no DOI, PMID or PMCID to file under)` : ''}. \`lit fetch ${lib.manifest.id}\` gets their text.` };
         if (json) return out({ ...delta, papers: hits }), 0;
         for (const h of hits) out(`${(h.year ?? '').toString().padEnd(5)} ${h.openAccess ? 'OA ' : '   '} ${h.title}${h.doi ? `  doi:${h.doi}` : ''}`);
         return out(`\n${delta.message}`), 0;
@@ -320,7 +389,7 @@ async function main(argv: string[]): Promise<number> {
         try {
           for (const query of lib.manifest.queries) {
             const hits = await searchEuropePmc(query, { limit: 50 });
-            for (const hit of hits) if (upsertPaper(db, hit, now).created) staged += 1;
+            for (const hit of hits) if ((hit.doi || hit.pmid || hit.pmcid) && upsertPaper(db, hit, now).created) staged += 1;
             log(`searched "${query}": ${hits.length} hits`);
           }
         } finally {
@@ -373,12 +442,59 @@ async function main(argv: string[]): Promise<number> {
           const lines = ['year,cited_by,type,title,journal,doi,link', ...rows.map((r) => [r.year, r.cited_by_count, r.pub_type?.includes('review') ? 'review' : 'article', r.title, r.journal, r.doi, link(r)].map(q).join(','))];
           writeFileSync(csv, `${lines.join('\n')}\n`);
         }
-        if (json) return out(rows.map((r) => ({ ...r, link: link(r) }))), 0;
+        if (json) return out(rows.map((r) => ({ ...r, link: link(r), file: inboxFileFor(r.key) }))), 0;
         if (!rows.length) return out('Nothing is waiting for a PDF.'), 0;
         out(`${rows.length} paper${rows.length === 1 ? '' : 's'} waiting for a PDF — drop them in ${lib.inboxDir}; the file name does not matter, ingest reads the DOI off the page.\n`);
         for (const r of rows) out(`${String(r.cited_by_count ?? 0).padStart(4)} cited  ${(r.year ?? '').toString().padEnd(5)} ${r.pub_type?.includes('review') ? 'review ' : '       '} ${r.title}\n             ${link(r)}`);
         if (csv) out(`\nWrote ${csv}.`);
         return 0;
+      }
+
+      case 'collect': {
+        const lib = need(openLibrary(root, rest[0] ?? ''), rest[0]);
+        const job = collectJob(lib);
+        if (!job.papers.length) return out('Nothing is waiting for a PDF.'), 0;
+        let electron: string;
+        try {
+          electron = createRequire(import.meta.url)('electron') as unknown as string;
+        } catch {
+          throw new Error('Collect mode needs Electron for its window; `npm install` in the litrag checkout gets it.');
+        }
+        mkdirSync(lib.inboxDir, { recursive: true });
+        const jobPath = join(tmpdir(), `lit-collect-${Date.now()}.json`);
+        writeFileSync(jobPath, `${JSON.stringify(job, null, 2)}\n`);
+        log(`${job.papers.length} paper${job.papers.length === 1 ? '' : 's'} to collect${job.unlinked ? ` (${job.unlinked} more have no DOI or PMID, so no page to open)` : ''}.`);
+        log('One window, most-cited first. Sign in and click the PDF; the moment a download starts, the next paper loads. Ctrl+Right skips, Alt+Left goes back, Ctrl+Home reopens the paper page.');
+        const tally = { saved: 0, failed: 0, skipped: 0 };
+        const main = fileURLToPath(new URL('./collect-main.cjs', import.meta.url));
+        await new Promise<void>((resolve, reject) => {
+          const child = spawn(electron, [main, jobPath], { stdio: ['ignore', 'pipe', 'inherit'] });
+          let buffer = '';
+          child.stdout.on('data', (data: Buffer) => {
+            buffer += data.toString();
+            let cut;
+            while ((cut = buffer.indexOf('\n')) >= 0) {
+              const line = buffer.slice(0, cut).trim();
+              buffer = buffer.slice(cut + 1);
+              if (!line.startsWith('{')) continue;
+              try {
+                const e = JSON.parse(line) as { event: string; n?: number; of?: number; key?: string; title?: string; file?: string };
+                if (e.event === 'open') log(`${e.n}/${e.of}  ${e.title}`);
+                if (e.event === 'download') log(`  ↓ caught ${e.key} → inbox/${e.file}`);
+                if (e.event === 'saved') tally.saved += 1;
+                if (e.event === 'failed') (tally.failed += 1), log(`  download of ${e.key} did not finish`);
+                if (e.event === 'skip') (tally.skipped += 1), log('  skipped');
+                if (e.event === 'unwedge') log('  page was wedged — force-reloading');
+              } catch {
+                /* a non-JSON line on stdout is Electron's own chatter */
+              }
+            }
+          });
+          child.on('error', reject);
+          child.on('close', () => resolve());
+        });
+        const delta = { ok: true as const, ...tally, message: `Caught ${tally.saved} PDF${tally.saved === 1 ? '' : 's'} into the inbox${tally.failed ? `; ${tally.failed} did not finish` : ''}${tally.skipped ? `; ${tally.skipped} skipped` : ''}. \`lit ingest ${lib.manifest.id}\` reads them.` };
+        return out(json ? delta : delta.message), 0;
       }
 
       case 'papers': {
@@ -395,6 +511,57 @@ async function main(argv: string[]): Promise<number> {
         }
       }
 
+      case 'note': {
+        // note rm <lib> <id> | note <lib> <paper-key> <chunk-id> <text…>
+        if (rest[0] === 'rm') {
+          const lib = need(openLibrary(root, rest[1] ?? ''), rest[1]);
+          const id = Number(rest[2]);
+          if (!Number.isInteger(id)) throw new Error('Which note? lit note rm <lib> <id> — `lit notes` lists the ids.');
+          const db = openDb(lib.dbPath);
+          try {
+            if (!deleteNote(db, id)) throw new Error(`No note ${id} in ${lib.manifest.id}.`);
+          } finally {
+            db.close();
+          }
+          const delta = { ok: true as const, deleted: id, message: `Deleted note ${id}.` };
+          return out(json ? delta : delta.message), 0;
+        }
+        const lib = need(openLibrary(root, rest[0] ?? ''), rest[0]);
+        const paperKey = rest[1];
+        const chunk = Number(rest[2]);
+        const text = rest.slice(3).join(' ').trim();
+        if (!paperKey || !Number.isInteger(chunk) || !text) {
+          throw new Error('lit note <lib> <paper-key> <chunk-id> <text…> — the reader payload names each chunk id.');
+        }
+        const db = openDb(lib.dbPath);
+        try {
+          const note = attachNote(db, paperKey, chunk, text, now, one(flags['quote']));
+          const delta = { ok: true as const, ...note, message: `Note ${note.id} on chunk ${chunk} of ${paperKey}.` };
+          return out(json ? delta : delta.message), 0;
+        } finally {
+          db.close();
+        }
+      }
+
+      case 'notes': {
+        const lib = need(openLibrary(root, rest[0] ?? ''), rest[0]);
+        const db = openDb(lib.dbPath, { readOnly: true });
+        try {
+          const papers = rest[1]
+            ? [rest[1]]
+            : (db.prepare('SELECT DISTINCT paper FROM notes ORDER BY paper').all() as { paper: string }[]).map((r) => r.paper);
+          const rows = papers.flatMap((p) => notesOf(db, p));
+          if (json) return out(rows), 0;
+          if (!rows.length) return out('No notes yet. Click a passage in the reader, or `lit note <lib> <paper> <chunk> <text>`.'), 0;
+          for (const r of rows) out(`${String(r.id).padStart(4)}  ${r.paper}  chunk ${r.chunk ?? '—'}\n      ${r.text}\n      » ${r.quote.slice(0, 80)}…`);
+          return 0;
+        } catch {
+          return out(json ? [] : 'No notes yet.'), 0;
+        } finally {
+          db.close();
+        }
+      }
+
       case 'query': {
         const lib = need(openLibrary(root, rest[0] ?? ''), rest[0]);
         const question = rest.slice(1).join(' ').trim();
@@ -402,7 +569,7 @@ async function main(argv: string[]): Promise<number> {
         const embedder = await embedderFor(root, lib, flags);
         const limit = one(flags['limit']);
         const trace = { seeds: {} as Record<string, string[]> };
-        const hits = await queryLibrary(lib, question, embedder, { limit: limit ? Number(limit) : 8, spine: flags['no-spine'] !== true, graph: flags['no-graph'] !== true, trace });
+        const hits = await queryLibrary(lib, question, embedder, { limit: limit ? Number(limit) : 8, spine: flags['no-spine'] !== true, graph: flags['no-graph'] !== true, paper: one(flags['paper']), trace });
         if (json) return out(flags['trace'] === true ? { hits, trace } : hits), 0;
         if (flags['trace'] === true) {
           for (const [id, seeds] of Object.entries(trace.seeds)) out(`graph seeds (${id}): ${seeds.length ? seeds.join(', ') : 'none named — the walk starts from the nearest passages'}`);

@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { openDb, replaceModelRows, sectionsOf, statusView, upsertPaper } from '../src/db.ts';
 import { BGE_QUERY_PREFIX, hashEmbedder } from '../src/embed.ts';
-import { buildGraph, entitySeeds, graphSearch, graphStats, personalizedPageRank } from '../src/graph.ts';
+import { buildGraph, entitySeeds, graphExport, graphSearch, graphStats, personalizedPageRank } from '../src/graph.ts';
 import { annotateLibrary, fetchCandidates, ingestLibrary } from '../src/ingest.ts';
 import { createLibrary, type Library } from '../src/library.ts';
 import { queryLibrary } from '../src/query.ts';
@@ -128,6 +128,46 @@ describe('the walk', () => {
     expect(withGraph.some((h) => h.ranks.graph)).toBe(true);
     const without = await queryLibrary(lib, question, embedder, { limit: 5, graph: false });
     expect(without.every((h) => h.ranks.graph === undefined)).toBe(true);
+  });
+});
+
+describe('the export (#3)', () => {
+  it('draws paper and entity nodes with entity-to-paper mention edges', () => {
+    const db = openDb(lib.dbPath, { readOnly: true });
+    try {
+      const drawing = graphExport(db, 1);
+      const papers = drawing.nodes.filter((n) => n.type === 'paper');
+      expect(papers).toEqual([expect.objectContaining({ id: `paper:${key}`, key })]);
+      expect((papers[0] as { title: string }).title.length).toBeGreaterThan(0);
+      const entities = drawing.nodes.filter((n) => n.type === 'entity');
+      expect(entities.length).toBeGreaterThan(15);
+      expect(entities.map((e) => (e as { name: string }).name)).toContain('genipin');
+      // One paper: nothing can be a hub (the rule needs more than three papers).
+      expect(entities.every((e) => (e as { hub: boolean }).hub === false)).toBe(true);
+      const ids = new Set(drawing.nodes.map((n) => n.id));
+      expect(drawing.edges.length).toBeGreaterThan(15);
+      for (const e of drawing.edges) {
+        expect(ids.has(e.from)).toBe(true);
+        expect(ids.has(e.to)).toBe(true);
+        expect(e.type).toBe('mention'); // one paper cites nothing the library holds
+        expect(e.weight).toBeGreaterThan(0);
+      }
+    } finally {
+      db.close();
+    }
+  });
+
+  it('leaves thin entities out of the drawing by the min-papers rule', () => {
+    const db = openDb(lib.dbPath, { readOnly: true });
+    try {
+      // Every entity here spans exactly one paper, so a floor of 2 empties the drawing.
+      const drawing = graphExport(db, 2);
+      expect(drawing.nodes.filter((n) => n.type === 'entity')).toEqual([]);
+      expect(drawing.edges).toEqual([]);
+      expect(drawing.nodes.filter((n) => n.type === 'paper').length).toBe(1);
+    } finally {
+      db.close();
+    }
   });
 });
 

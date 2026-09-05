@@ -218,6 +218,19 @@ CREATE TABLE IF NOT EXISTS queries (
   hits INTEGER,
   UNIQUE(source, query)
 );
+
+-- The reader's marginalia (#10). chunk carries no foreign key on purpose:
+-- a --reread retires chunk ids, and the quote re-anchors the note to the
+-- passage's text instead of losing it.
+CREATE TABLE IF NOT EXISTS notes (
+  id INTEGER PRIMARY KEY,
+  paper TEXT NOT NULL REFERENCES papers(key) ON DELETE CASCADE,
+  chunk INTEGER,
+  quote TEXT NOT NULL,
+  text TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS notes_paper ON notes(paper);
 `;
 
 export function openDb(path: string, options: { readOnly?: boolean } = {}): DatabaseSync {
@@ -521,6 +534,115 @@ export interface SectionRow {
 
 export function sectionsOf(db: DatabaseSync, key: string): SectionRow[] {
   return db.prepare('SELECT id, ordinal, heading, kind, text FROM sections WHERE paper = ? ORDER BY ordinal').all(key) as unknown as SectionRow[];
+}
+
+export interface NoteRow {
+  id: number;
+  paper: string;
+  /** The chunk the note is anchored to now — re-anchored by quote when the
+   * original id died in a reread; null when the quote is gone too. */
+  chunk: number | null;
+  quote: string;
+  text: string;
+  createdAt: string;
+}
+
+/**
+ * Attach a note to a chunk (#10): the chunk must belong to the paper, and a
+ * quote is stored so the note survives a --reread. The quote is the
+ * highlighted span when the reader sends one (#11) — validated to actually
+ * occur in the chunk — else the chunk's opening text.
+ */
+export function attachNote(db: DatabaseSync, paper: string, chunk: number, text: string, now: string, highlight?: string): NoteRow {
+  const row = db.prepare('SELECT text FROM chunks WHERE id = ? AND paper = ?').get(chunk, paper) as { text: string } | undefined;
+  if (!row) throw new Error(`Paper "${paper}" has no chunk ${chunk}.`);
+  const span = highlight?.trim().slice(0, 500);
+  if (span && !row.text.includes(span)) throw new Error('That highlight is not in this passage.');
+  const quote = span || row.text.slice(0, 160);
+  const result = db
+    .prepare('INSERT INTO notes (paper, chunk, quote, text, created_at) VALUES (?, ?, ?, ?, ?)')
+    .run(paper, chunk, quote, text, now);
+  return { id: Number(result.lastInsertRowid), paper, chunk, quote, text, createdAt: now };
+}
+
+export function deleteNote(db: DatabaseSync, id: number): boolean {
+  return db.prepare('DELETE FROM notes WHERE id = ?').run(id).changes > 0;
+}
+
+/** A paper's notes, each re-anchored to a live chunk by its quote if the
+ * stored id has died; a note whose passage is gone shows at paper level. */
+export function notesOf(db: DatabaseSync, paper: string): NoteRow[] {
+  let rows: NoteRow[];
+  try {
+    rows = db
+      .prepare('SELECT id, paper, chunk, quote, text, created_at createdAt FROM notes WHERE paper = ? ORDER BY id')
+      .all(paper) as unknown as NoteRow[];
+  } catch {
+    // A store opened read-only before any note was ever written has no
+    // notes table yet; that is an empty answer, not an error.
+    return [];
+  }
+  const alive = new Set(
+    (db.prepare('SELECT id FROM chunks WHERE paper = ?').all(paper) as { id: number }[]).map((c) => c.id),
+  );
+  const anchor = db.prepare('SELECT id FROM chunks WHERE paper = ? AND instr(text, ?) > 0 LIMIT 1');
+  return rows.map((note) => {
+    if (note.chunk !== null && alive.has(note.chunk)) return note;
+    const found = anchor.get(note.paper, note.quote) as { id: number } | undefined;
+    return { ...note, chunk: found?.id ?? null };
+  });
+}
+
+export interface PaperPayload {
+  paper: {
+    key: string;
+    title: string;
+    year: number | null;
+    journal: string | null;
+    authors: string | null;
+    abstract: string | null;
+    doi: string | null;
+    status: string;
+    file: string | null;
+  };
+  sections: { id: number; ordinal: number; heading: string; kind: string }[];
+  chunks: { id: number; section: number; ordinal: number; text: string }[];
+  mentions: { chunk: number | null; entity: number; name: string; kind: string; count: number }[];
+  claims: { id: number; section: number; text: string; kind: string }[];
+  materials: { id: number; section: number; name: string; role: string; amount: string | null }[];
+  methods: { id: number; section: number; name: string; description: string }[];
+  parameters: { id: number; section: number; value: string; unit: string; kind: string; sentence: string; entity: string | null }[];
+  notes: NoteRow[];
+}
+
+/**
+ * The whole reader in one answer (#5): the paper row, its sections in printed
+ * order, their chunks, entity mentions pinned to chunks (chunk NULL means the
+ * whole paper), and the model stage's rows. One call because a reader should
+ * not be a query engine.
+ */
+export function paperPayload(db: DatabaseSync, key: string): PaperPayload | undefined {
+  const paper = db
+    .prepare('SELECT key, title, year, journal, authors, abstract, doi, status, file FROM papers WHERE key = ?')
+    .get(key) as PaperPayload['paper'] | undefined;
+  if (!paper) return undefined;
+  return {
+    paper,
+    sections: db.prepare('SELECT id, ordinal, heading, kind FROM sections WHERE paper = ? ORDER BY ordinal').all(key) as unknown as PaperPayload['sections'],
+    chunks: db.prepare('SELECT id, section, ordinal, text FROM chunks WHERE paper = ? ORDER BY section, ordinal').all(key) as unknown as PaperPayload['chunks'],
+    mentions: db
+      .prepare(
+        'SELECT m.chunk, m.entity, e.name, e.kind, SUM(m.count) count FROM mentions m JOIN entities e ON e.id = m.entity WHERE m.paper = ? GROUP BY m.entity, m.chunk',
+      )
+      .all(key) as unknown as PaperPayload['mentions'],
+    claims: db.prepare('SELECT id, section, text, kind FROM claims WHERE paper = ? ORDER BY id').all(key) as unknown as PaperPayload['claims'],
+    materials: db.prepare('SELECT id, section, name, role, amount FROM materials WHERE paper = ? ORDER BY id').all(key) as unknown as PaperPayload['materials'],
+    methods: db.prepare('SELECT id, section, name, description FROM methods WHERE paper = ? ORDER BY id').all(key) as unknown as PaperPayload['methods'],
+    parameters: db
+      .prepare('SELECT id, section, value, unit, kind, sentence, entity FROM parameters WHERE paper = ? ORDER BY id')
+      .all(key) as unknown as PaperPayload['parameters'],
+    notes: notesOf(db, key),
+  };
 }
 
 export function papersToExtract(db: DatabaseSync, model: string): PaperRow[] {

@@ -17,6 +17,9 @@
     "@huggingface/transformers": "^4.2.0",
     "pdfjs-dist": "^6.3.289"
   },
+  "optionalDependencies": {
+    "electron": "^44.2.0"
+  },
   "devDependencies": {
     "@types/node": "^24.7.0",
     "typescript": "^5.9.2",

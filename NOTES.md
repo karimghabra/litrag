@@ -51,7 +51,51 @@ when it turns out durable. Mark inference as inference.
   under institutional access; the tool catches files, never fetches behind
   a login.
 
+### The libraries
+
+- **succinylated-collagen** (no project, includes looped-ligament) — made
+  2026-09-05 on Karim's word to investigate collagen succinylation and
+  succinylated scaffolds. Two saved searches: `"succinylated collagen"` and
+  a broad boolean (succinylation/succinic anhydride AND collagen AND
+  scaffold/crosslinking/…) that drifts at the edges (food-protein, chitosan
+  neighbors) — prune candidate. 59 OA ingested + 34 wanted; miner only, no
+  model stage yet. The corpus already answers preparation questions
+  (alkaline succinic-anhydride acylation at pH 9–10, cold, isoelectric
+  precipitation ~pH 4).
+
 ## Short-term memory
+
+- **2026-09-05** — looped-ligament healed and complete: 79/79 model-read,
+  66/79 annotated (the 13 others have no PMCID), zero glyph artifacts,
+  zero sha strays. Collect mode (PR #2) caught 44 PDFs in two sittings;
+  its session surfaced and fixed: filename-as-identity ingest, duplicate
+  second copies, the wedged-renderer watchdog, and the µm/°C glyph
+  repairs (guarded against letter-spaced text; multi-space aware). Still
+  wanted in looped-ligament: two ACS *article* PDFs (current files are
+  Supporting Information — doi:10.1021/acsabm.0c01084,
+  doi:10.1021/acsbiomaterials.1c00908) and three never-caught papers
+  (Science Robotics aap9281, ASME 1.4049956, ACS 3c00048). Open issues:
+  #3 graph export, #4 machine interface, #5 reader verbs, #6 glyph
+  learned-maps design (pixels teach the font table), #8 --all query
+  scope; projtracker#48 is the Research-tab design another agent is
+  building against. Karim's own PowerShell lacks %APPDATA%\npm on PATH,
+  so `lit` works only from assistant shells until he adds it.
+
+- **2026-09-04** — First local session ran the whole loop on Karim's
+  machine. looped-ligament stands at 37 ingested / 45 needs-pdf, 1,878
+  chunks embedded (`ollama:nomic-embed-text`), model stage read 37/37 with
+  qwen3:14b (~8.6k claims), and the genipin bench question seeded from the
+  graph as hoped — though every top hit came from one OA paper
+  (doi:10.3390/mi15070851), so the paywalled canon really is the missing
+  half. Machine notes: Ollama's model store lives on `E:\ollama\models`
+  (`OLLAMA_MODELS`, User scope) because `C:` filled to zero bytes free
+  mid-pull; `pt` is not on the PATH, so init used `--project-id n156
+  --project-ref looped-ligament`; the live Protracker vault is
+  `C:\Users\ihave\AppData\Roaming\protracker\vault` (the Desktop
+  "8-10-2026" copy is stale, and `PROTRACKER_VAULT` still points at it).
+  Built `lit collect` (issue #1) the same day — Karim's PI kept hitting
+  Cloudflare challenges collecting PDFs by hand, and one window at a
+  human pace is also the pattern publishers tolerate.
 
 - **2026-09-03** — Initial commit. Not yet run on the user's machine: the
   first local session is `npm link`, `ollama pull qwen3:14b`, `lit doctor`,
