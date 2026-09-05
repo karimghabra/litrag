@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { openDb, paperPayload, replaceModelRows, sectionsOf, upsertPaper } from '../src/db.ts';
+import { attachNote, deleteNote, notesOf, openDb, paperPayload, replaceModelRows, sectionsOf, upsertPaper } from '../src/db.ts';
 import { hashEmbedder } from '../src/embed.ts';
 import { annotateLibrary, fetchCandidates, ingestLibrary } from '../src/ingest.ts';
 import { createLibrary, type Library } from '../src/library.ts';
@@ -82,6 +82,54 @@ describe('lit paper', () => {
     const db = openDb(lib.dbPath, { readOnly: true });
     try {
       expect(paperPayload(db, 'doi:10.0000/not-here')).toBeUndefined();
+    } finally {
+      db.close();
+    }
+  });
+});
+
+describe('notes on chunks (#10)', () => {
+  it('attaches to a chunk, rides the payload, and deletes by id', () => {
+    const db = openDb(lib.dbPath);
+    try {
+      const chunk = (db.prepare('SELECT id FROM chunks WHERE paper = ? LIMIT 1').get(key) as { id: number }).id;
+      const note = attachNote(db, key, chunk, 'The genipin concentration here matches our bench protocol.', now);
+      expect(note.id).toBeGreaterThan(0);
+      expect(note.quote.length).toBeGreaterThan(10);
+      const payload = paperPayload(db, key)!;
+      expect(payload.notes).toEqual([expect.objectContaining({ id: note.id, chunk, text: note.text })]);
+      expect(deleteNote(db, note.id)).toBe(true);
+      expect(paperPayload(db, key)!.notes).toEqual([]);
+      expect(deleteNote(db, note.id)).toBe(false);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('refuses a chunk the paper does not hold', () => {
+    const db = openDb(lib.dbPath);
+    try {
+      expect(() => attachNote(db, key, 999999, 'nope', now)).toThrow(/no chunk/);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('re-anchors by its quote when the chunk id dies, and survives at paper level when the passage is gone', () => {
+    const db = openDb(lib.dbPath);
+    try {
+      const row = db.prepare('SELECT id, text FROM chunks WHERE paper = ? LIMIT 1').get(key) as { id: number; text: string };
+      const note = attachNote(db, key, row.id, 'anchored', now);
+      // A reread retires the id but keeps the prose: simulate with a dead id.
+      db.prepare('UPDATE notes SET chunk = 999999 WHERE id = ?').run(note.id);
+      const anchored = notesOf(db, key).find((n) => n.id === note.id)!;
+      expect(anchored.chunk).toBe(row.id);
+      // The passage itself gone: the note stays, at paper level.
+      db.prepare("UPDATE notes SET chunk = 999999, quote = 'text that exists nowhere in this paper' WHERE id = ?").run(note.id);
+      const unanchored = notesOf(db, key).find((n) => n.id === note.id)!;
+      expect(unanchored.chunk).toBeNull();
+      expect(unanchored.text).toBe('anchored');
+      deleteNote(db, note.id);
     } finally {
       db.close();
     }
