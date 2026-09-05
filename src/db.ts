@@ -549,12 +549,16 @@ export interface NoteRow {
 
 /**
  * Attach a note to a chunk (#10): the chunk must belong to the paper, and a
- * quote of its opening text is stored so the note survives a --reread.
+ * quote is stored so the note survives a --reread. The quote is the
+ * highlighted span when the reader sends one (#11) — validated to actually
+ * occur in the chunk — else the chunk's opening text.
  */
-export function attachNote(db: DatabaseSync, paper: string, chunk: number, text: string, now: string): NoteRow {
+export function attachNote(db: DatabaseSync, paper: string, chunk: number, text: string, now: string, highlight?: string): NoteRow {
   const row = db.prepare('SELECT text FROM chunks WHERE id = ? AND paper = ?').get(chunk, paper) as { text: string } | undefined;
   if (!row) throw new Error(`Paper "${paper}" has no chunk ${chunk}.`);
-  const quote = row.text.slice(0, 160);
+  const span = highlight?.trim().slice(0, 500);
+  if (span && !row.text.includes(span)) throw new Error('That highlight is not in this passage.');
+  const quote = span || row.text.slice(0, 160);
   const result = db
     .prepare('INSERT INTO notes (paper, chunk, quote, text, created_at) VALUES (?, ?, ?, ?, ?)')
     .run(paper, chunk, quote, text, now);

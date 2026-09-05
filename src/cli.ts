@@ -59,8 +59,9 @@ usage: lit [--root DIR] [--json] <command> [args]
   papers <lib>                          the papers, one line each
   paper <lib> <key>                     one paper whole: sections, chunks, mentions, notes, and
                                         the model stage's rows — the reader's payload in one call
-  note <lib> <paper-key> <chunk> <text…>
-                                        a note on a passage; it survives a --reread by its quote
+  note <lib> <paper-key> <chunk> <text…> [--quote "span"]
+                                        a note on a passage — or on one highlighted span of it;
+                                        it survives a --reread by its quote
   note rm <lib> <id>                    delete a note by id
   notes <lib> [paper]                   the notes, with the passages they sit on
   query <lib> <question> [--limit N] [--no-spine] [--no-graph] [--trace] [--paper KEY]
@@ -525,7 +526,7 @@ async function main(argv: string[]): Promise<number> {
         }
         const db = openDb(lib.dbPath);
         try {
-          const note = attachNote(db, paperKey, chunk, text, now);
+          const note = attachNote(db, paperKey, chunk, text, now, one(flags['quote']));
           const delta = { ok: true as const, ...note, message: `Note ${note.id} on chunk ${chunk} of ${paperKey}.` };
           return out(json ? delta : delta.message), 0;
         } finally {

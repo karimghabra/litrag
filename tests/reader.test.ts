@@ -106,6 +106,20 @@ describe('notes on chunks (#10)', () => {
     }
   });
 
+  it('carries an exact highlight as its quote, and refuses one from elsewhere (#11)', () => {
+    const db = openDb(lib.dbPath);
+    try {
+      const row = db.prepare('SELECT id, text FROM chunks WHERE paper = ? LIMIT 1').get(key) as { id: number; text: string };
+      const span = row.text.slice(20, 80);
+      const note = attachNote(db, key, row.id, 'On this exact phrase.', now, span);
+      expect(note.quote).toBe(span.trim());
+      expect(() => attachNote(db, key, row.id, 'nope', now, 'words that never appear in the passage')).toThrow(/not in this passage/);
+      deleteNote(db, note.id);
+    } finally {
+      db.close();
+    }
+  });
+
   it('refuses a chunk the paper does not hold', () => {
     const db = openDb(lib.dbPath);
     try {
