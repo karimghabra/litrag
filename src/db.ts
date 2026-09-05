@@ -523,6 +523,56 @@ export function sectionsOf(db: DatabaseSync, key: string): SectionRow[] {
   return db.prepare('SELECT id, ordinal, heading, kind, text FROM sections WHERE paper = ? ORDER BY ordinal').all(key) as unknown as SectionRow[];
 }
 
+export interface PaperPayload {
+  paper: {
+    key: string;
+    title: string;
+    year: number | null;
+    journal: string | null;
+    authors: string | null;
+    abstract: string | null;
+    doi: string | null;
+    status: string;
+    file: string | null;
+  };
+  sections: { id: number; ordinal: number; heading: string; kind: string }[];
+  chunks: { id: number; section: number; ordinal: number; text: string }[];
+  mentions: { chunk: number | null; entity: number; name: string; kind: string; count: number }[];
+  claims: { id: number; section: number; text: string; kind: string }[];
+  materials: { id: number; section: number; name: string; role: string; amount: string | null }[];
+  methods: { id: number; section: number; name: string; description: string }[];
+  parameters: { id: number; section: number; value: string; unit: string; kind: string; sentence: string; entity: string | null }[];
+}
+
+/**
+ * The whole reader in one answer (#5): the paper row, its sections in printed
+ * order, their chunks, entity mentions pinned to chunks (chunk NULL means the
+ * whole paper), and the model stage's rows. One call because a reader should
+ * not be a query engine.
+ */
+export function paperPayload(db: DatabaseSync, key: string): PaperPayload | undefined {
+  const paper = db
+    .prepare('SELECT key, title, year, journal, authors, abstract, doi, status, file FROM papers WHERE key = ?')
+    .get(key) as PaperPayload['paper'] | undefined;
+  if (!paper) return undefined;
+  return {
+    paper,
+    sections: db.prepare('SELECT id, ordinal, heading, kind FROM sections WHERE paper = ? ORDER BY ordinal').all(key) as unknown as PaperPayload['sections'],
+    chunks: db.prepare('SELECT id, section, ordinal, text FROM chunks WHERE paper = ? ORDER BY section, ordinal').all(key) as unknown as PaperPayload['chunks'],
+    mentions: db
+      .prepare(
+        'SELECT m.chunk, m.entity, e.name, e.kind, SUM(m.count) count FROM mentions m JOIN entities e ON e.id = m.entity WHERE m.paper = ? GROUP BY m.entity, m.chunk',
+      )
+      .all(key) as unknown as PaperPayload['mentions'],
+    claims: db.prepare('SELECT id, section, text, kind FROM claims WHERE paper = ? ORDER BY id').all(key) as unknown as PaperPayload['claims'],
+    materials: db.prepare('SELECT id, section, name, role, amount FROM materials WHERE paper = ? ORDER BY id').all(key) as unknown as PaperPayload['materials'],
+    methods: db.prepare('SELECT id, section, name, description FROM methods WHERE paper = ? ORDER BY id').all(key) as unknown as PaperPayload['methods'],
+    parameters: db
+      .prepare('SELECT id, section, value, unit, kind, sentence, entity FROM parameters WHERE paper = ? ORDER BY id')
+      .all(key) as unknown as PaperPayload['parameters'],
+  };
+}
+
 export function papersToExtract(db: DatabaseSync, model: string): PaperRow[] {
   return db
     .prepare("SELECT * FROM papers WHERE status = 'ingested' AND (extracted_with IS NULL OR extracted_with != ?) ORDER BY added_at, key")

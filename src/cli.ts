@@ -8,14 +8,14 @@
 
 import { list, one, parseArgs, type Args } from './args.ts';
 import { resolveProject } from './protracker.ts';
-import { allPapers, openDb, statusView, upsertPaper } from './db.ts';
+import { allPapers, openDb, paperPayload, statusView, upsertPaper } from './db.ts';
 import { hashEmbedder, localEmbedder, type Embedder } from './embed.ts';
 import { annotateLibrary, extractLibrary, fetchCandidates, ingestLibrary } from './ingest.ts';
-import { buildGraph, graphStats } from './graph.ts';
+import { buildGraph, graphExport, graphStats } from './graph.ts';
 import { createLibrary, libraryRoot, listLibraries, modelCacheDir, openLibrary, saveManifest, type Library, type Manifest } from './library.ts';
 import { ollamaEmbedder, ollamaExtractor, ollamaHealth } from './ollama.ts';
 import { queryLibrary, runSql } from './query.ts';
-import { collectJob } from './collect.ts';
+import { collectJob, inboxFileFor } from './collect.ts';
 import { lookupEuropePmc, referencesOf, searchEuropePmc } from './sources/europepmc.ts';
 import { spawn } from 'node:child_process';
 import { copyFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
@@ -47,7 +47,8 @@ usage: lit [--root DIR] [--json] <command> [args]
                                         parameters, through Ollama (needs --extract ollama)
   annotate <lib>                        entity nodes for free: Europe PMC's text-mined terms
                                         (chemicals, proteins, organisms, methods) per paper
-  graph <lib>                           the graph as it stands: nodes, edges, the entities that span most papers
+  graph <lib> [--min-papers N]          the graph as it stands; --json carries nodes and edges for a
+                                        drawing (entities spanning N+ papers, default 3, hubs marked)
   entities <lib> [--kind K] [--limit N] the entities, with how many papers name each
   refresh <lib>                         the saved searches, then fetch, ingest, and extract
   status <lib>                          counts by stage, and what needs a PDF
@@ -55,8 +56,11 @@ usage: lit [--root DIR] [--json] <command> [args]
   collect <lib>                         one window through the wanted list: sign in, click the
                                         PDF; a download that starts moves it on (Ctrl+Right skips)
   papers <lib>                          the papers, one line each
-  query <lib> <question> [--limit N] [--no-spine] [--no-graph] [--trace]
-                                        chunks with citations: words, meaning and the graph walk fused
+  paper <lib> <key>                     one paper whole: sections, chunks, mentions, and the
+                                        model stage's rows — the reader's payload in one call
+  query <lib> <question> [--limit N] [--no-spine] [--no-graph] [--trace] [--paper KEY]
+                                        chunks with citations: words, meaning and the graph walk fused;
+                                        --paper scopes the answer to one paper
   sql <lib> <select ...> [--limit N]    read-only SQL against the store
   snowball <lib> <paper-key>            stage what a paper cites
   where                                 the library root
@@ -237,9 +241,42 @@ async function main(argv: string[]): Promise<number> {
         const db = openDb(lib.dbPath, { readOnly: true });
         try {
           const stats = graphStats(db, buildGraph(db));
-          if (json) return out(stats), 0;
+          if (json) {
+            const minPapers = Number(one(flags['min-papers']) ?? 3);
+            if (!Number.isFinite(minPapers) || minPapers < 1) throw new Error('--min-papers takes a whole number, 1 or more.');
+            return out({ ...stats, ...graphExport(db, minPapers) }), 0;
+          }
           out(`${stats.papers} papers · ${stats.chunks} chunks · ${stats.entities} entities (${stats.hubsDropped} hubs left out) · ${stats.citationEdges} citation edges · ${stats.mentionEdges} mention edges`);
           for (const e of stats.topEntities) out(`  ${String(e.papers).padStart(4)} papers  ${e.kind.padEnd(20)} ${e.name}`);
+          return 0;
+        } finally {
+          db.close();
+        }
+      }
+
+      case 'paper': {
+        const lib = need(openLibrary(root, rest[0] ?? ''), rest[0]);
+        const key = rest[1];
+        if (!key) throw new Error('Which paper? lit paper <lib> <key> — `lit papers` lists the keys.');
+        const db = openDb(lib.dbPath, { readOnly: true });
+        try {
+          const payload = paperPayload(db, key);
+          if (!payload) throw new Error(`No paper "${key}" in ${lib.manifest.id}. \`lit papers ${lib.manifest.id}\` lists the keys.`);
+          if (json) return out(payload), 0;
+          const p = payload.paper;
+          out(`${p.title}`);
+          out(`${[p.authors, p.year, p.journal].filter(Boolean).join(' · ')}${p.doi ? ` · doi:${p.doi}` : ''}\n`);
+          if (p.abstract) out(`Abstract\n  ${p.abstract}\n`);
+          const chunksBySection = new Map<number, typeof payload.chunks>();
+          for (const c of payload.chunks) {
+            const list = chunksBySection.get(c.section) ?? [];
+            list.push(c);
+            chunksBySection.set(c.section, list);
+          }
+          for (const s of payload.sections) {
+            out(`${s.heading} [${s.kind}]`);
+            for (const c of chunksBySection.get(s.id) ?? []) out(`  ${c.text}\n`);
+          }
           return 0;
         } finally {
           db.close();
@@ -380,7 +417,7 @@ async function main(argv: string[]): Promise<number> {
           const lines = ['year,cited_by,type,title,journal,doi,link', ...rows.map((r) => [r.year, r.cited_by_count, r.pub_type?.includes('review') ? 'review' : 'article', r.title, r.journal, r.doi, link(r)].map(q).join(','))];
           writeFileSync(csv, `${lines.join('\n')}\n`);
         }
-        if (json) return out(rows.map((r) => ({ ...r, link: link(r) }))), 0;
+        if (json) return out(rows.map((r) => ({ ...r, link: link(r), file: inboxFileFor(r.key) }))), 0;
         if (!rows.length) return out('Nothing is waiting for a PDF.'), 0;
         out(`${rows.length} paper${rows.length === 1 ? '' : 's'} waiting for a PDF — drop them in ${lib.inboxDir}; the file name does not matter, ingest reads the DOI off the page.\n`);
         for (const r of rows) out(`${String(r.cited_by_count ?? 0).padStart(4)} cited  ${(r.year ?? '').toString().padEnd(5)} ${r.pub_type?.includes('review') ? 'review ' : '       '} ${r.title}\n             ${link(r)}`);
@@ -456,7 +493,7 @@ async function main(argv: string[]): Promise<number> {
         const embedder = await embedderFor(root, lib, flags);
         const limit = one(flags['limit']);
         const trace = { seeds: {} as Record<string, string[]> };
-        const hits = await queryLibrary(lib, question, embedder, { limit: limit ? Number(limit) : 8, spine: flags['no-spine'] !== true, graph: flags['no-graph'] !== true, trace });
+        const hits = await queryLibrary(lib, question, embedder, { limit: limit ? Number(limit) : 8, spine: flags['no-spine'] !== true, graph: flags['no-graph'] !== true, paper: one(flags['paper']), trace });
         if (json) return out(flags['trace'] === true ? { hits, trace } : hits), 0;
         if (flags['trace'] === true) {
           for (const [id, seeds] of Object.entries(trace.seeds)) out(`graph seeds (${id}): ${seeds.length ? seeds.join(', ') : 'none named — the walk starts from the nearest passages'}`);

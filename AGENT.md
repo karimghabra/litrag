@@ -130,8 +130,12 @@ The shapes you will reason over most:
   — `ranks` says which of the three rankings held the chunk and where; with
   `--trace` the answer is `{ hits[], trace { seeds { <library>: [names] } } }`.
   `citation` is the string to cite: title, year, journal, DOI, section, page.
+  `--paper KEY` scopes the hits to one paper ("ask this paper", #5); the
+  spine is off in that case, since a paper lives in one library.
 - `wanted`: `[{ key, year, title, journal, doi, pmid, cited_by_count,
-  pub_type, link }]`, most-cited first.
+  pub_type, link, file }]`, most-cited first; `file` is the `<key>.pdf`
+  inbox name a caught PDF should be saved under, so a host need not
+  re-implement the naming rule.
 - `papers`: every column of the `papers` table, including `status`,
   `pub_type` ("research-article; journal article" / "review-article; …"),
   `extracted_with`, `annotated_at`.
@@ -139,8 +143,20 @@ The shapes you will reason over most:
   needsPdf[] }`; `ingest`: `{ ok, inbox[], ingested[], failed[{ key, error }],
   embedded }`; `annotate`: `{ ok, annotated[], skipped[], mentions }`;
   `extract`: `{ ok, extracted[], failed[], sections }`.
-- `graph`: `{ papers, chunks, entities, hubsDropped, citationEdges,
-  mentionEdges, topEntities[{ name, kind, papers }] }`.
+- `graph`: the stats — `{ papers, chunks, entities, hubsDropped,
+  citationEdges, mentionEdges, topEntities[{ name, kind, papers }] }` —
+  plus a drawing (#3): `nodes` (`{ id: "paper:<key>", type: "paper", key,
+  title, year }` and `{ id: "entity:<id>", type: "entity", name, kind,
+  papers, hub }`) and `edges` (`{ from, to, type: "mention" | "citation",
+  weight }`, mentions entity-to-paper). Entities spanning fewer than
+  `--min-papers` papers (default 3) stay out of the drawing; hubs are in it,
+  marked `hub: true`, for the UI to dim rather than lose.
+- `paper`: the reader's payload in one call (#5) — `{ paper { key, title,
+  year, journal, authors, abstract, doi, status, file }, sections[{ id,
+  ordinal, heading, kind }], chunks[{ id, section, ordinal, text }],
+  mentions[{ chunk, entity, name, kind, count }] (chunk null = the whole
+  paper), claims[], materials[], methods[], parameters[] }` — the model
+  stage's rows each carry their `section`.
 - `entities`: `[{ name, kind, papers, mentions }]`; kinds are Europe PMC's
   (`chemicals`, `gene-proteins`, `organisms`, `experimental-methods`,
   `gene-ontology`, `diseases`) and the model stage's (`material`, `method`).

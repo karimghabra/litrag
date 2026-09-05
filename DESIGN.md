@@ -148,13 +148,18 @@ lit ingest <lib>                       read, chunk, mine parameters, embed —
                                        for fetched papers and the inbox; idempotent
 lit extract <lib> [--limit N]          the model stage through Ollama, resumable
 lit annotate <lib>                     entity nodes from Europe PMC's text-mined terms
-lit graph <lib> | lit entities <lib>   what the graph is made of
+lit graph <lib> [--min-papers N]       what the graph is made of; --json adds nodes and
+                                       edges for a drawing, hubs marked (#3)
+lit entities <lib>                     the entities, with how many papers name each
+lit paper <lib> <key>                  one paper whole: sections, chunks, mentions, and
+                                       the model stage's rows — the reader's payload (#5)
 lit config <lib> --extract ollama --embed ollama [--ollama-chat M] [--ollama-embed M]
 lit doctor [<lib>]                     root, model cache, Ollama and its models
 lit status <lib>                       counts by status; what needs a PDF
 lit wanted <lib> [--csv FILE]          the PDFs to collect, most-cited first, with doi.org links
-lit query <lib> "<question>" [--limit N]
-                                       hybrid retrieval: chunks with citations
+lit query <lib> "<question>" [--limit N] [--paper KEY]
+                                       hybrid retrieval: chunks with citations;
+                                       --paper asks one paper alone (#5)
 lit sql <lib> "<select …>"             read-only SQL
 lit snowball <lib> <paper>             stage the references of a paper
 lit serve [--port 7411]                the same verbs over HTTP on 127.0.0.1

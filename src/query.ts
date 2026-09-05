@@ -110,6 +110,8 @@ export interface QueryOptions {
   spine?: boolean;
   /** Walk the entity graph as a third ranking. Default true. */
   graph?: boolean;
+  /** Only hits from this paper (#5's "ask this paper"). Turns the spine off — a paper lives in one library. */
+  paper?: string;
   /** Filled in with what the graph walk started from. */
   trace?: QueryTrace;
 }
@@ -118,14 +120,18 @@ export async function queryLibrary(lib: Library, question: string, embedder: Emb
   const limit = options.limit ?? 8;
   const trace = options.trace ?? { seeds: {} };
   const libs: Library[] = [lib];
-  if (options.spine !== false) {
+  if (options.spine !== false && !options.paper) {
     for (const key of lib.manifest.includes) {
       const included = openLibrary(lib.root, key);
       if (included && included.manifest.id !== lib.manifest.id) libs.push(included);
     }
   }
-  const hits: QueryHit[] = [];
-  for (const l of libs) hits.push(...(await queryOne(l, question, embedder, Math.max(20, limit * 3), options.graph !== false, trace)));
+  // Scoped to one paper, the rankings need to run deep enough that its
+  // chunks surface at all before the filter keeps only them.
+  const perList = options.paper ? 400 : Math.max(20, limit * 3);
+  let hits: QueryHit[] = [];
+  for (const l of libs) hits.push(...(await queryOne(l, question, embedder, perList, options.graph !== false, trace)));
+  if (options.paper) hits = hits.filter((h) => h.paper === options.paper);
   return hits.sort((a, b) => b.score - a.score).slice(0, limit);
 }
 

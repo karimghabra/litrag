@@ -183,6 +183,76 @@ export interface GraphStats {
   topEntities: { name: string; kind: string; papers: number }[];
 }
 
+export type ExportNode =
+  | { id: string; type: 'paper'; key: string; title: string; year: number | null }
+  | { id: string; type: 'entity'; name: string; kind: string; papers: number; hub: boolean };
+
+export interface GraphExport {
+  nodes: ExportNode[];
+  edges: { from: string; to: string; type: 'mention' | 'citation'; weight: number }[];
+}
+
+/**
+ * The graph as a drawing (#3): paper and entity nodes, mention and citation
+ * edges, built from the tables like everything else. Two deliberate
+ * differences from the walk's graph: mention edges are entity-to-paper
+ * (a drawing has no use for 3000 chunk nodes), and hubs are *marked* rather
+ * than dropped, so a UI can dim "collagen" instead of losing it. Entities
+ * below `minPapers` papers stay out — a nine-thousand-node force layout is
+ * not a picture — and the flag exists for a caller that wants them anyway.
+ */
+export function graphExport(db: DatabaseSync, minPapers = 3): GraphExport {
+  const papers = db
+    .prepare("SELECT key, title, year FROM papers WHERE status = 'ingested'")
+    .all() as { key: string; title: string; year: number | null }[];
+  const ingested = new Set(papers.map((p) => p.key));
+  const paperCount = Math.max(1, papers.length);
+
+  const nodes: ExportNode[] = papers.map((p) => ({
+    id: `paper:${p.key}`,
+    type: 'paper',
+    key: p.key,
+    title: p.title,
+    year: p.year,
+  }));
+
+  const spread = db
+    .prepare(
+      "SELECT m.entity, e.name, e.kind, COUNT(DISTINCT m.paper) n FROM mentions m JOIN entities e ON e.id = m.entity JOIN papers p ON p.key = m.paper AND p.status = 'ingested' GROUP BY m.entity",
+    )
+    .all() as { entity: number; name: string; kind: string; n: number }[];
+  const included = new Set<number>();
+  for (const e of spread) {
+    if (e.n < Math.max(1, minPapers)) continue;
+    included.add(e.entity);
+    nodes.push({
+      id: `entity:${e.entity}`,
+      type: 'entity',
+      name: e.name,
+      kind: e.kind,
+      papers: e.n,
+      hub: e.n / paperCount > HUB_SHARE && paperCount > 3,
+    });
+  }
+
+  const edges: GraphExport['edges'] = [];
+  for (const m of db
+    .prepare(
+      "SELECT m.entity, m.paper, SUM(m.count) w FROM mentions m JOIN papers p ON p.key = m.paper AND p.status = 'ingested' GROUP BY m.entity, m.paper",
+    )
+    .all() as { entity: number; paper: string; w: number }[]) {
+    if (!included.has(m.entity)) continue;
+    edges.push({ from: `entity:${m.entity}`, to: `paper:${m.paper}`, type: 'mention', weight: m.w });
+  }
+  for (const r of db
+    .prepare('SELECT DISTINCT paper, matched_paper FROM refs WHERE matched_paper IS NOT NULL')
+    .all() as { paper: string; matched_paper: string }[]) {
+    if (!ingested.has(r.paper) || !ingested.has(r.matched_paper)) continue;
+    edges.push({ from: `paper:${r.paper}`, to: `paper:${r.matched_paper}`, type: 'citation', weight: 1 });
+  }
+  return { nodes, edges };
+}
+
 export function graphStats(db: DatabaseSync, graph: Graph): GraphStats {
   let citationEdges = 0;
   let mentionEdges = 0;
