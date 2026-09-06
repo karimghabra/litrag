@@ -490,13 +490,14 @@ export interface ChunkView {
   kind: string;
   page: number | null;
   text: string;
+  pubType: string | null;
 }
 
 export function chunkViews(db: DatabaseSync, ids: number[]): Map<number, ChunkView> {
   const out = new Map<number, ChunkView>();
   if (!ids.length) return out;
   const stmt = db.prepare(
-    `SELECT c.id, c.paper, p.title, p.year, p.journal, p.doi, s.heading, s.kind, c.page, c.text
+    `SELECT c.id, c.paper, p.title, p.year, p.journal, p.doi, s.heading, s.kind, c.page, c.text, p.pub_type pubType
        FROM chunks c JOIN papers p ON p.key = c.paper JOIN sections s ON s.id = c.section WHERE c.id = ?`,
   );
   for (const id of ids) {

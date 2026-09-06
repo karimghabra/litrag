@@ -28,10 +28,15 @@ export interface QueryHit {
   page: number | null;
   text: string;
   score: number;
+  /** The paper's publication type, for a host that badges or filters reviews. */
+  pubType: string | null;
   /** How the hit earned its place: which rankings held it, and where. */
   ranks: { words?: number; meaning?: number; graph?: number; facts?: number };
   citation: string;
 }
+
+/** "review-article; journal article" is a review; NULL is unknown, and kept. */
+const isReview = (pubType: string | null | undefined) => !!pubType && pubType.toLowerCase().includes('review');
 
 export interface QueryTrace {
   /** The entities the graph walk started from, per library. */
@@ -94,6 +99,7 @@ async function queryOne(lib: Library, question: string, embedder: Embedder, perL
         page: view.page,
         text: view.text,
         score,
+        pubType: view.pubType ?? null,
         ranks,
       };
       out.push({ ...hit, citation: citationFor(hit) });
@@ -124,7 +130,7 @@ function questionTerms(question: string): string[] {
  * parameter question — so rows whose kind, entity, sentence or text carry
  * the question's words lead the answer, cited like any chunk.
  */
-function factsFor(lib: Library, question: string, limit: number): QueryHit[] {
+function factsFor(lib: Library, question: string, limit: number, excludeReviews = false): QueryHit[] {
   const terms = questionTerms(question);
   if (!terms.length) return [];
   const db = openDb(lib.dbPath, { readOnly: true });
@@ -132,12 +138,14 @@ function factsFor(lib: Library, question: string, limit: number): QueryHit[] {
     // Matched = how many of the question's terms the row carries anywhere.
     const termCount = (hay: string) => terms.map(() => `(instr(${hay}, ?) > 0)`).join(' + ');
     const enough = Math.min(2, terms.length);
+    // NULL pub_type is unknown, and kept: absence of evidence is not a review.
+    const noReviews = excludeReviews ? " AND (p.pub_type IS NULL OR instr(lower(p.pub_type), 'review') = 0)" : '';
     const params = db
       .prepare(
         `SELECT pr.value, pr.unit, pr.kind, pr.entity, pr.sentence, pr.chunk, pr.paper, p.title, p.year, p.journal, p.doi, s.heading, s.kind skind, s.page,
                 (${termCount("lower(pr.kind || ' ' || coalesce(pr.entity, '') || ' ' || pr.sentence)")}) matched
            FROM parameters pr JOIN papers p ON p.key = pr.paper JOIN sections s ON s.id = pr.section
-          WHERE pr.value != 'not specified'
+          WHERE pr.value != 'not specified'${noReviews}
           ORDER BY matched DESC LIMIT 200`,
       )
       .all(...terms) as {
@@ -150,6 +158,7 @@ function factsFor(lib: Library, question: string, limit: number): QueryHit[] {
         `SELECT c.text, c.paper, p.title, p.year, p.journal, p.doi, s.heading, s.kind skind, s.page,
                 (${termCount('lower(c.text)')}) matched
            FROM claims c JOIN papers p ON p.key = c.paper JOIN sections s ON s.id = c.section
+          WHERE 1 = 1${noReviews}
           ORDER BY matched DESC LIMIT 200`,
       )
       .all(...terms) as {
@@ -166,7 +175,7 @@ function factsFor(lib: Library, question: string, limit: number): QueryHit[] {
           `SELECT pf.facet, pf.value, pf.evidence, pf.paper, p.title, p.year, p.journal, p.doi,
                   (${termCount("lower(pf.facet || ' ' || pf.value || ' ' || pf.evidence)")}) matched
              FROM profiles pf JOIN papers p ON p.key = pf.paper
-            WHERE pf.value != 'not reported'
+            WHERE pf.value != 'not reported'${noReviews}
             ORDER BY matched DESC LIMIT 200`,
         )
         .all(...terms) as typeof profiles;
@@ -207,6 +216,7 @@ function factsFor(lib: Library, question: string, limit: number): QueryHit[] {
         page: row.page,
         text,
         score: 1,
+        pubType: null,
         ranks: { facts: i + 1 },
       };
       return { ...hit, citation: citationFor(hit) };
@@ -241,6 +251,8 @@ export interface QueryOptions {
   graph?: boolean;
   /** Only hits from this paper (#5's "ask this paper"). Turns the spine off — a paper lives in one library. */
   paper?: string;
+  /** Leave reviews out (#17): chunks and facts from papers whose pub_type says review. Unknown is kept. */
+  excludeReviews?: boolean;
   /** Filled in with what the graph walk started from. */
   trace?: QueryTrace;
 }
@@ -261,13 +273,14 @@ export async function queryLibrary(lib: Library, question: string, embedder: Emb
   let hits: QueryHit[] = [];
   for (const l of libs) hits.push(...(await queryOne(l, question, embedder, perList, options.graph !== false, trace)));
   if (options.paper) hits = hits.filter((h) => h.paper === options.paper);
+  if (options.excludeReviews) hits = hits.filter((h) => !isReview(h.pubType));
   hits = hits.sort((a, b) => b.score - a.score).slice(0, limit);
 
   // The facts lead (#9), and what the library lacks is said out loud — both
   // judged over every library searched, spine included: a term is missing
   // only when no searched library holds it.
   let facts: QueryHit[] = [];
-  for (const l of libs) facts.push(...factsFor(l, question, 3));
+  for (const l of libs) facts.push(...factsFor(l, question, 3, options.excludeReviews === true));
   facts = facts.slice(0, 3);
   if (options.paper) facts = facts.filter((h) => h.paper === options.paper);
   const missing = libs
@@ -297,6 +310,7 @@ export async function queryLibrary(lib: Library, question: string, embedder: Emb
       section: 'the library itself',
       kind: 'coverage',
       page: null,
+      pubType: null,
       text: elsewhere.length
         ? `Nothing in the ${lib.manifest.name} library mentions ${terms} — but ${elsewhere.join(' and ')} does. Switch the library, or \`lit config ${lib.manifest.id} --include <its id>\` to share its spine.`
         : `Nothing in the ${lib.manifest.name} library mentions ${terms} — \`lit search\` can stage papers on it.`,

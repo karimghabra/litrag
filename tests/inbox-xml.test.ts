@@ -13,6 +13,7 @@ import { openDb, paperByKey, upsertPaper } from '../src/db.ts';
 import { hashEmbedder } from '../src/embed.ts';
 import { fileNameFor, ingestLibrary } from '../src/ingest.ts';
 import { createLibrary, type Library } from '../src/library.ts';
+import { queryLibrary } from '../src/query.ts';
 
 const xml = readFileSync(fileURLToPath(new URL('./fixtures/PMC11278924.xml', import.meta.url)), 'utf8');
 const now = '2026-09-06T12:00';
@@ -48,5 +49,18 @@ describe('a JATS XML in the inbox', () => {
     } finally {
       db.close();
     }
+  });
+});
+
+describe('hiding reviews (#17)', () => {
+  it('leaves a review paper out of chunks and facts, and keeps it when asked normally', async () => {
+    const db = openDb(lib.dbPath);
+    db.prepare("UPDATE papers SET pub_type = 'review-article; journal article' WHERE key = ?").run(key);
+    db.close();
+    const withReviews = await queryLibrary(lib, 'genipin crosslinking', hashEmbedder(), { limit: 5 });
+    expect(withReviews.some((h) => h.chunk > 0)).toBe(true);
+    expect(withReviews.find((h) => h.chunk > 0)!.pubType).toContain('review');
+    const without = await queryLibrary(lib, 'genipin crosslinking', hashEmbedder(), { limit: 5, excludeReviews: true });
+    expect(without.every((h) => h.chunk <= 0)).toBe(true); // only coverage/facts leads, no review chunks
   });
 });

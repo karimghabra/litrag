@@ -69,9 +69,9 @@ usage: lit [--root DIR] [--json] <command> [args]
                                         it survives a --reread by its quote
   note rm <lib> <id>                    delete a note by id
   notes <lib> [paper]                   the notes, with the passages they sit on
-  query <lib> <question> [--limit N] [--no-spine] [--no-graph] [--trace] [--paper KEY]
+  query <lib> <question> [--limit N] [--no-spine] [--no-graph] [--trace] [--paper KEY] [--no-reviews]
                                         chunks with citations: words, meaning and the graph walk fused;
-                                        --paper scopes the answer to one paper
+                                        --paper scopes to one paper, --no-reviews leaves reviews out
   sql <lib> <select ...> [--limit N]    read-only SQL against the store
   snowball <lib> <paper-key>            stage what a paper cites
   where                                 the library root
@@ -618,7 +618,7 @@ async function main(argv: string[]): Promise<number> {
         const embedder = await embedderFor(root, lib, flags);
         const limit = one(flags['limit']);
         const trace = { seeds: {} as Record<string, string[]> };
-        const hits = await queryLibrary(lib, question, embedder, { limit: limit ? Number(limit) : 8, spine: flags['no-spine'] !== true, graph: flags['no-graph'] !== true, paper: one(flags['paper']), trace });
+        const hits = await queryLibrary(lib, question, embedder, { limit: limit ? Number(limit) : 8, spine: flags['no-spine'] !== true, graph: flags['no-graph'] !== true, paper: one(flags['paper']), excludeReviews: flags['no-reviews'] === true, trace });
         if (json) return out(flags['trace'] === true ? { hits, trace } : hits), 0;
         if (flags['trace'] === true) {
           for (const [id, seeds] of Object.entries(trace.seeds)) out(`graph seeds (${id}): ${seeds.length ? seeds.join(', ') : 'none named — the walk starts from the nearest passages'}`);
