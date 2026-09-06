@@ -28,17 +28,18 @@ import {
   upsertPaper,
   type Extraction,
   type ModelRows,
+  type PaperInput,
   type PaperRow,
 } from './db.ts';
 import { splitSentences } from './chunk.ts';
 import type { Extractor, PaperProfiler } from './ollama.ts';
 import type { Embedder } from './embed.ts';
 import { parseJats } from './jats.ts';
-import { libraryFacets, type Library } from './library.ts';
+import { libraryFacets, saveManifest, type Library } from './library.ts';
 import { mineSections } from './parameters.ts';
 import { findDoi, pdfPages } from './pdf.ts';
 import { sectionsFromPages } from './sections.ts';
-import { annotationsFor, fullTextXml, type Fetcher, defaultFetcher } from './sources/europepmc.ts';
+import { annotationsFor, fullTextXml, lookupEuropePmc, searchEuropePmc, type Fetcher, defaultFetcher } from './sources/europepmc.ts';
 import { entityId } from './db.ts';
 
 export type Log = (line: string) => void;
@@ -303,6 +304,59 @@ export function piecesOf(section: { heading: string; kind: string; text: string 
  * purpose — this is the GPU's job — and resumable: each paper is stamped
  * with the model that read it, so a run cut short picks up where it stopped.
  */
+export interface StageReport {
+  hits: number;
+  staged: number;
+  unfiled: number;
+  papers: PaperInput[];
+}
+
+/**
+ * Search Europe PMC and stage the hits as candidates (#15): one function so
+ * the CLI and a host app cannot drift. The query joins the library's saved
+ * searches, and the queries table remembers the run.
+ */
+export async function stageSearch(lib: Library, query: string, options: { since?: number; limit?: number; now?: string; fetcher?: Fetcher } = {}): Promise<StageReport> {
+  const now = options.now ?? new Date().toISOString().slice(0, 16);
+  const hits = await searchEuropePmc(query, { since: options.since, limit: options.limit ?? 25, fetcher: options.fetcher });
+  const db = openDb(lib.dbPath);
+  let staged = 0;
+  let unfiled = 0;
+  try {
+    // A hit with no identifier — old records, mostly — cannot be filed;
+    // skip it and say so rather than dying on the classic literature.
+    for (const hit of hits) {
+      if (!hit.doi && !hit.pmid && !hit.pmcid) {
+        unfiled += 1;
+        continue;
+      }
+      if (upsertPaper(db, hit, now).created) staged += 1;
+    }
+    db.prepare("INSERT INTO queries (source, query, last_run, hits) VALUES ('europepmc', ?, ?, ?) ON CONFLICT(source, query) DO UPDATE SET last_run = excluded.last_run, hits = excluded.hits").run(query, now, hits.length);
+  } finally {
+    db.close();
+  }
+  if (!lib.manifest.queries.includes(query)) {
+    lib.manifest.queries.push(query);
+    saveManifest(lib);
+  }
+  return { hits: hits.length, staged, unfiled, papers: hits };
+}
+
+/** One paper by DOI, PMID or PMCID, staged as a candidate (#15). */
+export async function stagePaper(lib: Library, token: string, options: { now?: string; fetcher?: Fetcher } = {}): Promise<{ key: string; created: boolean; title: string; hasFullText: boolean }> {
+  const now = options.now ?? new Date().toISOString().slice(0, 16);
+  const paper = await lookupEuropePmc(token, options.fetcher);
+  if (!paper) throw new Error(`Europe PMC knows nothing by "${token}".`);
+  const db = openDb(lib.dbPath);
+  try {
+    const { key, created } = upsertPaper(db, paper, now);
+    return { key, created, title: paper.title, hasFullText: !!paper.pmcid };
+  } finally {
+    db.close();
+  }
+}
+
 export interface ProfileReport {
   profiled: string[];
   failed: { key: string; error: string }[];

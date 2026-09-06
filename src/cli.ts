@@ -10,13 +10,13 @@ import { list, one, parseArgs, type Args } from './args.ts';
 import { resolveProject } from './protracker.ts';
 import { allPapers, attachNote, deleteNote, notesOf, openDb, paperPayload, profileOf, statusView, upsertPaper } from './db.ts';
 import { hashEmbedder, localEmbedder, type Embedder } from './embed.ts';
-import { annotateLibrary, extractLibrary, fetchCandidates, ingestLibrary, profileLibrary } from './ingest.ts';
+import { annotateLibrary, extractLibrary, fetchCandidates, ingestLibrary, profileLibrary, stagePaper, stageSearch } from './ingest.ts';
 import { buildGraph, graphExport, graphStats } from './graph.ts';
 import { createLibrary, libraryFacets, libraryRoot, listLibraries, modelCacheDir, openLibrary, saveManifest, type Library, type Manifest } from './library.ts';
 import { ollamaEmbedder, ollamaExtractor, ollamaHealth, ollamaProfiler } from './ollama.ts';
 import { queryLibrary, runSql } from './query.ts';
 import { collectJob, inboxFileFor } from './collect.ts';
-import { lookupEuropePmc, referencesOf, searchEuropePmc } from './sources/europepmc.ts';
+import { referencesOf, searchEuropePmc } from './sources/europepmc.ts';
 import { spawn } from 'node:child_process';
 import { copyFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
@@ -393,31 +393,10 @@ async function main(argv: string[]): Promise<number> {
         if (!query) throw new Error('Search for what? lit search <lib> <query>');
         const since = one(flags['since']);
         const limit = one(flags['limit']);
-        const hits = await searchEuropePmc(query, { since: since ? Number(since) : undefined, limit: limit ? Number(limit) : 25 });
-        const db = openDb(lib.dbPath);
-        let created = 0;
-        let unfiled = 0;
-        try {
-          // A hit with no identifier — old records, mostly — cannot be filed;
-          // skip it and say so rather than dying on the classic literature.
-          for (const hit of hits) {
-            if (!hit.doi && !hit.pmid && !hit.pmcid) {
-              unfiled += 1;
-              continue;
-            }
-            if (upsertPaper(db, hit, now).created) created += 1;
-          }
-          db.prepare("INSERT INTO queries (source, query, last_run, hits) VALUES ('europepmc', ?, ?, ?) ON CONFLICT(source, query) DO UPDATE SET last_run = excluded.last_run, hits = excluded.hits").run(query, now, hits.length);
-        } finally {
-          db.close();
-        }
-        if (!lib.manifest.queries.includes(query)) {
-          lib.manifest.queries.push(query);
-          saveManifest(lib);
-        }
-        const delta = { ok: true as const, hits: hits.length, staged: created, unfiled, message: `${hits.length} hit${hits.length === 1 ? '' : 's'}, ${created} new candidate${created === 1 ? '' : 's'} staged${unfiled ? ` (${unfiled} had no DOI, PMID or PMCID to file under)` : ''}. \`lit fetch ${lib.manifest.id}\` gets their text.` };
-        if (json) return out({ ...delta, papers: hits }), 0;
-        for (const h of hits) out(`${(h.year ?? '').toString().padEnd(5)} ${h.openAccess ? 'OA ' : '   '} ${h.title}${h.doi ? `  doi:${h.doi}` : ''}`);
+        const report = await stageSearch(lib, query, { since: since ? Number(since) : undefined, limit: limit ? Number(limit) : undefined, now });
+        const delta = { ok: true as const, hits: report.hits, staged: report.staged, unfiled: report.unfiled, message: `${report.hits} hit${report.hits === 1 ? '' : 's'}, ${report.staged} new candidate${report.staged === 1 ? '' : 's'} staged${report.unfiled ? ` (${report.unfiled} had no DOI, PMID or PMCID to file under)` : ''}. \`lit fetch ${lib.manifest.id}\` gets their text.` };
+        if (json) return out({ ...delta, papers: report.papers }), 0;
+        for (const h of report.papers) out(`${(h.year ?? '').toString().padEnd(5)} ${h.openAccess ? 'OA ' : '   '} ${h.title}${h.doi ? `  doi:${h.doi}` : ''}`);
         return out(`\n${delta.message}`), 0;
       }
 
@@ -432,16 +411,9 @@ async function main(argv: string[]): Promise<number> {
           const delta = { ok: true as const, message: `Copied ${basename(what)} into the inbox. \`lit ingest ${lib.manifest.id}\` reads it.` };
           return out(json ? delta : delta.message), 0;
         }
-        const paper = await lookupEuropePmc(what);
-        if (!paper) throw new Error(`Europe PMC knows nothing by "${what}".`);
-        const db = openDb(lib.dbPath);
-        try {
-          const { key, created } = upsertPaper(db, paper, now);
-          const delta = { ok: true as const, key, created, message: `${created ? 'Staged' : 'Already had'} ${key}: ${paper.title}${paper.pmcid ? ' (open access)' : ' (no full text at Europe PMC)'}.` };
-          return out(json ? delta : delta.message), 0;
-        } finally {
-          db.close();
-        }
+        const staged = await stagePaper(lib, what, { now });
+        const delta = { ok: true as const, key: staged.key, created: staged.created, message: `${staged.created ? 'Staged' : 'Already had'} ${staged.key}: ${staged.title}${staged.hasFullText ? ' (open access)' : ' (no full text at Europe PMC)'}.` };
+        return out(json ? delta : delta.message), 0;
       }
 
       case 'fetch': {
