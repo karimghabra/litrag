@@ -32,7 +32,31 @@ export interface Manifest {
   model: string;
   /** The local model server, when either stage uses it. */
   ollama: { url: string; chat: string; embed: string };
+  /**
+   * The profile schema (#14): what every paper in THIS library is asked.
+   * Per-library because projects differ — a ligament library cares about
+   * crosslinking, an imaging one does not. Absent means DEFAULT_FACETS.
+   */
+  facets?: { key: string; ask: string }[];
   createdAt: string;
+}
+
+/** The prefill (#14): a tissue-engineering schema, edited per project. */
+export const DEFAULT_FACETS: { key: string; ask: string }[] = [
+  { key: 'model', ask: 'What animal or cell model was used (species, cell type, in vitro or in vivo)?' },
+  { key: 'scaffold', ask: 'What type of scaffold or construct was used (material and form)?' },
+  { key: 'growth-factors', ask: 'What growth factors or biologics were added?' },
+  { key: 'endpoints', ask: 'What endpoints or outcome measures were assessed?' },
+  { key: 'crosslinking', ask: 'What crosslinking treatment was used (agent, concentration, duration)?' },
+  { key: 'pre-crosslinking', ask: 'What preparation preceded crosslinking?' },
+  { key: 'post-crosslinking', ask: 'What treatment followed crosslinking (washing, quenching, drying)?' },
+  { key: 'sterilization', ask: 'How were the constructs sterilized?' },
+  { key: 'culture-length', ask: 'How long were cultures maintained or implants left in place?' },
+];
+
+/** The schema this library profiles against: its own, else the prefill. */
+export function libraryFacets(manifest: Manifest): { key: string; ask: string }[] {
+  return manifest.facets?.length ? manifest.facets : DEFAULT_FACETS;
 }
 
 export const OLLAMA_DEFAULTS = { url: 'http://127.0.0.1:11434', chat: 'qwen3:14b', embed: 'nomic-embed-text' };

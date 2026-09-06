@@ -156,8 +156,31 @@ function factsFor(lib: Library, question: string, limit: number): QueryHit[] {
       text: string; paper: string; title: string; year: number | null; journal: string | null; doi: string | null;
       heading: string; skind: string; page: number | null; matched: number;
     }[];
+    // The paper's profile (#14): explicit answers to the library's own
+    // schema — the best-curated facts of all. A store from before the
+    // profile stage simply has none.
+    let profiles: { facet: string; value: string; evidence: string; paper: string; title: string; year: number | null; journal: string | null; doi: string | null; matched: number }[] = [];
+    try {
+      profiles = db
+        .prepare(
+          `SELECT pf.facet, pf.value, pf.evidence, pf.paper, p.title, p.year, p.journal, p.doi,
+                  (${termCount("lower(pf.facet || ' ' || pf.value || ' ' || pf.evidence)")}) matched
+             FROM profiles pf JOIN papers p ON p.key = pf.paper
+            WHERE pf.value != 'not reported'
+            ORDER BY matched DESC LIMIT 200`,
+        )
+        .all(...terms) as typeof profiles;
+    } catch {
+      profiles = [];
+    }
     const scored: { matched: number; text: string; row: { paper: string; title: string; year: number | null; journal: string | null; doi: string | null; heading: string; skind: string; page: number | null; chunk?: number | null } }[] = [
-      // A measured value outranks a prose claim at equal term coverage.
+      // A profile answer leads, a measured value next, a prose claim last,
+      // at equal term coverage.
+      ...profiles.filter((r) => r.matched >= enough).map((r) => ({
+        matched: r.matched + 0.75,
+        text: `${r.facet}: ${r.value}${r.evidence ? ` — ${r.evidence}` : ''}`,
+        row: { ...r, heading: `profile — ${r.facet}`, skind: 'profile', page: null },
+      })),
       ...params.filter((r) => r.matched >= enough).map((r) => ({
         matched: r.matched + 0.5,
         text: `${r.value} ${r.unit} — ${r.entity ? `${r.entity}: ` : ''}${r.sentence}`,

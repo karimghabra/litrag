@@ -18,8 +18,10 @@ import {
   paperByKey,
   papersByStatus,
   papersToExtract,
+  papersToProfile,
   replaceExtraction,
   replaceModelRows,
+  replaceProfile,
   sectionsOf,
   setPaperFile,
   setPaperStatus,
@@ -29,10 +31,10 @@ import {
   type PaperRow,
 } from './db.ts';
 import { splitSentences } from './chunk.ts';
-import type { Extractor } from './ollama.ts';
+import type { Extractor, PaperProfiler } from './ollama.ts';
 import type { Embedder } from './embed.ts';
 import { parseJats } from './jats.ts';
-import type { Library } from './library.ts';
+import { libraryFacets, type Library } from './library.ts';
 import { mineSections } from './parameters.ts';
 import { findDoi, pdfPages } from './pdf.ts';
 import { sectionsFromPages } from './sections.ts';
@@ -301,6 +303,44 @@ export function piecesOf(section: { heading: string; kind: string; text: string 
  * purpose — this is the GPU's job — and resumable: each paper is stamped
  * with the model that read it, so a run cut short picks up where it stopped.
  */
+export interface ProfileReport {
+  profiled: string[];
+  failed: { key: string; error: string }[];
+}
+
+/**
+ * The profile stage (#14): every ingested paper answered against the
+ * library's facet schema, whole-paper, one row per distinct answer, each
+ * with the sentence it came from. Runs once per model like extract.
+ */
+export async function profileLibrary(lib: Library, profiler: PaperProfiler, options: { log?: Log; limit?: number } = {}): Promise<ProfileReport> {
+  const log = options.log ?? quiet;
+  const facets = libraryFacets(lib.manifest);
+  const db = openDb(lib.dbPath);
+  const report: ProfileReport = { profiled: [], failed: [] };
+  try {
+    const papers = papersToProfile(db, profiler.model).slice(0, options.limit ?? Number.MAX_SAFE_INTEGER);
+    for (const paper of papers) {
+      try {
+        const text = sectionsOf(db, paper.key)
+          .map((s) => `${s.heading}\n${s.text}`)
+          .join('\n\n');
+        const answers = await profiler.profile({ title: paper.title, text }, facets);
+        replaceProfile(db, paper.key, profiler.model, answers);
+        report.profiled.push(paper.key);
+        log(`profiled  ${paper.key}  ${answers.length} rows over ${facets.length} facets`);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        report.failed.push({ key: paper.key, error: message });
+        log(`failed    ${paper.key}  ${message}`);
+      }
+    }
+  } finally {
+    db.close();
+  }
+  return report;
+}
+
 export async function extractLibrary(lib: Library, extractor: Extractor, options: { log?: Log; now?: string; limit?: number } = {}): Promise<ExtractReport> {
   const log = options.log ?? quiet;
   const now = options.now ?? new Date().toISOString().slice(0, 16);

@@ -8,12 +8,12 @@
 
 import { list, one, parseArgs, type Args } from './args.ts';
 import { resolveProject } from './protracker.ts';
-import { allPapers, attachNote, deleteNote, notesOf, openDb, paperPayload, statusView, upsertPaper } from './db.ts';
+import { allPapers, attachNote, deleteNote, notesOf, openDb, paperPayload, profileOf, statusView, upsertPaper } from './db.ts';
 import { hashEmbedder, localEmbedder, type Embedder } from './embed.ts';
-import { annotateLibrary, extractLibrary, fetchCandidates, ingestLibrary } from './ingest.ts';
+import { annotateLibrary, extractLibrary, fetchCandidates, ingestLibrary, profileLibrary } from './ingest.ts';
 import { buildGraph, graphExport, graphStats } from './graph.ts';
-import { createLibrary, libraryRoot, listLibraries, modelCacheDir, openLibrary, saveManifest, type Library, type Manifest } from './library.ts';
-import { ollamaEmbedder, ollamaExtractor, ollamaHealth } from './ollama.ts';
+import { createLibrary, libraryFacets, libraryRoot, listLibraries, modelCacheDir, openLibrary, saveManifest, type Library, type Manifest } from './library.ts';
+import { ollamaEmbedder, ollamaExtractor, ollamaHealth, ollamaProfiler } from './ollama.ts';
 import { queryLibrary, runSql } from './query.ts';
 import { collectJob, inboxFileFor } from './collect.ts';
 import { lookupEuropePmc, referencesOf, searchEuropePmc } from './sources/europepmc.ts';
@@ -36,6 +36,7 @@ usage: lit [--root DIR] [--json] <command> [args]
        [--ollama-url URL] [--ollama-chat MODEL] [--ollama-embed MODEL]
   config <lib> [the same flags]         change how a library extracts and embeds; also
        [--project-id ID --project-ref REF | --no-project]   tie it to its project after the fact
+       [--facet "key: question"]...      shape the profile schema — per project, yours to edit
   doctor [<lib>]                        is everything in place: root, model cache, Ollama and its models
   search <lib> <query> [--since YEAR] [--limit N]
                                         stage candidates from Europe PMC; nothing is fetched
@@ -48,6 +49,10 @@ usage: lit [--root DIR] [--json] <command> [args]
                                         parameters, through Ollama (needs --extract ollama)
   annotate <lib>                        entity nodes for free: Europe PMC's text-mined terms
                                         (chemicals, proteins, organisms, methods) per paper
+  profile <lib> [--limit N] [--reprofile]
+                                        answer the library's facet schema for every ingested paper
+                                        (model, scaffold, crosslinking, ... — whatever the schema asks)
+  facets <lib> [--csv FILE]             the papers-by-facets matrix: the extraction table, as rows
   graph <lib> [--min-papers N]          the graph as it stands; --json carries nodes and edges for a
                                         drawing (entities spanning N+ papers, default 3, hubs marked)
   entities <lib> [--kind K] [--limit N] the entities, with how many papers name each
@@ -192,6 +197,23 @@ async function main(argv: string[]): Promise<number> {
           lib.manifest.model = lib.manifest.embedding === 'ollama' ? `ollama:${lib.manifest.ollama.embed}` : (one(flags['model']) ?? lib.manifest.model.replace(/^ollama:.*/, 'Xenova/bge-small-en-v1.5'));
         }
         for (const inc of list(flags['include'])) if (!lib.manifest.includes.includes(inc)) lib.manifest.includes.push(inc);
+        // The profile schema is the user's, per project (#14): --facet
+        // "key: question" upserts one, starting from the prefill.
+        const facetSpecs = list(flags['facet']);
+        if (facetSpecs.length) {
+          const facets = [...libraryFacets(lib.manifest).map((f) => ({ ...f }))];
+          for (const spec of facetSpecs) {
+            const split = spec.indexOf(':');
+            if (split < 1) throw new Error(`--facet wants "key: question", not "${spec}".`);
+            const key = spec.slice(0, split).trim();
+            const ask = spec.slice(split + 1).trim();
+            if (!key || !ask) throw new Error(`--facet wants "key: question", not "${spec}".`);
+            const existing = facets.find((f) => f.key === key);
+            if (existing) existing.ask = ask;
+            else facets.push({ key, ask });
+          }
+          lib.manifest.facets = facets;
+        }
         // A library made before its project existed can be tied after the
         // fact (#10) — or untied, with --no-project.
         const projectId = one(flags['project-id']);
@@ -243,6 +265,61 @@ async function main(argv: string[]): Promise<number> {
         const report = await extractLibrary(lib, extractor, { log, now, limit: limit ? Number(limit) : undefined });
         const delta = { ok: true as const, ...report, message: `Extracted ${report.extracted.length} paper${report.extracted.length === 1 ? '' : 's'} (${report.sections} sections)${report.failed.length ? `; ${report.failed.length} failed` : ''}.` };
         return out(json ? delta : delta.message), 0;
+      }
+
+      case 'profile': {
+        const lib = need(openLibrary(root, rest[0] ?? ''), rest[0]);
+        const health = await ollamaHealth(lib.manifest.ollama, [lib.manifest.ollama.chat]);
+        if (!health.reachable) throw new Error(`Ollama is not reachable at ${lib.manifest.ollama.url}. Start it, then try again.`);
+        if (health.missing.length) throw new Error(`Ollama has no model "${lib.manifest.ollama.chat}". \`ollama pull ${lib.manifest.ollama.chat}\` gets it.`);
+        if (flags['reprofile'] === true) {
+          // A changed schema is a reason to read every paper again.
+          const db = openDb(lib.dbPath);
+          try {
+            db.prepare('UPDATE papers SET profiled_with = NULL').run();
+          } finally {
+            db.close();
+          }
+        }
+        const limit = one(flags['limit']);
+        const report = await profileLibrary(lib, ollamaProfiler(lib.manifest.ollama), { log, limit: limit ? Number(limit) : undefined });
+        const delta = { ok: true as const, ...report, message: `Profiled ${report.profiled.length} paper${report.profiled.length === 1 ? '' : 's'} over ${libraryFacets(lib.manifest).length} facets${report.failed.length ? `; ${report.failed.length} failed` : ''}.` };
+        return out(json ? delta : delta.message), 0;
+      }
+
+      case 'facets': {
+        const lib = need(openLibrary(root, rest[0] ?? ''), rest[0]);
+        const facets = libraryFacets(lib.manifest);
+        const db = openDb(lib.dbPath, { readOnly: true });
+        try {
+          const papers = db
+            .prepare("SELECT key, title, year FROM papers WHERE status = 'ingested' AND profiled_with IS NOT NULL ORDER BY year DESC, title")
+            .all() as { key: string; title: string; year: number | null }[];
+          const rows = papers.map((p) => {
+            const profile: Record<string, string[]> = {};
+            for (const r of profileOf(db, p.key)) (profile[r.facet] ??= []).push(r.value);
+            return { ...p, profile };
+          });
+          const csv = one(flags['csv']);
+          if (csv) {
+            const q = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+            const lines = [
+              ['key', 'year', 'title', ...facets.map((f) => f.key)].map(q).join(','),
+              ...rows.map((r) => [r.key, r.year, r.title, ...facets.map((f) => (r.profile[f.key] ?? []).join('; '))].map(q).join(',')),
+            ];
+            writeFileSync(csv, `${lines.join('\n')}\n`);
+          }
+          if (json) return out({ facets, papers: rows }), 0;
+          if (!rows.length) return out('No profiles yet. `lit profile` reads every ingested paper against the schema.'), 0;
+          for (const r of rows) {
+            out(`${r.title}${r.year ? ` (${r.year})` : ''}`);
+            for (const f of facets) out(`  ${f.key.padEnd(18)} ${(r.profile[f.key] ?? ['—']).join(' · ')}`);
+          }
+          if (csv) out(`\nWrote ${csv}.`);
+          return 0;
+        } finally {
+          db.close();
+        }
       }
 
       case 'annotate': {

@@ -210,6 +210,86 @@ export function ollamaExtractor(settings: OllamaSettings, fetchImpl: FetchLike =
   };
 }
 
+/** One facet answered: the value, and the sentence it came from. */
+export interface ProfileAnswer {
+  facet: string;
+  value: string;
+  evidence: string;
+}
+
+export const PROFILE_SCHEMA = {
+  type: 'object',
+  properties: {
+    answers: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: { facet: { type: 'string' }, value: { type: 'string' }, evidence: { type: 'string' } },
+        required: ['facet', 'value', 'evidence'],
+      },
+    },
+  },
+  required: ['answers'],
+} as const;
+
+const PROFILE_SYSTEM = `You read one whole scientific paper and answer a fixed list of questions about it, as JSON matching the schema, and nothing else.
+
+Each question has a key. For each question, return one answer row per DISTINCT answer the paper gives — a paper that crosslinks with both EDC and genipin returns two rows for that key, one each. Each row:
+- facet: the question's key, exactly as given.
+- value: the answer, short and specific, in the paper's own terms (an agent with its concentration, a cell type with its species, a duration with its unit).
+- evidence: the single sentence from the paper the answer comes from, verbatim.
+
+A question the paper does not answer gets exactly one row with value "not reported" and empty evidence. Only what the text says. Do not invent.`;
+
+export interface PaperProfiler {
+  model: string;
+  profile(paper: { title: string; text: string }, facets: { key: string; ask: string }[]): Promise<ProfileAnswer[]>;
+}
+
+export function ollamaProfiler(settings: OllamaSettings, fetchImpl: FetchLike = defaultFetch): PaperProfiler {
+  return {
+    model: `ollama:${settings.chat}`,
+    async profile(paper, facets) {
+      const questions = facets.map((f) => `- ${f.key}: ${f.ask}`).join('\n');
+      const content = await chatContent(
+        settings,
+        {
+          model: settings.chat,
+          think: false,
+          format: PROFILE_SCHEMA,
+          options: { temperature: 0, num_ctx: 32768 },
+          messages: [
+            { role: 'system', content: PROFILE_SYSTEM },
+            {
+              role: 'user',
+              content: `Questions:\n${questions}\n\nPaper: ${paper.title}\n\n${paper.text.slice(0, 90_000)}`,
+            },
+          ],
+        },
+        fetchImpl,
+      );
+      return parseProfile(content, facets.map((f) => f.key));
+    },
+  };
+}
+
+/** The model's profile as rows: unknown facets and empty values dropped, not trusted. */
+export function parseProfile(content: string, allowed: string[]): ProfileAnswer[] {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(content);
+  } catch {
+    throw new Error('The model did not answer with JSON.');
+  }
+  const keys = new Set(allowed);
+  const rows = Array.isArray((raw as { answers?: unknown }).answers) ? ((raw as { answers: unknown[] }).answers) : [];
+  const str = (v: unknown) => (typeof v === 'string' ? v.trim() : '');
+  return rows
+    .map((r) => r as Record<string, unknown>)
+    .filter((r) => keys.has(str(r['facet'])) && str(r['value']))
+    .map((r) => ({ facet: str(r['facet']), value: str(r['value']), evidence: str(r['evidence']) }));
+}
+
 /** The model's answer as rows, with anything malformed dropped rather than trusted. */
 export function parseRows(content: string): ExtractedRows {
   let raw: unknown;

@@ -219,6 +219,19 @@ CREATE TABLE IF NOT EXISTS queries (
   UNIQUE(source, query)
 );
 
+-- The paper's profile (#14): explicit answers to the library's facet
+-- schema, one row per distinct answer, with the sentence it came from.
+CREATE TABLE IF NOT EXISTS profiles (
+  id INTEGER PRIMARY KEY,
+  paper TEXT NOT NULL REFERENCES papers(key) ON DELETE CASCADE,
+  facet TEXT NOT NULL,
+  value TEXT NOT NULL,
+  evidence TEXT NOT NULL,
+  source TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS profiles_paper ON profiles(paper);
+CREATE INDEX IF NOT EXISTS profiles_facet ON profiles(facet, value);
+
 -- The reader's marginalia (#10). chunk carries no foreign key on purpose:
 -- a --reread retires chunk ids, and the quote re-anchors the note to the
 -- passage's text instead of losing it.
@@ -261,6 +274,12 @@ function migrate(db: DatabaseSync): void {
     if (!has('papers', 'pub_type')) db.exec('ALTER TABLE papers ADD COLUMN pub_type TEXT');
     if (!has('papers', 'annotated_at')) db.exec('ALTER TABLE papers ADD COLUMN annotated_at TEXT');
     db.exec('PRAGMA user_version = 3');
+  }
+  if (version < 4) {
+    const has = (table: string, column: string) =>
+      (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).some((c) => c.name === column);
+    if (!has('papers', 'profiled_with')) db.exec('ALTER TABLE papers ADD COLUMN profiled_with TEXT');
+    db.exec('PRAGMA user_version = 4');
   }
 }
 
@@ -536,6 +555,43 @@ export function sectionsOf(db: DatabaseSync, key: string): SectionRow[] {
   return db.prepare('SELECT id, ordinal, heading, kind, text FROM sections WHERE paper = ? ORDER BY ordinal').all(key) as unknown as SectionRow[];
 }
 
+export interface ProfileRow {
+  id: number;
+  facet: string;
+  value: string;
+  evidence: string;
+}
+
+/** One paper's profile replaced whole (#14), stamped with the model that read it. */
+export function replaceProfile(db: DatabaseSync, paper: string, model: string, rows: { facet: string; value: string; evidence: string }[]): void {
+  db.exec('BEGIN');
+  try {
+    db.prepare('DELETE FROM profiles WHERE paper = ?').run(paper);
+    const insert = db.prepare('INSERT INTO profiles (paper, facet, value, evidence, source) VALUES (?, ?, ?, ?, ?)');
+    for (const row of rows) insert.run(paper, row.facet, row.value, row.evidence, model);
+    db.prepare('UPDATE papers SET profiled_with = ? WHERE key = ?').run(model, paper);
+    db.exec('COMMIT');
+  } catch (error) {
+    db.exec('ROLLBACK');
+    throw error;
+  }
+}
+
+export function profileOf(db: DatabaseSync, paper: string): ProfileRow[] {
+  try {
+    return db.prepare('SELECT id, facet, value, evidence FROM profiles WHERE paper = ? ORDER BY facet, id').all(paper) as unknown as ProfileRow[];
+  } catch {
+    // A store opened read-only from before any profile has no table yet.
+    return [];
+  }
+}
+
+export function papersToProfile(db: DatabaseSync, model: string): PaperRow[] {
+  return db
+    .prepare("SELECT * FROM papers WHERE status = 'ingested' AND (profiled_with IS NULL OR profiled_with != ?) ORDER BY added_at, key")
+    .all(model) as unknown as PaperRow[];
+}
+
 export interface NoteRow {
   id: number;
   paper: string;
@@ -613,6 +669,8 @@ export interface PaperPayload {
   methods: { id: number; section: number; name: string; description: string }[];
   parameters: { id: number; section: number; value: string; unit: string; kind: string; sentence: string; entity: string | null }[];
   notes: NoteRow[];
+  /** The paper's facet profile (#14); empty until `lit profile` reads it. */
+  profile: ProfileRow[];
 }
 
 /**
@@ -642,6 +700,7 @@ export function paperPayload(db: DatabaseSync, key: string): PaperPayload | unde
       .prepare('SELECT id, section, value, unit, kind, sentence, entity FROM parameters WHERE paper = ? ORDER BY id')
       .all(key) as unknown as PaperPayload['parameters'],
     notes: notesOf(db, key),
+    profile: profileOf(db, key),
   };
 }
 
