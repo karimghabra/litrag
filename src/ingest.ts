@@ -144,23 +144,33 @@ function titleGuess(front: string): string | undefined {
 }
 
 /** Every paper, keyed by the name `collect` would give its PDF. */
+/** The formats the inbox reads: PDFs, and JATS XML where it appears (#16). */
+export const INBOX_EXTENSIONS = ['.pdf', '.xml'];
+
 function papersByName(db: DatabaseSync): Map<string, { key: string; filed: boolean }> {
   const all = db.prepare("SELECT key, file FROM papers WHERE key NOT LIKE 'sha:%'").all() as { key: string; file: string | null }[];
-  return new Map(all.map((p) => [fileNameFor(p.key, '.pdf'), { key: p.key, filed: p.file !== null }]));
+  return new Map(
+    all.flatMap((p) =>
+      INBOX_EXTENSIONS.map((ext) => [fileNameFor(p.key, ext), { key: p.key, filed: p.file !== null }] as const),
+    ),
+  );
 }
 
 /**
- * PDFs a person dropped in the inbox become papers in the store. A file named
- * the way `collect` names them is the paper it was caught for — the window
- * knew the DOI, and the name carries it, so the pages need not. Anything else
- * is filed by DOI when its pages name one, else by its bytes.
+ * Files a person dropped in the inbox become papers in the store — PDFs,
+ * and JATS XML where it appears (#16); the extension survives, and the
+ * reader routes by it. A file named the way `collect` names them is the
+ * paper it was caught for — the window knew the DOI, and the name carries
+ * it, so the pages need not. Anything else is filed by DOI when its pages
+ * name one, else by its bytes.
  */
 export function takeInbox(lib: Library, db: DatabaseSync, now: string, log: Log): string[] {
   if (!existsSync(lib.inboxDir)) return [];
   const taken: string[] = [];
   const owners = papersByName(db);
   for (const entry of readdirSync(lib.inboxDir)) {
-    if (extname(entry).toLowerCase() !== '.pdf') continue;
+    const ext = extname(entry).toLowerCase();
+    if (!INBOX_EXTENSIONS.includes(ext)) continue;
     const from = join(lib.inboxDir, entry);
     const bytes = readFileSync(from);
     const hash = sha256(bytes);
@@ -169,7 +179,7 @@ export function takeInbox(lib: Library, db: DatabaseSync, now: string, log: Log)
     // is read again. Only an unrecognised name is filed by its bytes.
     const owner = owners.get(entry);
     const key = owner?.key ?? upsertPaper(db, { title: `Untitled (${basename(entry)})`, source: 'inbox' }, now, hash).key;
-    const file = fileNameFor(key, '.pdf');
+    const file = fileNameFor(key, ext);
     mkdirSync(lib.papersDir, { recursive: true });
     renameSync(from, join(lib.papersDir, file));
     setPaperFile(db, key, file, hash, 'fetched');

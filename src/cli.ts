@@ -40,8 +40,8 @@ usage: lit [--root DIR] [--json] <command> [args]
   doctor [<lib>]                        is everything in place: root, model cache, Ollama and its models
   search <lib> <query> [--since YEAR] [--limit N]
                                         stage candidates from Europe PMC; nothing is fetched
-  add <lib> <doi | pmid | pmcid | file.pdf>
-                                        one paper by hand; a PDF goes to the inbox
+  add <lib> <doi | pmid | pmcid | file.pdf | file.xml>
+                                        one paper by hand; a PDF or JATS XML goes to the inbox
   fetch <lib>                           full text for every candidate that has any
   ingest <lib> [--reread]               read fetched papers and the inbox into rows; embed.
                                         --reread reads every paper on disk again
@@ -404,7 +404,7 @@ async function main(argv: string[]): Promise<number> {
         const lib = need(openLibrary(root, rest[0] ?? ''), rest[0]);
         const what = rest[1];
         if (!what) throw new Error('Add what? A DOI, a PMID, a PMCID, or a PDF.');
-        if (/\.pdf$/i.test(what)) {
+        if (/\.(pdf|xml)$/i.test(what)) {
           if (!existsSync(what)) throw new Error(`No file at ${what}.`);
           mkdirSync(lib.inboxDir, { recursive: true });
           copyFileSync(what, join(lib.inboxDir, basename(what)));
