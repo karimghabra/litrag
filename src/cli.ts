@@ -155,7 +155,7 @@ async function main(argv: string[]): Promise<number> {
         const delta = {
           ok: true as const,
           ...report,
-          message: `Restored ${report.notes} note${report.notes === 1 ? '' : 's'} and ${report.profiles} profile row${report.profiles === 1 ? '' : 's'}${report.skipped ? `; ${report.skipped} rows wait for papers not yet ingested here` : ''}.`,
+          message: `Restored the ingested text of ${report.texts} paper${report.texts === 1 ? '' : 's'}, extract rows of ${report.extracted}, ${report.profiles} profile row${report.profiles === 1 ? '' : 's'}, and ${report.notes} note${report.notes === 1 ? '' : 's'}${report.skipped ? `; ${report.skipped} rows wait for papers not yet staged here` : ''}. \`lit ingest\` embeds the restored chunks.`,
         };
         return out(json ? delta : delta.message), 0;
       }

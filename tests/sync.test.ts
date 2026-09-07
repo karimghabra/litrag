@@ -9,7 +9,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { attachNote, openDb, replaceProfile, upsertPaper, replaceExtraction } from '../src/db.ts';
+import { attachNote, openDb, replaceModelRows, replaceProfile, upsertPaper, replaceExtraction } from '../src/db.ts';
 import { createLibrary, openLibrary } from '../src/library.ts';
 import { exportDurables, restoreDurables, syncPush, writeSyncSettings } from '../src/sync.ts';
 
@@ -42,6 +42,8 @@ beforeAll(() => {
   const chunk = (db.prepare('SELECT id FROM chunks WHERE paper = ?').get(key) as { id: number }).id;
   attachNote(db, key, chunk, 'Matches our bench protocol.', now);
   replaceProfile(db, key, 'ollama:test', [{ facet: 'crosslinking', value: 'genipin overnight', evidence: 'Crosslinked in genipin overnight at four degrees.' }]);
+  const section = (db.prepare('SELECT id FROM sections WHERE paper = ?').get(key) as { id: number }).id;
+  replaceModelRows(db, key, 'ollama:test', [{ section, rows: { claims: [{ text: 'Genipin holds the threads.', kind: 'finding' }], materials: [{ name: 'Genipin', role: 'crosslinker' }], methods: [], parameters: [{ entity: 'crosslinking time', value: 'overnight', unit: 'h', context: 'Crosslinked in genipin overnight.' }] } }], now);
   db.close();
 });
 afterAll(() => {
@@ -67,43 +69,40 @@ describe('lit sync', () => {
     expect(existsSync(join(cloned, 'synced-shelf', 'library.json'))).toBe(true);
     expect(existsSync(join(cloned, 'synced-shelf', 'notes.jsonl'))).toBe(true);
     expect(existsSync(join(cloned, 'synced-shelf', 'profiles.jsonl'))).toBe(true);
+    expect(existsSync(join(cloned, 'synced-shelf', 'extract.jsonl'))).toBe(true);
+    expect(existsSync(join(cloned, 'synced-shelf', 'text.jsonl'))).toBe(true);
     // The store never travels.
     expect(existsSync(join(cloned, 'synced-shelf', 'lit.sqlite'))).toBe(false);
     expect(readFileSync(join(cloned, '.gitignore'), 'utf8')).toContain('lit.sqlite');
   });
 
-  it('restores notes and profiles into a rebuilt store, idempotently', () => {
+  it('restores the whole reading — text, extract rows, profiles, notes — without touching a source', () => {
     const cloned = join(clone, 'library');
     const lib = openLibrary(cloned, 'synced-shelf')!;
-    // Simulate the re-ingest: the paper and its chunk exist again.
+    // Only the staging is simulated: the paper's row exists, nothing else.
     const db = openDb(lib.dbPath);
     upsertPaper(db, { doi: '10.1/synced', title: 'A paper worth keeping', source: 'europepmc' }, now);
-    replaceExtraction(
-      db,
-      key,
-      {
-        sections: [{ heading: 'Methods', kind: 'methods', text: 'Crosslinked in genipin overnight at four degrees.' }],
-        chunks: [{ sectionOrdinal: 0, ordinal: 0, words: 7, text: 'Crosslinked in genipin overnight at four degrees.' }],
-        parameters: [],
-        references: [],
-      },
-      now,
-    );
     db.close();
     const first = restoreDurables(lib);
+    expect(first.texts).toBe(1);
+    expect(first.extracted).toBe(1);
     expect(first.notes).toBe(1);
     expect(first.profiles).toBe(1);
     const second = restoreDurables(lib);
-    expect(second.notes).toBe(0);
-    expect(second.profiles).toBe(0);
+    expect(second).toEqual({ notes: 0, profiles: 0, extracted: 0, texts: 0, skipped: 0 });
     const check = openDb(lib.dbPath, { readOnly: true });
     try {
+      expect((check.prepare('SELECT COUNT(*) n FROM chunks WHERE paper = ?').get(key) as { n: number }).n).toBe(1);
+      expect((check.prepare('SELECT status FROM papers WHERE key = ?').get(key) as { status: string }).status).toBe('ingested');
       const note = check.prepare('SELECT text FROM notes').get() as { text: string };
       expect(note.text).toBe('Matches our bench protocol.');
       const profile = check.prepare('SELECT value FROM profiles').get() as { value: string };
       expect(profile.value).toBe('genipin overnight');
-      const stamped = check.prepare('SELECT profiled_with s FROM papers WHERE key = ?').get(key) as { s: string };
-      expect(stamped.s).toBe('ollama:test');
+      const claim = check.prepare('SELECT text FROM claims WHERE paper = ?').get(key) as { text: string };
+      expect(claim.text).toBe('Genipin holds the threads.');
+      const stamped = check.prepare('SELECT profiled_with p, extracted_with e FROM papers WHERE key = ?').get(key) as { p: string; e: string };
+      expect(stamped.p).toBe('ollama:test');
+      expect(stamped.e).toBe('ollama:test');
     } finally {
       check.close();
     }
@@ -121,6 +120,6 @@ describe('lit sync', () => {
   it('exportDurables answers zero counts for an empty library', () => {
     const lib = createLibrary(root, { name: 'Empty Sync', now });
     openDb(lib.dbPath).close();
-    expect(exportDurables(lib)).toEqual({ notes: 0, profiles: 0 });
+    expect(exportDurables(lib)).toEqual({ notes: 0, profiles: 0, extracted: 0, texts: 0 });
   });
 });
