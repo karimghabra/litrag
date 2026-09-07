@@ -9,8 +9,11 @@ The research context itself lives in Protracker's notebook.
 
 Invariants:
 
-1. **Local.** Paper text goes to `127.0.0.1` (Ollama) and nowhere else. The
-   only network calls are Europe PMC's: search, full text, terms, references.
+1. **Local.** Paper text goes to `127.0.0.1` (Ollama) and nowhere else, with
+   one deliberate exception: the private git remote the user configures with
+   `lit sync` (#18) — the point of a backup is that the text exists
+   somewhere else. The only other network calls are Europe PMC's: search,
+   full text, terms, references.
 2. **Node only.** No Python, no native build steps beyond what npm installs.
    SQLite is `node:sqlite`; PDFs are `pdfjs-dist`; CPU embeddings are
    `@huggingface/transformers`.

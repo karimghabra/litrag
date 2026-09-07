@@ -16,6 +16,7 @@ import { createLibrary, libraryFacets, libraryRoot, listLibraries, modelCacheDir
 import { ollamaEmbedder, ollamaExtractor, ollamaHealth, ollamaProfiler } from './ollama.ts';
 import { queryLibrary, runSql } from './query.ts';
 import { collectJob, inboxFileFor } from './collect.ts';
+import { readSyncSettings, restoreDurables, syncPush, writeSyncSettings } from './sync.ts';
 import { referencesOf, searchEuropePmc } from './sources/europepmc.ts';
 import { spawn } from 'node:child_process';
 import { copyFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
@@ -74,6 +75,10 @@ usage: lit [--root DIR] [--json] <command> [args]
                                         --paper scopes to one paper, --no-reviews leaves reviews out
   sql <lib> <select ...> [--limit N]    read-only SQL against the store
   snowball <lib> <paper-key>            stage what a paper cites
+  sync [--repo URL]                     git the root to a private remote you configure once:
+                                        papers, manifests, notes and profiles survive the machine
+                                        (lit.sqlite stays local; a re-ingest rebuilds it)
+  restore <lib>                         after a clone and re-ingest: notes and profiles come home
   where                                 the library root
 
   --root DIR   defaults to $LITRAG_ROOT, else $PROTRACKER_LIBRARY, else ~/.protracker/library
@@ -136,6 +141,24 @@ async function main(argv: string[]): Promise<number> {
     switch (command) {
       case 'where':
         return out(json ? { root } : root), 0;
+
+      case 'sync': {
+        const repo = one(flags['repo']);
+        if (repo) writeSyncSettings(root, { ...readSyncSettings(root), repo });
+        const report = await syncPush(root, log);
+        return out(json ? { ok: true, ...report } : report.message), 0;
+      }
+
+      case 'restore': {
+        const lib = need(openLibrary(root, rest[0] ?? ''), rest[0]);
+        const report = restoreDurables(lib);
+        const delta = {
+          ok: true as const,
+          ...report,
+          message: `Restored ${report.notes} note${report.notes === 1 ? '' : 's'} and ${report.profiles} profile row${report.profiles === 1 ? '' : 's'}${report.skipped ? `; ${report.skipped} rows wait for papers not yet ingested here` : ''}.`,
+        };
+        return out(json ? delta : delta.message), 0;
+      }
 
       case 'libraries': {
         const libs = listLibraries(root).map((lib) => {
