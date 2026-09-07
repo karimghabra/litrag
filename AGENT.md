@@ -8,8 +8,38 @@ agent arriving cold, needing the verbs, the shapes it will reason over, and
 the conduct expected around a scientist's library.
 
 The library is the user's. The papers in it were collected under their
-institutional access; nothing in them leaves the machine, and nothing about
-them is asserted that a passage does not support.
+institutional access; nothing in them leaves the machine except the private
+sync remote the user configures (#18), and nothing about them is asserted
+that a passage does not support.
+
+## 0. A new machine, or a restore
+
+The library survives its machine through `lit sync` — git of the whole root
+to a private remote, holding the sources, the manifests, and the exported
+readings (`text.jsonl`, `extract.jsonl`, `profiles.jsonl`, `notes.jsonl`
+per library). The store itself (`lit.sqlite`) never travels; it rebuilds.
+To wire a fresh machine, in order:
+
+```
+git clone <the private archive remote> ~/.protracker/library
+lit restore <lib>     # per library: sections, chunks, extract rows,
+                      # profiles, notes — no PDF is touched
+lit ingest <lib>      # embeds the restored chunks (needs Ollama serving)
+lit annotate <lib>    # Europe PMC's entity terms, cheap
+```
+
+The clone carries `sync.json`, so `lit sync` works immediately from the new
+machine — it pulls with rebase before pushing, so two machines can share
+one library. Setting up from nothing instead: `lit init` makes the first
+library, and `lit sync --repo <private git url>` (once) names the remote.
+After any substantial collect, ingest, extract, or profile session, sync;
+the backup is only as fresh as the last push. Ollama serves on
+`127.0.0.1:11434` with the manifest's chat and embed models pulled —
+`lit doctor` tells the truth about all of it.
+
+A host application embedding litrag (Protracker vendors it and runs these
+same functions in-process) has its own wiring; that repo's `SETUP.md`
+covers it.
 
 ## 1. Invoking the CLI
 
