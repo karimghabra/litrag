@@ -1,17 +1,25 @@
 {
   "name": "litrag",
   "version": "0.1.0",
-  "description": "One library of papers per project: search Europe PMC, read open-access full text into rows, embed locally, walk the graph, answer with citations. Local, SQLite, no Python.",
+  "description": "One library of papers per project. A desktop app watches Docling read each paper into a tree; a Python worker owns the parsing and the store; the `lit` CLI is the earlier retrieval loop, kept until the app replaces its verbs.",
   "type": "module",
   "license": "MIT",
   "author": "Karim Ghabra",
-  "bin": { "lit": "bin/lit.js" },
-  "engines": { "node": ">=22" },
+  "bin": {
+    "lit": "bin/lit.js"
+  },
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "lit": "node --experimental-transform-types --no-warnings src/cli.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
-    "check": "npm run typecheck && npm test"
+    "check": "npm run typecheck && npm test",
+    "app": "npm --prefix app start",
+    "app:check": "npm --prefix app run check",
+    "parser:check": "uv run --project parser pytest -q parser/tests",
+    "check:all": "npm run check && npm run app:check && npm run parser:check"
   },
   "dependencies": {
     "@huggingface/transformers": "^4.2.0",

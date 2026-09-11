@@ -1,5 +1,159 @@
 # litrag — the design
 
+Two revisions, one direction. **Revision 2 (2026-09-11)** is what is being
+built now: papers read into trees by Docling, watched from a desktop
+window, stored as rows. **Revision 1 (2026-09-03)** is the retrieval loop
+that will feed on those rows — Europe PMC, chunks, embeddings, the graph
+walk — as it was built in the `lit` CLI; its store is separate for now and
+its decisions still hold where they are not overruled below.
+
+---
+
+# Revision 2 — the tree, the app, two languages
+
+## R2.1 What changed, and why
+
+Karim, 2026-09-11, on the revision-1 code: *"I am not at all attached to
+the current implementation of litrag."* And on the shape he wants: *"an app
+with a GUI that lets me actually see how papers are being ingested, how
+trees are built"*, in Electron, with Docling doing the parsing, and *"why
+can't we use more than one language?"*
+
+So three decisions of revision 1 are overruled:
+
+- **One language** is gone. Python owns parsing and the store; TypeScript
+  owns the window. They meet on one wire, JSON lines over stdio, and nowhere
+  else. The installer promise of "no Python" goes with it; `uv` makes the
+  Python side one command to set up.
+- **pdf.js text plus heading regexes** is gone as the reader of PDFs.
+  Docling's layout model reads the page as a page — columns, tables,
+  captions, running heads — and every element it returns carries a page and
+  a box. JATS goes through the same converter, so both formats land in one
+  document shape.
+- **Sections and 250-word chunks** are gone as the unit of structure. The
+  unit is a **node** in a tree: document › section › subsection › paragraph
+  | table | figure › caption. A chunk for retrieval, when revision 1's loop
+  is wired to this store, will be a paragraph node with its ancestry, not a
+  window cut through flat text.
+
+What stays: local, rows first, idempotent filing, every answer JSON, the
+assistant reads rows and never fabricates, and the retrieval ideas of
+revision 1 — hybrid ranking with a graph walk, the miner, the model stage —
+which now have a better substrate to run on.
+
+## R2.2 The tree
+
+```
+document                                      the paper; its title
+├── section (level 1, role=methods)           "2. Materials and Methods"
+│   ├── section (level 2, role=methods)       "2.4. Quantification of Crosslinking Degree…"
+│   │   ├── paragraph                         text · page 4 · box
+│   │   ├── formula
+│   │   └── table 5×3 (cells)  ─ caption
+│   └── …
+├── section (level 1, role=results)           "3. Experimental Results"
+└── section (level 1, role=references)        each reference a node, folded by default
+```
+
+Every node: `node_id` (the paper key, then `#section-2#paragraph-4`),
+`parent`, `ordinal`, `depth`, `type`, Docling's `label` verbatim, `level`
+for sections, `role`, `heading`, `ancestry` (the headings above it, top
+down), `text`, `page`, `bbox` in PDF points with the origin top-left,
+`self_ref` back into the raw Docling document, and for a table its cells.
+The raw Docling document is written to `parsed/<key>.docling.json` before
+any row is, and never edited: `rebuild` derives the rows again from it when
+the tree builder improves, without running the models.
+
+**Role** is the role of the *top-level* section a node sits under,
+inherited all the way down, so a paragraph under "2.4" is methods whatever
+"2.4" is called. The vocabulary is finite (`facets.py`): abstract,
+introduction, methods, results, results-discussion (a combined section is
+its own lane, not both), discussion (conclusions included), references,
+back (funding, contributions, availability, supplements), and `other` for
+everything that matches nothing. A wrong lane is invisible at query time; a
+missing one is a gap you can see. `has_methods` is stored per paper so a
+review is told apart from a parse failure by looking, not guessing.
+
+## R2.3 What the layout model gets wrong, and what the tree builder does
+
+Found on the first two PDFs, kept as fixtures and tests:
+
+| Docling gave | The builder does |
+|---|---|
+| Every heading at level 1 | Numbering decides depth when present ("2.4." is depth 2); a heading that names a lane is level 1; any other heading beneath an open top-level section is its child |
+| The title labelled a section header | The first header before the body, in a document with no title item, is the title |
+| "Experimental Results 3.1. Quantification…" as one list item — the heading merged into the subheading below it | Split into two headers when the first half names a lane; the whole results section had been filed under methods |
+| "3.2 …" arriving while "2. Methods" is open and no "3." seen | A section titled "3. (heading not detected)", role `other`, so the gap is visible rather than the results being methods |
+| "4. Discussion" twice across a page break | The second continues the first |
+| "3.4. Simulation Results 3.4. Simulation Results" | Halved |
+| Authors, affiliations, dates and copyright as loose paragraphs before the first heading | Filed under a "Front matter" section, role `other`, so nothing said there is lost and nothing is mistaken for the body |
+| No levels even with `heading_hierarchy_options` on | Ignored; the rules above are the hierarchy |
+
+Docling's own strengths hold: multi-column reading order, tables as cells
+with captions attached, figures with captions, running heads labelled and
+dropped, page and box on everything. JATS from Europe PMC lacks the DOCTYPE
+Docling's detector keys on; the worker adds one and the JATS backend does
+the rest in milliseconds, with no page geometry because XML has none.
+
+## R2.4 The worker
+
+`parser/litrag_parser/worker.py`. One process per window, JSON lines over
+stdio. Reads are answered at once on the main thread; `ingest`, `reparse`
+and `rebuild` queue onto one ingest thread, so the window browses trees
+while Docling is busy. Docling is imported on first use — it takes seconds
+and pulls torch — so `hello` and `papers` are instant.
+
+Ingest, per file: hash it; sniff its DOI and PMCID (from the first pages of
+a PDF through pdfium, from `article-id` in JATS); file it once — DOI, then
+PMID, then hash, a hash-only stub giving way when its DOI turns up; copy it
+to `papers/<key>.<ext>`; then stages `opening` (page count), `models`
+(first time only), `layout` (Docling, with a heartbeat every 1.5 s), `tree`,
+`saved` — each also a row in `events`, so the history survives the window.
+Docling's own log lines are forwarded as `log` events. A paper already read
+is kept when its DOI arrives again as another file; `reread` replaces it.
+
+The store (`store.py`): `papers`, `pages`, `nodes` with an FTS5 index over
+node text, `events`. Reads: `tree` (nested), `node`, `siblings`,
+`section(key, role)`, `sql` (one SELECT, read-only) — the traversal verbs
+of the query path, as rows.
+
+## R2.5 The window
+
+`app/`: Electron 38, TypeScript, esbuild, no framework. The main process
+spawns the worker (`uv run --project parser litrag-parser`, or
+`LITRAG_PARSER`) and relays every event to the renderer over one IPC
+channel; the renderer asks for reads over another and gets the worker's
+answer back. Three panes and a log: papers with their live stage and lane
+bar; the tree with lane colours, chips to dim all but one lane, references
+folded; the page rendered by pdf.js with the selected node's box drawn and
+every other node on the page faint, and the node's ancestry, role, text or
+cells beneath. Drop PDFs anywhere. The window holds no state the worker
+does not: close it, reopen it, everything is rows.
+
+## R2.6 Next, in order
+
+1. **Spot-check thirty papers** in the window — the point of building it
+   first. Every layout failure becomes a fixture and a rule, as the first
+   two did.
+2. **Europe PMC in the window**: search, stage, fetch JATS — revision 1's
+   source, driven from the app.
+3. **Wire revision 1's loop to the tree**: paragraph nodes as chunks with
+   ancestry prefixed, embedded once and partitioned by role; the miner and
+   the model stage over `nodes`; the graph walk over the same rows.
+4. **Node summaries** from the model stage, PageIndex-style, so an
+   assistant navigates a chosen paper by reading rows, not by calling a
+   model per hop.
+5. **Sparse extraction with evidence and node id**, the canonical-key map
+   as a table; **paper profiles** for the cross-facet question; **authors
+   with ORCID and citations** for lineage.
+
+The bench-question set stays first among equals: none of 3–5 is judged
+without it.
+
+---
+
+# Revision 1 — the retrieval loop (2026-09-03)
+
 The knowledge base beside the notebook. Protracker records what Karim does;
 the literature loop holds what the field already knows about it, one library
 per project, so that the assistant working a project is informed by the

@@ -1,0 +1,246 @@
+"""The store: SQLite, rows first.
+
+Everything the parser learns about a paper is a row a person can SELECT. The
+raw Docling document is kept beside the store as JSON and never edited; the
+rows are built from it and can be rebuilt from it. Filing is idempotent — a
+paper is keyed by DOI, then PMID, then the hash of its file — and parsing a
+paper again replaces its rows in one transaction.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import sqlite3
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Iterable
+
+from .tree import Tree
+
+SCHEMA = """
+CREATE TABLE IF NOT EXISTS papers (
+  key TEXT PRIMARY KEY,
+  doi TEXT, pmid TEXT, pmcid TEXT,
+  title TEXT NOT NULL,
+  file TEXT, sha256 TEXT, format TEXT,
+  pages INTEGER,
+  status TEXT NOT NULL DEFAULT 'queued',
+  error TEXT,
+  parser TEXT,
+  added_at TEXT NOT NULL,
+  parsed_at TEXT,
+  seconds REAL,
+  has_methods INTEGER
+);
+CREATE UNIQUE INDEX IF NOT EXISTS papers_doi ON papers(doi) WHERE doi IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS papers_sha ON papers(sha256) WHERE sha256 IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS pages (
+  paper TEXT NOT NULL REFERENCES papers(key) ON DELETE CASCADE,
+  page_no INTEGER NOT NULL,
+  width REAL NOT NULL, height REAL NOT NULL,
+  PRIMARY KEY(paper, page_no)
+);
+
+CREATE TABLE IF NOT EXISTS nodes (
+  node_id TEXT PRIMARY KEY,
+  paper TEXT NOT NULL REFERENCES papers(key) ON DELETE CASCADE,
+  parent TEXT,
+  ordinal INTEGER NOT NULL,
+  depth INTEGER NOT NULL,
+  type TEXT NOT NULL,
+  label TEXT NOT NULL,
+  level INTEGER,
+  role TEXT NOT NULL,
+  heading TEXT,
+  ancestry TEXT NOT NULL,      -- JSON list of headings, top down
+  text TEXT NOT NULL,
+  page INTEGER,
+  bbox_l REAL, bbox_t REAL, bbox_r REAL, bbox_b REAL,
+  self_ref TEXT,
+  table_json TEXT              -- {"rows","cols","cells"} for tables
+);
+CREATE INDEX IF NOT EXISTS nodes_paper ON nodes(paper, ordinal);
+CREATE INDEX IF NOT EXISTS nodes_parent ON nodes(parent);
+CREATE INDEX IF NOT EXISTS nodes_role ON nodes(paper, role, type);
+
+CREATE VIRTUAL TABLE IF NOT EXISTS nodes_fts USING fts5(text, content='nodes', content_rowid='rowid');
+CREATE TRIGGER IF NOT EXISTS nodes_ai AFTER INSERT ON nodes BEGIN
+  INSERT INTO nodes_fts(rowid, text) VALUES (new.rowid, new.text);
+END;
+CREATE TRIGGER IF NOT EXISTS nodes_ad AFTER DELETE ON nodes BEGIN
+  INSERT INTO nodes_fts(nodes_fts, rowid, text) VALUES ('delete', old.rowid, old.text);
+END;
+
+CREATE TABLE IF NOT EXISTS events (
+  id INTEGER PRIMARY KEY,
+  paper TEXT NOT NULL,
+  at TEXT NOT NULL,
+  stage TEXT NOT NULL,
+  detail TEXT
+);
+"""
+
+
+def sha256_of(path: Path) -> str:
+    h = hashlib.sha256()
+    with path.open("rb") as f:
+        for block in iter(lambda: f.read(1 << 20), b""):
+            h.update(block)
+    return h.hexdigest()
+
+
+def open_store(path: Path) -> sqlite3.Connection:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(path)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA foreign_keys=ON")
+    conn.executescript(SCHEMA)
+    return conn
+
+
+@dataclass
+class Filed:
+    key: str
+    existed: bool
+
+
+def file_paper(conn: sqlite3.Connection, *, title: str, file: str, sha256: str, fmt: str, doi: str | None, pmid: str | None, pmcid: str | None, now: str) -> Filed:
+    """File a paper once: by DOI, then PMID, then hash. Seeing it again fills gaps."""
+    row = None
+    if doi:
+        row = conn.execute("SELECT key FROM papers WHERE doi = ?", (doi,)).fetchone()
+    if row is None and pmid:
+        row = conn.execute("SELECT key FROM papers WHERE pmid = ?", (pmid,)).fetchone()
+    sha_row = conn.execute("SELECT key FROM papers WHERE sha256 = ?", (sha256,)).fetchone()
+    if row is None:
+        row = sha_row
+    elif sha_row is not None and sha_row["key"] != row["key"]:
+        # The same bytes were filed earlier under a hash, before their DOI was known:
+        # that row was a stub of this paper. It goes, with its rows; the identified paper stays.
+        conn.execute("DELETE FROM papers WHERE key = ?", (sha_row["key"],))
+    if row is not None:
+        key = row["key"]
+        # Seeing a paper again fills gaps and never moves it backwards: an identifier it
+        # lacked, a file if it had none. The caller decides whether to swap a file it has.
+        conn.execute(
+            "UPDATE papers SET doi = COALESCE(doi, ?), pmid = COALESCE(pmid, ?), pmcid = COALESCE(pmcid, ?), file = COALESCE(file, ?), sha256 = COALESCE(sha256, ?), format = COALESCE(format, ?) WHERE key = ?",
+            (doi, pmid, pmcid, file or None, sha256, fmt, key),
+        )
+        return Filed(key=key, existed=True)
+    key = f"doi:{doi}" if doi else f"pmid:{pmid}" if pmid else f"pmcid:{pmcid}" if pmcid else f"sha:{sha256[:16]}"
+    conn.execute(
+        "INSERT INTO papers(key, doi, pmid, pmcid, title, file, sha256, format, status, added_at) VALUES (?,?,?,?,?,?,?,?, 'queued', ?)",
+        (key, doi, pmid, pmcid, title, file, sha256, fmt, now),
+    )
+    return Filed(key=key, existed=False)
+
+
+def set_status(conn: sqlite3.Connection, key: str, status: str, *, error: str | None = None) -> None:
+    conn.execute("UPDATE papers SET status = ?, error = ? WHERE key = ?", (status, error, key))
+    conn.commit()
+
+
+def log_event(conn: sqlite3.Connection, key: str, at: str, stage: str, detail: str | None = None) -> None:
+    conn.execute("INSERT INTO events(paper, at, stage, detail) VALUES (?,?,?,?)", (key, at, stage, detail))
+    conn.commit()
+
+
+def save_tree(conn: sqlite3.Connection, key: str, tree: Tree, *, parser: str, parsed_at: str, seconds: float) -> int:
+    """Replace a paper's rows with a tree, in one transaction. Returns the node count."""
+    with conn:
+        conn.execute("DELETE FROM nodes WHERE paper = ?", (key,))
+        conn.execute("DELETE FROM pages WHERE paper = ?", (key,))
+        conn.executemany("INSERT INTO pages(paper, page_no, width, height) VALUES (?,?,?,?)", [(key, p.page_no, p.width, p.height) for p in tree.pages])
+        rows = []
+        for n in tree.walk():
+            b = n.bbox or [None, None, None, None]
+            rows.append((
+                n.node_id, key, n.parent, n.ordinal, n.depth, n.type, n.label, n.level, n.role, n.heading,
+                json.dumps(n.ancestry, ensure_ascii=False), n.text, n.page, b[0], b[1], b[2], b[3], n.self_ref,
+                json.dumps(n.table, ensure_ascii=False) if n.table else None,
+            ))
+        conn.executemany(
+            "INSERT INTO nodes(node_id, paper, parent, ordinal, depth, type, label, level, role, heading, ancestry, text, page, bbox_l, bbox_t, bbox_r, bbox_b, self_ref, table_json) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            rows,
+        )
+        conn.execute(
+            "UPDATE papers SET title = ?, pages = ?, status = 'parsed', error = NULL, parser = ?, parsed_at = ?, seconds = ?, has_methods = ? WHERE key = ?",
+            (tree.title or key, len(tree.pages), parser, parsed_at, seconds, 1 if tree.has_methods else 0, key),
+        )
+    return len(rows)
+
+
+def list_papers(conn: sqlite3.Connection) -> list[dict[str, Any]]:
+    rows = conn.execute(
+        """SELECT p.*, (SELECT COUNT(*) FROM nodes n WHERE n.paper = p.key) AS nodes
+           FROM papers p ORDER BY p.added_at DESC, p.key"""
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def paper_tree(conn: sqlite3.Connection, key: str) -> dict[str, Any] | None:
+    """A paper's tree as nested dicts, rebuilt from the rows."""
+    paper = conn.execute("SELECT * FROM papers WHERE key = ?", (key,)).fetchone()
+    if paper is None:
+        return None
+    pages = [dict(r) for r in conn.execute("SELECT page_no, width, height FROM pages WHERE paper = ? ORDER BY page_no", (key,))]
+    by_id: dict[str, dict[str, Any]] = {}
+    root: dict[str, Any] | None = None
+    for r in conn.execute("SELECT * FROM nodes WHERE paper = ? ORDER BY depth, ordinal", (key,)):
+        d = _node_dict(r)
+        by_id[d["node_id"]] = d
+        if d["parent"] is None:
+            root = d
+    for d in by_id.values():
+        if d["parent"] is not None and d["parent"] in by_id:
+            by_id[d["parent"]]["children"].append(d)
+    for d in by_id.values():
+        d["children"].sort(key=lambda c: c["ordinal"])
+    roles: dict[str, int] = {}
+    for r in conn.execute("SELECT role, COUNT(*) c FROM nodes WHERE paper = ? AND parent IS NOT NULL GROUP BY role", (key,)):
+        roles[r["role"]] = r["c"]
+    return {"paper": dict(paper), "pages": pages, "roles": roles, "root": root}
+
+
+def _node_dict(r: sqlite3.Row) -> dict[str, Any]:
+    bbox = None if r["bbox_l"] is None else [r["bbox_l"], r["bbox_t"], r["bbox_r"], r["bbox_b"]]
+    return {
+        "node_id": r["node_id"], "parent": r["parent"], "ordinal": r["ordinal"], "depth": r["depth"],
+        "type": r["type"], "label": r["label"], "level": r["level"], "role": r["role"], "heading": r["heading"],
+        "ancestry": json.loads(r["ancestry"]), "text": r["text"], "page": r["page"], "bbox": bbox,
+        "self_ref": r["self_ref"], "table": json.loads(r["table_json"]) if r["table_json"] else None, "children": [],
+    }
+
+
+def node(conn: sqlite3.Connection, node_id: str) -> dict[str, Any] | None:
+    r = conn.execute("SELECT * FROM nodes WHERE node_id = ?", (node_id,)).fetchone()
+    return _node_dict(r) if r else None
+
+
+def siblings(conn: sqlite3.Connection, node_id: str) -> list[dict[str, Any]]:
+    r = conn.execute("SELECT parent FROM nodes WHERE node_id = ?", (node_id,)).fetchone()
+    if r is None or r["parent"] is None:
+        return []
+    return [_node_dict(x) for x in conn.execute("SELECT * FROM nodes WHERE parent = ? ORDER BY ordinal", (r["parent"],))]
+
+
+def section(conn: sqlite3.Connection, key: str, role: str) -> list[dict[str, Any]]:
+    """Every node of a paper in one lane, in reading order — `get_section(doi, role)`."""
+    return [_node_dict(x) for x in conn.execute("SELECT * FROM nodes WHERE paper = ? AND role = ? AND parent IS NOT NULL ORDER BY depth, ordinal", (key, role))]
+
+
+def run_select(conn: sqlite3.Connection, sql: str, limit: int = 200) -> dict[str, Any]:
+    """One SELECT (or WITH … SELECT), and only that, against a read-only handle."""
+    statement = sql.strip().rstrip(";")
+    import re
+
+    bare = re.sub(r"'(?:[^']|'')*'", "''", statement)
+    if not re.match(r"^(select|with)\b", statement, re.IGNORECASE) or ";" in bare:
+        raise ValueError("sql runs one SELECT (or WITH … SELECT); nothing else.")
+    cur = conn.execute(f"SELECT * FROM ({statement}) LIMIT {max(1, int(limit))}")
+    rows = [dict(r) for r in cur.fetchall()]
+    columns = [d[0] for d in cur.description] if cur.description else []
+    return {"columns": columns, "rows": rows}

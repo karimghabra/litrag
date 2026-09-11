@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data: blob:; worker-src 'self' blob:; connect-src 'self' data: blob:;" />
+  <title>litrag</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header id="top">
+    <div class="brand">litrag</div>
+    <label class="field">
+      <span>Library</span>
+      <select id="library"></select>
+    </label>
+    <button id="new-library" class="ghost" title="Create a library">New library</button>
+    <button id="add" class="primary">Add papers…</button>
+    <button id="reparse" class="ghost" title="Read every paper again with Docling">Reparse all</button>
+    <div class="spacer"></div>
+    <div id="worker-status" class="status"><span class="dot"></span><span class="text">starting worker…</span></div>
+  </header>
+
+  <main id="panes">
+    <section id="papers-pane" class="pane">
+      <div class="pane-head"><h2>Papers</h2><span id="papers-count" class="muted"></span></div>
+      <div id="papers" class="scroll"></div>
+      <div id="drop-hint" class="hint">Drop PDFs or JATS XML anywhere to ingest them into this library.</div>
+    </section>
+
+    <section id="tree-pane" class="pane">
+      <div class="pane-head">
+        <h2 id="tree-title">Tree</h2>
+        <div id="role-filter" class="chips"></div>
+      </div>
+      <div id="tree-summary" class="summary"></div>
+      <div id="tree" class="scroll"></div>
+    </section>
+
+    <section id="detail-pane" class="pane">
+      <div class="pane-head">
+        <h2>Page</h2>
+        <div class="pager">
+          <button id="prev-page" class="ghost">‹</button>
+          <span id="page-label" class="muted">–</span>
+          <button id="next-page" class="ghost">›</button>
+        </div>
+      </div>
+      <div id="page-wrap" class="scroll">
+        <div id="page-stage"><canvas id="page-canvas"></canvas><div id="page-overlay"></div></div>
+      </div>
+      <div id="node-detail" class="detail"><div class="muted">Select a node to see its text, its place in the tree, and where it sits on the page.</div></div>
+    </section>
+  </main>
+
+  <footer id="log-pane">
+    <div class="pane-head"><h2>What the worker is doing</h2><button id="clear-log" class="ghost">Clear</button></div>
+    <div id="log" class="scroll mono"></div>
+  </footer>
+
+  <div id="drop-overlay" hidden><div>Drop to ingest</div></div>
+  <script type="module" src="renderer.js"></script>
+</body>
+</html>

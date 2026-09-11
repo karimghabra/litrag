@@ -3,7 +3,27 @@ on:
   push:
   pull_request:
 jobs:
-  check:
+  parser:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --project parser
+      - run: uv run --project parser pytest -q parser/tests
+  app:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+        working-directory: app
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+      - run: npm run typecheck && npm test && npm run build
+        working-directory: app
+  cli:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

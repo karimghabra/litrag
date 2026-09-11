@@ -5,3 +5,9 @@ node_modules/
 *.sqlite-shm
 *.sqlite-wal
 .scratch/
+app/dist/
+app/node_modules/
+parser/.venv/
+__pycache__/
+.pytest_cache/
+app/smoke-out/
