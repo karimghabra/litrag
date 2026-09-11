@@ -30,6 +30,22 @@ when it turns out durable. Mark inference as inference.
 
 ### What worked
 
+- **Docling 2.126** on the CPU (4 cores, no GPU): ~15 s for an 8-page and a
+  14-page PDF alike once the models are loaded (~3 s), ~0.5 GB of models
+  fetched from Hugging Face on the first paper. JATS through the same
+  converter: 20 ms, once a JATS DOCTYPE is prepended (Europe PMC's XML has
+  none and Docling's detector keys on it). Docling gives every heading
+  level 1 — `heading_hierarchy_options` changes nothing on these PDFs — so
+  the hierarchy is the tree builder's: numbering, then the lane vocabulary,
+  then "beneath an open section means child". Two real failures found on
+  the first two papers and turned into rules: a top heading merged into
+  the subheading below it as a list item, and a heading echoed across a
+  page break.
+- Electron's binary does not download through this cloud box's proxy
+  unless `ELECTRON_GET_USE_PROXY=1 GLOBAL_AGENT_HTTPS_PROXY=$HTTPS_PROXY
+  NODE_EXTRA_CA_CERTS=/root/.ccr/ca-bundle.crt` are set for `npm install`.
+  Karim's machine needs none of that.
+
 - Europe PMC's JATS full text needs no PDF parsing; its text-mined terms
   give the graph real entities (genipin, ethanol, carbodiimides, rabbit)
   at no cost. Both are one REST call per paper.
@@ -40,6 +56,12 @@ when it turns out durable. Mark inference as inference.
   until the model stage adds materials and methods as entities.
 
 ### Standing decisions
+
+- **2026-09-11** — Karim is "not at all attached to the current
+  implementation". More than one language is fine. What he wants first is
+  an app with a GUI to *see* papers being ingested and trees being built:
+  Electron, with Docling doing the parsing. Revision 2 of `DESIGN.md`.
+  The `lit` CLI stays in `src/` untouched until the app has its verbs.
 
 - **2026-09-03** — The assistant lives on the user's machine for the
   literature (Karim: "you can live as an agent on my machine and utilize
@@ -52,6 +74,19 @@ when it turns out durable. Mark inference as inference.
   a login.
 
 ## Short-term memory
+
+- **2026-09-11** — Revision 2 built on branch
+  `claude/tissue-engineering-literature-rag-srz9ja`: `parser/` (Docling
+  worker, tree, store, 17 tests), `app/` (Electron window, protocol tests,
+  headless smoke run), documents rewritten. Fixtures are the two real
+  papers: NAR 2011 (PMC3258128, `doi:10.1093/nar/gkr715`) and Micromachines
+  2024 (PMC11278924, `doi:10.3390/mi15070851`, the ELAC crosslinking paper,
+  as PDF and as JATS). Not yet run on Karim's machine: `uv sync --project
+  parser`, `npm --prefix app install`, `npm run app`, then thirty ELAC PDFs
+  through the window to find the next layout failures. His pilot library
+  `looped-ligament` under `~/.protracker/library` has revision 1's
+  `lit.sqlite` beside where the app will write `store.sqlite`; the two do
+  not collide.
 
 - **2026-09-03** — Initial commit. Not yet run on the user's machine: the
   first local session is `npm link`, `ollama pull qwen3:14b`, `lit doctor`,

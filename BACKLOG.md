@@ -5,6 +5,24 @@ wants as they are voiced.
 
 ## Named priorities
 
+- **Spot-check thirty papers in the window** (revision 2's first job) —
+  every layout failure becomes a fixture in `parser/tests/fixtures` and a
+  rule in `tree.py`. Watch for: headings the layout model drops or merges;
+  tables split across pages; captions attached to the wrong figure;
+  supplementary sections.
+- **Europe PMC in the window** — search, tick-to-stage, fetch JATS into the
+  library; `src/sources/europepmc.ts` already does the calls, the worker
+  should learn `search` and `fetch` ops (Python `httpx`) so the window has
+  one wire.
+- **Wire the retrieval loop to the tree store** — paragraph nodes as
+  chunks with ancestry prefixed, embedded once, partitioned by role; the
+  miner and the model stage over `nodes`; the graph walk over the same rows;
+  then `lit query` reads `store.sqlite`. Port the CLI's verbs one at a time
+  and strike them from `src/`.
+- **Node summaries** (PageIndex's idea) — one line per section from the
+  model stage, stored on the node, so an assistant navigates a chosen paper
+  by reading rows. `lit toc <paper>`.
+
 - **Collect mode** (Karim, 2026-09-03) — the one step of the loop that
   needs a screen: an in-app browser (in Protracker's Research tab, or a
   small window of litrag's own) that walks the `lit wanted` list, opens
@@ -48,6 +66,21 @@ wants as they are voiced.
   synonym edges): "EDC" and "carbodiimide" are one node's worth of meaning.
 
 ## Observed, not urgent
+
+- Docling's `page_header`/`page_footer` items are dropped from the tree;
+  a journal's running head sometimes carries the DOI, which the PDF sniff
+  already reads from page text, so nothing is lost yet.
+- A PDF whose first two pages carry no DOI is keyed by hash; the title from
+  Docling could look it up on Crossref (one network call, opt-in).
+- The worker converts one paper at a time. Docling can batch; on a GPU
+  two at once would roughly halve wall time for a folder drop.
+- torch from PyPI on Windows is CPU-only; a machine with the 5080 on
+  Windows needs the CUDA wheel index in `parser/pyproject.toml`
+  (`[tool.uv.sources]`), on Linux the default wheel already carries CUDA.
+- The `papers` op returns everything; a library of a thousand papers wants
+  paging or a `since`.
+- `reparse` reads every paper again with Docling; a `reparse --changed`
+  that re-reads only papers parsed by an older Docling would be cheaper.
 
 - `refresh` re-runs saved searches at limit 50 regardless of their
   original limit; a `--limit` per saved query would let a broad query stay

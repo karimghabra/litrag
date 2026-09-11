@@ -211,3 +211,45 @@ The shapes you will reason over most:
 - **Ambiguity that changes the library is a question, not a guess.** "Add
   the Akkus papers" is a search, a snowball, or a list of DOIs; ask which,
   or say which you chose in the same breath as the result.
+
+## 8. The worker and the window (revision 2)
+
+Since 2026-09-11 the parsing lives in `parser/` (Python, Docling) and the
+window in `app/` (Electron). An assistant on the machine can drive the
+worker directly, the way it drives `lit`:
+
+```
+uv run --project parser litrag-parser [--root=DIR]
+```
+
+One JSON object per line on stdin; events on stdout, each carrying the
+request's `id`. Reads answer at once; `ingest`, `reparse` and `rebuild` are
+queued (`queued` comes back immediately, then the stream, then `done`).
+
+| op | params | answers with |
+|---|---|---|
+| `hello` | | `hello`: worker version, root, python, docling (null until first use), device |
+| `libraries` | | `libraries`: `[{id, name, dir, projectId}]` |
+| `init` | `name`, `projectId?` | `library` |
+| `ingest` | `lib`, `paths[]`, `reread?` | `paper` per file (`existed`, `kept`, `doi`, `file`, `status`), then per paper `stage` (`opening` · `models` · `layout` · `tree` · `saved` \| `failed`), `working` heartbeats, `log` lines, a `tree` summary (`roles`, `has_methods`, `nodes`, `pages`, `seconds`), then `done` |
+| `reparse` | `lib`, `keys?` | the same stream; every paper when `keys` is absent |
+| `rebuild` | `lib` | rows again from `parsed/*.docling.json` without Docling; `tree` per paper, `done` |
+| `papers` | `lib` | `papers`: rows of `papers` with a `nodes` count |
+| `tree` | `lib`, `key` | `tree`: `paper`, `pages`, `roles`, nested `root` |
+| `node` | `lib`, `node_id`, `siblings?` | `node` |
+| `section` | `lib`, `key`, `role` | `section`: every node in that lane, reading order |
+| `events` | `lib`, `key` | `events`: the paper's stage history |
+| `sql` | `lib`, `sql`, `limit?` | `rows`: `columns`, `rows` — one SELECT, read-only |
+| `file` | `lib`, `key` | `file`: path of the paper and of its raw Docling document |
+| `parse_json` | `path`, `key?` | `tree` from a saved Docling document, no models |
+| `quit` | | `bye` |
+
+Errors are `{"event":"error","id":…,"message":…}`. A `<lib>` is the
+library id, its name, or its Protracker project id. The store is
+`<root>/<lib>/store.sqlite`; `nodes` is the table to read — `role`, `type`,
+`heading`, `ancestry` (JSON), `text`, `page`, `bbox_*`, `table_json` — and
+`nodes_fts` matches words in it.
+
+Conduct is unchanged: the library is the user's; a node's text is cited by
+paper, section and page; a lane that reads `other` or a section titled
+"(heading not detected)" is reported as the gap it is, not papered over.

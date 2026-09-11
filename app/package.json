@@ -1,0 +1,25 @@
+{
+  "name": "litrag-app",
+  "version": "0.2.0",
+  "private": true,
+  "description": "litrag's desktop: watch papers being ingested and their trees being built.",
+  "main": "dist/main.cjs",
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "start": "npm run build && electron .",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "check": "npm run typecheck && npm test && npm run build",
+    "smoke": "npm run build && node tests/smoke.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^24.7.0",
+    "electron": "^38.0.0",
+    "esbuild": "^0.25.0",
+    "pdfjs-dist": "5.4.624",
+    "playwright": "^1.56.0",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.0"
+  }
+}

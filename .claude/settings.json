@@ -2,11 +2,16 @@
   "permissions": {
     "allow": [
       "Bash(lit:*)",
-      "Bash(npm run lit:*)",
+      "Bash(npm --prefix app:*)",
+      "Bash(npm run app:*)",
       "Bash(npm run check:*)",
+      "Bash(npm run lit:*)",
+      "Bash(npm run parser:*)",
       "Bash(npm run typecheck:*)",
       "Bash(npm test:*)",
-      "Bash(npx vitest:*)"
+      "Bash(npx vitest:*)",
+      "Bash(uv run:*)",
+      "Bash(uv sync:*)"
     ]
   }
 }

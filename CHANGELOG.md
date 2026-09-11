@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.2.0 — 2026-09-11
+
+The tree, the app, and a second language.
+
+- `parser/`: a Python worker (uv) that reads PDFs and JATS XML with Docling
+  into one node tree — sections, paragraphs, tables with their cells,
+  figures, captions — each node with its parent, depth, ancestry, role and
+  provenance (page and box for a PDF), stored as rows in SQLite beside the
+  raw Docling document. Speaks JSON lines over stdio: `hello`, `libraries`,
+  `init`, `ingest`, `reparse`, `rebuild`, `papers`, `tree`, `node`,
+  `section`, `events`, `sql`, `file`, `parse_json`.
+- Facets: a node's role is the role of the top-level heading above it,
+  inherited down; the vocabulary is finite and anything else is `other`.
+  The tree builder repairs what the layout model gets wrong on real
+  papers — flat heading levels, a heading merged into the list item below
+  it, a heading echoed across a page break, a doubled heading — stands in
+  a visibly untitled section where a heading was dropped, and files what
+  comes before the first heading as front matter.
+- `app/`: an Electron window that shows papers as they are ingested — filed,
+  models loading, layout, tree, saved — the tree of a paper with its lanes,
+  and the page a node came from with its box drawn on it; tables as grids;
+  drag-and-drop PDFs; the worker's own log.
+- Tests: 16 parser tests over two saved Docling documents (a PDF each from
+  Nucleic Acids Research and Micromachines, and the latter's JATS), the
+  app's protocol tests, and a headless smoke run under Xvfb. CI checks the
+  parser, the app and the CLI.
+- The `lit` CLI of 0.1.0 is unchanged and not yet connected to the tree
+  store.
+
 ## 0.1.0 — 2026-09-03
 
 The literature loop, moved out of Protracker into a repository of its own.
