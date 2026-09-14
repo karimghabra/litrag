@@ -185,12 +185,16 @@ def measure(tree: Tree, key: str, fmt: str, source: Path | None, paper_type: dic
         "title_ok": title_ok(tree.title, key),
         "type": (paper_type or {}).get("type", "other"),
         "type_source": (paper_type or {}).get("source", "none"),
+        "subtype": (paper_type or {}).get("subtype"),
+        "type_notes": sum(1 for n in (paper_type or {}).get("notes", []) if n.get("kind") == "type-disagreement"),
         "has_methods": tree.has_methods,
         "review_like": review_like,
         "sections": sum(1 for n in tree.walk() if n.type == "section"),
         "top_headings": [n.heading for n in tops][:14],
         "lanes": [[n.heading, n.role, n.label] for n in tops],  # what each top-level section was taken for, so a lane lost is a named section
         "built_headings": sum(1 for n in tops if n.label == "built"),
+        "canonical": sum(1 for n in tops if n.canonical),
+        "canonical_meaning": tree.repairs.get("canonical_meaning", 0),
         "notes": len(tree.notes),
         "roles": tree.roles,
         "nodes": sum(1 for _ in tree.walk()) - 1,
@@ -245,6 +249,7 @@ def run_library(lib: Path) -> list[dict[str, Any]]:
         conn.close()
         xml = source.read_bytes() if row["format"] == "jats" and source and source.exists() else None
         kind = decide_type(tree, jats_xml=xml, pub_types=row.get("pub_types"), oracle=lanes.active())
+        tree.notes.extend(kind.get("notes", []))  # a label against another, or against the shape: the audit shows it
         rec = measure(tree, row["key"], row["format"] or "?", source, kind)
         rec["library"] = lib.name
         out.append(rec)
@@ -287,12 +292,17 @@ def corpus_summary(records: list[dict[str, Any]]) -> dict[str, Any]:
         for k, v in r["error_kinds"].items():
             kinds[k] = kinds.get(k, 0) + v
     types: dict[str, dict[str, int]] = {}
+    subtypes: dict[str, int] = {}
+    type_notes = 0
     for r in records:
-        t = types.setdefault(r.get("type", "other"), {"papers": 0, "methods": 0, "jats": 0, "record": 0, "printed": 0, "meaning": 0, "none": 0})
+        t = types.setdefault(r.get("type", "other"), {"papers": 0, "methods": 0, "jats": 0, "record": 0, "subject": 0, "title": 0, "printed": 0, "shape": 0, "default": 0, "meaning": 0, "none": 0})
         t["papers"] += 1
         t["methods"] += int(bool(r["has_methods"]))
         t[r.get("type_source", "none")] = t.get(r.get("type_source", "none"), 0) + 1
-    return {"papers": len(records), "by_format": by_format, "error_kinds": dict(sorted(kinds.items(), key=lambda kv: -kv[1])), "types": dict(sorted(types.items(), key=lambda kv: -kv[1]["papers"]))}
+        if r.get("subtype"):
+            subtypes[r["subtype"]] = subtypes.get(r["subtype"], 0) + 1
+        type_notes += r.get("type_notes", 0)
+    return {"papers": len(records), "by_format": by_format, "error_kinds": dict(sorted(kinds.items(), key=lambda kv: -kv[1])), "types": dict(sorted(types.items(), key=lambda kv: -kv[1]["papers"])), "subtypes": dict(sorted(subtypes.items(), key=lambda kv: -kv[1])), "type_notes": type_notes}
 
 
 def compare(records: list[dict[str, Any]], baseline: list[dict[str, Any]]) -> dict[str, list[str]]:
@@ -369,7 +379,8 @@ def report(records: list[dict[str, Any]], *, n_worst: int) -> str:
     else:
         lines.append("  by meaning: no oracle (LITRAG_LANES=off): every text the vocabulary does not know is `other`")
     lines.append("  errors by kind: " + (", ".join(f"{k} {v}" for k, v in s["error_kinds"].items()) or "none"))
-    lines.append("  types: " + ", ".join(f"{t} {v['papers']} (methods {v['methods']}; by file {v['jats']}, record {v['record']}, page {v['printed']}, shape {v['meaning']}, none {v['none']})" for t, v in s["types"].items()))
+    lines.append("  types: " + ", ".join(f"{t} {v['papers']} (methods {v['methods']}; by record {v['record']}, file {v['jats']}, subject {v.get('subject', 0)}, title {v.get('title', 0)}, page {v['printed']}, shape {v.get('shape', 0)}, default {v.get('default', 0)}, none {v['none']})" for t, v in s["types"].items()))
+    lines.append(f"  subtypes: {', '.join(f'{k} {v}' for k, v in s.get('subtypes', {}).items()) or 'none'} · type disagreements noted {s.get('type_notes', 0)}")
     lines.append(f"\nworst {n_worst}:")
     for r in worst(records, n_worst):
         flags = [] if r["title_ok"] else ["NO TITLE"]

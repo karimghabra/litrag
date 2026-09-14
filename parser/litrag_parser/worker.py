@@ -31,12 +31,13 @@ from . import __version__, boundary, lanes
 from .library import Library, create_library, library_root, list_libraries, now_iso, open_library, parsed_papers, safe_key
 from .citations import link_citations
 from .edges import link_edges, summarize as summarize_edges
-from .paper_type import decide as decide_type, lookup_types
+from .paper_type import decide as decide_type
+from .record import jats_authors, jats_journal, lookup_record
 from .harness import pdf_title
 from .judge import Judge, available as judge_available, default_model as judge_model
 from .recover import recover_from_pdf
 from .citations import summarize as summarize_citations
-from .store import (cited_by, cites_of, edges_of, file_paper, list_papers, log_event, node, open_store, paper_tree, refs_of, run_select, save_edges, save_refs, save_tree, section, set_pub_types, set_status, set_type, sha256_of, siblings)
+from .store import (cited_by, cites_of, edges_of, file_paper, list_papers, log_event, node, open_store, paper_tree, refs_of, run_select, save_edges, save_refs, save_tree, section, set_record, set_status, set_type, sha256_of, siblings)
 from .tree import build_tree
 
 _out_lock = threading.Lock()
@@ -228,7 +229,7 @@ class Worker:
         """What the reader noticed and did not act on, as rows in `events` beside the paper's —
         this reading's notes replacing the last reading's, so a rebuild twice is one set."""
         with conn:
-            conn.execute("DELETE FROM events WHERE paper = ? AND stage LIKE 'lane-%'", (key,))
+            conn.execute("DELETE FROM events WHERE paper = ? AND (stage LIKE 'lane-%' OR stage LIKE 'type-%')", (key,))
         for note in tree.notes:
             log_event(conn, key, now_iso(), str(note.get("kind", "note")), f"{note.get('node_id')}: {note.get('message')}")
 
@@ -344,9 +345,9 @@ class Worker:
                 conn.execute("UPDATE papers SET file = ?, format = ?, sha256 = ? WHERE key = ?", (dest.name, fmt, sha, result.key))
             conn.commit()
             if not already and not req.get("offline") and (doi or pmid):
-                types = lookup_types(doi, pmid)  # Europe PMC's word on what kind of paper it is, kept with the paper
-                if types:
-                    set_pub_types(conn, result.key, types)
+                record = lookup_record(doi, pmid)  # Europe PMC's word: who wrote it, where, when, and what kind of paper it is — kept with the paper
+                if record:
+                    set_record(conn, result.key, **record)
             log_event(conn, result.key, now_iso(), "filed", f"{'seen before, kept' if already else 'seen before' if result.existed else 'new'}: {src.name}")
             emit({"event": "paper", "id": req_id, "paper": result.key, "existed": result.existed, "kept": already, "doi": doi, "pmcid": pmcid, "file": dest.name, "status": "parsed" if already else "queued", "pages": page_count(dest)})
             if not already:
@@ -384,12 +385,16 @@ class Worker:
             tree = build_tree(doc, key, title_hint=hint, judge=judge)
             n = save_tree(conn, key, tree, parser=f"{'judge ' + judge.model if ask else 'rebuild'} {__version__}", parsed_at=now_iso(), seconds=0.0)
             xml = source.read_bytes() if row["format"] == "jats" and source and source.exists() else None
+            if xml:
+                journal, year = jats_journal(xml)
+                set_record(conn, key, authors=jats_authors(xml), journal=journal, year=year, overwrite=True)  # the file's own word on who wrote it, where and when
             refs, cites = link_citations(tree, xml)
             save_refs(conn, key, refs, cites)
             edges = link_edges(tree, key, lanes.active())
             save_edges(conn, key, edges)
             kind = decide_type(tree, jats_xml=xml, pub_types=row["pub_types"], oracle=lanes.active())
-            set_type(conn, key, kind["type"], kind["source"], kind["detail"])
+            set_type(conn, key, kind["type"], kind["source"], kind["detail"], kind.get("subtype"))
+            tree.notes.extend(kind.get("notes", []))
             self._note_events(conn, key, tree)
             emit({"event": "tree", "id": req.get("id"), "paper": key, "title": tree.title, "type": kind, "roles": tree.roles, "has_methods": tree.has_methods, "nodes": n, "pages": len(tree.pages), "dropped": tree.dropped, "repairs": tree.repairs, "notes": len(tree.notes), "judged": judge.summary(), "meaning": self._meaning(), "edges": summarize_edges(tree, edges), **summarize_citations(refs, cites)})
             rebuilt.append(key)
@@ -455,6 +460,9 @@ class Worker:
             seconds = round(time.time() - started, 1)
             n = save_tree(conn, key, tree, parser=f"docling {self.docling_version} · litrag-parser {__version__}", parsed_at=now_iso(), seconds=seconds)
             xml = path.read_bytes() if path.suffix.lower() == ".xml" else None
+            if xml:
+                journal, year = jats_journal(xml)
+                set_record(conn, key, authors=jats_authors(xml), journal=journal, year=year, overwrite=True)  # the file's own word on who wrote it, where and when
             refs, cites = link_citations(tree, xml)
             save_refs(conn, key, refs, cites)
             edges = link_edges(tree, key, lanes.active())
@@ -462,7 +470,8 @@ class Worker:
             linked = summarize_edges(tree, edges)
             stored = conn.execute("SELECT pub_types FROM papers WHERE key = ?", (key,)).fetchone()
             kind = decide_type(tree, jats_xml=xml, pub_types=stored["pub_types"] if stored else None, oracle=lanes.active())
-            set_type(conn, key, kind["type"], kind["source"], kind["detail"])
+            set_type(conn, key, kind["type"], kind["source"], kind["detail"], kind.get("subtype"))
+            tree.notes.extend(kind.get("notes", []))
             self._note_events(conn, key, tree)
             o = lanes.active()
             if o is not None and o.summary()["down"] and not self._reported_down:

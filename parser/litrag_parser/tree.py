@@ -19,6 +19,7 @@ from dataclasses import dataclass, field, asdict
 from typing import Any, Iterable
 
 from .facets import role_of, unspace
+from .headings import agreed, canonical_of, top_level_lane
 from .glyphs import ligature_vocabulary, repair_glyphs
 from .structure import CANONICAL, build_headings, lane_sections
 
@@ -53,6 +54,8 @@ class Node:
     children: list["Node"] = field(default_factory=list)
     #: every page a node's text came from, when a join took it across a page break; `page` is the first
     pages: list[int] | None = None
+    #: the catalogue's name for a section (headings.py): "Materials and methods" for "2. Experimental"; None when it has none
+    canonical: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         d = asdict(self)
@@ -444,7 +447,15 @@ def _head_like(text: str) -> bool:
     words left tails standing alone as fragments."""
     t = text.strip()
     words = t.split()
-    return bool(words) and not _KEYWORDS.match(t) and not _looks_like_authors(t) and not _FURNITURE.search(t) and not (len(words) <= 3 and _DATE_LINE.search(t))
+    if not words or _KEYWORDS.match(t) or _looks_like_authors(t) or _name_list(t) or _FURNITURE.search(t) or _LICENCE.search(t):
+        return False
+    if (_DATE_LINE.search(t) and len(words) <= 3) or (_DATE_LINE.match(t) and len(words) <= 30):
+        return False  # "Received 22nd August 2026 Accepted …", "Published on 01 September 2026": a dates line, wherever it stands
+    if re.search(rf"{_EMAIL}|\borcid\b", t, re.I) and len(words) <= 60:
+        return False  # a correspondence line
+    if _affiliation_like(t):
+        return False  # an affiliation, at any length: "a Institute of Tropical Durability, …, Hanoi 100000, Vietnam"; four of them numbered
+    return True
 
 
 def _displaced_head(out: list[dict[str, Any]], anchor: int, it: dict[str, Any], text: str, repairs: dict[str, int] | None = None) -> int | None:
@@ -453,16 +464,24 @@ def _displaced_head(out: list[dict[str, Any]], anchor: int, it: dict[str, Any], 
     when more than one is unfinished, the one the tail is about."""
     if not _tail_like(text):
         return None
+    if out and out[-1].get("label") == "formula":
+        return None  # "where α, h, B, Eg and n represent …": the formula's own sentence goes on, from a head that ended in a colon
     page = _page_of(it)
     heads: list[int] = []
     texts: list[str] = []
-    for k in range(len(out) - 1, max(-1, len(out) - 12), -1):
+    counted = 0  # eleven blocks of prose back, within twenty items: the front-matter lines between a head and its tail
+    for k in range(len(out) - 1, -1, -1):  # (RSC's affiliation footnotes under the introduction's first lines) do not close the window
+        if len(out) - 1 - k > 20 or counted >= 11:
+            break
         if k == anchor or out[k].get("label") not in _TEXTLIKE:
             continue
         cand = out[k]
         cand_text = (cand.get("text") or "").rstrip()
         cand_page = _page_of(cand)
-        if not cand_text or cand_text[-1] in _FINISHED or not _head_like(cand_text):
+        if not cand_text or not _head_like(cand_text):
+            continue
+        counted += 1
+        if cand_text[-1] in _FINISHED:
             continue
         if page is not None and cand_page is not None and page not in (cand_page, cand_page + 1):
             continue
@@ -612,6 +631,18 @@ def _fragment_forward(it: dict[str, Any], items: list[dict[str, Any]], i: int, o
 
 _REF_ENTRY = re.compile(r"^(?:\[\d{1,3}\]|\d{1,3}\.)\s+\S|^[A-Z][A-Za-z'\u2019\-]+(?:,\s*|\s+)(?:[A-Z]\.?\s?){1,3}[,;.]|^[A-Z][A-Za-z'\u2019\-]+\s+[A-Z]{1,3}[,.]\s|^[A-Z][A-Za-z'\u2019\-]+,\s+[A-Z][a-z]+|^(?:[A-Z]\.\s?){1,3}[A-Z][A-Za-z'\u2019\-]+,\s")  # "[12] …", "12. …", "Smith, J. A.;", "Smith JA,", "Smith, John", "J. A. Smith," (Wiley)
 _A_YEAR = re.compile(r"\b(?:19|20)\d{2}\b")
+
+
+def _entries_follow(items: list[dict[str, Any]], index: int, within: int = 8) -> bool:
+    """Whether a reference entry stands among the next few items after the heading at `index`:
+    the heading was read between the entries of a list that goes on — "Generative AI statement"
+    and "Publisher's note" set in the left column under the start of a Frontiers PDF's
+    reference list — and belongs inside it, whatever lane its name has."""
+    for it in items[index + 1 : index + 1 + within]:
+        text = (it.get("text") or "").strip()
+        if it.get("label") in ("list_item", "text", "paragraph") and len(text) < 700 and _REF_ENTRY.match(text) and _A_YEAR.search(text):
+            return True
+    return False
 
 
 def _infer_references(items: list[dict[str, Any]], repairs: dict[str, int]) -> list[dict[str, Any]]:
@@ -794,6 +825,12 @@ def undouble(text: str) -> str:
     return t
 
 
+#: The lanes a numbered heading never takes by meaning alone: no numbered heading in the
+#: corpora is an abstract, a reference list or a back-matter statement (the vocabulary's own
+#: word, "7. References" in a preprint, still counts).
+_NOT_NUMBERED = frozenset({"abstract", "references", "back"})
+
+
 def top_number(heading: str) -> str | None:
     """"3.2 Effect of…" → "3"; unnumbered → None."""
     m = _NUMBERED.match(heading)
@@ -811,8 +848,8 @@ def infer_level(heading: str, docling_level: int, open_top: bool) -> int:
     depth = numbering_depth(heading)
     if depth is not None:
         return depth
-    if role_of(heading, meaning=False) != "other":
-        return 1  # the vocabulary's word
+    if role_of(heading, meaning=False) != "other" or top_level_lane(heading, promote=True) is not None:
+        return 1  # the vocabulary's word, or the catalogue's exact spelling (two words or more) of a top-level section
     if docling_level <= 1 and role_of(heading) != "other":
         return 1  # a lane found by meaning keeps the depth the page gave it: top when the page set it top ("Methods Coral core collection"), never promoted from deeper
     if open_top:
@@ -858,12 +895,53 @@ def _same_heading(a: str, b: str) -> bool:
 
 # What sits above a paper's title on its first page, and never is the title.
 _GENERIC_LABELS = {"original research", "original article", "research article", "article", "review", "reviews", "review article", "abstract", "abstracts", "introduction", "letter", "letters", "communication", "communications", "full paper", "full length article", "short communication", "editorial", "case report", "brief report", "untitled", "research", "research paper", "report", "paper", "papers", "original paper", "major review", "topical review", "hhs public access", "author manuscript", "supporting information", "supporting information for", "regular article", "open access", "perspective", "commentary", "mini review", "minireview", "technical note", "rapid communication", "note", "notes", "feature article", "critical review", "systematic review", "meta-analysis", "clinical study", "clinical trial", "concise review"}
-_FURNITURE = re.compile(r"you may also like|related content|recent citations|this content was downloaded|sciencedirect|journal homepage|journal home page|to cite this article|view the article online|author manuscript|available in pmc|^\s*doi\b|^\s*https?://|\bwww\.|received:|accepted:|revised:|©|\(c\) \d{4}|copyright|all rights reserved|contents lists|published (in|by|online)|^\s*issn|open access|creative commons|licensee|cite this|downloaded from|^\s*e-?mail|correspond|manuscript received|article history|keywords?:|^\s*key ?words", re.I)
+_FURNITURE = re.compile(r"you may also like|related content|recent citations|this content was downloaded|sciencedirect|journal homepage|journal home page|to cite this article|view the article online|author manuscript|available in pmc|^\s*doi\b|^\s*https?://|\bwww\.|received:|accepted:|revised:|©|\(c\) \d{4}|copyright|all rights reserved|contents lists|published (in|by|online)|^\s*issn|open access|creative commons|licensee|licen[cs]ed under|\bcc[- ]by\b|cite this|^\s*citation:|downloaded from|^\s*e-?mail|correspond(?:ing author|ence)|manuscript received|article history|keywords?:|^\s*key ?words", re.I)
 _FUNCTION_WORDS = {"of", "for", "in", "on", "with", "by", "the", "a", "an", "to", "from", "via", "using", "between", "into", "during", "through", "its", "their", "at", "as", "under", "toward", "towards", "without", "within", "versus", "vs", "over", "after", "before", "against"}
-_DATE_LINE = re.compile(r"\b(received|accepted|published|revised|available online|first published|epub)\b", re.I)
-_AFFILIATION = re.compile(r"\b(universit|department|dept\.|institut|hospital|school of|laborator|centre|center|college|faculty|clinic|academy|ministry|foundation|company|ltd|inc\b|gmbh|corporation|research (group|unit)|division of|program in|graduate|medical|engineering,)", re.I)
-_CORRESPONDENCE = re.compile(r"correspond|e-?mail|@|\btel\b|\bfax\b|to whom|\*\s*author|orcid", re.I)
+_DATE_LINE = re.compile(r"\b(received|accepted|published|revised|first published|epub)\b|\bavailable online\b.*\b(?:19|20)\d{2}\b", re.I)  # "available online" is a date only with a year after it: IOP's "Supplementary material … is available online" is a notice
+_AFFILIATION = re.compile(r"\b(universit|department|dept\.|institut|hospital|school of|laborator|centre|center|college|faculty|clinics?\b|academy|ministry|foundation|company|ltd|inc\b|gmbh|corporation|research (group|unit)|division of|program in|graduate|medical|engineering,)", re.I)
+_EMAIL = r"[\w.+-]+@[\w-]+(?:\.[\w-]+)*\.[a-z]{2,}"
+_CORRESPONDENCE = re.compile(rf"correspond(?:ing author|ence)|e-?mail|{_EMAIL}|\btel\b|\bfax\b|to whom|\*\s*author|orcid", re.I)
+_FUNDING = re.compile(r"^\s*(?:the authors? (?:have|has|declares?|reports?) no|conflicts? of interest|competing interests?|disclosures?\b|funding\b|acknowledg\w+\b|this (?:work|study|research) was (?:supported|funded))", re.I)
+_INSTITUTION = re.compile(r"\b(?:universit\w*|institut\w*|department|school|faculty|hospital|college|laborator\w*|cent(?:er|re)|academy)\b", re.I)
+_VERBS = re.compile(r"\b(?:was|were|is|are|has|have|had|be|been|which|that|we|our)\b", re.I)
+
+
+def _affiliation_like(text: str) -> bool:
+    """An institution's name, not one verb of prose, and most words capitalised: "1, Foot & Ankle
+    Surgery, Department of Orthopaedics, Shanghai Sixth People's Hospital …, China. 2 Department
+    of …" — an affiliation block, whatever its length, and its numbering is not a citation.
+    "Associations between wildfire smoke and cardiorespiratory emergency department visits varied
+    by exposure product" names a department and is a sentence."""
+    return bool(_INSTITUTION.search(text)) and not _VERBS.search(text) and _caps_dense(text)
+
+
+def _caps_dense(text: str) -> bool:
+    """Most words capitalised, as an address is: "Department of Orthopaedic Surgery, Daejeon Eulji
+    Medical Center, Eulji University School of Medicine, Daejeon, Korea"."""
+    words = [w for w in re.findall(r"[A-Za-z][\w'\u2019-]*", text) if len(w) > 1]
+    return bool(words) and sum(1 for w in words if w[0].isupper()) >= 0.45 * len(words)
+
+
+_SELF_CITATION = re.compile(r"(?:\bdoi:\s*|doi\.org/)10\.\d{4,}", re.I)
+_CITATION_SHAPE = re.compile(r"^(?:(?:[A-Z][\w'’-]+ )+[A-Z]{1,3},? (?:and )?){2,}\(\d{4}\)|^(?:[A-Z][\w'’-]+, (?:[A-Z]\.\s?)+,? (?:& |and )?){2,}(?:et al\.,? )?\(\d{4}\)")
+
+
+def _citation_line(text: str) -> bool:
+    """The paper's own citation as the publisher prints it: "Sablan, O., Ford, B., … et al. (2026).
+    Wildfire smoke … GeoHealth, 10, e2025GH001492. https://doi.org/10.1029/2025GH001492" — a
+    DOI with a year in brackets or an "et al.", or the reference's own shape, two or more
+    authors then the year in brackets ("Stamov S, Chobanov T, … and Reich D (2026) Paleogenomic
+    evidence …") when the DOI stands on the next line."""
+    return (bool(_SELF_CITATION.search(text)) and bool(re.search(r"\(\d{4}\)|\bet al\b", text))) or bool(_CITATION_SHAPE.match(text.strip()))
+
+
+def _prose_like(text: str) -> bool:
+    """A paragraph the introduction could open with: not furniture, not "Abstract: …", not an
+    affiliation block, not an author line with its degrees."""
+    return not _FURNITURE.search(text) and not _LICENCE.search(text) and not _citation_line(text) and not _ABSTRACT_LEAD.match(text) and not _affiliation_like(text) and len(_DEGREES.findall(text)) < 2
 _KEYWORDS = re.compile(r"^\s*(key ?words?|index terms)\b", re.I)
+_BARE_DATE = re.compile(r"^\s*(?:\d{1,2}\s*[A-Z][a-z]+,?\s+(?:19|20)\d{2}|[A-Z][a-z]+\s+\d{1,2},?\s+(?:19|20)\d{2}|(?:19|20)\d{2})\s*$")
+_CITE_LINE = re.compile(r"^\s*(?:to cite this article|citation|cite this|to link to this article)\b", re.I)  # a publisher's citation line runs past forty words
 _ABSTRACT_LEAD = re.compile(r"^\s*(abstract|summary)\b[\s:.—–-]*", re.I)
 
 
@@ -877,19 +955,23 @@ def _looks_like_authors(text: str) -> bool:
     """"Anowarul Islam a , Thomas Mbimba a , Mousa Younesi" — names, markers, no function words."""
     tokens = [t.strip(",;·*†‡") for t in text.split()]
     words = [t for t in tokens if t]
-    if not words:
-        return False
-    function = sum(1 for t in words if t.lower() in _FUNCTION_WORDS)
-    caps = sum(1 for t in words if t[0].isupper())
-    markers = len(re.findall(r"(?:^|[\s,])[a-z](?:,[a-z])*(?=[\s,]|$)|\d(?:,\d)*(?=[\s,*]|$)|[·*†‡]", text))
-    # markers — superscript digits and letters, "·", asterisks — are what tells a list of names from a
+    if not words or _INSTITUTION.search(text):
+        return False  # "d Le Quy Don Specialized High School, Dong Hai, Khanh Hoa 650000, Vietnam": an affiliation, whatever its markers
+    marks = [t for t in words if re.fullmatch(r"[a-z](?:,[a-z])*|\d{1,2}(?:,\d{1,2})*", t)]
+    if marks.count("a") == len(marks) == 1:
+        marks = []  # a lone "a" with no other marker is the article ("Designing a Better, Stronger, Cheaper Scaffold")
+    names = [t for t in words if t not in set(marks)]  # "Do Dinh Trung, a Pham Van Duong, b …": the markers are not the names
+    function = sum(1 for t in names if t.lower() in _FUNCTION_WORDS)
+    caps = sum(1 for t in names if t[0].isupper())
+    markers = len(re.findall(r"(?:^|[\s,])[a-z](?:,[a-z])*(?=[\s,]|$)|(?<!\d)\d{1,2}(?:,\d{1,2})*(?=[\s,*]|$)|[·*†‡]", text))
+    # markers — superscript digits and letters (one or two: a postal code is not a marker), "·", asterisks — are what tells a list of names from a
     # title with commas in it ("Extraction, Gelation, and Applications")
-    return function == 0 and caps >= 0.5 * len(words) and (markers >= 2 or (markers >= 1 and text.count(",") >= 2) or "·" in text)
+    return function == 0 and bool(names) and caps >= 0.5 * len(names) and (markers >= 2 or (markers >= 1 and text.count(",") >= 2) or "·" in text)
 
 
 _ABSTRACT_BLOCK = re.compile(r"^\s*a\s*b\s*s\s*t\s*r\s*a\s*c\s*t\s*[:.\-\u2014]?\s*", re.I)
 _WRAPPER_HEADINGS = re.compile(r"^(?:associated data|supplementary materials?|supplementary information|supporting information|declarations?|peer review|electronic supplementary material|additional information|notes|footnotes)\s*$", re.I)
-_NAME_PIECE = re.compile(r"^(?:[A-Z][\w'\u2019\-]*\.?\s?){2,4}$")
+_NAME_PIECE = re.compile(r"^(?:(?:[A-Z][\w'\u2019\-]*\.?|de|da|del|della|di|dos|das|du|la|le|van|von|der|den|ter|ten|bin|ibn|al|el)\s?){2,5}$")  # "Chamini Kanatiwela de Silva": a particle is part of the name
 
 
 def _name_list(text: str) -> bool:
@@ -917,7 +999,7 @@ _ABSTRACT_PART = re.compile(r"^(?:background|objectives?|aims?|purpose|methods?|
 
 
 _DEGREES = re.compile(r"\b(?:MD|PhD|Ph\.D|DDS|DVM|MSc|BSc|MPH|RN|FRCS|FACS|Dr)\b\.?")
-_LICENCE = re.compile(r"author and source are credited|open-access article|distributed under the terms|creative commons|permits unrestricted|noncommercial use|provided the original|all rights reserved|early access|accepted manuscript", re.I)
+_LICENCE = re.compile(r"author and source are credited|open-access article|distributed under the terms|creative commons|permits unrestricted|noncommercial use|provided the original|all rights reserved|early access|accepted manuscript|licen[cs]ed under|\bcc[- ]by\b", re.I)
 
 
 def _never_a_title(text: str) -> bool:
@@ -933,6 +1015,8 @@ def _never_a_title(text: str) -> bool:
     if _LICENCE.search(t) or (_DEGREES.search(t) and _name_list(re.sub(_DEGREES.pattern, "", t))) or _looks_like_authors(t) or _name_list(t):
         return True
     words = t.split()
+    if _DATE_LINE.search(t) and re.search(r"\b(?:19|20)\d{2}\b", t) and len(words) <= 30:
+        return True  # "Received 22nd August 2026 Accepted 26th August 2026": a dates line
     return t.endswith(".") and len(words) >= 12 and not t.endswith(("et al.", "sp.", "spp."))
 
 
@@ -994,7 +1078,7 @@ def _norm_letters(text: str) -> str:
 _FRONT_KINDS = {"authors", "affiliations", "dates", "correspondence", "keywords", "funding", "notice"}
 
 
-_CITES = re.compile(r"\[\d{1,3}[\]–,-]|\(\d{4}[a-z]?\)|et al\.")
+_CITES = re.compile(r"\[\d{1,3}[\]\u2013,-]|\(\d{4}[a-z]?\)|et al\.|(?<=[A-Za-z)\]])\.\s?\d{1,3}(?:\s?[-\u2013,]\s?\d{1,3})*\s+[A-Z][a-z]|[.,;]\^\d{1,3}\b|[A-Za-z]{3,}\^\d{1,3}\b(?![.,]?\d)")  # "[12]", "(2019)", "et al.", or a superscript after the full stop: "(PL). 1 - 3 These"
 
 
 def _front_by_meaning(text: str, repairs: dict[str, int] | None = None) -> str | None:
@@ -1023,23 +1107,53 @@ def _front_kind(text: str, has_abstract_heading: bool, repairs: dict[str, int] |
     words = t.split()
     if _KEYWORDS.match(t):
         return "keywords"
-    if _DATE_LINE.search(t) and len(words) <= 30:
-        return "dates"
+    if (_DATE_LINE.search(t) and len(words) <= 30) or _BARE_DATE.match(t):
+        return "dates"  # "Received 22nd August 2026 …", or IOP's "21 January 2015" on a line of its own under "RECEIVED"
     if _CORRESPONDENCE.search(t) and len(words) <= 60:
         return "correspondence"
-    if _FURNITURE.search(t) and len(words) <= 40:
+    if _FUNDING.match(t) and len(words) <= 80:
+        return "funding"  # "The authors have no conflicts of interest to disclose.", "Funding: …"
+    if _FURNITURE.search(t) and (len(words) <= 40 or _CITE_LINE.match(t)):
         return "notice"
+    if _citation_line(t) or (_LICENCE.search(t) and len(words) <= 120):
+        return "notice"  # the paper's own citation with its DOI; the licence sentence — at any length, never the abstract
     if _looks_like_authors(t) or _name_list(t):
         return "authors"  # before the length rule: twelve authors with their markers run past forty words
-    if _AFFILIATION.search(t) and len(words) <= 60:
-        return "affiliations"
+    if _AFFILIATION.search(t) and len(words) <= 60 and _caps_dense(t):
+        return "affiliations"  # "Associations between wildfire smoke and cardiorespiratory emergency department visits varied …" names a department and is a sentence
     if re.match(r"^\d+\s*[A-Z]", t) and len(words) <= 40:
         return "affiliations"
+    if _affiliation_like(t):
+        return "affiliations"  # Wiley's footnote block, four numbered institutes: an institution's name and not one verb of prose, at any length
     if len(words) >= 40 and not has_abstract_heading:
         return "abstract"
     if t.lower().strip(" .:") in _GENERIC_LABELS or (len(words) <= 3 and t.isupper()):
         return "notice"
     return (_front_by_meaning(t, repairs) if meaning else None) or "other"
+
+
+def _built_over(intro_items: list[dict[str, Any]], abstract_items: list[dict[str, Any]], repairs: dict[str, int]) -> list[dict[str, Any]]:
+    """The paragraphs after the abstract that no heading claims, with the reader's headings
+    over them: one built "Introduction" — or, when the stretch runs on into results and
+    discussion (Wiley's communications print no heading before "Experimental Section"),
+    the block lanes cut it into runs (structure.build_headings), each with a built heading,
+    the first run being the introduction whatever its paragraphs resemble: its place says
+    so. Every heading is labelled `built`."""
+    from .structure import build_headings  # noqa: PLC0415 - structure imports this module
+
+    o = _oracle()
+    if o is not None and abstract_items:
+        seeded = [abstract_items[-1], *intro_items]  # build_headings takes the first long block for the abstract and cuts what follows
+        got, _ = build_headings(seeded, 0, None, o, repairs)
+        if len(got) > len(seeded):
+            out = got[1:]
+            first = next((it for it in out if it.get("_built")), None)
+            if first is not None and first.get("_built_lane") in ("other", "introduction"):
+                first["text"], first["_built_lane"] = "Introduction", "introduction"
+            return out
+    header = {"self_ref": "#/texts/built~introduction", "parent": {"$ref": "#/body"}, "children": [], "label": "section_header", "text": "Introduction", "level": 1, "prov": list(intro_items[0].get("prov") or []), "_built": True, "_built_lane": "introduction"}
+    repairs["built_headings"] = repairs.get("built_headings", 0) + 1
+    return [header, *intro_items]
 
 
 def build_tree(doc: dict[str, Any], key: str, title_hint: str | None = None, judge: Any = None) -> Tree:
@@ -1103,6 +1217,7 @@ def build_tree(doc: dict[str, Any], key: str, title_hint: str | None = None, jud
             self_ref=item.get("self_ref"),
             charspan=list(prov["charspan"]) if prov and prov.get("charspan") else None,
             pages=_pages_of(item),
+            canonical=agreed(canonical_of(heading)[0], role) if kind == "section" and heading else None,  # the catalogue's exact word, in the section's own lane; the embedder's is asked where the section is made
         )
 
     prose_count = 0
@@ -1174,7 +1289,26 @@ def build_tree(doc: dict[str, Any], key: str, title_hint: str | None = None, jud
                     if _known_heading(items[j]) or (page is not None and page > 2) or j - ti >= 60:
                         break
                     end = j + 1
-                front_items, body_items = items[:end], items[end:]
+                pre, post, rest = items[:ti], items[ti + 1 : end], items[end:]
+                # a heading the vocabulary knows before the title: the layout model read the
+                # introduction's first lines (RSC's left column, under the abstract) before the
+                # title block. That heading and the prose right after it lead the body, and the
+                # long paragraphs after the abstract continue it — an abstract in this layout is
+                # one paragraph, and the front matter's own lines stay where they are
+                lead: list[dict[str, Any]] = []
+                start = next((k for k, x in enumerate(pre) if _known_heading(x)), None)
+                if start is not None:
+                    stop = start + 1
+                    while stop < len(pre) and pre[stop].get("label") in ("text", "paragraph") and (pre[stop].get("text") or "").strip():
+                        stop += 1
+                    lead, pre = pre[start:stop], pre[:start] + pre[stop:]
+                    a = next((k for k, x in enumerate(post) if x.get("label") in _PROSE and _front_kind((x.get("text") or "").strip(), has_abstract_heading, meaning=False) == "abstract"), None)
+                    if a is not None:
+                        moved = [x for x in post[a + 1 :] if x.get("label") in _TABLE | _PICTURE | _CAPTION or (x.get("label") in _PROSE and len((x.get("text") or "").split()) >= 15 and _front_kind((x.get("text") or "").strip(), has_abstract_heading, meaning=False) in ("abstract", "other"))]
+                        post = post[: a + 1] + [x for x in post[a + 1 :] if not any(x is m for m in moved)]
+                        lead += moved
+                    repairs["reordered"] = repairs.get("reordered", 0) + len(lead)
+                front_items, body_items = pre + [it] + post, lead + rest
                 break
     if front_items:
         for it in front_items:
@@ -1183,12 +1317,14 @@ def build_tree(doc: dict[str, Any], key: str, title_hint: str | None = None, jud
                 root.text = title
         before_title = title_ref is not None
         related_content = False
+        reviewers = False  # Frontiers' "EDITED BY" / "REVIEWED BY" block: names and affiliations that are not the paper's
         grouped: list[tuple[str, list[dict[str, Any]]]] = []
         abstract_items: list[dict[str, Any]] = []
         intro_items: list[dict[str, Any]] = []  # the introduction's opening, orphaned before its heading
         for it in front_items:
             if it.get("self_ref") == title_ref:
                 before_title = False
+                related_content = False  # what stood above the title is done with
                 continue
             label = it.get("label")
             text = (it.get("text") or "").strip()
@@ -1198,10 +1334,34 @@ def build_tree(doc: dict[str, Any], key: str, title_hint: str | None = None, jud
             if not text:
                 continue
             if before_title and len(text.split()) < 40:
-                if len(text.split()) <= 6 and not _FURNITURE.search(text) and label in _PROSE | _HEADER:
-                    grouped.append(("notice", [it]))  # "REVIEW", "ORIGINAL RESEARCH ARTICLE": what the publisher printed above the title, and what the paper's type is read from
+                if (related_content or re.search(r"you may also like|related content", text, re.I)) and label != "footnote":
+                    related_content = True  # IOP's "You may also like": other papers' titles and authors, to the end of the page (a footnote is the paper's own)
+                    dropped["label"] = dropped.get("label", 0) + 1
+                    continue
+                if re.match(r"^\s*(?:edited by|reviewed by|handling editor|academic editor|editors?:)", text, re.I):
+                    reviewers = True
+                fk = _front_kind(text, has_abstract_heading, repairs)
+                if reviewers:
+                    if fk in ("correspondence", "dates", "keywords", "funding") or _CITE_LINE.match(text) or re.match(r"^\s*(?:citation|copyright|©)", text, re.I):
+                        reviewers = False  # the block ends where the paper's own lines resume
+                    else:
+                        dropped["label"] = dropped.get("label", 0) + 1  # an editor's or a reviewer's name and institution
+                        continue
+                if fk in ("authors", "affiliations", "dates", "correspondence", "keywords", "funding"):
+                    kind = fk  # RSC's affiliations are footnotes on the first page, its dates a line above the title: what the rules can name stays
+                elif len(text.split()) <= 6 and not _FURNITURE.search(text) and label in _PROSE | _HEADER:
+                    kind = "notice"  # "REVIEW", "ORIGINAL RESEARCH ARTICLE": what the publisher printed above the title, and what the paper's type is read from
+                elif fk == "notice" and _citation_line(text):
+                    kind = "notice"  # the paper's own citation with its DOI: kept, whatever its length
+                elif label == "footnote" and not _FURNITURE.search(text):
+                    kind = "other"  # a footnote above the title (RSC's ESI note, "Present address: …") is the paper's: kept, unnamed
                 else:
-                    dropped["label"] = dropped.get("label", 0) + 1  # the journal's name, "Contents lists available at …"
+                    dropped["label"] = dropped.get("label", 0) + 1  # the journal's name, "Contents lists available at …", "Cite this:"
+                    continue
+                if grouped and grouped[-1][0] == kind:
+                    grouped[-1][1].append(it)
+                else:
+                    grouped.append((kind, [it]))  # consecutive lines of one kind are one node, line by line (the paper's type reads the notices one line at a time)
                 continue  # a block of forty words or more above the title is an abstract or a summary, never a label: it stays
             kind = _front_kind(text, has_abstract_heading, repairs)
             if related_content:
@@ -1210,8 +1370,8 @@ def build_tree(doc: dict[str, Any], key: str, title_hint: str | None = None, jud
                 related_content = True
             # an abstract cites nothing and front matter cites nothing: a paragraph of fifteen words or more
             # with a citation marker is the introduction's, and so is every plain paragraph after it
-            if not before_title and kind in ("abstract", "other") and label in _PROSE and (intro_items or (_CITES.search(text) and len(text.split()) >= 15)):
-                intro_items.append(it)
+            if not before_title and not has_abstract_heading and kind in ("abstract", "other") and label in _PROSE and _prose_like(text) and ((intro_items and (len(text.split()) >= 8 or _CITES.search(text))) or (abstract_items and _CITES.search(text) and len(text.split()) >= 15)):
+                intro_items.append(it)  # after an abstract paragraph (the abstract itself may cite), and not with an "Abstract" heading later in the paper: what stands before it is its front matter, whatever it cites
                 continue
             if kind == "abstract":
                 abstract_items.append(it)
@@ -1232,10 +1392,7 @@ def build_tree(doc: dict[str, Any], key: str, title_hint: str | None = None, jud
                 node.label = kind
                 attach(front, node)
         if intro_items:
-            # a built "Introduction" opens the body with them, labelled as the reader's
-            header = {"self_ref": "#/texts/built~introduction", "parent": {"$ref": "#/body"}, "children": [], "label": "section_header", "text": "Introduction", "level": 1, "prov": list(intro_items[0].get("prov") or []), "_built": True, "_built_lane": "introduction"}
-            body_items[0:0] = [header, *intro_items]
-            repairs["built_headings"] = repairs.get("built_headings", 0) + 1
+            body_items[0:0] = _built_over(intro_items, abstract_items, repairs)
         if abstract_items:
             abstract = make(root, "section", {"label": "section_header", **{k: v for k, v in abstract_items[0].items() if k == "prov"}}, "", "abstract", heading="Abstract", level=1)
             attach(root, abstract)
@@ -1295,6 +1452,8 @@ def build_tree(doc: dict[str, Any], key: str, title_hint: str | None = None, jud
                 level = 1
             else:
                 level = infer_level(text, level, any(lvl == 1 for lvl, _ in stack))
+                if level == 1 and role_of(text, meaning=False) == "other" and next((n.role for lvl, n in stack if lvl == 1), None) == "references" and _entries_follow(items, index):
+                    level = 2  # a statement the layout model read between the entries, named by the catalogue or by meaning: the list goes on after it, so it stays inside
             number = top_number(text)
             open_top = next((n for lvl, n in stack if lvl == 1), None)
             if level > 1 and number is not None and open_top is not None and open_top.heading and top_number(open_top.heading) not in (None, number):
@@ -1320,7 +1479,12 @@ def build_tree(doc: dict[str, Any], key: str, title_hint: str | None = None, jud
             parent = stack[-1][1]
             last_heading = text
             prose_since_heading = False
-            role = role_of(text) if level == 1 else current_role(parent)
+            role = role_of(text, meaning=False) if level == 1 else current_role(parent)
+            if role == "other" and level == 1 and text:
+                by_rule = top_level_lane(text)
+                role = by_rule or role_of(text)  # rules first: the vocabulary, then the catalogue ("Case presentation" is results, "Declaration of competing interest" is back), the embedder last
+                if by_rule is None and role in _NOT_NUMBERED and top_number(text) is not None:
+                    role = "other"  # a heading that carries a body number is a body section: of 3,664 back-matter sections across three corpora, the only numbered one was a review's "8. Regulatory and Ethical Considerations", laned back by meaning — unassignable beats misassigned
             if role == "abstract" and (body_started or top_number(text) is not None):
                 role = "discussion"  # "6 Summary", a closing section: the abstract came first
             if level == 1 and (role not in ("abstract", "other") or top_number(text) is not None):
@@ -1331,12 +1495,17 @@ def build_tree(doc: dict[str, Any], key: str, title_hint: str | None = None, jud
             node = make(parent, "section", item, "", role, heading=text or "(untitled section)", level=level)
             if item.get("_built"):
                 node.label = "built"  # the reader's heading, not the author's: visible in the row
+            if text:
+                name, how = canonical_of(text, _oracle())
+                node.canonical = agreed(name, role)  # a name whose lane is another's is no name: "Reference materials" under methods is not References
+                if how == "meaning" and node.canonical is not None:
+                    repairs["canonical_meaning"] = repairs.get("canonical_meaning", 0) + 1
             attach(parent, node)
             stack.append((level, node))
             continue
 
         parent = stack[-1][1]
-        if parent.type == "section" and parent.role == "abstract" and parent.children and label in _PROSE and len(text.split()) >= 15 and _CITES.search(text) and not body_started:
+        if parent.type == "section" and parent.role == "abstract" and parent.children and label in _PROSE and len(text.split()) >= 15 and _CITES.search(text) and _prose_like(text) and not body_started:
             # the abstract has a paragraph already and this one cites: the introduction has begun without its
             # heading (missed by the layout model, or never printed) — a built "Introduction" opens here
             while len(stack) > 1:

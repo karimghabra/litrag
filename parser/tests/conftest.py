@@ -51,4 +51,6 @@ def fake_oracle(tmp_path, monkeypatch):
     monkeypatch.setenv("LITRAG_LANES", "on")
     o = lanes.configure(tmp_path / "lanes.sqlite")
     o.register(meaning.Kind("block", meaning.BLOCK_EXAMPLES, threshold=0.62, margin=0.03))  # the example paragraphs, in the toy embedder's space, not the shipped centroids
+    o.register(meaning.Kind("heading", meaning.HEADING_PROTOTYPES, threshold=0.75, margin=0.08, prefix=meaning.QUERY))  # likewise the example headings, not data/headings.json
+    o.register(meaning.Kind("canonical", {}, threshold=0.7, margin=0.05, prefix=meaning.QUERY, source="silent in the tests"))
     return o

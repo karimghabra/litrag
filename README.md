@@ -40,11 +40,14 @@ of a session takes ~30 s (CUDA warm-up) and every paper after it ~2 s.
 Nothing else is Windows-specific: the same `uv sync`, `npm --prefix app
 install`, `npm run app` from PowerShell or Git Bash.
 
+Which code is the current pipeline and which is the deprecated `lit` CLI,
+how a paper moves through it, and every switch: `PIPELINE.md`.
+
 ## What you see
 
 | Pane | What it shows |
 |---|---|
-| Papers | each paper with its key, status and live stage — filed · models · layout · tree · saved — then a bar of its lanes, and a flag when no methods section was found |
+| Papers | each paper with its key, what kind of paper it is and who said so, the authors, journal and year the file or the record states, its status and live stage — filed · models · layout · tree · saved — then a bar of its lanes, and a flag when no methods section was found |
 | Tree | the paper's sections nested as the paper meant them, every node coloured by lane, tables as `rows × cols`, chips to dim everything but one lane; the front matter as a few typed nodes — authors, affiliations, dates, correspondence, keywords |
 | Page | the page a node came from with its box, every other node on the page faint; the node's ancestry, role, Docling label and text; a table's cells as a grid |
 | Log | the worker's stages and Docling's own log lines, as they happen |
@@ -205,6 +208,87 @@ generative judge had ruled on it would also join five of 69 that are not
 continuations, so it is off unless `LITRAG_BOUNDARY=on`. Its verdicts are
 rows in `judgments` like the judge's, and a rebuild replays them.
 
+## What kind of paper it is, and who wrote it
+
+A review has no methods section and a letter no abstract, so before the
+reader judges a paper's shape it asks what kind of paper it is
+(`paper_type.py`): research, review, case report, letter, editorial,
+protocol, data descriptor, correction, or other — and a subtype where a
+label states one (a randomised trial, a systematic review, a case series, a
+brief report). Every source speaks its own vocabulary, so one table maps
+every spelling seen to one canonical type: Europe PMC's publication types
+(MeSH's, for a MEDLINE paper), the JATS file's `article-type` and its subject
+line, the title's own words ("… a systematic review and meta-analysis",
+"Case report:", "Protocol for a randomised …", "Erratum:"), the label the
+publisher printed above the title. The table also says which labels *name* a
+kind and which are the publisher's default bucket — `research-article`,
+"Journal Article", "Article" — which names nothing. The most trusted specific
+label decides (the record's, then the file's, the subject line's, the title's,
+the page's), `papers.type_source` says which, and every disagreement between
+two labels, or between a label and the paper's shape, is a note the audit
+shows; nothing is overridden in silence. A default alone never makes a
+research paper: the shape must agree — a methods lane and a results lane,
+or, when no heading says results, the methods after the discussion as
+Nature sets them, or measurements (±, p-values, n =, means) reported in a
+tenth of the body's paragraphs, which a review with a methodology section
+never has — else the paper is `other` with the default named. The shape —
+the lanes the tree has and their order, what the body's paragraphs report,
+a case heading, a letter's opening, a systematic review's own headings, a
+data descriptor's (Scientific Data's and Data in Brief's), a protocol's
+future tense — decides by itself only where its rule was measured precise
+on the papers the labels do settle (NOTES.md): reviews, case reports and
+data descriptors, and research when a default confirms it; the rest of its
+readings are notes. The
+audit expects a methods section of a research paper and not of a review, and
+the harness reports a table by type and subtype.
+
+Who wrote it, where and when comes the same way (`record.py`): a JATS file's
+contributor group — names, affiliations resolved through their ids, the
+corresponding author, editors left out — and its journal and year, read on
+every parse and rebuild; else Europe PMC's record, in the one call the type
+already makes, with the author string as it gives it. The file's word
+overrides the record's; nothing is inferred, and a PDF the record does not
+know keeps its front matter's `authors` and `affiliations` lines and empty
+columns (`papers.authors` as JSON, `journal`, `year`). The window shows the
+byline on the paper card and above the tree.
+
+The front matter itself is what the page carries above and around the
+title, typed line by line: authors, affiliations, dates, correspondence,
+keywords, funding, and the publisher's notices; the rest of the banner — the
+journal's home page, "Cite this:", a DOI line, the licence — is left out and
+counted in `dropped`. RSC's first page taught the reader that the layout
+model may read the introduction's heading and first lines *before* the
+title block: a heading the vocabulary knows above the title now leads the
+body, and the paragraphs that follow the one-paragraph abstract go with it.
+
+## Headings canonicalised
+
+Every XML publisher formats its sections differently, and a PDF's headings are
+whatever the layout model read, so beside the author's heading — kept as
+written — each section carries the one name the catalogue gives that kind of
+section (`headings.py`, `nodes.canonical`): "Materials and methods" for
+"2. Experimental", "Conflicts of interest" for "Declaration of competing
+interest", "Conclusions" for "5. Summary and outlook". The catalogue is the
+spellings 514 XML files were found to use, harvested from their own sections
+(`python -m litrag_parser.headings --harvest`), and a few families; where the
+vocabulary was silent, an exact spelling settles a heading's lane ("Case
+presentation" is results, a competing interests statement is back matter),
+an exact spelling of two words or more settles its depth, and a family
+settles a lane only in the body ("Limitations of the present study" is
+discussion; "Reference materials" is not references). A name stands beside
+a section only when its lane is the section's own. Where the catalogue is
+silent, the
+embedder answers against centroids learned from the harvest — one per lane
+and one per canonical name (`data/headings.json`, numbers only) — and is
+taken only when near enough and clearly nearer than the next, measured
+library-out before it decided anything, and never as abstract, references
+or back matter for a heading that carries a body number (no numbered
+section in three corpora was any of those; a review's "8. Regulatory and
+Ethical Considerations" is a body section, lane or no lane); a heading that
+names nothing keeps no name. Built headings take the catalogue's names, which are the corpus's
+modal spellings. The window shows the name after the heading when the two
+differ.
+
 ## From a finding to the method that produced it
 
 A query that tests a hypothesis finds results and then wants the methods
@@ -337,12 +421,15 @@ One JSON line per request on stdin; events on stdout with the same `id`.
 `src/` holds the earlier retrieval loop — Europe PMC search and fetch,
 chunks, embeddings, hybrid retrieval with a graph walk, `lit query`, `lit
 sql`. It still runs (`npm run lit -- help`) against its own store and is
-not yet wired to the tree; `DESIGN.md` says how it will be.
+not yet wired to the tree; `DESIGN.md` says how it will be. It is
+deprecated: kept until its verbs are ported to the tree store
+(`BACKLOG.md`), and `PIPELINE.md` says what to use instead.
 
 ## The documents
 
 | File | What it is |
 |---|---|
+| `PIPELINE.md` | The pipeline on one page: what is current and what is deprecated, a paper step by step, reparse against rebuild, every switch. |
 | `DESIGN.md` | The decisions: the tree and the app (revision 2), and the retrieval loop they will feed (revision 1). |
 | `AGENT.md` | How an assistant drives the worker and the CLI — ops, shapes, conduct. |
 | `NOTES.md` | The assistant's notebook: the libraries, what worked, standing decisions. |

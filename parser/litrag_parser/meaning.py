@@ -343,6 +343,42 @@ def block_kind() -> Kind:
 KINDS["block"] = block_kind()
 
 
+def _headings_data() -> dict[str, Any] | None:
+    path = DATA / "headings.json"
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text("utf-8"))
+    except (OSError, ValueError):
+        return None
+
+
+def heading_kind() -> Kind:
+    """The heading kind over centroids learned from the XML libraries' own headings
+    (`data/headings.json`, made by `python -m litrag_parser.headings --make-centroids`) when
+    the file is there; the hand-picked examples otherwise. Measured library-out (NOTES.md,
+    2026-09-14) before the centroids were let in."""
+    data = _headings_data()
+    if not data or not data.get("lanes", {}).get("centroids"):
+        return KINDS["heading"]
+    t, m = data.get("thresholds", {}).get("heading", [0.7, 0.05])
+    return Kind("heading", {}, threshold=t, margin=m, prefix=data.get("prefix", QUERY), centroids=data["lanes"]["centroids"], source=data.get("from", ""), embedder=data.get("model"), lane_margin={"references": 0.15, "abstract": 0.15, "back": 0.12})  # a review's "Available treatments" lies 0.06 nearer back (Data availability) than methods; a real statement lies 0.25 nearer
+
+
+def canonical_kind() -> Kind:
+    """The canonical-name kind: one centroid per name of the catalogue (headings.CANON) from
+    the same file; silent without it."""
+    data = _headings_data()
+    if not data or not data.get("canonical", {}).get("centroids"):
+        return Kind("canonical", {}, threshold=0.7, margin=0.05, prefix=QUERY, source="no data/headings.json: silent")
+    t, m = data.get("thresholds", {}).get("canonical", [0.7, 0.05])
+    return Kind("canonical", {}, threshold=t, margin=m, prefix=data.get("prefix", QUERY), centroids=data["canonical"]["centroids"], source=data.get("from", ""), embedder=data.get("model"))
+
+
+KINDS["heading"] = heading_kind()
+KINDS["canonical"] = canonical_kind()
+
+
 def _cos(a: list[float], b: list[float]) -> float:
     return sum(x * y for x, y in zip(a, b)) / (math.sqrt(sum(x * x for x in a)) * math.sqrt(sum(y * y for y in b)) + 1e-9)
 
@@ -360,6 +396,7 @@ def key_of(text: str) -> str:
 def _rank(vec: list[float], protos: list[tuple[str, list[float]]]) -> list[tuple[str, float]]:
     best: dict[str, float] = {}
     for group, pv in protos:
+        group = group.split("/", 1)[0]  # "discussion/Conclusions": one lane, several centroids — the best of them counts for the lane
         c = _cos(vec, pv)
         if c > best.get(group, -1.0):
             best[group] = c

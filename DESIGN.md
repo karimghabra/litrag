@@ -207,7 +207,36 @@ with methods found, reviews with topical sections, letters with no
 abstract) and the audit's `no-methods` becomes an error for `research` and
 nothing for `review`.
 
+Built 2026-09-14 (`paper_type.py`), and rebuilt the same day once the
+measurement showed the defaults masquerading as labels: every source's
+vocabulary now goes through one table that says which labels name a kind
+and which are a publisher's default bucket; the record's MeSH publication
+types, the file's article-type, the subject line, the title and the printed
+label are trusted in that order; a subtype is kept where a label states one;
+a default never decides alone — the shape must agree, and the shape decides
+on its own only for the types its rules measured precise (reviews 69 of 69
+named, case reports 9 of 9, data descriptors 5 of 5; research 84 of 97, so
+research by shape needs a default label beside it); a research paper without
+a results heading is read by its order (Nature's methods after the
+discussion) or by the measurements its body reports, and a review with a
+methodology section is unread rather than misread; every disagreement is a
+note.
+Step 5 is not built; the profile kind is off unless `LITRAG_TYPE_PROFILE=on`.
+NOTES.md has the tables. The record's one call brings the authors, journal and year
+as well (`record.py`; `papers.authors`, `journal`, `year`), and a JATS
+file's own contributor group overrides it. The measurement is in NOTES.md.
+
 ### R3.2 Headings read with the type in mind
+
+*Status, 2026-09-14:* the first half is built another way — not one heading
+kind per type but one catalogue of canonical section names for every type
+(`headings.py`, `nodes.canonical`), learned from the XML libraries' own
+sections and measured library-out (NOTES.md); "Case presentation" is a
+results section by the catalogue's word, and a review's topical headings
+keep no name, which is honest. What remains of R3.2 is the type
+conditioning itself: the audit's expectations per type beyond `no-methods`,
+and a per-type answer to what a topical heading is.
+
 
 One heading kind per type, the same oracle: `heading@review` has a `topical`
 lane so "5. Cellulose-based hydrogels for tissue engineering" is a right

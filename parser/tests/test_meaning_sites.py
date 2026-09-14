@@ -144,7 +144,7 @@ def test_a_paragraph_inside_the_abstract_is_not_moved_on_a_resemblance(fake_orac
         ("title", "A crosslinked collagen scaffold for tendon repair", 1),
         ("section_header", "Abstract", 1),
         ("text", "We report a scaffold. " * 12, 1),
-        ("text", "Funding: This work was supported by grant R01 AR068426 from the NIH and by a fellowship from the Wellcome Trust.", 1),
+        ("text", "This work was made possible by grant R01 AR068426 from the NIH and by a fellowship from the Wellcome Trust.", 1),
         ("section_header", "Introduction", 1),
         ("text", "Tendon injuries are common and heal slowly, which is why scaffolds have been studied for decades in this field of work.", 1),
     ]
@@ -152,14 +152,14 @@ def test_a_paragraph_inside_the_abstract_is_not_moved_on_a_resemblance(fake_orac
     doc = {"name": "d", "body": {"self_ref": "#/body", "children": [{"$ref": t["self_ref"]} for t in items]}, "texts": items, "pictures": [], "tables": [], "groups": [], "pages": {"1": {"page_no": 1, "size": {"width": 600, "height": 850}}}}
     tree = build_tree(doc, "k")
     abstract = next(n for n in tree.root.children if n.type == "section" and n.role == "abstract")
-    assert [c.text[:8] for c in abstract.children] == ["We repor", "Funding:"]
+    assert [c.text[:8] for c in abstract.children] == ["We repor", "This wor"]
 
 
 def test_a_line_of_front_matter_the_rules_have_no_word_for_is_typed_by_meaning(fake_oracle):
     texts = [
         ("title", "A crosslinked collagen scaffold for tendon repair", 1),
         ("text", "John A. Smith 1 , Maria García 2 , Wei Zhang 1,*", 1),
-        ("text", "This work was supported by grant R01 AR068426 from the NIH and by a fellowship from the Wellcome Trust.", 1),
+        ("text", "This work was made possible by grant R01 AR068426 from the NIH and by a fellowship from the Wellcome Trust.", 1),
         ("section_header", "Introduction", 1),
         ("text", "Tendon injuries are common and heal slowly, which is why scaffolds have been studied for decades in this field of work.", 1),
     ]

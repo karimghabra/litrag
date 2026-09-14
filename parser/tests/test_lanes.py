@@ -25,7 +25,8 @@ def fake_embed(texts):
 def test_a_heading_the_vocabulary_misses_is_named_when_it_lies_near_a_lane(tmp_path, monkeypatch):
     monkeypatch.setattr(meaning.Oracle, "_embed", lambda self, texts: fake_embed(texts))
     store = tmp_path / "lanes.sqlite"
-    lanes.configure(store)
+    examples = meaning.Kind("heading", meaning.HEADING_PROTOTYPES, threshold=0.75, margin=0.08, prefix=meaning.QUERY)  # the example headings, in the toy embedder's space, not data/headings.json
+    lanes.configure(store).register(examples)
     assert role_of("3 | Results") == "results"  # the vocabulary, after the pipe is stripped
     assert role_of("5. Strengths and limitations") == "discussion"  # by meaning
     assert role_of("2. Data collection and analysis") == "methods"
@@ -33,6 +34,7 @@ def test_a_heading_the_vocabulary_misses_is_named_when_it_lies_near_a_lane(tmp_p
     assert lanes.active().summary()["kinds"]["heading"]["named"] >= 2
     # the verdicts are rows, and a second oracle over the same store answers without the embedder
     again = meaning.standard(store)
+    again.register(examples)
     monkeypatch.setattr(again, "_embed", lambda texts: (_ for _ in ()).throw(AssertionError("asked the embedder")))
     assert again.nearest("heading", "strengths and limitations").name == "discussion"
     assert again.nearest("heading", "immune cells in the aging ventricle").name == "other"

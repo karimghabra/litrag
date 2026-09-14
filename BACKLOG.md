@@ -208,6 +208,55 @@ Each one wants a fixture or a test before its fix, as the spot-check does.
   link is lost (47 → 0 on `doi:10.1002/jbm.b.35120`). The linker should take
   entries from the list items and entry-shaped paragraphs only, and a prose
   subsection under References should be a sibling, not an entry.
+- **A keywords line read as a heading swallows the subsections after it**
+  (2026-09-14) — Frontiers' "KEYWORDS" line is a `section_header` in
+  Docling's reading, the vocabulary lanes it `back` and it stands top-level,
+  so "1.2 Three models tested in this paper" and "1.3 …" nest under it
+  instead of under "1 Introduction" (`doi:10.3389/fgene.2026.1864752`). A
+  heading whose canonical name is a front-matter line (Keywords,
+  Highlights, Graphical abstract) should become a `meta` line with the
+  paragraph after it, not a section.
+- **The block centroids on an unheaded stretch** (2026-09-14) — a Wiley
+  communication prints no heading between the abstract and "Experimental
+  Section"; the stretch (introduction, results, discussion) now goes to
+  `structure.build_headings`, but the shipped centroids call its results
+  paragraphs `references` (0.66–0.74, margins under 0.08) and its
+  introduction `introduction` by 0.02, so nothing is sure and the whole
+  stretch is one built "Introduction". Centroids from paragraphs of
+  unheaded papers, or the type-conditioned lanes of R3.2, would let the
+  cut happen; until then the built heading is honest about who wrote it
+  and wrong about what the later paragraphs are.
+- **Content lanes for the subsections under "Main"** (2026-09-14) — Nature's
+  JATS opens the body with a "Main" section whose own paragraphs are the
+  introduction and whose titled subsections ("Accuracy across complex
+  types") are the results; the heading is now the introduction lane, so
+  those subsections inherit `introduction`. `lane_sections` names only
+  top-level sections; a level-2 section under an introduction-lane wrapper
+  whose paragraphs are clearly results (or methods) should take that lane
+  the same way, verdict stored. Forty-odd held-out JATS papers are shaped
+  like this (PNAS, NEJM and OUP print the introduction untitled instead,
+  and get a built heading where the paragraphs start citing). The same
+  papers' results headings at top level ("GWAS meta-analysis", "Pathway
+  analyses" in a Nature Genetics paper) are laned `methods` by meaning;
+  the type's shape rule reads such a paper by its order (the methods
+  last) rather than by those lanes, but the lanes themselves are wrong.
+- **What the shape cannot read** (2026-09-14) — case reports, letters and a
+  guideline written as full research papers (four, four and one of the
+  286 labelled papers), MeSH's "historical article" and "video-audio
+  media" on research papers, a meta-analysis that is also an experiment:
+  only a stated label settles these, and a PDF without a record gets
+  `research`. The profile kind (title, first sentences, headings, against
+  example profiles) measured 0.66 and ships off; a kind whose prototypes
+  are the corpora's own labelled abstracts, measured library-out like the
+  heading centroids, is the next thing to try before any generative judge.
+- **RSC's sidebar text inside a paragraph** (2026-09-14) — the rotated
+  "Open Access Article. Published on 01 September 2026. Downloaded on …"
+  along an RSC page's margin is glued by the layout model to the block
+  beside it ("Their photophysical behavior is generally Published on 01
+  September 2026" on `doi:10.1039/d6ra07899k`, held-out-2-pdf). The
+  sidebar ungluing in `recover.py` keys on Wiley's "Downloaded from" and
+  does not see this one; the layer's rotated rows should be read apart
+  wherever they stand, whatever they say.
 - **The boundary scorer on real leftovers** (2026-09-13) — it passes the
   synthetic gate and fails the real one because the pairs the rules leave
   open are mostly not continuations at all (a funding line, an affiliation

@@ -75,6 +75,267 @@ when it turns out durable. Mark inference as inference.
 
 ## Short-term memory
 
+- **2026-09-14, later: the type rebuilt on a canonical table, and headings
+  canonicalised** — Karim: "every xml is formatted differently, so we must
+  canonicalize everything. we also need to get better at the initial
+  categorization of paper type", then "implement … strengthen
+  categorization; this is hugely important. then … canonicalize different
+  headings and start choosing headings from a learned vocabulary". What the
+  corpus said first: `research-article` is what 351 of 514 XML files say
+  and "Journal Article" what 729 of 747 records say — the publisher's
+  default bucket, not evidence; 34 of the 566 papers typed research had no
+  methods section. The record's `pubType` already carries MeSH publication
+  types for MEDLINE papers (randomized controlled trial 24, multicenter
+  study 11, case reports 11, clinical trial protocol 5, observational study
+  4 …) and 252 files carry a `<subject>` line in 103 spellings ("Original
+  Research", "Brief Research Report", "Study Protocol", "Narrative Review",
+  "Letter to the Editor"); neither was read. What was built:
+  `paper_type.py` rewritten — one table (`LABELS`) over every source's
+  vocabulary that says which labels name a kind and which are defaults;
+  subtypes; the title's own words as a source; the shape's rules (lanes, a
+  case heading, a letter's opening, a systematic review's headings, a data
+  descriptor's, a protocol's future tense); disagreement notes;
+  `papers.subtype`. What was measured (`--measure`, run 3): 286 papers
+  labelled by a stated specific source (record 249, subject 37; truth:
+  review 137, research 86, editorial 22, letter 13, case report 13,
+  protocol 5, data 5). Alone against that truth — title 42 answered, 0.93
+  right (case report 6/6, letter 3/3, editorial 6/6, review 14/15, rct
+  7/8); printed label 24, 0.88 (research 7/7, review 7/9); subject line 77,
+  0.94 (review 55/55); the shape 202, 0.87: review 69/70, case report 9/9,
+  data 5/5, letter 3/3, research 84/108 (the 24 wrong are reviews with a
+  methods section 14, case reports without a case heading 4, guidelines 3,
+  letters 2, editorials 1), protocol 5/7. So the shape decides reviews,
+  case reports and data descriptors on its own, research only when a
+  default label stands beside it, and protocol and letter stay notes. The
+  whole cascade with the stated sources hidden — what a PDF without a
+  record gets — is right 0.87 of the time on those papers, research at
+  0.76 precision. On the corpora the file and the record still settle 97
+  in 100; the change is that a default no longer counts as a label and the
+  reviews hiding under it are named or noted.
+  Run 4, after a paper-by-paper listing (`measure_list.py` in the scratch
+  directory) named the confusions: the twelve reviews the shape read as
+  research all had a methods lane, a discussion and no results lane ("2.
+  Methodology", "5. Extraction Methods", "2. Bibliometric Analysis" among
+  topical sections), and no labelled research paper had that shape — but
+  the corpora did: Nature-family and PNAS papers set the methods after the
+  discussion and their results under the main text's own headings, and a
+  PLOS paper's results stood under topical headings, twelve papers typed
+  research by default and shape that a lanes-only rule would have lost.
+  What separates the two is the order and the body, not the lanes: the
+  methods last (ten of the twelve), and measurements — ±, p <, n =, SD, CI,
+  mean, median — in the body's paragraphs of 25 words or more: 0.12 to
+  0.40 of them on those research papers, at most 0.07 on a review with a
+  methodology section (median 0.01), 0.24 median on labelled research
+  papers with a results lane, 0.0 median on reviews without methods (third
+  quartile 0.03). So the shape's research rule is a results lane, or the
+  methods after the discussion, or measurements in a tenth of the body; a
+  review with a methodology section is unread now, not misread (its record
+  names it anyway; an unlabelled one becomes `other` by default, which is
+  honest). Two smaller fixes from the same listing: a protocol named in a
+  subtitle ("…: protocol for an 11-hospital multicenter randomized
+  controlled trial", "…: The CROSSMIRV Trial Protocol"), which the trial
+  rule had read as an RCT, and Data in Brief's headings ("Value of the
+  Data", "Data Description") beside Scientific Data's. Run 4: the shape
+  alone answered 190 and was right 0.93 (research 97 named, 84 right,
+  precision 0.87 from 0.76; review 69 named, all right, 69 of 72 recalled;
+  case report 9 of 9; data 5 of 5; protocol 5 of 6; letter 4 of 4); the
+  cascade with the stated sources hidden answered 230 and was right 0.90
+  (from 0.85). Of the 23 left, nine are the profile kind's (measured only;
+  it ships off), and the rest are case reports, letters and a guideline
+  written as full research papers, MeSH's "historical article" and
+  "video-audio media" on research papers, a "Debate" printed label on a
+  comment, and one meta-analysis that is also an experiment — nothing a
+  shape can read.
+  Headings: the same files gave 12,964 titled sections (7,812 unique
+  headings). The vocabulary named 70 % of the 4,890 top-level ones and 7 %
+  of the 8,157 subsections; the rest were back-matter statements never
+  listed (Associated Data 209, Contributor Information 70, IRB statement
+  36, Informed Consent 33 …) and the topical methods vocabulary (Cell
+  culture, Western blot, Study population, Outcome measures). Built:
+  `headings.py` — the catalogue of thirty canonical names with the
+  spellings the corpus uses (5,339 sections matched exactly, 302 by
+  family), `nodes.canonical`, an exact top-level spelling settling depth
+  and lane where the vocabulary was silent, built headings named from the
+  catalogue ("Materials and methods"), and centroids from the harvest for
+  the `heading` and `canonical` kinds. Measured library-out (four XML
+  libraries, the vocabulary's and the catalogue's word as truth): the
+  canonical centroids name a section right 0.993 of the time at 0.7/0.05
+  (recall 0.88; Study design and Materials the weakest at 0.95; Abstract
+  the one failure, a front-matter name that no body heading should carry,
+  now kept out of the centroids). The lane prototypes as one centroid per
+  lane put "Discussion" itself nearer "Results and discussion" than its
+  own lane (a lane blended from "Discussion" and "Conclusions" spellings:
+  results-discussion precision 0.28, discussion recall 0.55), so the lane
+  prototypes are the per-name centroids grouped by lane, the best counting.
+  After that change, library-out at 0.7/0.05 (shipped for lanes): every
+  lane at precision 1.0 — introduction 461 of 464 recalled, methods 337 of
+  344, results 247 of 248, results and discussion 83 of 83, discussion 600
+  of 604, references 262 of 262, back 1,612 of 1,618; the 1,479 top-level
+  headings the vocabulary calls `other` get back 345 (Contributor
+  Information, Informed Consent Statement, Publisher's note, CRediT …),
+  discussion 50 (limitations, future perspectives), methods 21,
+  introduction 7 (Scientific Data's "Background & Summary"), results and
+  discussion 6, and 1,128 stay `other`. The canonical centroids at 0.75/0.05
+  (shipped for names): precision 0.995, recall 0.81 — Study design 0.95,
+  Results 0.96, Implications 0.96, Ethics 0.98, the rest at or near 1.0 —
+  and on the 7,109 unnamed headings they name 66 as Statistical analysis
+  ("Sensitivity analysis" fairly, "Bioinformatics analysis" not), 39 as
+  Materials and methods, 30 Study design, 25 Materials, 24 Results
+  ("Outcomes"), 15 Data availability, and leave the rest unnamed. The
+  `heading` kind now runs on those prototypes instead of the hand-picked
+  examples; `data/headings.json` (306 KB, numbers and the modal spellings)
+  carries both, with the thresholds. Every stored heading verdict is
+  re-asked once, since the kind's signature changed.
+  A fresh-context review of the two modules then found, and the code now
+  answers: a heading word the layout model set above the title
+  ("INTRODUCTION", "Abstract") reached the type table as a printed label;
+  "Response to neoadjuvant chemotherapy …" read as a letter and "Correction
+  of hallux valgus …" as a correction; a protocol for a systematic review
+  read as the review; the subtype was whichever agreeing label the record
+  listed first (MeSH lists alphabetically: an RCT came out "comparative");
+  the embedder's stored verdict for a heading ran before the catalogue's
+  rule; an exact single-word spelling ("Notation", "Consent") promoted a
+  subsection to a top-level section of another lane, and a family
+  ("Reference materials", "Image registration", "Contributions of
+  macrophages …") laned prose sections as references or back matter; a
+  canonical name could contradict its section's lane; the shape's case and
+  review rules fired on "3.1 Case study" and "2.3 Quality assessment"
+  inside ordinary research papers. The first run of the gate with the
+  catalogue also showed the corpus effect of the centroids: on the pilot,
+  33 sections the examples had left `other` took a lane (reviews' "Future
+  perspectives" and "Limitations …" discussion, "Overview of gelatin"
+  introduction, "Fabrication techniques" methods) and two lost one; the
+  families now give lanes in the body only and the depth rests on
+  two-word spellings. The second gate then lost 44 and 81 citations on two
+  Frontiers PDFs: the new prototypes name "Publisher's note" and
+  "Generative AI statement" back matter, which the old examples did not,
+  and a heading named by meaning at the page's own level stands top-level
+  — but Frontiers sets those two statements in the left column under the
+  start of the reference list, so the layout model reads them between the
+  entries, and the promoted heading cut the list in two (56 entries to
+  14). Now a heading promoted while the reference list is open stays
+  inside it when an entry stands among the next eight items; a back
+  section after the list still opens as its own. A review's "Available
+  treatments" read as back matter by meaning (0.72, a margin of 0.06 over
+  the next lane, where a real statement lies 0.14 to 0.25 clear), so a
+  `back` verdict by meaning needs a margin of 0.12. The same review's "8.
+  Regulatory and Ethical Considerations" cleared even that (0.82, 0.1215
+  over discussion) and the Ethics family named it beside; what refuses it
+  is its number: across the three corpora 3,664 top-level sections are
+  back matter, 768 reference lists, 702 abstracts, and the only one of
+  those carrying a body number was this heading, while 1,457 body sections
+  carry one. So a heading with a body number takes no abstract, references
+  or back lane by meaning (the vocabulary's own word still counts: a
+  preprint's "7. References" is the list); the section is `other` and the
+  Ethics name, whose lane it no longer shares, is dropped with it.
+  The last gate of the day (the harness on the three corpora against the
+  step-7 baselines, the six libraries rebuilt, the type measured): no
+  title, methods section, lane or citation lost anywhere; lanes gained 28
+  on the pilot and 12 and 13 on the held-out sets, methods sections gained
+  5 and 7. The libraries now: 765 papers, 9,470 top-level sections, 8,339
+  of them with a canonical name (88 %; 174 by meaning; 42 built headings),
+  the lanes back 3,663 · discussion 1,138 · methods 872 · references 768 ·
+  introduction 761 · abstract 702 · results 440 · results and discussion
+  130 · other 996; the named share runs from 78 % on looped-ligament (a
+  PDF pilot) to 95 % on held-out-2-xml. Types: research 526, review 150,
+  other 26, editorial 22, letter 14, case report 13, protocol 8, data 5,
+  correction 1 — by the record 249, a default the shape confirms 430, the
+  subject line 37, the title 15, the shape alone 14, the printed label 13,
+  none 7; a subtype on 90 papers (rct 28, brief report 10, perspective 10,
+  comment 6, meta-analysis 5, systematic review 4, observational 4 …); 38
+  disagreement notes in 36 papers, from 51 in 49 before run 4. The pilot
+  libraries: looped-ligament research 45, review 31, other 4;
+  succinylated-collagen review 77, research 62, other 7, editorial 1.
+  `npm run check:all` is green (155 parser tests, 42 CLI, 4 app) and the
+  headless e2e passes 8 of 8. Karim then asked for it pushed "to litrag",
+  with a brief doc on the pipeline and its usage "so as not to confuse
+  workflow with deprecated code": `PIPELINE.md`, pointed to from README.md,
+  AGENT.md and CLAUDE.md, and all of it committed on
+  `claude/decisions-by-meaning`.
+
+- **2026-09-14, the paper's type, the record, and RSC's first page** —
+  Karim asked whether the reader knew what kind of paper it was reading
+  (it did not), then saw the introduction and the front matter mixed up on
+  a PDF whose abstract runs long, then brought an RSC paper (`doi:10.1039/
+  d6ra07899k`, "Excitation-dependent evolution of emissive states …") whose
+  headings read "RSC Advances, Front matter, Introduction, Experimental,
+  Results and discussion, Conclusions" and asked for the front matter to be
+  captured — authors and affiliations — and the rest thrown away. What was
+  built: `paper_type.py` (the cascade of DESIGN R3.1, steps 1–4 and 6),
+  `record.py` (a JATS file's contributors, journal and year; Europe PMC's
+  record once at ingest), the columns and the byline in the window. What
+  was found on the RSC PDF: Docling reads its two-column first page as
+  banner, dates, "1. Introduction" and its first paragraph, the seven
+  affiliation footnotes, the licence, *then* the title, the authors and the
+  abstract — so the introduction's first lines (39 words) were dropped as a
+  label above the title, "1. Introduction" became a notice, the authors
+  line was the abstract's first paragraph (its "a" markers counted as the
+  article, its "and" as nothing), the paragraphs after the abstract were the
+  abstract's, and a displaced tail was rejoined to the licence line because
+  the seven footnotes had pushed the true head out of the window. Each of
+  those is now a rule (CHANGELOG), and the paper reads: Front matter
+  (notices, dates, affiliations a–g, correspondence, authors) · Abstract
+  (one paragraph, the graphical abstract) · 1. Introduction (five
+  paragraphs, the first whole) · 2. Experimental · 3. Results and
+  discussion · 4. Conclusions · back matter · References. Still wrong there:
+  the rotated sidebar's "Published on 01 September 2026" inside the first
+  paragraph (BACKLOG). What the gate then found: the first version of the
+  "cites, so it is the introduction" rule took a Frontiers "Citation: …
+  (2026)" line, an Advanced Science affiliation block ("China. 2 Department
+  of …"), an "Abstract: … et al." paragraph and a forty-word "To cite this
+  article" line for the introduction's opening (four pilot papers, an
+  "Abstract" heading demoted to `discussion` in three) — each is now a
+  named exclusion, and the rule stays silent when an "Abstract" heading
+  comes later. In the held-out sets it fired on forty-three JATS papers,
+  and rightly: PNAS, NEJM, OUP and the letters print the introduction
+  untitled, and Docling had filed it under the abstract; Nature and OUP
+  wrap the body in a "Main"/"Main text" section the vocabulary did not
+  know, now the introduction lane. Two more rounds of the gate found what
+  the front matter above the title now kept that it should not (IOP's
+  "You may also like" titles and authors, Frontiers' editors and reviewers
+  with their institutions, a date on a line of its own read as a numbered
+  affiliation, "correspondingly" in a results paragraph read as
+  correspondence, "Bi2WO6:Yb,Er@CuS@CS" as an e-mail, a key-point sentence
+  naming a department read as an affiliation, a Frontiers citation line
+  with the DOI on the next line read as the abstract) — each now a rule,
+  each a test.
+  The gate (the harness against the step-7 baselines, run 16): no bucket
+  in any corpus. Pilot, 227 papers: titles 151/151 and 74/76, methods
+  56/151 and 62/76, clean 227/227, citations 26,145 (+6) and 5,022,
+  dropped sentences 67 in 22 papers (unchanged), built headings 4 — a
+  Wiley communication, an AJSM paper, a 2000 J Biomed Mater Res paper and
+  an Eye & Contact Lens review, each with its introduction printed
+  unheaded. Held-out 1, 197 papers: methods 120/162 and 26/35, citations
+  21,145 (+3) and 2,784, dropped 48 in 12 (unchanged), built 6 JATS
+  (Nature Communications, JCI, a letter, an editorial) and 6 PDFs.
+  Held-out 2, 341 papers: methods 178/200 and 126/141, citations 12,599
+  (+3) and 7,679 (−84 in twelve PDFs, one or two citing nodes fewer in
+  each: an author line or an affiliation block whose superscript markers
+  had counted as citations now stands in the front matter — AJTMH's
+  thirteen authors were thirteen "citations"), dropped 148 in 44 (+1: a
+  page-2 fragment of `aem.00289-26` that no longer rejoins), front matter
+  5.6 nodes a PDF (4.4 before: Frontiers, Cureus and JKMS first pages
+  carry their authors, affiliations, ORCIDs, dates and disclosures; JKMS
+  16), built 25 PDFs (Nature-family, PNAS, editorials, letters). The e2e
+  suite's cap on front-matter nodes is 16 for that reason.
+  What was measured for the type (`paper_type --measure`, the file's and
+  the record's word hidden): 744 labelled papers (510 by the file, 234 by
+  the record). The printed label answered 89, right 81 (0.91): research
+  70 of 71 named (0.986), review 7 of 9 (0.78 — two case reports print a
+  label the kind takes for "review"; a run before Cureus's "Review began
+  …" lines were dates had it at 0.5), editorial 1 of 3, protocol 1 of 3,
+  letter 0 of 1, case report 1 of 1, data 1 of 1. The profile answered
+  215, right 142 (0.66): research 103 of 114 (0.904), review 31 of 46
+  (0.674), letter 3 of 4, case report 3 of 4, protocol 1 of 43 — it calls
+  a research paper a protocol 39 times.
+  So the page decides research only (`PRINTED_DECIDES`), the profile is
+  off unless `LITRAG_TYPE_PROFILE=on`, and `--measure` keeps scoring both.
+  On the corpora the file and the record label 97 in 100: the pilot has
+  13 `other` in 227, held-out 1 has 2 in 197, held-out 2 has 4 in 341.
+  The record: Europe PMC answered for 738 of the 752 papers with a DOI or
+  PMID (14 unknown, Zenodo DOIs mostly); the JATS files' own contributor
+  groups override it on every rebuild.
+
 - **2026-09-14, edges from a finding to its method** (R3.4 of the plan,
   pulled forward at Karim's request; `edges.py`, the `edges` table, the
   `edges` op, "Measured by" in the window). What it is: for each results

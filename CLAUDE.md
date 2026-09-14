@@ -3,8 +3,10 @@
 One library of papers per project. A desktop app watches each paper being
 read into a tree; a Python worker does the reading and owns the store; the
 `lit` CLI in `src/` is the earlier retrieval loop, kept until the app has
-replaced its verbs. `DESIGN.md` records the decisions; `AGENT.md` is how an
-assistant drives it, and its conduct is binding; `NOTES.md` is the
+replaced its verbs. `PIPELINE.md` is the pipeline on one page and says
+which code is current and which is deprecated; `DESIGN.md` records the
+decisions; `AGENT.md` is how an assistant drives it, and its conduct is
+binding; `NOTES.md` is the
 assistant's own notebook — read it before talking to the user about their
 libraries, and keep it current; `BACKLOG.md` is where wants wait;
 `README.md` is the front door. The research context itself lives in
@@ -19,7 +21,8 @@ Where things are:
   worker and relays its events; `src/renderer` is the window: papers,
   tree, page with boxes, log.
 - `src/`, `tests/` — the `lit` CLI (Node): Europe PMC, chunks, embeddings,
-  hybrid retrieval. Not yet wired to the tree store.
+  hybrid retrieval. Not yet wired to the tree store, and deprecated: kept
+  until its verbs are ported to it (`BACKLOG.md`).
 
 Invariants:
 

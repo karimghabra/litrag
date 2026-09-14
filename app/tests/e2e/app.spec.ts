@@ -37,6 +37,11 @@ interface PaperRow {
   error: string | null;
   nodes: number;
   has_methods: number | null;
+  type?: string | null;
+  type_source?: string | null;
+  authors?: string | null;
+  journal?: string | null;
+  year?: string | null;
 }
 
 interface NodeRow {
@@ -114,6 +119,15 @@ test('titles are titles, methods are found, front matter is a few typed nodes', 
   expect(1 - noMethods.length / rows.length, `no methods section in: ${noMethods.map((p) => p.key).join(', ')}`).toBeGreaterThanOrEqual(minMethods - 1e-9);
   const cards = page.locator('#papers .paper');
   await expect(cards.locator('.badge.parsed')).toHaveCount(rows.length);
+  if (!process.env['LITRAG_E2E_PAPERS']) {
+    // the fixture is a JATS file: its own article type, contributors, journal and year are on the row and on the card
+    const p = rows[0]!;
+    expect([p.type, p.type_source], 'a research-article default, confirmed by the shape').toEqual(['research', 'default']);
+    expect((JSON.parse(p.authors ?? '[]') as { name: string; affiliations: string[] }[]).filter((a) => a.name && a.affiliations.length).length, 'authors with affiliations from the contributor group').toBeGreaterThanOrEqual(3);
+    expect(`${p.journal} ${p.year}`).toBe('Micromachines 2024');
+    await expect(cards.first().locator('.byline')).toContainText('Micromachines · 2024');
+    await expect(cards.first().locator('.key')).toContainText('research (by default)');
+  }
   for (const p of rows) {
     const tree = (await request(page, 'tree', { lib, key: p.key })) as { root: NodeRow };
     const nodes = flat(tree.root);
@@ -121,7 +135,7 @@ test('titles are titles, methods are found, front matter is a few typed nodes', 
     expect(fragments.map((n) => `${n.node_id} ${JSON.stringify(n.text)}`), `${p.key}: one-letter paragraphs`).toEqual([]);
     const front = tree.root.children.find((c) => c.type === 'section' && c.heading === 'Front matter');
     if (front) {
-      expect(front.children.length, `${p.key}: front matter as ${front.children.length} nodes`).toBeLessThanOrEqual(8);
+      expect(front.children.length, `${p.key}: front matter as ${front.children.length} nodes`).toBeLessThanOrEqual(16); // a Cureus or JKMS first page carries authors, affiliations, ORCIDs, dates, funding and disclosures, each kind its own node
       expect(front.children.every((c) => c.type === 'meta' || c.type === 'picture' || c.type === 'table'), `${p.key}: front matter is typed`).toBe(true);
     }
   }

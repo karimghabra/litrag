@@ -5,6 +5,10 @@
 Meaning everywhere a list used to be, and a scorer for the one question
 meaning cannot answer.
 
+- `PIPELINE.md` (new): the pipeline on one page — what is current, opt-in,
+  experimental or deprecated (the `lit` CLI in `src/`), a paper from filing
+  to saved rows, reparse against rebuild, and every `LITRAG_*` switch with
+  its default. `README.md`, `AGENT.md` and `CLAUDE.md` point to it.
 - `parser/litrag_parser/meaning.py` (new): the one oracle every question of
   resemblance goes to — a *kind* is named groups of example texts, a
   threshold and a margin; the nearest group names a text when it is near
@@ -80,10 +84,131 @@ meaning cannot answer.
   the report says what each kind named and whether the embedder was
   reachable. `library.py`: `parsed_papers` and `safe_key`, replacing three
   copies of each.
+- `parser/litrag_parser/paper_type.py` (new), `papers.type`, `subtype`,
+  `type_source`, `type_detail`: what kind of paper each is — research,
+  review, case report, letter, editorial, protocol, data descriptor,
+  correction, other — and its subtype where a label states one (rct,
+  clinical-trial, systematic-review, meta-analysis, case-series,
+  brief-report, methods, perspective, erratum, …). One table (`LABELS`)
+  maps every spelling every source uses to one canonical type: Europe
+  PMC's publication types (MeSH's), the JATS `article-type` and the
+  `<subject>` line, the title's own words, the label printed above the
+  title; and says which labels name a kind and which are a publisher's
+  default bucket ("research-article", "Journal Article", "Article"). The
+  most trusted specific label decides, in the order record, file, subject,
+  title, page; a default alone never makes a research paper — the shape
+  must agree — and every disagreement, label against label or label
+  against shape, is a `type-disagreement` note the audit shows. The shape
+  (lanes present, a case heading, a letter's opening, a systematic review's
+  headings, a data descriptor's, a protocol's future tense) decides on its
+  own only for the types its rule was measured precise on (`SHAPE_DECIDES`:
+  review, case report, data descriptor, and research by default and shape);
+  the profile kind stays off unless `LITRAG_TYPE_PROFILE=on`. The shape's
+  research rule needs a results lane, or Nature's order — the methods
+  after the discussion, the results under the main text's own headings —
+  or measurements (±, p-values, n =, means) in a tenth of the body's
+  paragraphs: a review with a methodology section and no results (twelve
+  in the corpora, "2. Methodology", "5. Extraction Methods") read as
+  research before and is unread now, while a Nature or PNAS paper still
+  reads as research. A protocol named in a subtitle ("…: protocol for an
+  11-hospital multicenter randomized controlled trial", "…: The CROSSMIRV
+  Trial Protocol") is a protocol before the trial rule reads the same
+  title; Data in Brief's fixed headings ("Value of the Data", "Data
+  Description") name a data descriptor beside Scientific Data's. Measured
+  with the stated sources hidden, the shape alone is right 0.93 of the
+  time (research at precision 0.87, from 0.76) and the whole cascade 0.90
+  (from 0.85). The audit
+  expects a methods section of a research paper, a case report and a
+  protocol and not of a review, a letter or an editorial; the harness
+  reports types, subtypes and disagreements; the paper card says the type,
+  subtype and source. `python -m litrag_parser.paper_type --fetch` stores
+  the record, `--measure` scores every source alone against the stated
+  labels and the whole cascade with them hidden (NOTES.md has the table).
+- `parser/litrag_parser/record.py` (new), `papers.authors`, `journal`,
+  `year`: who wrote the paper, where and when. A JATS file's contributor
+  group (names, affiliations resolved through their ids, the corresponding
+  author; editors left out) and its journal and year are read on every
+  parse and rebuild; a paper with a DOI or PMID gets Europe PMC's record
+  once at ingest — author string, journal, year and publication types in
+  the one call the type already made — and the file's word overrides the
+  record's. The window shows the byline on the paper card and above the
+  tree. Nothing is inferred: a PDF the record does not know keeps its front
+  matter's `authors` and `affiliations` lines and empty columns.
+- `parser/litrag_parser/headings.py` (new), `nodes.canonical`: headings
+  canonicalised. The author's heading stays as written and beside it stands
+  the catalogue's name for that kind of section — "Materials and methods",
+  "Results and discussion", "Conclusions", "Case presentation", "Conflicts
+  of interest", "Data availability", "Ethics", "Supplementary material",
+  "Author contributions", "Funding", "Abbreviations", "Footnotes" and the
+  rest, thirty names — from the spellings 514 XML files of the six libraries
+  were found to use (`--harvest` counts every titled section with the lane
+  the vocabulary, the file's `sec-type` or the parent gives it) and a few
+  families. An exact spelling of a top-level name settles a heading's depth
+  and, where the vocabulary was silent, its lane. Where the catalogue is
+  silent the embedder answers against centroids learned from the harvest,
+  one per lane and one per name (`data/headings.json`, made by
+  `--make-centroids`, numbers only), measured library-out before they
+  decided (`--measure`, NOTES.md): the lane prototypes — the per-name
+  centroids grouped by lane, the best counting — replace the hand-picked
+  example headings of the `heading` kind, at precision 1.0 on every lane
+  library-out; a `back` verdict by meaning needs a margin of 0.12, since a
+  review's "Available treatments" lies a little nearer "Data availability"
+  than anything else and a real statement lies far nearer; and a heading
+  that carries a body number takes no abstract, references or back lane by
+  meaning at all — of 3,664 back-matter sections across the three corpora
+  the one numbered heading was a review's "8. Regulatory and Ethical
+  Considerations", which lies 0.82 from back matter and 0.12 clear of the
+  next lane, a body section by its number. Built headings take the
+  catalogue's names, the corpus's modal spellings ("Materials and methods",
+  not "Methods"). The window shows the name after the heading when the two
+  differ; the harness counts named sections.
+\1 Docling
+  reads the two-column page as banner, dates, the introduction's heading
+  and first lines (the left column), the affiliation footnotes, the licence,
+  then the title, the authors and the one-paragraph abstract — so the
+  introduction's opening was dropped as a label above the title, its
+  heading became a notice, the authors line (Vietnamese names with
+  affiliation letters between them) was taken for the abstract, and every
+  introduction paragraph after the abstract landed in it. Now a heading the
+  vocabulary knows before the title leads the body with the prose under it,
+  the long paragraphs after the abstract follow it, the lines above the
+  title that the rules can name (dates, affiliations, correspondence) are
+  kept as front matter, an affiliation is never an author line whatever its
+  markers, a lone "a" is the article, a year is not a marker, a dates line
+  is never the title, a licence line is never the head a displaced tail
+  rejoins, and front-matter lines between a head and its tail no longer
+  close the rejoin window. `repairs.reordered` counts the items led back.
+  A citation set as a spaced superscript after the full stop ("(PL). 1 - 3
+  These"), or marked by recover.py's caret ("mucins.^1"), now counts as one,
+  so an introduction orphaned before its heading under a long abstract is
+  given a built "Introduction" where the paragraphs start citing — in a
+  paper with no abstract heading, and inside an "Abstract" section whose
+  paragraphs go on into the body (JATS from PNAS, NEJM, OUP and the letters
+  and editorials that print no heading at all: the held-out sets have
+  forty-odd). What cites but is not the introduction is left where it is:
+  a "Citation:" or "To cite this article" line at any length, an
+  affiliation block whose numbering reads like a superscript ("China. 2
+  Department of …"), an author line with its degrees, "Abstract: …".
+  "Main" and "Main text" — the wrapper Nature's and OUP's JATS open the body
+  with, whose own paragraphs are the introduction — are the introduction
+  lane and stand top-level; their topical subsections inherit that lane
+  until content lanes reach subsections (BACKLOG). When the unheaded
+  stretch after the abstract runs on into results and discussion (Wiley's
+  communications print nothing before "Experimental Section"), the block
+  lanes cut it into runs with built headings (`structure.build_headings`
+  over the stretch), the first run being the introduction whatever its
+  paragraphs resemble; fewer than six blocks get the one built
+  "Introduction". Wiley's footnote block of institutes is front matter at
+  any length; "correspond" means "Corresponding author" or
+  "Correspondence", not "correspondingly" in a results paragraph; a
+  correspondence line needs an e-mail's shape, not a "@" in a formula
+  ("Bi2WO6:Yb,Er@CuS@CS"); "The authors have no conflicts of interest",
+  "Funding:" and the like are `funding` by rule.
 - `parser/tests`: `conftest.py` (no oracle leaks between tests; the
   subprocess worker runs with `LITRAG_LANES=off`; a toy embedder for the
   tests that prove plumbing and replay), `test_meaning_sites.py`,
-  `test_structure.py`, `test_boundary.py`; 107 tests.
+  `test_structure.py`, `test_boundary.py`, `test_edges.py`,
+  `test_paper_type.py`, `test_record.py`; 138 tests.
 
 Runs natively on Windows, on the GPU.
 

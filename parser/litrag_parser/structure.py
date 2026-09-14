@@ -36,7 +36,7 @@ from typing import Any
 from .meaning import Oracle, Verdict
 
 LANES = ("introduction", "methods", "results", "results-discussion", "discussion", "references", "back")
-CANONICAL = {"introduction": "Introduction", "methods": "Methods", "results": "Results", "results-discussion": "Results and discussion", "discussion": "Discussion", "references": "References", "back": "Back matter"}
+CANONICAL = {"introduction": "Introduction", "methods": "Materials and methods", "results": "Results", "results-discussion": "Results and discussion", "discussion": "Discussion", "references": "References", "back": "Back matter"}  # the catalogue's names (headings.CANON), the corpus's modal spellings
 #: what a section with a heading that names nothing may take from its paragraphs: the lanes
 #: whose paragraphs have a shape of their own (results and discussion together count as
 #: results' shape). An introduction and a discussion read alike to an embedder, and a

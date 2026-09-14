@@ -24,7 +24,7 @@ def vocabulary_on() -> bool:
 
 ROLES: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"^(abstract|summary|lay summary|structured abstract|synopsis)$"), "abstract"),
-    (re.compile(r"^(introduction|background)$"), "introduction"),
+    (re.compile(r"^(introduction|background|main|main text)$"), "introduction"),  # "Main", "Main text": Nature's and OUP's wrapper for the body, whose own paragraphs are the introduction
     (
         re.compile(
             r"^(materials?\s*(and|&)\s*(experimental\s+)?methods?|methods?\s*(and|&)\s*\w+(\s+\w+)?|methods?|star\W*methods|method\s+details|experimental|experimental\s+(sections?|procedures?|methods?|methodolog(y|ies)|details?|design|setup|part|approach(es)?|work)(\s*/\s*methods?)?|experimentation|(proposed\s+|research\s+|study\s+)?methodolog(y|ies)|materials?,?\s*methods?(\s*and\s*\w+)?|(patients?|subjects?|participants?|animals?|data|design|research\s+design|materials?|study\s+design|population)\s+and\s+methods?|research\s+design\s+and\s+methods?|surgical\s+technique|study\s+design(\s+and\s+\w+)?|materials?)$"

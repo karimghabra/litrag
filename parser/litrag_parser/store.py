@@ -33,9 +33,13 @@ CREATE TABLE IF NOT EXISTS papers (
   seconds REAL,
   has_methods INTEGER,
   type TEXT,                        -- research | review | letter | editorial | case-report | protocol | data | correction | other
-  type_source TEXT,                 -- jats | record | printed | meaning | none
+  type_source TEXT,                 -- record | jats | subject | title | printed | shape | default | meaning | none
   type_detail TEXT,
-  pub_types TEXT                    -- Europe PMC's publication types, "; "-joined, fetched once at ingest
+  subtype TEXT,                     -- rct | systematic-review | case-series | brief-report | … when a label states one (paper_type.py)
+  pub_types TEXT,                   -- Europe PMC's publication types, "; "-joined, fetched once at ingest
+  authors TEXT,                     -- JSON [{name, affiliations, corresponding}]: the JATS file's word, else the record's (record.py)
+  journal TEXT,
+  year TEXT
 );
 CREATE UNIQUE INDEX IF NOT EXISTS papers_doi ON papers(doi) WHERE doi IS NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS papers_sha ON papers(sha256) WHERE sha256 IS NOT NULL;
@@ -63,7 +67,8 @@ CREATE TABLE IF NOT EXISTS nodes (
   page INTEGER,
   bbox_l REAL, bbox_t REAL, bbox_r REAL, bbox_b REAL,
   self_ref TEXT,
-  table_json TEXT              -- {"rows","cols","cells"} for tables
+  table_json TEXT,             -- {"rows","cols","cells"} for tables
+  canonical TEXT               -- the catalogue's name for a section (headings.py), NULL when it has none
 );
 CREATE INDEX IF NOT EXISTS nodes_paper ON nodes(paper, ordinal);
 CREATE INDEX IF NOT EXISTS nodes_parent ON nodes(parent);
@@ -143,9 +148,11 @@ def open_store(path: Path) -> sqlite3.Connection:
     conn.execute("PRAGMA foreign_keys=ON")
     conn.executescript(SCHEMA)
     have = {r[1] for r in conn.execute("PRAGMA table_info(papers)")}
-    for col in ("type", "type_source", "type_detail", "pub_types"):
-        if col not in have:  # a store from before the paper's type was a column
+    for col in ("type", "type_source", "type_detail", "pub_types", "authors", "journal", "year", "subtype"):
+        if col not in have:  # a store from before the paper's type, or its record, was a column
             conn.execute(f"ALTER TABLE papers ADD COLUMN {col} TEXT")
+    if "canonical" not in {r[1] for r in conn.execute("PRAGMA table_info(nodes)")}:
+        conn.execute("ALTER TABLE nodes ADD COLUMN canonical TEXT")  # a store from before headings had a canonical name
     conn.commit()
     return conn
 
@@ -210,9 +217,10 @@ def save_tree(conn: sqlite3.Connection, key: str, tree: Tree, *, parser: str, pa
                 n.node_id, key, n.parent, n.ordinal, n.depth, n.type, n.label, n.level, n.role, n.heading,
                 json.dumps(n.ancestry, ensure_ascii=False), n.text, n.page, b[0], b[1], b[2], b[3], n.self_ref,
                 json.dumps(n.table, ensure_ascii=False) if n.table else None,
+                n.canonical,
             ))
         conn.executemany(
-            "INSERT INTO nodes(node_id, paper, parent, ordinal, depth, type, label, level, role, heading, ancestry, text, page, bbox_l, bbox_t, bbox_r, bbox_b, self_ref, table_json) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO nodes(node_id, paper, parent, ordinal, depth, type, label, level, role, heading, ancestry, text, page, bbox_l, bbox_t, bbox_r, bbox_b, self_ref, table_json, canonical) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             rows,
         )
         conn.execute(
@@ -236,14 +244,25 @@ def save_refs(conn: sqlite3.Connection, key: str, refs: Iterable[Any], cites: It
     return {"refs": len(refs), "citations": len(cites)}
 
 
-def set_type(conn: sqlite3.Connection, key: str, kind: str, source: str, detail: str) -> None:
+def set_type(conn: sqlite3.Connection, key: str, kind: str, source: str, detail: str, subtype: str | None = None) -> None:
     with conn:
-        conn.execute("UPDATE papers SET type = ?, type_source = ?, type_detail = ? WHERE key = ?", (kind, source, detail, key))
+        conn.execute("UPDATE papers SET type = ?, type_source = ?, type_detail = ?, subtype = ? WHERE key = ?", (kind, source, detail, subtype, key))
 
 
-def set_pub_types(conn: sqlite3.Connection, key: str, pub_types: list[str]) -> None:
-    with conn:
-        conn.execute("UPDATE papers SET pub_types = ? WHERE key = ?", ("; ".join(pub_types), key))
+def set_record(conn: sqlite3.Connection, key: str, *, pub_types: list[str] | None = None, authors: list[dict[str, Any]] | None = None, journal: str | None = None, year: str | None = None, overwrite: bool = False) -> None:
+    """What is known about a paper beyond its text: Europe PMC's publication types, its authors
+    (`[{name, affiliations, corresponding}]`, stored as JSON), journal and year. Fills what is
+    empty; `overwrite` replaces — the JATS file's own word over the record's."""
+    sets: list[str] = []
+    args: list[Any] = []
+    for col, val in (("pub_types", "; ".join(pub_types) if pub_types else None), ("authors", json.dumps(authors, ensure_ascii=False) if authors else None), ("journal", journal or None), ("year", year or None)):
+        if val is None:
+            continue
+        sets.append(f"{col} = ?" if overwrite else f"{col} = COALESCE({col}, ?)")
+        args.append(val)
+    if sets:
+        with conn:
+            conn.execute(f"UPDATE papers SET {', '.join(sets)} WHERE key = ?", (*args, key))
 
 
 def save_edges(conn: sqlite3.Connection, key: str, edges: Iterable[Any]) -> int:
@@ -351,7 +370,7 @@ def _node_dict(r: sqlite3.Row) -> dict[str, Any]:
         "node_id": r["node_id"], "parent": r["parent"], "ordinal": r["ordinal"], "depth": r["depth"],
         "type": r["type"], "label": r["label"], "level": r["level"], "role": r["role"], "heading": r["heading"],
         "ancestry": json.loads(r["ancestry"]), "text": r["text"], "page": r["page"], "bbox": bbox,
-        "self_ref": r["self_ref"], "table": json.loads(r["table_json"]) if r["table_json"] else None, "children": [],
+        "self_ref": r["self_ref"], "table": json.loads(r["table_json"]) if r["table_json"] else None, "canonical": r["canonical"] if "canonical" in r.keys() else None, "children": [],
     }
 
 

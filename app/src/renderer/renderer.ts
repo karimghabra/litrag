@@ -33,7 +33,12 @@ interface Paper {
   seconds: number | null;
   /** what kind of paper, and who said so (paper_type.py) */
   type?: string | null;
+  subtype?: string | null;
   type_source?: string | null;
+  /** who wrote it, where and when: the JATS file's word, else Europe PMC's record (record.py); authors is JSON */
+  authors?: string | null;
+  journal?: string | null;
+  year?: string | null;
   // live, from events
   stage?: string;
   message?: string;
@@ -42,6 +47,8 @@ interface Paper {
 }
 
 interface Node {
+  /** the catalogue's name for a section (headings.py), null when it has none */
+  canonical?: string | null;
   node_id: string;
   parent: string | null;
   ordinal: number;
@@ -213,6 +220,19 @@ async function loadPapers() {
   if (state.selectedPaper && state.papers.has(state.selectedPaper)) await loadTree(state.selectedPaper);
 }
 
+/** "Trung DD, Duong PV, Hoa NM et al. · RSC Adv · 2026" — what the record says, nothing when it says nothing */
+function byline(p: Paper, names: number): string {
+  let authors: string[] = [];
+  try {
+    const parsed = p.authors ? (JSON.parse(p.authors) as { name?: string }[]) : [];
+    authors = parsed.map((a) => a.name ?? '').filter(Boolean);
+  } catch {
+    authors = [];
+  }
+  const who = authors.length ? authors.slice(0, names).join(', ') + (authors.length > names ? ' et al.' : '') : '';
+  return [who, p.journal ?? '', p.year ?? ''].filter(Boolean).join(' · ');
+}
+
 function roleBar(roles: Record<string, number> | undefined): HTMLElement {
   const bar = el('div', 'bar');
   if (!roles) return bar;
@@ -246,7 +266,9 @@ function renderPapers() {
     const card = el('div', `paper${p.key === state.selectedPaper ? ' selected' : ''}`);
     card.dataset['key'] = p.key;
     card.append(el('div', 'title', p.title || p.file || p.key));
-    card.append(el('div', 'key', [p.key, p.pages ? `${p.pages} pp` : '', p.format ?? '', p.type && p.type !== 'other' ? `${p.type} (by ${p.type_source ?? '?'})` : ''].filter(Boolean).join(' · ')));
+    card.append(el('div', 'key', [p.key, p.pages ? `${p.pages} pp` : '', p.format ?? '', p.type && p.type !== 'other' ? `${p.type}${p.subtype ? '/' + p.subtype : ''} (by ${p.type_source ?? '?'})` : ''].filter(Boolean).join(' · ')));
+    const by = byline(p, 3);
+    if (by) card.append(el('div', 'byline', by));
     const stage = el('div', 'stage');
     stage.append(el('span', `badge ${p.status}`, p.status));
     if (p.status === 'parsing') stage.append(el('span', 'muted', `${p.stage ?? ''}${p.elapsed !== undefined ? ` · ${p.elapsed.toFixed(0)}s` : ''}`));
@@ -344,6 +366,8 @@ function renderTree() {
   summary.append(el('span', undefined, `${Object.values(t.roles).reduce((a, b) => a + b, 0)} nodes`));
   summary.append(el('span', undefined, t.paper.has_methods ? 'methods section found' : 'no methods section'));
   if (t.paper.seconds) summary.append(el('span', undefined, `parsed in ${t.paper.seconds}s`));
+  const by = byline(t.paper, 8);
+  if (by) summary.append(el('span', 'byline', by));
   for (const role of ROLES) {
     const n = t.roles[role];
     if (!n) continue;
@@ -359,7 +383,7 @@ function renderTree() {
 }
 
 function nodeLabel(n: Node): string {
-  if (n.type === 'section') return (n.heading ?? '(untitled)') + (n.label === 'built' ? ' [built]' : '');
+  if (n.type === 'section') return (n.heading ?? '(untitled)') + (n.label === 'built' ? ' [built]' : '') + (n.canonical && n.canonical.toLowerCase() !== (n.heading ?? '').replace(/^[\d.\s]+/, '').toLowerCase() ? ` [${n.canonical}]` : '');
   if (n.type === 'table') return n.table ? `table ${n.table.rows}×${n.table.cols}` : 'table';
   if (n.type === 'picture') return 'figure';
   const t = n.text.replace(/\s+/g, ' ').trim();
@@ -456,7 +480,7 @@ function renderReading() {
       list = null;
       if (c.type === 'section') {
         const sec = el('section');
-        const h = el(`h${Math.min(2 + Math.max(0, c.depth - 1), 4)}`, 'rv section', (c.heading ?? '(untitled)') + (c.label === 'built' ? ' [built]' : ''));
+        const h = el(`h${Math.min(2 + Math.max(0, c.depth - 1), 4)}`, 'rv section', (c.heading ?? '(untitled)') + (c.label === 'built' ? ' [built]' : '') + (c.canonical && c.canonical.toLowerCase() !== (c.heading ?? '').replace(/^[\d.\s]+/, '').toLowerCase() ? ` [${c.canonical}]` : ''));
         wireReading(h, c);
         sec.append(h);
         walk(c, sec);

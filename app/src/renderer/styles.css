@@ -40,6 +40,7 @@ h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: v
 .paper.selected { background: #eef3f8; box-shadow: inset 3px 0 0 var(--accent); }
 .paper .title { font-weight: 600; line-height: 1.3; }
 .paper .key { color: var(--muted); font-size: 11px; margin-top: 2px; word-break: break-all; }
+.paper .byline { color: var(--muted); font-size: 11px; margin-top: 2px; }
 .paper .stage { margin-top: 6px; display: flex; align-items: center; gap: 8px; font-size: 12px; }
 .badge { display: inline-block; font-size: 10px; text-transform: uppercase; letter-spacing: .05em; padding: 1px 6px; border-radius: 10px; border: 1px solid var(--line); color: var(--muted); }
 .badge.parsed { color: var(--ok); border-color: var(--ok); }
