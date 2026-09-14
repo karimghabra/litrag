@@ -44,12 +44,13 @@ export function parseEvent(line: string): Event | null {
 }
 
 /** Events that close a request: the answer to a read, or the end of an ingest. */
-export const TERMINAL = new Set(['done', 'error', 'hello', 'libraries', 'library', 'papers', 'node', 'section', 'events', 'rows', 'file', 'bye', 'queued']);
+export const TERMINAL = new Set(['done', 'error', 'hello', 'libraries', 'library', 'papers', 'node', 'section', 'events', 'rows', 'file', 'bye', 'queued', 'refs', 'audit', 'edges']);
 
 /** `tree` answers a `tree` request and also streams during ingest; only the former closes a request. */
 export function closesRequest(event: Event, op: string | undefined): boolean {
   if (TERMINAL.has(event.event)) return true;
   if (event.event === 'tree' && (op === 'tree' || op === 'parse_json')) return true;
+  if (event.event === 'audit' && op === 'audit') return true;
   return false;
 }
 

@@ -45,7 +45,7 @@ def test_tree_roundtrips_through_rows(tmp_path):
     assert got["root"]["node_id"] == key
     assert len(got["pages"]) == 14
     tops = [c for c in got["root"]["children"] if c["type"] == "section"]
-    assert [c["role"] for c in tops if c["heading"] != "Front matter"][:4] == ["introduction", "methods", "results", "discussion"]
+    assert [c["role"] for c in tops if c["heading"] != "Front matter"][:5] == ["abstract", "introduction", "methods", "results", "discussion"]
 
     methods = section(conn, key, "methods")
     assert methods and all(m["role"] == "methods" for m in methods)
@@ -69,3 +69,16 @@ def test_sql_is_read_only_and_one_statement(tmp_path):
     with pytest.raises(ValueError):
         run_select(conn, "select 1; select 2")
     assert run_select(conn, "select 'a;b' as s")["rows"] == [{"s": "a;b"}]
+
+
+def test_judgments_are_rows(tmp_path):
+    from litrag_parser.store import judgment, save_judgment
+
+    conn = open_store(tmp_path / "store.sqlite")
+    file_paper(conn, title="t", file="x.pdf", sha256="s", fmt="pdf", doi="10.1/x", pmid=None, pmcid=None, now="2026-09-11T00:00:00Z")
+    assert judgment(conn, "doi:10.1/x", "abc") is None
+    save_judgment(conn, "doi:10.1/x", "abc", True, "qwen3:14b", "2026-09-11T00:00:00Z")
+    save_judgment(conn, "doi:10.1/x", "def", False, "qwen3:14b", "2026-09-11T00:00:00Z")
+    assert judgment(conn, "doi:10.1/x", "abc") == 1 and judgment(conn, "doi:10.1/x", "def") == 0
+    save_judgment(conn, "doi:10.1/x", "abc", False, "qwen3:14b", "2026-09-11T00:01:00Z")  # a second verdict replaces the first
+    assert judgment(conn, "doi:10.1/x", "abc") == 0

@@ -11,9 +11,12 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "check": "npm run typecheck && npm test && npm run build",
-    "smoke": "npm run build && node tests/smoke.mjs"
+    "smoke": "npm run build && node tests/smoke.mjs",
+    "e2e": "playwright test",
+    "e2e:report": "playwright show-report e2e-report"
   },
   "devDependencies": {
+    "@playwright/test": "1.56",
     "@types/node": "^24.7.0",
     "electron": "^38.0.0",
     "esbuild": "^0.25.0",

@@ -5,6 +5,9 @@ description = "litrag's parsing worker: Docling over PDFs and JATS into one node
 requires-python = ">=3.11"
 dependencies = [
     "docling>=2.40",
+    # named here (not only through docling) so [tool.uv.sources] can route them
+    "torch>=2.14",
+    "torchvision>=0.29",
 ]
 
 [project.scripts]
@@ -19,3 +22,15 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["litrag_parser"]
+
+# torch from PyPI is CPU-only on Windows; the CUDA build lives on PyTorch's own
+# index. Only Windows is pointed there — the Linux wheel on PyPI already
+# carries CUDA. cu130 needs an NVIDIA driver of R580 or newer.
+[tool.uv.sources]
+torch = [{ index = "pytorch-cu130", marker = "sys_platform == 'win32'" }]
+torchvision = [{ index = "pytorch-cu130", marker = "sys_platform == 'win32'" }]
+
+[[tool.uv.index]]
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
+explicit = true

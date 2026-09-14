@@ -58,7 +58,7 @@ export class ParserWorker {
   start(): void {
     const args = [...this.command.args];
     if (this.options.root) args.push(`--root=${this.options.root}`);
-    const child = spawn(this.command.cmd, args, { stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, PYTHONUNBUFFERED: '1' } });
+    const child = spawn(this.command.cmd, args, { stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, PYTHONUNBUFFERED: '1', PYTHONUTF8: '1' } });
     this.child = child;
     const lines = new LineSplitter();
     child.stdout.setEncoding('utf8');

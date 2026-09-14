@@ -36,6 +36,9 @@ function startWorker(): ParserWorker {
   return w;
 }
 
+/** `LITRAG_HEADLESS=1`: no window on any screen — hidden, rendered offscreen — for tests and CI. */
+const headless = process.env['LITRAG_HEADLESS'] === '1';
+
 function createWindow(): void {
   win = new BrowserWindow({
     width: 1480,
@@ -44,11 +47,15 @@ function createWindow(): void {
     minHeight: 600,
     title: 'litrag',
     backgroundColor: '#f6f5f2',
+    show: !headless,
     webPreferences: {
       preload: join(__dirname, 'preload.cjs'),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: false,
+      offscreen: headless,
+      // a hidden page's animation frames are paused by Chromium, and pdf.js paints on them
+      backgroundThrottling: !headless,
     },
   });
   win.loadFile(join(__dirname, 'index.html'));

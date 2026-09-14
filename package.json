@@ -19,6 +19,10 @@
     "app": "npm --prefix app start",
     "app:check": "npm --prefix app run check",
     "parser:check": "uv run --project parser pytest -q parser/tests",
+    "harness": "uv run --project parser python -m litrag_parser.harness",
+    "audit": "uv run --project parser python -m litrag_parser.audit",
+    "judge": "uv run --project parser python -m litrag_parser.judge",
+    "e2e": "npm --prefix app run e2e",
     "check:all": "npm run check && npm run app:check && npm run parser:check"
   },
   "dependencies": {

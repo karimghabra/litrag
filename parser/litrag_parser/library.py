@@ -26,6 +26,39 @@ def library_root(env: dict[str, str] | None = None) -> Path:
     return Path(e.get("LITRAG_ROOT") or e.get("PROTRACKER_LIBRARY") or Path.home() / ".protracker" / "library")
 
 
+def safe_key(key: str) -> str:
+    """A paper key as a file name: `doi:10.1/abc` → `doi_10.1_abc`."""
+    return re.sub(r"[^A-Za-z0-9._-]+", "_", key)
+
+
+def parsed_papers(lib_dir: Path, keys: list[str] | None = None) -> list[dict[str, Any]]:
+    """Every parsed paper of a library that still has its raw Docling document:
+    `{key, format, file, source, raw}`, in the order they were added. `source` is the
+    paper file (or None), `raw` the saved document beside it."""
+    import sqlite3
+
+    store = Path(lib_dir) / "store.sqlite"
+    if not store.exists():
+        return []
+    conn = sqlite3.connect(store)
+    try:
+        have = {r[1] for r in conn.execute("PRAGMA table_info(papers)")}
+        extra = ", pub_types, type" if "pub_types" in have else ", NULL, NULL"
+        rows = conn.execute(f"SELECT key, format, file{extra} FROM papers WHERE status = 'parsed' ORDER BY added_at, key").fetchall()
+    finally:
+        conn.close()
+    wanted = set(keys) if keys else None
+    out: list[dict[str, Any]] = []
+    for key, fmt, file, pub_types, kind in rows:
+        if wanted is not None and key not in wanted:
+            continue
+        raw = Path(lib_dir) / "parsed" / f"{safe_key(key)}.docling.json"
+        if not raw.exists():
+            continue
+        out.append({"key": key, "format": fmt, "file": file, "source": (Path(lib_dir) / "papers" / file) if file else None, "raw": raw, "pub_types": pub_types, "type": kind})
+    return out
+
+
 def slugify(name: str) -> str:
     s = unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode().lower()
     s = re.sub(r"[^a-z0-9]+", "-", s).strip("-")[:60]

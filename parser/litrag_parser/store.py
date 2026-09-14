@@ -31,7 +31,11 @@ CREATE TABLE IF NOT EXISTS papers (
   added_at TEXT NOT NULL,
   parsed_at TEXT,
   seconds REAL,
-  has_methods INTEGER
+  has_methods INTEGER,
+  type TEXT,                        -- research | review | letter | editorial | case-report | protocol | data | correction | other
+  type_source TEXT,                 -- jats | record | printed | meaning | none
+  type_detail TEXT,
+  pub_types TEXT                    -- Europe PMC's publication types, "; "-joined, fetched once at ingest
 );
 CREATE UNIQUE INDEX IF NOT EXISTS papers_doi ON papers(doi) WHERE doi IS NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS papers_sha ON papers(sha256) WHERE sha256 IS NOT NULL;
@@ -73,6 +77,46 @@ CREATE TRIGGER IF NOT EXISTS nodes_ad AFTER DELETE ON nodes BEGIN
   INSERT INTO nodes_fts(nodes_fts, rowid, text) VALUES ('delete', old.rowid, old.text);
 END;
 
+CREATE TABLE IF NOT EXISTS refs (
+  paper TEXT NOT NULL REFERENCES papers(key) ON DELETE CASCADE,
+  ref_no INTEGER NOT NULL,          -- 1-based, in the order of the reference list
+  node_id TEXT,                     -- the entry's own node
+  ref_id TEXT,                      -- the JATS id, when there is one
+  text TEXT NOT NULL,
+  doi TEXT, pmid TEXT, year TEXT, first_author TEXT, title TEXT,
+  PRIMARY KEY(paper, ref_no)
+);
+CREATE TABLE IF NOT EXISTS citations (
+  paper TEXT NOT NULL REFERENCES papers(key) ON DELETE CASCADE,
+  node_id TEXT NOT NULL,
+  ref_no INTEGER NOT NULL,
+  marker TEXT NOT NULL,             -- the text that named the entry: "[6,9,12]", "Lyon, 2020"
+  PRIMARY KEY(paper, node_id, ref_no)
+);
+CREATE INDEX IF NOT EXISTS citations_ref ON citations(paper, ref_no);
+
+CREATE TABLE IF NOT EXISTS judgments (
+  paper TEXT NOT NULL REFERENCES papers(key) ON DELETE CASCADE,
+  pair TEXT NOT NULL,               -- sha1 of the two blocks' ends (judge.pair_key)
+  same INTEGER NOT NULL,            -- 1: one paragraph; 0: two
+  model TEXT NOT NULL,
+  at TEXT NOT NULL,
+  PRIMARY KEY(paper, pair)
+);
+
+CREATE TABLE IF NOT EXISTS edges (
+  paper TEXT NOT NULL REFERENCES papers(key) ON DELETE CASCADE,
+  src TEXT NOT NULL,                -- a node: the finding, the citing paragraph
+  dst TEXT NOT NULL,                -- a node: the method subsection, the figure
+  kind TEXT NOT NULL,               -- measured_by | cites_figure
+  evidence TEXT NOT NULL,           -- pointer | terms | caption | similarity | mention
+  detail TEXT,                      -- what made it: "Section 2.3", "compressive modulus", "cosine 0.71 margin 0.09"
+  score REAL,
+  PRIMARY KEY(paper, src, dst, kind)
+);
+CREATE INDEX IF NOT EXISTS edges_src ON edges(src);
+CREATE INDEX IF NOT EXISTS edges_dst ON edges(dst);
+
 CREATE TABLE IF NOT EXISTS events (
   id INTEGER PRIMARY KEY,
   paper TEXT NOT NULL,
@@ -98,6 +142,11 @@ def open_store(path: Path) -> sqlite3.Connection:
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
     conn.executescript(SCHEMA)
+    have = {r[1] for r in conn.execute("PRAGMA table_info(papers)")}
+    for col in ("type", "type_source", "type_detail", "pub_types"):
+        if col not in have:  # a store from before the paper's type was a column
+            conn.execute(f"ALTER TABLE papers ADD COLUMN {col} TEXT")
+    conn.commit()
     return conn
 
 
@@ -173,6 +222,91 @@ def save_tree(conn: sqlite3.Connection, key: str, tree: Tree, *, parser: str, pa
     return len(rows)
 
 
+def save_refs(conn: sqlite3.Connection, key: str, refs: Iterable[Any], cites: Iterable[Any]) -> dict[str, int]:
+    """Replace a paper's reference entries and citation links, in one transaction."""
+    refs, cites = list(refs), list(cites)
+    with conn:
+        conn.execute("DELETE FROM refs WHERE paper = ?", (key,))
+        conn.execute("DELETE FROM citations WHERE paper = ?", (key,))
+        conn.executemany(
+            "INSERT INTO refs(paper, ref_no, node_id, ref_id, text, doi, pmid, year, first_author, title) VALUES (?,?,?,?,?,?,?,?,?,?)",
+            [(key, r.ref_no, r.node_id, r.ref_id, r.text, r.doi, r.pmid, r.year, r.first_author, r.title) for r in refs],
+        )
+        conn.executemany("INSERT OR IGNORE INTO citations(paper, node_id, ref_no, marker) VALUES (?,?,?,?)", [(key, c.node_id, c.ref_no, c.marker) for c in cites])
+    return {"refs": len(refs), "citations": len(cites)}
+
+
+def set_type(conn: sqlite3.Connection, key: str, kind: str, source: str, detail: str) -> None:
+    with conn:
+        conn.execute("UPDATE papers SET type = ?, type_source = ?, type_detail = ? WHERE key = ?", (kind, source, detail, key))
+
+
+def set_pub_types(conn: sqlite3.Connection, key: str, pub_types: list[str]) -> None:
+    with conn:
+        conn.execute("UPDATE papers SET pub_types = ? WHERE key = ?", ("; ".join(pub_types), key))
+
+
+def save_edges(conn: sqlite3.Connection, key: str, edges: Iterable[Any]) -> int:
+    """Replace a paper's edges (edges.py), in one transaction."""
+    rows = [(key, e.src, e.dst, e.kind, e.evidence, e.detail, e.score) for e in edges]
+    with conn:
+        conn.execute("DELETE FROM edges WHERE paper = ?", (key,))
+        conn.executemany("INSERT OR IGNORE INTO edges(paper, src, dst, kind, evidence, detail, score) VALUES (?,?,?,?,?,?,?)", rows)
+    return int(conn.execute("SELECT COUNT(*) FROM edges WHERE paper = ?", (key,)).fetchone()[0])
+
+
+def edges_of(conn: sqlite3.Connection, node_id: str) -> dict[str, list[dict[str, Any]]]:
+    """A node's edges both ways, each with the other node's role, place and first words:
+    `out` (what this finding was measured by, what it cites), `in` (the findings measured
+    here, the paragraphs citing this figure)."""
+    q = """SELECT e.kind, e.evidence, e.detail, e.score, n.node_id, n.type, n.role, n.heading, n.ancestry, n.page, substr(n.text, 1, 200) AS text
+           FROM edges e JOIN nodes n ON n.node_id = e.{other}
+           WHERE e.{this} = ? ORDER BY e.kind, e.score DESC, n.ordinal"""
+    out = [dict(r) for r in conn.execute(q.format(other="dst", this="src"), (node_id,))]
+    inc = [dict(r) for r in conn.execute(q.format(other="src", this="dst"), (node_id,))]
+    for rows in (out, inc):
+        for r in rows:
+            r["ancestry"] = json.loads(r["ancestry"] or "[]")
+    paper = node_id.split("#", 1)[0]
+    subs = conn.execute("SELECT COUNT(*) FROM nodes WHERE paper = ? AND role = 'methods' AND type = 'section' AND level = 2", (paper,)).fetchone()[0]
+    paras = conn.execute("SELECT COUNT(*) FROM nodes WHERE paper = ? AND role = 'methods' AND type = 'paragraph'", (paper,)).fetchone()[0] if not subs else 0
+    return {"out": out, "in": inc, "candidates": int(subs or paras)}
+
+
+def refs_of(conn: sqlite3.Connection, key: str) -> list[dict[str, Any]]:
+    """A paper's reference list, each entry with the nodes that cite it."""
+    cited: dict[int, list[str]] = {}
+    for r in conn.execute("SELECT ref_no, node_id FROM citations WHERE paper = ? ORDER BY ref_no, node_id", (key,)):
+        cited.setdefault(r["ref_no"], []).append(r["node_id"])
+    return [{**dict(r), "cited_by": cited.get(r["ref_no"], [])} for r in conn.execute("SELECT ref_no, node_id, ref_id, text, doi, pmid, year, first_author, title FROM refs WHERE paper = ? ORDER BY ref_no", (key,))]
+
+
+def cites_of(conn: sqlite3.Connection, node_id: str) -> list[dict[str, Any]]:
+    """The entries one node cites, with the marker that named each."""
+    return [dict(r) for r in conn.execute(
+        """SELECT c.ref_no, c.marker, r.node_id, r.text, r.doi, r.pmid, r.year, r.first_author, r.title
+           FROM citations c JOIN refs r ON r.paper = c.paper AND r.ref_no = c.ref_no
+           WHERE c.node_id = ? ORDER BY c.ref_no""", (node_id,))]
+
+
+def cited_by(conn: sqlite3.Connection, key: str, ref_no: int) -> list[dict[str, Any]]:
+    """The nodes that cite one entry: id, role, where in the paper, and the text."""
+    return [dict(r) for r in conn.execute(
+        """SELECT n.node_id, n.role, n.ancestry, n.page, substr(n.text, 1, 200) AS text, c.marker
+           FROM citations c JOIN nodes n ON n.node_id = c.node_id
+           WHERE c.paper = ? AND c.ref_no = ? ORDER BY n.depth, n.ordinal""", (key, ref_no))]
+
+
+def judgment(conn: sqlite3.Connection, paper: str, pair: str) -> int | None:
+    r = conn.execute("SELECT same FROM judgments WHERE paper = ? AND pair = ?", (paper, pair)).fetchone()
+    return None if r is None else int(r["same"])
+
+
+def save_judgment(conn: sqlite3.Connection, paper: str, pair: str, same: bool, model: str, at: str) -> None:
+    with conn:
+        conn.execute("INSERT OR REPLACE INTO judgments(paper, pair, same, model, at) VALUES (?,?,?,?,?)", (paper, pair, 1 if same else 0, model, at))
+
+
 def list_papers(conn: sqlite3.Connection) -> list[dict[str, Any]]:
     rows = conn.execute(
         """SELECT p.*, (SELECT COUNT(*) FROM nodes n WHERE n.paper = p.key) AS nodes
@@ -199,6 +333,12 @@ def paper_tree(conn: sqlite3.Connection, key: str) -> dict[str, Any] | None:
             by_id[d["parent"]]["children"].append(d)
     for d in by_id.values():
         d["children"].sort(key=lambda c: c["ordinal"])
+    for r in conn.execute("SELECT node_id, ref_no FROM citations WHERE paper = ? ORDER BY node_id, ref_no", (key,)):
+        if r["node_id"] in by_id:
+            by_id[r["node_id"]].setdefault("cites", []).append(r["ref_no"])
+    for r in conn.execute("SELECT node_id, ref_no FROM refs WHERE paper = ? AND node_id IS NOT NULL", (key,)):
+        if r["node_id"] in by_id:
+            by_id[r["node_id"]]["ref_no"] = r["ref_no"]
     roles: dict[str, int] = {}
     for r in conn.execute("SELECT role, COUNT(*) c FROM nodes WHERE paper = ? AND parent IS NOT NULL GROUP BY role", (key,)):
         roles[r["role"]] = r["c"]

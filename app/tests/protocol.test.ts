@@ -30,6 +30,7 @@ describe('closesRequest', () => {
     expect(closesRequest({ event: 'stage', id: 'r2' }, 'ingest')).toBe(false);
     expect(closesRequest({ event: 'done', id: 'r2' }, 'ingest')).toBe(true);
     expect(closesRequest({ event: 'queued', id: 'r2' }, 'ingest')).toBe(true);
+    expect(closesRequest({ event: 'edges', id: 'r3' }, 'edges')).toBe(true);
     expect(closesRequest({ event: 'error', id: 'r3' }, 'papers')).toBe(true);
   });
 });

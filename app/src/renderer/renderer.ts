@@ -31,6 +31,9 @@ interface Paper {
   nodes: number;
   has_methods: number | null;
   seconds: number | null;
+  /** what kind of paper, and who said so (paper_type.py) */
+  type?: string | null;
+  type_source?: string | null;
   // live, from events
   stage?: string;
   message?: string;
@@ -55,6 +58,38 @@ interface Node {
   self_ref: string | null;
   table: { rows: number; cols: number; cells: string[][] } | null;
   children: Node[];
+  /** reference numbers this node cites, from the `citations` rows */
+  cites?: number[];
+  /** for an entry in the reference list: its number */
+  ref_no?: number;
+}
+
+/** one edge of a node, with the node at the other end (store.edges_of) */
+interface EdgeRow {
+  kind: string;
+  evidence: string;
+  detail: string | null;
+  score: number | null;
+  node_id: string;
+  type: string;
+  role: string;
+  heading: string | null;
+  ancestry: string[];
+  page: number | null;
+  text: string;
+}
+
+interface Ref {
+  ref_no: number;
+  node_id: string | null;
+  ref_id: string | null;
+  text: string;
+  doi: string | null;
+  pmid: string | null;
+  year: string | null;
+  first_author: string | null;
+  title: string | null;
+  cited_by: string[];
 }
 
 interface Tree {
@@ -76,6 +111,7 @@ const state = {
   selectedPaper: null as string | null,
   tree: null as Tree | null,
   nodesById: new Map<string, Node>(),
+  refs: new Map<number, Ref>(),
   selectedNode: null as string | null,
   roleFilter: null as string | null,
   pdf: null as PDFDocumentProxy | null,
@@ -210,7 +246,7 @@ function renderPapers() {
     const card = el('div', `paper${p.key === state.selectedPaper ? ' selected' : ''}`);
     card.dataset['key'] = p.key;
     card.append(el('div', 'title', p.title || p.file || p.key));
-    card.append(el('div', 'key', [p.key, p.pages ? `${p.pages} pp` : '', p.format ?? ''].filter(Boolean).join(' · ')));
+    card.append(el('div', 'key', [p.key, p.pages ? `${p.pages} pp` : '', p.format ?? '', p.type && p.type !== 'other' ? `${p.type} (by ${p.type_source ?? '?'})` : ''].filter(Boolean).join(' · ')));
     const stage = el('div', 'stage');
     stage.append(el('span', `badge ${p.status}`, p.status));
     if (p.status === 'parsing') stage.append(el('span', 'muted', `${p.stage ?? ''}${p.elapsed !== undefined ? ` · ${p.elapsed.toFixed(0)}s` : ''}`));
@@ -262,6 +298,21 @@ async function loadTreeOnce(key: string) {
       n.children.forEach(walk);
     };
     walk(r.root);
+    // the reference list arrives after the tree; the old one is kept until the new one is here, and a
+    // node selected in the meantime has its detail drawn again once the links can be drawn
+    try {
+      const rr = (await window.litrag.request('refs', { lib: state.lib, key })) as unknown as { refs: Ref[] };
+      const refs = new Map<number, Ref>();
+      for (const ref of rr.refs) refs.set(ref.ref_no, ref);
+      state.refs = refs;
+    } catch (e) {
+      state.refs = new Map();
+      log('error', `Could not load references: ${(e as Error).message}`, key);
+    }
+    if (state.selectedNode) {
+      const selected = state.nodesById.get(state.selectedNode);
+      if (selected) renderDetail(selected);
+    }
     // start with references and back matter folded: they are long and rarely the point
     for (const c of r.root.children) if (c.role === 'references' || c.role === 'back') state.collapsed.add(c.node_id);
     renderTree();
@@ -308,7 +359,7 @@ function renderTree() {
 }
 
 function nodeLabel(n: Node): string {
-  if (n.type === 'section') return n.heading ?? '(untitled)';
+  if (n.type === 'section') return (n.heading ?? '(untitled)') + (n.label === 'built' ? ' [built]' : '');
   if (n.type === 'table') return n.table ? `table ${n.table.rows}×${n.table.cols}` : 'table';
   if (n.type === 'picture') return 'figure';
   const t = n.text.replace(/\s+/g, ' ').trim();
@@ -318,6 +369,7 @@ function nodeLabel(n: Node): string {
 function renderNode(n: Node): HTMLElement {
   const wrap = el('div');
   const row = el('div', `tree-node ${n.type}${n.node_id === state.selectedNode ? ' selected' : ''}${state.roleFilter && n.role !== state.roleFilter ? ' dim' : ''}`);
+  row.dataset['id'] = n.node_id;
   const hasKids = n.children.length > 0;
   const collapsed = state.collapsed.has(n.node_id);
   const twisty = el('span', 'twisty', hasKids ? (collapsed ? '▸' : '▾') : '');
@@ -335,6 +387,17 @@ function renderNode(n: Node): HTMLElement {
   if (n.type !== 'section' && n.type !== 'paragraph') row.append(el('span', 'kind', n.type));
   row.append(el('span', 'label', nodeLabel(n)));
   if (n.type === 'section') row.append(el('span', 'count', `${countLeaves(n)}`));
+  if (n.cites?.length) {
+    const c = el('span', 'cites', `→ ${n.cites.length}`);
+    c.title = `cites ${n.cites.map((r) => `[${r}]`).join(' ')}`;
+    row.append(c);
+  }
+  if (n.ref_no) {
+    const cited = state.refs.get(n.ref_no)?.cited_by.length ?? 0;
+    const c = el('span', 'cites', cited ? `[${n.ref_no}] ← ${cited}` : `[${n.ref_no}]`);
+    c.title = cited ? `cited by ${cited} node${cited === 1 ? '' : 's'}` : 'never cited in the text';
+    row.append(c);
+  }
   if (n.page) row.append(el('span', 'pg', `p.${n.page}`));
   row.addEventListener('click', () => void selectNode(n.node_id));
   wrap.append(row);
@@ -354,12 +417,103 @@ function countLeaves(n: Node): number {
 
 async function selectNode(id: string) {
   state.selectedNode = id;
-  renderTree();
   const n = state.nodesById.get(id);
+  // a node inside a folded section — an entry in the references, reached from a citation — is unfolded to be seen
+  for (let p = n?.parent ? state.nodesById.get(n.parent) : undefined; p; p = p.parent ? state.nodesById.get(p.parent) : undefined) state.collapsed.delete(p.node_id);
+  renderTree();
+  document.querySelector<HTMLElement>('#tree .tree-node.selected')?.scrollIntoView({ block: 'nearest' });
   if (!n) return;
   renderDetail(n);
   if (n.page) await showPage(n.page);
-  else drawBoxes();
+  else {
+    drawBoxes();
+    highlightReading(id);
+  }
+}
+
+// ---- an XML paper, read back from its tree --------------------------------------------------
+
+/** Headings, paragraphs, formulas, tables, figures as placeholders — every one a node a click selects. */
+function renderReading() {
+  const box = $('page-reading');
+  box.innerHTML = '';
+  const t = state.tree;
+  if (!t) return;
+  $('page-stage').hidden = true;
+  box.hidden = false;
+  box.append(el('h1', 'rv-title', t.paper.title));
+  const walk = (n: Node, into: HTMLElement) => {
+    let list: HTMLElement | null = null;
+    for (const c of n.children) {
+      if (c.type === 'list_item') {
+        if (!list) {
+          list = el('ul');
+          into.append(list);
+        }
+        list.append(readingNode(c, 'li'));
+        continue;
+      }
+      list = null;
+      if (c.type === 'section') {
+        const sec = el('section');
+        const h = el(`h${Math.min(2 + Math.max(0, c.depth - 1), 4)}`, 'rv section', (c.heading ?? '(untitled)') + (c.label === 'built' ? ' [built]' : ''));
+        wireReading(h, c);
+        sec.append(h);
+        walk(c, sec);
+        into.append(sec);
+      } else if (c.type === 'table' || c.type === 'picture') {
+        const fig = el('figure', `rv ${c.type}`);
+        wireReading(fig, c);
+        if (c.type === 'table') {
+          const table = el('table');
+          for (const row of c.table?.cells ?? []) {
+            const tr = el('tr');
+            for (const cell of row) tr.append(el('td', undefined, cell));
+            table.append(tr);
+          }
+          fig.append(table);
+        } else {
+          fig.append(el('div', 'placeholder', 'figure — the image itself is not in the XML'));
+        }
+        for (const cap of c.children) if (cap.type === 'caption') fig.append(el('figcaption', undefined, cap.text));
+        into.append(fig);
+      } else if (c.type === 'formula') {
+        into.append(readingNode(c, 'pre'));
+      } else {
+        into.append(readingNode(c, 'p'));
+      }
+    }
+  };
+  walk(t.root, box);
+  if (state.selectedNode) highlightReading(state.selectedNode);
+}
+
+function readingNode(n: Node, tag: string): HTMLElement {
+  const e = el(tag, `rv ${n.type}`, n.text);
+  wireReading(e, n);
+  return e;
+}
+
+function wireReading(e: HTMLElement, n: Node) {
+  e.dataset['id'] = n.node_id;
+  e.style.borderLeftColor = roleColor(n.role);
+  e.title = n.role;
+  if (n.node_id === state.selectedNode) e.classList.add('selected');
+  e.addEventListener('click', (ev) => {
+    ev.stopPropagation();
+    void selectNode(n.node_id);
+  });
+}
+
+function highlightReading(id: string) {
+  const box = $('page-reading');
+  if (box.hidden) return;
+  for (const e of box.querySelectorAll('.rv.selected')) e.classList.remove('selected');
+  const target = box.querySelector<HTMLElement>(`.rv[data-id="${CSS.escape(id)}"]`);
+  if (target) {
+    target.classList.add('selected');
+    target.scrollIntoView({ block: 'center' });
+  }
 }
 
 function renderDetail(n: Node) {
@@ -387,7 +541,95 @@ function renderDetail(n: Node) {
     d.append(table);
   }
   if (n.text) d.append(el('div', 'text', n.text));
+  if (n.cites?.length) {
+    const box = el('div', 'links');
+    box.append(el('div', 'links-head', `Cites ${n.cites.length} ${n.cites.length === 1 ? 'entry' : 'entries'} of the reference list`));
+    for (const no of n.cites) {
+      const ref = state.refs.get(no);
+      const row = el('div', 'link');
+      const tag = el('span', 'tag', `[${no}]`);
+      row.append(tag);
+      row.append(el('span', 'who', ref ? `${ref.first_author ?? '?'} ${ref.year ?? ''}`.trim() : ''));
+      row.append(el('span', 'what', ref ? (ref.title ?? ref.text) : '(entry not found)'));
+      if (ref?.doi) row.append(el('span', 'doi', ref.doi));
+      if (ref?.node_id) {
+        row.classList.add('go');
+        row.title = 'open the entry';
+        row.addEventListener('click', () => void selectNode(ref.node_id!));
+      }
+      box.append(row);
+    }
+    d.append(box);
+  }
+  if (n.ref_no) {
+    const ref = state.refs.get(n.ref_no);
+    const box = el('div', 'links');
+    const citing = ref?.cited_by ?? [];
+    box.append(el('div', 'links-head', citing.length ? `Entry [${n.ref_no}] — cited by ${citing.length} node${citing.length === 1 ? '' : 's'}` : `Entry [${n.ref_no}] — never cited in the text`));
+    if (ref?.doi) box.append(el('div', 'doi', `doi:${ref.doi}${ref.pmid ? ` · pmid:${ref.pmid}` : ''}`));
+    for (const id of citing) {
+      const citer = state.nodesById.get(id);
+      const row = el('div', 'link go');
+      row.append(el('span', 'tag', citer?.role ?? ''));
+      row.append(el('span', 'what', citer ? `${citer.ancestry.join(' › ')} — ${citer.text.slice(0, 140)}` : id));
+      row.title = 'open the citing node';
+      row.addEventListener('click', () => void selectNode(id));
+      box.append(row);
+    }
+    d.append(box);
+  }
   if (n.type === 'section' && !n.text) d.append(el('div', 'muted', `${n.children.length} children`));
+  void loadEdges(n, d);
+}
+
+/** The edges of the selected node, drawn once they arrive: the methods a finding was measured by,
+ *  the findings measured under a method, the figures a paragraph cites and the paragraphs citing a figure. */
+let edgesSeq = 0;
+async function loadEdges(n: Node, into: HTMLElement) {
+  if (!state.lib) return;
+  const seq = ++edgesSeq;
+  let r: { out: EdgeRow[]; in: EdgeRow[]; candidates: number };
+  try {
+    r = (await window.litrag.request('edges', { lib: state.lib, node_id: n.node_id })) as unknown as { out: EdgeRow[]; in: EdgeRow[]; candidates: number };
+  } catch {
+    return;
+  }
+  if (state.selectedNode !== n.node_id || seq !== edgesSeq) return; // another node, or the same one again, was chosen while this was on its way
+  for (const old of into.querySelectorAll('.links.edges')) old.remove();
+  const measuredBy = r.out.filter((e) => e.kind === 'measured_by');
+  const groups: [string, EdgeRow[]][] = [
+    ['Measured by', measuredBy],
+    ['Findings measured here', r.in.filter((e) => e.kind === 'measured_by')],
+    ['Cites', r.out.filter((e) => e.kind === 'cites_figure')],
+    ['Cited by', r.in.filter((e) => e.kind === 'cites_figure')],
+  ];
+  // the same test edges.py applies: a results paragraph, or a discussion paragraph that cites a figure, of eight words or more
+  const words = n.text.split(/\s+/).filter(Boolean).length;
+  const isFinding = n.type === 'paragraph' && words >= 8 && (n.role === 'results' || n.role === 'results-discussion' || (n.role === 'discussion' && /\b(fig(ure)?s?|tables?|schemes?)\.?\s*S?\d/i.test(n.text)));
+  if (isFinding && !measuredBy.length) {
+    const why = r.candidates === 0 ? 'the paper has no methods section to link to' : r.candidates === 1 ? 'the methods have one part, which only a pointer could name' : 'no pointer, no term only one method owns, nothing in a cited caption';
+    const box = el('div', 'links edges');
+    box.append(el('div', 'links-head', `Measured by — no method found: ${why}`));
+    into.append(box);
+  }
+  for (const [title, rows] of groups) {
+    if (!rows.length) continue;
+    const box = el('div', 'links edges');
+    box.append(el('div', 'links-head', `${title} (${rows.length})`));
+    for (const e of rows) {
+      const row = el('div', 'link go');
+      const tag = el('span', 'tag', e.evidence);
+      tag.title = e.detail ?? '';
+      row.append(tag);
+      const where = e.type === 'section' ? (e.heading ?? '(untitled)') : [...e.ancestry].slice(-1).join('');
+      row.append(el('span', 'who', where));
+      row.append(el('span', 'what', e.type === 'section' || e.kind === 'cites_figure' ? (e.detail ?? '') : e.text.slice(0, 140)));
+      row.title = e.detail ? `${e.evidence}: ${e.detail}` : e.evidence;
+      row.addEventListener('click', () => void selectNode(e.node_id));
+      box.append(row);
+    }
+    into.append(box);
+  }
 }
 
 function escapeHtml(s: string): string {
@@ -411,10 +653,20 @@ async function openPdfOnce(key: string) {
   state.pdfKey = key;
   const p = state.papers.get(key);
   if (!p || p.format !== 'pdf') {
-    $('page-label').textContent = p?.format === 'jats' ? 'XML: no pages' : '–';
     clearPage();
+    if (p?.format === 'jats' && state.tree) {
+      // no page to draw: the tree is the paper, so show it as one
+      $('page-label').textContent = 'XML · the paper as read';
+      renderReading();
+    } else {
+      $('page-label').textContent = p?.format === 'jats' ? 'XML: no pages' : '–';
+      $('page-reading').hidden = true;
+      $('page-stage').hidden = false;
+    }
     return;
   }
+  $('page-reading').hidden = true;
+  $('page-stage').hidden = false;
   try {
     const f = (await window.litrag.request('file', { lib: state.lib, key })) as unknown as { path: string };
     const bytes = await window.litrag.readFile(f.path);
@@ -433,6 +685,8 @@ function clearPage() {
 
 let rendering: Promise<void> | null = null;
 async function showPage(pageNo: number) {
+  // a node clicked while its PDF is still opening waits for it rather than showing nothing
+  if (!state.pdf && pdfOpening) await pdfOpening.promise;
   if (!state.pdf) return;
   state.page = Math.min(Math.max(1, pageNo), state.pdf.numPages);
   $('page-label').textContent = `${state.page} / ${state.pdf.numPages}`;

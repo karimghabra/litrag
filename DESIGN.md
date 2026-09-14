@@ -150,6 +150,144 @@ does not: close it, reopen it, everything is rows.
 The bench-question set stays first among equals: none of 3–5 is judged
 without it.
 
+## R3 What the reader will know next: the type of a paper, a vector per node, and the edges between a finding and its method
+
+Written 2026-09-13, after the oracle of meaning landed (R2, `meaning.py`) and
+after two things Karim said in one afternoon: a query that tests a hypothesis
+must find the results and then jump to the methods that produced them; and to
+read a paper well the reader should first know what kind of paper it is. This
+is the plan for both, in the order each step earns the next, with the
+measurement each must pass before it is allowed to decide anything. Nothing
+here is built yet.
+
+**What the vocabulary-off experiment settled first.** With
+`LITRAG_VOCABULARY=off` the embedder alone names every heading (examples for
+abstract and references added, wider margins on those two). Heading by
+heading it agrees with the vocabulary on every lane retrieval searches:
+abstract, introduction, results, references 100 %; discussion 99.7 %; methods
+98.1 %; back matter 90 %, and what it misses there falls to `other`, not to a
+wrong lane. At the paper level, over the three corpora, it loses the methods lane on
+ten papers in 765 ("Methods of literature search", "Extraction Methods", and
+the "2. Experimental" family before it was given as an example) and names
+thirteen closing sections the vocabulary had missed ("Future perspectives",
+"Challenges and perspectives"). One paper lost
+its citations, not to a lane but to a linker fragility the run exposed (a
+prose subsection nested under References; BACKLOG). So: the approach
+generalises; the vocabulary stays as the free, certain first pass; and the
+examples, not new patterns, are how the reader is told what a lane means.
+
+### R3.1 The type of a paper
+
+A column, `papers.type`, with `type_source` beside it. Types: `research`,
+`review`, `letter`, `editorial` (opinion, commentary, perspective),
+`case-report`, `protocol` (a methods paper), `data` (a data descriptor),
+`correction`, and `other`. Decided by a cascade, each step only where the one
+before is silent, every verdict a row with its source:
+
+1. **The file says.** JATS `article-type` on the root element. Exact, free,
+   present on every XML paper.
+2. **The record says.** Europe PMC's `pubTypeList`, in the identity call the
+   worker already makes for a DOI. Stored with the paper when it comes back.
+3. **The page says.** The first-page label the front kind already captures as
+   a `notice` ("ORIGINAL RESEARCH ARTICLE", "REVIEW", "Letter to the
+   Editor"), read by a `type-label` kind: examples per type, threshold,
+   margin, verdict stored.
+4. **The paper's shape says.** A `profile` kind over a short text: the
+   title, the first sentences of the abstract, the top-level headings in
+   order. Examples per type are profiles, not phrases.
+5. **A model reads it**, only as the judge is asked today (opt-in), verdict
+   stored.
+6. `other`.
+
+Measured before step 4 writes anything: steps 1 and 2 label most of the 765
+papers for free; the profile kind runs on them with the label hidden and the
+confusion table is written to NOTES.md. Gate: precision ≥ 0.95 per type on
+the labelled papers. The harness gains a per-type table (research papers
+with methods found, reviews with topical sections, letters with no
+abstract) and the audit's `no-methods` becomes an error for `research` and
+nothing for `review`.
+
+### R3.2 Headings read with the type in mind
+
+One heading kind per type, the same oracle: `heading@review` has a `topical`
+lane so "5. Cellulose-based hydrogels for tissue engineering" is a right
+answer instead of `other`; `heading@case-report` knows "Case presentation" is
+its results; `heading@data` knows "Experimental design, materials and
+methods" is methods; `heading@research` is today's kind. The vocabulary still
+runs first. Content lanes (`structure.py`) run only for `research`, `letter`
+and `case-report` and never for `review`, which is where every false lane of
+the block kind came from. Built headings follow the type's expected run: a
+letter is one body, a case report is presentation then discussion, a research
+article is IMRaD, as a prior for the Viterbi pass rather than an assumption.
+
+Measured: the vocabulary-off agreement per type, and the corpus gate's
+`lane_lost` bucket, which now watches every named section.
+
+### R3.3 A vector per node
+
+A `vectors` table: node id, model, the vector. Filled at ingest and on
+rebuild with the same local embedder (`search_document:` prefix), one batch
+per paper. About 150 nodes a paper, so the six libraries take one pass of
+half an hour once, and a rebuild replays the rows rather than embedding
+again. Everything after this reads vectors from the store and never embeds at
+query time.
+
+### R3.4 Edges: a finding and the method that produced it
+
+An `edges` table: from node, to node, kind, evidence, detail, score. Every
+edge is a row a person can read and delete; a rebuild replays them. The first
+kinds:
+
+- `measured_by`: a finding (a results paragraph, tied to the figure or table
+  it cites) to the method subsection or caption that produced it. Candidates
+  are the paper's own methods subsections (the level-two headings under
+  methods, or its paragraphs when there are none) and its captions, a closed
+  list of five to fifteen. Three kinds of evidence, in order of trust,
+  recorded on the edge: an explicit pointer ("see Section 2.3", a caption
+  naming the assay, a JATS cross-reference); shared terms (the measurement,
+  the instrument, the assay, the cell line, in both and in no other
+  candidate); similarity from the stored vectors, taken only when the nearest
+  clearly beats the next. A finding no evidence can place stays unlinked and
+  says so.
+- `cites_figure`: a paragraph to the figure or table it names.
+- `cites`: a paragraph to a reference entry (the `citations` table, read as
+  edges), and `cited_by` across papers when the entry names a paper the
+  library holds.
+
+Two cases designed for: methods-last formats, where the lane holds and "the
+nearest preceding section" would not; and findings whose method lives only
+in a caption or the supplement, where "linked to the caption" is the right
+answer.
+
+Measured before similarity may create an edge on its own: the papers with
+explicit pointers and cross-references are the ground truth; precision per
+evidence kind is written to NOTES.md; similarity-only edges are allowed when
+they agree with the pointers on those papers at ≥ 0.9.
+
+### R3.5 The query path
+
+A `query` op on the worker, and the `lit` CLI pointed at the tree store:
+retrieve nodes (FTS5 words and stored vectors, hybrid as the CLI does over
+chunks today), keep or boost by lane and type, follow edges, and answer as
+JSON: the hits, each with its lane, its paper's type, the methods it was
+`measured_by`, and what it cites. "Results of primary research on X, with
+their methods" is one query; "what was measured with this assay" is the same
+edges walked the other way. Same rows, same answer, on any machine.
+
+### Order, and what each step is gated on
+
+| step | builds on | gate before it decides |
+|---|---|---|
+| R3.1 type | the identity call, the front kind | precision ≥ 0.95 per type on labelled papers |
+| R3.2 typed headings | R3.1 | vocabulary-off agreement per type; no `lane_lost` on the corpora |
+| R3.3 vectors | the store | rebuild replays; the six libraries embedded once |
+| R3.4 edges | R3.2, R3.3 | precision per evidence kind on cross-referenced papers |
+| R3.5 query | R3.4 | the e2e suite: a results hit shows its method |
+
+Cross-cutting, as in R2: every verdict a row; the harness extended with
+each step's table; two fresh-context reviews of the code; the corpus gate on
+all three corpora before anything ships; docs and NOTES.md with the numbers.
+
 ---
 
 # Revision 1 — the retrieval loop (2026-09-03)
@@ -238,6 +376,27 @@ The Research tab is a later phase (§7). What it will need is already here:
 libraries keyed to vault project ids, every verb answering in JSON, the
 store readable by SELECT, and stages that report progress line by line —
 which is what `lit serve` will stream to a tab.
+
+**1.8 Resemblance is one question, asked one way.** Every place the reader
+used to consult a list of phrases — the lane a heading names, what a line
+of front matter is, whether a text under a figure is its legend, whether a
+line is a reference entry, which open paragraph a tail belongs to, what a
+section's paragraphs are — is the same question, "which of these does this
+resemble", and `meaning.py` answers all of them the same way: a local
+embedder, a few examples (or centroids) per answer, a threshold and a
+margin, `other` when unsure, and every answer a row. The rules run first
+where they exist and are cheap; a verdict adds where the rules were silent
+and never overrides one that fired, with one documented exception (a label
+the run-in list does not know vetoes a join the page would make, because a
+split is visible and a merge is not). What a verdict may do is bounded by
+what it costs to be wrong: it may name, adopt, choose among candidates, and
+build a heading it labels as its own; it may not drop text or file prose
+under another section. Whether one block continues another is not a question
+of resemblance and goes to a likelihood scorer (`boundary.py`), which is off
+until it passes on the real leftover pairs and not only the synthetic ones.
+Every threshold is set by a measurement on the corpora, library-out where
+the examples came from them, and the measurement is written down before the
+verdict is allowed to decide anything.
 
 ## 2. Where things live
 
