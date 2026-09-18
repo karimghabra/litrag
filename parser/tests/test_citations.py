@@ -143,3 +143,145 @@ def test_superscript_citations_glued_to_words():
     tree = build_tree(doc, "k")
     refs, cites = link_citations(tree)
     assert sorted(c.ref_no for c in cites if c.node_id == paras[0].node_id) == [2]
+
+
+def paper(texts, key="k"):
+    """A document of (label, text) pairs, the way Docling hands one over."""
+    items = [{"self_ref": f"#/texts/{i}", "parent": {"$ref": "#/body"}, "children": [], "label": l, "text": t, "prov": [], "level": 1 if l == "section_header" else None} for i, (l, t) in enumerate(texts)]
+    return {"name": "made up", "body": {"self_ref": "#/body", "children": [{"$ref": t["self_ref"]} for t in items]}, "texts": items, "pictures": [], "tables": [], "groups": [], "pages": {}}
+
+
+def entries(n, first=1):
+    return [("list_item", f"{i}. Author{i} A., Other B. A paper number {i}. Journal. {2000 + i % 20};1:1-2.") for i in range(first, first + n)]
+
+
+def cited(texts, n_entries=40):
+    tree = build_tree(paper(texts + [("section_header", "References")] + entries(n_entries)), "k")
+    refs, cites = link_citations(tree)
+    paras = [n for n in tree.walk() if n.type == "paragraph"]
+    return tree, refs, cites, paras
+
+
+def test_a_caret_marks_the_superscript_the_page_printed():
+    # Scientific Reports, doi:10.1038/s41598-026-46107-7 and doi:10.1038/s41598-026-52941-6: the
+    # layout model hands a raised number over with a caret, one caret to each number of a list
+    tree, refs, cites, paras = cited([
+        ("section_header", "Introduction"),
+        ("text", "Tin oxide can be synthesized and deposited using various methods, including solution processing (e.g. spin-coating, spray pyrolysis),^21,^22 atomic layer deposition (ALD),^23 and magnetron sputtering^24. Among these, solution-processed SnO2 is widely favored for its low-temperature fabrication, affordability, and compatibility with flexible substrates.^21,^25-27"),
+        ("text", "Internal waves propagate along density gradients and are induced by strong tidal flows interacting with bottom topography^7-11. Recent reef studies have underscored the importance of temperature variability^10,^37-39."),
+    ])
+    assert sorted(c.ref_no for c in cites if c.node_id == paras[0].node_id) == [21, 22, 23, 24, 25, 26, 27]
+    assert sorted(c.ref_no for c in cites if c.node_id == paras[1].node_id) == [7, 8, 9, 10, 11, 37, 38, 39]
+
+
+def test_a_caret_range_set_with_a_minus_sign():
+    # ACS, doi:10.1021/acs.langmuir.6c03373: "^3−9" — the dash is U+2212, the minus sign, and a
+    # range written with one is a range all the same
+    tree, refs, cites, paras = cited([
+        ("section_header", "Introduction"),
+        ("text", "Atmospheric water harvesting produces freshwater using low-grade thermal or solar energy.^3\u22129 Sorbents for AWH should exhibit a large working capacity.^10,^11 Metal-organic frameworks are tunable.^13"),
+    ])
+    assert sorted(c.ref_no for c in cites if c.node_id == paras[0].node_id) == [3, 4, 5, 6, 7, 8, 9, 10, 11, 13]
+
+
+def test_a_formula_is_not_a_superscript_where_the_carets_say_where_they_are():
+    # ACS Omega, doi:10.1021/acsomega.6c00523: "BaTiO3", "SrTiO3" and "SiO2" were read as citations
+    # 3, 3 and 2, a hundred of them in one paper. The carets say which numbers the page raised.
+    tree, refs, cites, paras = cited([
+        ("section_header", "Introduction"),
+        ("text", "Perovskite oxides such as BaTiO3 and SrTiO3 have been studied for photocatalysis.^4 Composites with SiO2 improve the surface area.^5 The bandgap of BaTiO3 is wider than that of SrTiO3.^6"),
+    ])
+    assert sorted(c.ref_no for c in cites if c.node_id == paras[0].node_id) == [4, 5, 6]  # not 2 from "SiO2", not 3 from "BaTiO3"
+
+
+def test_the_front_matter_is_not_read_for_markers():
+    # doi:10.1038/s41598-026-52941-6: the author list and the addresses carry raised numbers of
+    # their own, and none of them names an entry
+    doc = paper([
+        ("text", "Coral bleaching and the reefs that escape it"),
+        ("text", "Hana Camelia^1, Thomas Felis^1, Jessica A. Hargreaves^1, Sander Scheffers^2, Marlene Wall^5"),
+        ("text", "^1MARUM - Center for Marine Environmental Sciences, University of Bremen, 28359 Bremen, Germany.^2Oceans Institute, The University of Western Australia, Perth 6009, Australia."),
+        ("section_header", "Introduction"),
+        ("text", "Not all coral reefs respond to marine heatwaves similarly as certain locations can provide refugia from rising temperatures.^7 These processes are caused by the upward movement of thermal layers.^8,^9"),
+    ] + [("section_header", "References")] + entries(40))
+    tree = build_tree(doc, "k")
+    refs, cites = link_citations(tree)
+    assert sorted({c.ref_no for c in cites}) == [7, 8, 9]  # 1, 2 and 5 are affiliations
+
+
+def test_a_bracket_around_every_entry_is_one_marker():
+    # the same paper as JATS, where each <xref> is bracketed on its own: "[14]-[17]" is a range and
+    # "[12],14,21,[40]" a list, and reading only what sits inside brackets loses the rest
+    tree, refs, cites, paras = cited([
+        ("section_header", "Introduction"),
+        ("text", "An ideal EEL should combine high electron mobility and good energy level alignment [14]-[17]. Upwelling-influenced reefs were shown to experience reduced thermal stress, rendering healthier corals [12],14,21,[40]."),
+    ])
+    assert sorted(c.ref_no for c in cites if c.node_id == paras[0].node_id) == [12, 14, 15, 16, 17, 21, 40]
+
+
+def test_an_en_dash_that_came_out_as_the_letter_e():
+    # Journal of Orthopaedic Translation, doi:10.1016/j.jot.2017.02.005: Elsevier's en dash reaches
+    # the text layer as "e", so "[1 e 3]" is "[1-3]"
+    tree, refs, cites, paras = cited([
+        ("section_header", "Introduction"),
+        ("text", "Treatment is by anti-inflammatory drug injection, physical therapy, or surgery [1 e 3]. Proteoglycans accumulate in tendons and impair their mechanical properties [12 e 14]."),
+    ])
+    assert sorted(c.ref_no for c in cites if c.node_id == paras[0].node_id) == [1, 2, 3, 12, 13, 14]
+
+
+def test_a_spaced_superscript_range_keeps_its_spaces():
+    # doi:10.1021/acs.langmuir.6c03373 again, where the raised numbers arrive spaced out:
+    # "requirements. 10 - 12 In contrast"
+    tree, refs, cites, paras = cited([
+        ("section_header", "Introduction"),
+        ("text", "Conventional sorbents suffer from low capacities or high regeneration energy requirements. 10 - 12 In contrast, metal-organic frameworks are tunable. 13,14 Their uptake is high. 15 The isotherm is S-shaped. 16"),
+    ])
+    assert sorted(c.ref_no for c in cites if c.node_id == paras[0].node_id) == [10, 11, 12, 13, 14, 15, 16]
+
+
+def test_two_reference_entries_the_layout_model_ran_together():
+    # Frontiers, doi:10.3389/fepid.2026.1813211: entries 3 and 4 reached the tree as one block
+    run_on = ("paragraph", "3. World Health Organisation. Avian influenza A(H5N1) virus, Human-animal interface, Global Influenza Programme (2024) Available online at: https://www.who.int/teams/global-influenza-programme/avian-influenza (Accessed May 8, 2026). 4. Food and Agriculture Organization. Global Avian Influenza Viruses with Zoonotic Potential situation update (2025).")
+    doc = paper([("section_header", "Introduction"), ("text", "Human cases remain limited [1,2]. Poultry is the reservoir [3,4]."), ("section_header", "References")] + entries(2) + [run_on] + entries(2, first=5))
+    tree = build_tree(doc, "k")
+    refs, cites = link_citations(tree)
+    assert [r.ref_no for r in refs] == [1, 2, 3, 4, 5, 6]
+    assert refs[2].text.startswith("World Health Organisation")
+    assert refs[3].text.startswith("Food and Agriculture")
+    assert sorted(c.ref_no for c in cites) == [1, 2, 3, 4]
+    assert tree.repairs.get("split_references") == 1
+
+
+def test_a_page_number_does_not_start_a_reference_entry():
+    # doi:10.3390/mi14081643: "Biomedical Microdevices 2017, 19, 72. [CrossRef]" — 72 is the page,
+    # and cutting there made a 179th entry out of 178 and shifted every number after it
+    doc = paper([("section_header", "Introduction"), ("text", "Peristaltic pumping is one route [71]."), ("section_header", "References")]
+                + entries(70)
+                + [("list_item", "71. Shutko, A.V.; Gorbunov, V.S.; Guria, K.G.; Agladze, K.I. Biocontractile microfluidic channels for peristaltic pumping. Biomedical Microdevices 2017 , 19 , 72. [CrossRef]")]
+                + entries(2, first=72))
+    tree = build_tree(doc, "k")
+    refs, _ = link_citations(tree)
+    assert [r.ref_no for r in refs][-3:] == [71, 72, 73] and len(refs) == 73
+    assert not tree.repairs.get("split_references")
+
+
+def test_a_figures_number_is_not_a_superscript():
+    # doi:10.1038/s41598-026-52941-6: a caption opens "Fig. 1. Map and climatology of the Andaman
+    # Sea", and the glued reading took the 1 for a raised number
+    tree, refs, cites, paras = cited([
+        ("section_header", "Results"),
+        ("text", "Coral bleaching followed the heatwave.^3 Reefs at depth were spared.^4,^5 The record runs from 1985.^6"),
+        ("caption", "Fig. 1. Map and climatology of the Andaman Sea and Bay of Bengal, northeastern Indian Ocean."),
+        ("caption", "Table 1. Ordinary least squares regression equations and Pearson correlation coefficients."),
+    ])
+    assert sorted({c.ref_no for c in cites}) == [3, 4, 5, 6]
+
+
+def test_a_statistics_degrees_of_freedom_are_not_a_citation():
+    # doi:10.3389/fnhum.2026.1832731, a Frontiers paper in the parenthetical style: "F (1, 13) =
+    # 0.024, p = 0.88" put citations 1 and 13 in every sentence that reported a test
+    tree, refs, cites, paras = cited([
+        ("section_header", "Results"),
+        ("text", "Sleep deprivation slowed responses (1, 2) and the caffeine dose did not (3, 4). The interaction between sleep condition and cognitive enhancer was not significant ( F (1, 13) = 0.024, p = 0.88). Accuracy was unaffected (5-7)."),
+    ])
+    assert sorted({c.ref_no for c in cites}) == [1, 2, 3, 4, 5, 6, 7]  # 13 is a degree of freedom

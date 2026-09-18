@@ -519,13 +519,15 @@ def _quote_around(text: str, marker: str, width: int = 90) -> str:
 
 
 def unlinked_markers(tree: Tree, refs: list[Ref]) -> list[tuple[Node, str, list[int]]]:
-    """Bracketed numbers a node prints that name no entry — "[47]" in a paper with 31 references.
-    Only the bracketed style can be checked this way: a superscript or an author–year the linker
-    declined to read leaves nothing behind that says it was ever a marker, so it is not guessed at."""
-    pattern = getattr(citations_module, "_NUMERIC", None)
+    """Numbers a node prints as a marker that name no entry — "[47]" in a paper with 31 references.
+    Only a marker the page states outright can be checked this way: the brackets, and the caret a
+    superscript carries where the layout model marked one. A superscript that reached the tree as a
+    bare number, or an author–year the linker declined, leaves nothing behind that says it was ever
+    a marker, so it is not guessed at."""
+    patterns = getattr(citations_module, "marker_patterns", None)
     expand = getattr(citations_module, "_expand_numeric", None)
     types = getattr(citations_module, "_CITING_TYPES", {"paragraph", "list_item", "caption", "footnote"})
-    if pattern is None or expand is None or not refs:
+    if patterns is None or expand is None or not refs:
         return []
     known = {r.ref_no for r in refs}
     ref_nodes = {r.node_id for r in refs}
@@ -533,10 +535,11 @@ def unlinked_markers(tree: Tree, refs: list[Ref]) -> list[tuple[Node, str, list[
     for node in tree.walk():
         if node.type not in types or node.role == "references" or node.node_id in ref_nodes or not node.text:
             continue
-        for m in pattern.finditer(node.text):
-            missing = [n for n in expand(m.group(1)) if n not in known]
-            if missing:
-                out.append((node, m.group(0), missing))
+        for pattern in patterns(tree):
+            for m in pattern.finditer(node.text):
+                missing = [n for n in expand(m.group(1)) if n not in known]
+                if missing:
+                    out.append((node, m.group(0), missing))
     return out
 
 
@@ -595,7 +598,7 @@ def _citations_block(tree: Tree, refs: list[Ref], cites: list[Citation], counts:
         f'<details class="card wide" id="citations"><summary><h2>Every citation, and what it points at</h2>'
         f'<span class="muted">{counts.get("citations", 0)} markers linked from {counts.get("citing_nodes", 0)} nodes to '
         f'{counts.get("cited_refs", 0)} of {counts.get("refs", 0)} entries · {uncited} entries never cited · '
-        f'{len(loose)} bracketed markers name no entry</span></summary>'
+        f'{len(loose)} markers as printed name no entry</span></summary>'
         f'<h3>The links, one by one</h3>{linked_table}'
         f'<h3>The reference list, with how often each entry is cited</h3>{ref_table}'
         f'<h3>What did not link</h3>{loose_table}'

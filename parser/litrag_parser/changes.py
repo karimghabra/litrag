@@ -54,6 +54,7 @@ STAGES: dict[str, str] = {
     "judged": "joined",
     "caption_tail": "joined",
     "unfused": "split",
+    "split_references": "split",  # citations.py — two reference entries the layout model ran into one block
     "reordered": "moved",
     "displaced_head": "moved",
     # structure
