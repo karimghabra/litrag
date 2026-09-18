@@ -59,16 +59,20 @@ Measured on the whole corpus, then fixed where the measurement pointed.
   Still weaker at the top than at the bottom.
 - The heading catalogue, scored with each library's own headings withheld:
   lane precision 1.000 / recall 0.993, canonical name 0.994 / 0.904.
-- 14,447 of 16,308 counted modifications (89%) are placed on a page, and 723
-  of 801 papers have no gap at all. The shortfall is one pass that counts
-  reference entries one by one and records the list as a single change.
+- 15,872 of 18,120 counted modifications (88%) are placed on a page. The
+  shortfall is one pass that counts reference entries one by one and records
+  the list it built as a single change.
 
-- In-text citations against the XML's own markup: **0.734 -> 0.758** pooled
-  (0.808 -> 0.819, 0.672 -> 0.723, 0.732 -> 0.753), after seven printed styles
-  that were being missed and six kinds of false positive that were not.
+- In-text citations against the XML's own markup: **0.734 -> 0.851** pooled
+  (0.808 -> 0.940, 0.672 -> 0.810, 0.732 -> 0.840), and reference-list length
+  0.851/0.797/0.875 -> **0.970/0.939/0.945**, after seven printed citation
+  styles that were being missed, six kinds of false positive that were not,
+  and the reference list itself being found where the page scatters it.
+  Papers with a broken list 33 -> 14; citations linked across the PDFs
+  20,559 -> 22,250.
 
 Named, not fixed: **34 of 199 papers have a truncated or absent reference
-lane, costing 2,683 of the 3,630 missing citation links** — two of them hold
+lane, costing 2,456 of the 3,589 missing citation links** — two of them hold
 zero reference nodes against the XML's 192 and 294, so their markers are read
 perfectly and link nowhere. That is the biggest remaining lever. The type
 rules are right for biomedical literature and read an ML preprint as a review,
