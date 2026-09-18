@@ -97,3 +97,24 @@ def test_the_page_links_to_the_other_two(tmp_path):
 
     html = (review / "report.html").read_text(encoding="utf-8")
     assert 'href="index.html"' in html and 'href="summary.html"' in html
+
+
+def test_the_page_names_the_papers_to_open_first(tmp_path):
+    review = tmp_path / "review"
+    review.mkdir()
+    (review / "index.json").write_text(json.dumps([
+        {"key": "doi:10.1/good", "title": "A paper read well", "confidence": 0.99,
+         "report": "lib--good/index.html", "format": "pdf", "type": "research", "changes": 3},
+        {"key": "doi:10.1/bad", "title": "A paper read badly", "confidence": 0.09,
+         "report": "lib--bad/index.html", "format": "pdf", "type": "other", "changes": 27},
+        {"key": "doi:10.1/failed", "failed": True, "error": "no pages"},
+    ]), encoding="utf-8")
+
+    worst = report.worst_read(review)
+    assert [row["key"] for row in worst] == ["doi:10.1/bad", "doi:10.1/good"]  # lowest trust first
+    assert all("confidence" in row for row in worst)  # a paper that failed has no score to sort on
+
+    html = report.build(NUMBERS, worst=worst)
+    assert "Where to look first" in html
+    assert 'href="lib--bad/index.html"' in html and "9%" in html
+    assert html.index("A paper read badly") < html.index("A paper read well")

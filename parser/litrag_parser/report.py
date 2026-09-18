@@ -173,7 +173,17 @@ def recorded_changes(review: Path) -> int:
     return sum(int(row.get("changes") or 0) for row in index)
 
 
-def build(n: dict, publishers: int = 0, changes: int = 0) -> str:
+def worst_read(review: Path, count: int = 6) -> list[dict]:
+    """The papers the reader trusts least, which are the ones worth opening first."""
+    try:
+        index = json.loads((review / "index.json").read_text("utf-8"))
+    except Exception:
+        return []
+    scored = [row for row in index if isinstance(row.get("confidence"), (int, float))]
+    return sorted(scored, key=lambda row: row["confidence"])[:count]
+
+
+def build(n: dict, publishers: int = 0, changes: int = 0, worst: list[dict] | None = None) -> str:
     harness = (n.get("harness") or {}).get("by_format_corpus_wide") or {}
     pdf, jats = harness.get("pdf") or {}, harness.get("jats") or {}
     pairs = n.get("pairs") or {}
@@ -301,6 +311,26 @@ def build(n: dict, publishers: int = 0, changes: int = 0) -> str:
                         f'name precision {num(canon_grid.get("precision"))}, recall '
                         f'{num(canon_grid.get("recall"))}.</p></div>')
 
+    # The point of the review is that a bad reading can be found and looked at, so the page names the
+    # papers to open first rather than leaving a reader to sort 801 rows themselves.
+    worst_rows = "".join(
+        f'<tr><td><a href="{e(row.get("report"))}">{e((row.get("title") or row.get("key") or "")[:74])}</a>'
+        f'<div style="color:#64748b;font-size:12px">{e(row.get("key"))}</div></td>'
+        f'<td>{e(row.get("format"))}</td><td>{e(row.get("type"))}</td>'
+        f'<td class="n" style="color:#b91c1c;font-weight:650">{round(100 * row.get("confidence", 0))}%</td>'
+        f'<td class="n">{row.get("changes", 0)}</td></tr>'
+        for row in (worst or [])
+    )
+    worst_html = ""
+    if worst_rows:
+        worst_html = f"""<section>
+  <h2>Where to look first</h2>
+  <p class="lead">The reader's own lowest scores. Each opens on its pages, with every change it made marked
+  where it happened — which is the whole point: a bad reading is findable in a minute rather than argued about.</p>
+  <div class="tablewrap"><table><thead><tr><th>paper</th><th>format</th><th>type</th>
+  <th class="n">trust</th><th class="n">changes</th></tr></thead><tbody>{worst_rows}</tbody></table></div>
+</section>"""
+
     run = n.get("run") or {}
 
     return f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
@@ -370,6 +400,8 @@ def build(n: dict, publishers: int = 0, changes: int = 0) -> str:
 
 {failures}
 
+{worst_html}
+
 <section>
   <h2>What holds up</h2>
   <p class="lead">The part of the system that generalises best is the one that was hardest to build.</p>
@@ -415,7 +447,8 @@ def main(argv: list[str] | None = None) -> int:
 
     numbers = json.loads((args.measure / "numbers.json").read_text("utf-8"))
     out = args.out or (args.review / "report.html")
-    out.write_text(build(numbers, publisher_count(args.review), recorded_changes(args.review)), encoding="utf-8")
+    out.write_text(build(numbers, publisher_count(args.review), recorded_changes(args.review),
+                         worst_read(args.review)), encoding="utf-8")
     print(json.dumps({"report": str(out), "bytes": out.stat().st_size}, indent=1))
     return 0
 
