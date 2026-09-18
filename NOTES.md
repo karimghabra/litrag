@@ -82,6 +82,56 @@ when it turns out durable. Mark inference as inference.
 
 ## Short-term memory
 
+- **2026-09-17, the reader shows its work** — Karim, on day six of a week and
+  submitting in the morning: "i want to see every modification that is made to
+  the workflow for every paper i run it through, and i want to see the changes
+  on all pages"; "i need to see that our workflow works on a variety of
+  different paper formats before i move forward with building a large corpus".
+  So the counters gained a record: `changes.py`, and every pass that alters a
+  paper now says where it acted, what the text was, what it is, and why
+  (`tree.py`, `recover.py`, `structure.py`, and `jats_prep.py`/`mathml.py` for
+  the XML rewrites, which are byte-identical with or without the log).
+  Measured over 36 papers of both formats: **99% of what the reader counts it
+  can place on a page**; the remainder (a `stitched` fragment, one built
+  heading) is named in each report rather than hidden. Over 16 XML papers the
+  preparation pass records 3,646 rewrites — 1,663 processing instructions
+  dropped, 1,355 citation markers bracketed, 414 reference entries rendered —
+  which is why the review groups a repeated kind instead of listing it.
+  `review.py` draws every page of a paper with the kept nodes boxed in their
+  lane's colour and each modification numbered where it happened;
+  `summary.py` puts the corpus on one page. Neither writes to a library.
+  Four papers the system had never seen were ingested end to end in 74s
+  (Docling included): the Wiley tissue-engineering paper read clean (trust
+  1.0), AlphaFold came out at 0.50 because "the introduction holds 48% of the
+  body: the sections after it were read as its children", and the two arXiv
+  preprints at 0.33 and 0.85 with "no source says what kind of paper this is,
+  and its shape does not either" — a preprint has no record, no JATS
+  article-type and no printed label, so the shape decides alone or nothing does.
+
+- **2026-09-17, the whole corpus measured, and the three things wrong with it** —
+  797 papers in seven libraries (284 PDF, 513 JATS), twelve measurement runs,
+  none failed. Corpus-wide the reader finds the right title on 0.989 of PDFs
+  and 1.000 of XML, reads 0.968/0.992 with no audit error, and finds a methods
+  section or correctly calls the paper a review 0.944/0.951 of the time.
+  199 papers exist in both formats, so the XML can score the PDF reading:
+  **word recall 0.990, paragraphs missing 0.001, faithful 0.840**. That gap is
+  the whole story — nothing is lost, one word in six is filed under the wrong
+  heading, and the cause is that the PDF finds only ~0.83 of the headings the
+  XML declares. 57,082 words of review sections collapse into the introduction
+  and 24,286 into the methods; seven `looped-ligament` reviews score 0.06–0.38
+  faithful with recall above 0.98 — a whole review read as one introduction.
+  Two more, named so they are not forgotten: the type cascade scores 0.786
+  although every source it gates is accurate (printed 1.000, title 0.941,
+  subject 0.935, shape alone 0.929, all of them together 0.932) — the loss is
+  entirely the `other` bucket, which names 41 papers and is right about one.
+  And the trust score is decisive at the bottom (its lowest band averages 0.384
+  faithful, 25 of 30 seriously mismatched) but weak at the top (11 of 129
+  papers at ≥0.9 are seriously mismatched, five at exactly 1.0); AUC 0.788.
+  The heading catalogue, scored with each library's own headings withheld,
+  holds up: lane precision 1.000 / recall 0.995, canonical name 0.994 / 0.902.
+  All 801 papers render to a page-by-page report in 288s across 8 processes,
+  0 failures, 14,093 recorded modifications.
+
 - **2026-09-17, papers read twice, and how far a reading can be trusted** —
   Karim: "i want to be able to sort papers by xml and pdf", "we also need to
   be able to filter by type of paper", and "We need to design some kind of
