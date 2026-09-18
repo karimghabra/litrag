@@ -57,6 +57,7 @@ STAGES: dict[str, str] = {
     "split_references": "split",  # citations.py — two reference entries the layout model ran into one block
     "reordered": "moved",
     "displaced_head": "moved",
+    "gathered_references": "moved",  # tree.py — a reference entry read under a heading the page set among the entries
     # structure
     "built_headings": "structure",
     "inferred_references": "structure",

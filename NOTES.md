@@ -82,6 +82,57 @@ when it turns out durable. Mark inference as inference.
 
 ## Short-term memory
 
+- **2026-09-17 (night), the reference list, when the page does not name it
+  or does not keep it together** — The biggest thing left after the lane
+  fixes. Of the 199 papers held both as a publisher's PDF and as the
+  publisher's JATS, 33 reached the reader with fewer than nine tenths of the
+  XML's reference entries in a reference list, and those 33 held 2,456 of the
+  3,589 citation links the PDFs were missing. Their markers are read; the
+  entries they point at were filed elsewhere. Two causes, both read off the
+  real pages, neither of them visible in the code.
+  (a) **The spacing the layout model leaves.** Wiley's Adv. Sci. review
+  reaches Docling as "E.    Peled  ,    D.    Golodnitsky ," and Nature
+  Reviews' as "1 . Collins, F . S.", where the pages printed "E. Peled, D.
+  Golodnitsky," and "1. Collins, F. S." Every pattern for an entry is about
+  initials and punctuation, so none of them matched a single entry on those
+  pages: two reviews with 192 and 294 references arrived with 88 and 217 of
+  them in a list and the rest under "Acknowledgements". `_tight` takes that
+  spacing out before any pattern reads the text; the two are now 193 and 304.
+  (b) **The reading order.** Frontiers sets its declarations, and MDPI
+  sometimes its conclusions, in a column Docling reads between the first
+  entries and the rest, so the list closes at "Conflict of interest" or "5.
+  Conclusions" and every entry after it lands in back matter (1 of 41, 3 of
+  50, 2 of 63). The 2026-09-17 rule that keeps a promoted heading inside an
+  open list only fires for a heading the vocabulary cannot name, and these
+  are all named `back`. Now the run of entries is recognised on its own and
+  each entry is filed under the list wherever the page put it
+  (`gathered_references`, in the change log with the heading it was read
+  under and the box it was read from).
+  Before → after on the three pairings: reference lists the same length
+  0.851 → 0.970 (31 papers), 0.797 → 0.939 (33), 0.875 → 0.945 (135);
+  citation links agreeing 0.819 → 0.940, 0.723 → 0.810, 0.753 → 0.840.
+  Nothing was traded for it: faithful 0.9492 / 0.8964 / 0.8886 unchanged to
+  four decimals, precision +0.0004 / +0.0003 / +0.0001, headings, captions
+  and paragraphs unchanged; and the other direction, the share of the XML's
+  prose that lands in the PDF's reference lane, stayed at 0.0046 / 0.0135 /
+  0.0012. Papers with a broken list 33 → 14; citation links missing 3,589
+  → 1,960.
+  One paper's citation count fell, and it is the fix showing its work:
+  advs.201500213 read 90 citations from 90 citing nodes, one apiece — the
+  volume and page numbers of the 109 reference entries misfiled under
+  "Acknowledgements". With the entries in the list it reads 53, from 17
+  nodes, all of them body prose. The old 90 were noise.
+  Still broken, and the next thing to try: a list the reading order cuts into
+  two runs far apart. PNAS sets the acknowledgments and the affiliations
+  between two columns of it and Nature keeps a second list after the Methods,
+  and only the longer run is found (34 of 53, 50 of 86, 55 of 67). Closing it
+  means either letting the inferred heading swallow what lies between the
+  runs, which files methods prose as references, or moving nodes after the
+  tree is built — and then keeping the entries in printed order, because
+  `citations.py` numbers them by it. Neither was worth the risk: those three
+  papers have no citation links at all (their superscript markers are not
+  read), so the list would gain length and nothing else.
+
 - **2026-09-17 (late), the measurement named three failures and two are fixed** —
   Re-measured the whole corpus against the fixes, twelve runs, none failed.
   **Words filed under the right heading: 0.840 → 0.899** over the 199 papers

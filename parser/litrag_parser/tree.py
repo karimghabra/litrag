@@ -670,8 +670,43 @@ def _fragment_forward(it: dict[str, Any], items: list[dict[str, Any]], i: int, o
     return False
 
 
-_REF_ENTRY = re.compile(r"^(?:\[\d{1,3}\]|\d{1,3}\.)\s+\S|^[A-Z][A-Za-z'\u2019\-]+(?:,\s*|\s+)(?:[A-Z]\.?\s?){1,3}[,;.]|^[A-Z][A-Za-z'\u2019\-]+\s+[A-Z]{1,3}[,.]\s|^[A-Z][A-Za-z'\u2019\-]+,\s+[A-Z][a-z]+|^(?:[A-Z]\.\s?){1,3}[A-Z][A-Za-z'\u2019\-]+,\s")  # "[12] …", "12. …", "Smith, J. A.;", "Smith JA,", "Smith, John", "J. A. Smith," (Wiley)
+_REF_ENTRY = re.compile(r"^(?:\[\d{1,3}\]|\d{1,3}\.)\s+\S|^[A-Z][A-Za-z'\u2019\-]+(?:,\s*|\s+)(?:[A-Z]\.?\s?){1,3}[,;.]|^[A-Z][A-Za-z'\u2019\-]+\s+[A-Z]{1,3}[,.]\s|^[A-Z][A-Za-z'\u2019\-]+,\s+[A-Z][a-z]+|^(?:[A-Z]\.\s?){1,3}[A-Z][A-Za-z'\u2019\-]+,\s|^(?:[A-Z]\.\s?){1,3}[A-Z][A-Za-z'\u2019\-]+\s+et\s+al\b")  # "[12] …", "12. …", "Smith, J. A.;", "Smith JA,", "Smith, John", "J. A. Smith," (Wiley), "D. F. Ferretti et al.," (PNAS)
 _A_YEAR = re.compile(r"\b(?:19|20)\d{2}\b")
+_SPACED_STOP = re.compile(r"\s+([,;.)\]])")
+#: what the back of an entry looks like once the names are past: a punctuated year, a year in
+#: brackets, a volume and a page range, a DOI, "et al." Body prose prints one of these now and
+#: then ("in 2019, we asked"), so this never opens a reference list; it only carries one on over
+#: the line the layout model cut in two, or the entry whose names no pattern above knows.
+_BIB_TAIL = re.compile(r"\b(?:19|20)\d{2}\s*[,;.]|\(\s*(?:19|20)\d{2}[a-z]?\s*\)|\b\d{1,4}\s*[,:(]\s*\d{1,5}\s*[-–—]\s*\d{1,5}|\b10\.\d{4,9}/\S|\bet\s+al\b", re.I)
+#: an item that is neither an entry nor a break in a run of them: a figure, a table, the heading
+#: the page printed in the middle of the list, a block with no words at all
+_NOT_A_BREAK = frozenset({"picture", "table", "chart", "caption", "section_header", "page_header", "page_footer", "formula"})
+_GAP = 5  # blocks the scan may pass over before an entry has to resume
+
+
+def _tight(text: str) -> str:
+    """The spacing the layout model leaves in a reference entry, taken out again: a Wiley PDF
+    reaches Docling as "E.    Peled  ,    D.    Golodnitsky ," and a Nature one as "1 . Collins,
+    F . S.", where the pages printed "E. Peled, D. Golodnitsky," and "1. Collins, F. S." Every
+    pattern for an entry is about initials and punctuation, so with that spacing left in they
+    match nothing on such a page — which is how two reviews with three hundred references each
+    arrived with no reference list at all."""
+    return _SPACED_STOP.sub(r"\1", " ".join(text.split()))
+
+
+def _entry_flags(items: list[dict[str, Any]]) -> tuple[list[bool], list[bool]]:
+    """For each item: whether it opens like a reference entry, and whether it breaks a run of
+    them. An entry opens the list; a continuation line, or an entry in a shape no pattern knows,
+    is carried along by the entries around it but never starts a list of its own."""
+    opens, breaks = [], []
+    for it in items:
+        text = _tight((it.get("text") or "").strip())
+        prose = it.get("label") in ("list_item", "text", "paragraph")
+        entry = prose and len(text) < 700 and bool(_REF_ENTRY.match(text)) and bool(_A_YEAR.search(text))
+        carried = prose and len(text) < 700 and bool(_BIB_TAIL.search(text))
+        opens.append(entry)
+        breaks.append(not entry and not carried and bool(text) and it.get("label") not in _NOT_A_BREAK)
+    return opens, breaks
 
 
 def _entries_follow(items: list[dict[str, Any]], index: int, within: int = 8) -> bool:
@@ -680,25 +715,23 @@ def _entries_follow(items: list[dict[str, Any]], index: int, within: int = 8) ->
     and "Publisher's note" set in the left column under the start of a Frontiers PDF's
     reference list — and belongs inside it, whatever lane its name has."""
     for it in items[index + 1 : index + 1 + within]:
-        text = (it.get("text") or "").strip()
+        text = _tight((it.get("text") or "").strip())
         if it.get("label") in ("list_item", "text", "paragraph") and len(text) < 700 and _REF_ENTRY.match(text) and _A_YEAR.search(text):
             return True
     return False
 
 
-def _infer_references(items: list[dict[str, Any]], repairs: dict[str, int]) -> list[dict[str, Any]]:
-    """Some Wiley PDFs reach Docling with no "References" heading: the entries file under
-    the last section and no citation can be linked. A run of eight or more entries —
-    numbered, or an author's name and initials, each with a year — in the back part of
-    the paper is the reference list, and a heading is put before it."""
-    if any(it.get("label") == "section_header" and role_of(it.get("text") or "") == "references" for it in items):
-        return items
+def _reference_run(items: list[dict[str, Any]], opens: list[bool], breaks: list[bool]) -> tuple[int, int, int] | None:
+    """The longest run of reference entries in the paper: where it opens, where it closes, and
+    how many entries stand in it. A run opens at an entry a pattern knows, or at a verdict the
+    next item agrees with; a lone verdict never opens one. It carries on over what a page sets
+    in the middle of a list — a figure, the running head the layout model read as a heading, the
+    half of an entry a column break cut off — and over a gap of a few blocks, as long as an entry
+    resumes after the gap. Eight entries, and most of the run, or it is not a list."""
     n = len(items)
-    flags = []
-    for it in items:
-        text = (it.get("text") or "").strip()
-        flags.append(it.get("label") in ("list_item", "text", "paragraph") and len(text) < 700 and bool(_REF_ENTRY.match(text)) and bool(_A_YEAR.search(text)))
-    by_rule = list(flags)  # a run opens at an entry a pattern knows, or at a verdict the next item agrees with; a lone verdict never opens
+    flags = list(opens)
+    by_rule = list(opens)
+    breaks = list(breaks)
     # an entry shaped like none of the patterns — the embedder says what it resembles, for
     # the back part of the paper, in one batch
     o = _oracle()
@@ -708,6 +741,7 @@ def _infer_references(items: list[dict[str, Any]], repairs: dict[str, int]) -> l
             for i, v in zip(maybe, o.nearest_many("refentry", [(items[i].get("text") or "").strip() for i in maybe])):
                 if v.name == "entry":
                     flags[i] = True
+                    breaks[i] = False
     best: tuple[int, int, int] | None = None
     i = 0
     while i < n:
@@ -720,15 +754,46 @@ def _infer_references(items: list[dict[str, Any]], repairs: dict[str, int]) -> l
             if flags[j]:
                 last = j
                 j += 1
-            elif j - last <= 3 and any(flags[j : j + 4]):
-                j += 1  # an entry the pattern misses, in the middle of the list
+            elif not breaks[j]:
+                j += 1  # a figure, a heading, or the tail of an entry the page cut over a column
+            elif j - last <= _GAP and any(flags[j : j + _GAP]):
+                j += 1  # a few blocks the page set among the entries, with the list going on after them
             else:
                 break
         count = sum(1 for k in range(i, last + 1) if flags[k])
-        if count >= 8 and count >= 0.6 * (last - i + 1) and (best is None or count > best[2]):
+        span = sum(1 for k in range(i, last + 1) if flags[k] or breaks[k])
+        if count >= 8 and count >= 0.6 * span and (best is None or count > best[2]):
             best = (i, last, count)
         i = last + 1
+    return best
+
+
+def _infer_references(items: list[dict[str, Any]], repairs: dict[str, int], gather: bool = False) -> list[dict[str, Any]]:
+    """Some Wiley PDFs reach Docling with no "References" heading: the entries file under
+    the last section and no citation can be linked. A run of eight or more entries —
+    numbered, or an author's name and initials, each with a year — in the back part of
+    the paper is the reference list, and a heading is put before it.
+
+    With `gather`, the entries of that run are marked as well, so that a PDF whose reading order
+    breaks the list apart files every one of them under the reference list and not under the
+    heading that happened to stand above it. Frontiers and MDPI set the declarations, and
+    sometimes the conclusions, in a column Docling reads between the first entries and the rest;
+    the list closes at the first of those headings and the remaining entries land in back matter.
+    Marking is for PDFs: an XML states where its list ends and is not read off the page. Only an
+    entry a pattern knows is marked, never one the embedder alone named — a verdict adds, and
+    moving a block out from under the heading it was read beneath is not adding."""
+    headed = any(it.get("label") == "section_header" and role_of(it.get("text") or "") == "references" for it in items)
+    if headed and not gather:
+        return items
+    opens, breaks = _entry_flags(items)
+    best = _reference_run(items, opens, breaks)
     if best is None:
+        return items
+    if gather:
+        for k in range(best[0], best[1] + 1):
+            if opens[k]:
+                items[k]["_reference"] = True
+    if headed:
         return items
     header = {"self_ref": "#/texts/references~inferred", "parent": {"$ref": "#/body"}, "children": [], "label": "section_header", "text": "References", "level": 1, "prov": list(items[best[0]].get("prov") or []), "_inferred": True}
     repairs["inferred_references"] = best[2]
@@ -1479,7 +1544,7 @@ def build_tree(doc: dict[str, Any], key: str, title_hint: str | None = None, jud
                              ref=it.get("self_ref"), why="the layout model fused two headings into one line")
                 continue
         unfused.append(it)
-    items = _infer_references(unfused, repairs)
+    items = _infer_references(unfused, repairs, gather=bool(pages))
 
     # --- the title, and the front matter between it and the first known heading ---------
     skip_refs: set[str] = set()  # items filed nowhere: a title taken from beyond the front matter
@@ -1636,6 +1701,7 @@ def build_tree(doc: dict[str, Any], key: str, title_hint: str | None = None, jud
     # its subsections (type_levels): the layout model gives most PDFs' headers one level
     by_type = type_levels(items, float(doc.get("_cap") or 0.0)) if pages else {}  # a PDF's page; an XML states its depths
     first_title_taken = title_ref is not None
+    reference_list: Node | None = None
     for index, item in enumerate(items):
         label = item.get("label", "text")
         self_ref = item.get("self_ref", "")
@@ -1754,6 +1820,8 @@ def build_tree(doc: dict[str, Any], key: str, title_hint: str | None = None, jud
                                  before=text, after=node.canonical,
                                  why="no spelling in the catalogue matched: the embedder named this heading")
             attach(parent, node)
+            if role == "references" and reference_list is None:
+                reference_list = node  # where the entries the reading order scattered are filed
             stack.append((level, node))
             continue
 
@@ -1780,6 +1848,14 @@ def build_tree(doc: dict[str, Any], key: str, title_hint: str | None = None, jud
             stack.append((1, front))
             parent = front
         role = current_role(parent)
+        if item.get("_reference") and reference_list is not None and parent is not reference_list:
+            # an entry of the run the reference list was recognised by, standing under some other
+            # heading because the page set that heading in a column read before the rest of the
+            # list. The list is where it belongs; the heading above it is an accident of order.
+            page_no, box = _where(item)
+            repairs.note("gathered_references", page=page_no, box=box, before=text[:200], ref=item.get("self_ref"),
+                         why=f"a reference entry read under {parent.heading!r}: the reading order set that heading among the entries")
+            parent, role = reference_list, reference_list.role
         if label in _TABLE:
             node = make(parent, "table", item, text, role)
             node.table = _table_cells(item)

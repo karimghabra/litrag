@@ -422,3 +422,77 @@ def test_a_lane_lost_is_a_named_section_in_the_harness():
     after = [{"key": "k", "format": "pdf", "title": "t", "title_ok": True, "has_methods": True, "errors": 0, "citations": 10, "error_kinds": {}, "lanes": [["2 Fabrication", "other"], ["3 Uses", "results"]]}]
     diff = compare(after, before)
     assert diff["lane_lost"] == ["k  '2 Fabrication': methods → other"] and diff["lane_gained"] == ["k  '3 Uses': other → results"]
+
+
+# -- the reference list, when the page does not name it or does not keep it together -------------
+# Every text below is a block as Docling read it out of the publisher's own PDF.
+
+WILEY_ENTRIES = [
+    "   L. Grande  ,    E.    Paillard  ,    J.    Hassoun  ,    J.-B.    Park  ,    Y .-J. Lee  ,    Y .-K.    Sun  , S.   Passerini  ,   B.   Scrosati  , Adv. Mater. 2015 , 27 ,   784  .",
+    "   Y .   Lu  ,   M.   Tikekar  ,   R.   Mohanty  ,   K.   Hendrickson  ,   L.   Ma  ,   L. A.   Archer  , Adv. Energy Mater. 2015 , 5 ,   1402073  .",
+    "   J. S. Dunning  ,    W. H.    Tiedemann  ,    L. Hsueh  ,    D. N.    Bennion  , J. Electrochem. Soc. 1971 , 118 ,   1886  .",
+    "   A. S.   Arico  ,   P.   Bruce  ,   B.   Scrosati  ,   J.-M.   T arascon  ,   W .   van Schalkwijk  , Nat. Mater. 2005 , 4 ,   366  .",
+    "   R. Cao  ,    W . Xu  , D.    Lv  , J. Xiao  ,    J.-G.    Zhang  , Adv.  Energy  Mater. 2015 , 5 ,   1402273  .",
+    "   W . Xu  , J. Wang  , F. Ding  , X. Chen  , E. Nasybulin  , Y. Zhang  , J.-G.   Zhang  , Energy Environ. Sci. 2014 , 7 ,   513  .",
+    "   Q.    Chen  ,    K.    Geng  ,    K.    Sieradzki  , J.  Electrochem.  Soc. 2015 , 162 , A2004  .",
+    "   V .    Fleury  ,    J.  N.    Chazalviel  ,    M.    Rosso  ,    B.    Sapoval  , J.  Electroanal. Chem. Interfac. 1990 , 290 ,   249  .",
+    "   J. N.   Chazalviel  , Phys. Rev. A 1990 , 42 ,   7355  .",
+    "   E.    Peled  ,    D.    Golodnitsky  ,   G.   Ardel  , J.  Electrochem. Soc. 1997 , 144 , L208  .",
+]
+
+FRONTIERS_ENTRIES = [
+    "Aia, P ., Wangchuk, L., Morishita, F., Kisomb, J., Y asi, R., and Kal, M. (2018). Epidemiology of tuberculosis in Papua New Guinea: analysis of case notification and treatment-outcome data,  2008-2016. West. Pac. Surveill. Response  J. 9,  2008-2016.  doi:  10.5365/ wpsar.2018.9.1.006",
+    "Akapelwa, M. L., Kapalamula, T . F ., Moonga, L. C., Bwalya, P ., Solo, E. S., Chizimu, J. Y ., et al. (2025). Development of a multiplex loop-mediated isothermal amplification (LAMP) method for differential detection of Mycobacterium bovis and Mycobacterium tuberculosis. Microbiol. Spectr. 13. doi: 10.1128/spectrum.01234-25",
+    "Aung, S. T., Thu, A., Aung, H. L., and Thu, M. (2021). Measuring catastrophic costs due to tuberculosis in Myanmar. Trop. Med. Infect. Dis. 6. doi: 10.3390/tropicalmed6030130",
+    "Bhargava, A., and Bhargava, M. (2020). Tuberculosis deaths are predictable and preventable:  comprehensive  assessment  and  clinical  care  is  the  key. J.  Clin.  Tuberc.  Other Mycobact. Dis. 19:100155. doi: 10.1016/j.jctube.2020.100155",
+    "Brynildsrud, O. B., Pepperell, C. S., Suffys, P ., Grandjean, L., Monteserin, J., Debech, N., et al. (2018). Global expansion of Mycobacterium tuberculosis lineage 4 shaped by colonial migration and local adaptation. Sci. Adv. 4:eaat5869. doi: 10.1126/sciadv.aat5869",
+    "Buss, B. F., Keyser-metobo, A., Rother, J., Holtz, L., Gall, K., Jereb, J., et al. (2014). Possible airborne person-to-person transmission of Mycobacterium bovis - Nebraska, 2014-2015. MMWR Morb. Mortal Wkly. Rep. 65, 197-201. doi: 10.15585/mmwr.mm6508a1",
+    "Croucher, N. J., Page, A. J., Connor, T. R., Delaney, A. J., Keane, J. A., Bentley, S. D., et al. (2015). Rapid phylogenetic analysis of large samples of recombinant bacterial whole genome sequences. Nucleic Acids Res. 43:e15. doi: 10.1093/nar/gku1196",
+    "Didelot, X., and Wilson, D. J. (2015). ClonalFrameML: efficient inference of recombination in whole bacterial genomes. PLoS Comput. Biol. 11:e1004041. doi: 10.1371/journal.pcbi.1004041",
+    "Diriba, G., Kebede, A., Tola, H. H., Alemu, A., Y enew, B., Moga, S., et al. (2021). Mycobacterial lineages associated with drug resistance in patients with extrapulmonary tuberculosis. Tuberc. Res. Treat. 2021:5511437. doi: 10.1155/2021/5511437",
+    "Estaji, F ., Kamali, A., and Keikha, M. (2024). Strengthening the global response to tuberculosis: insights from the 2024 WHO global TB report. New Microbes New Infect. 62:101489. doi: 10.1016/j.nmni.2024.101489",
+]
+
+CONFLICT = "The  author(s)  declared  that  this  work  was  conducted  in  the absence of any commercial or financial relationships that could be construed as a potential conflict of interest."
+PUBLISHER = "All claims expressed in this article are solely those of the authors and do not necessarily represent those of their affiliated organizations, or those of the publisher, the editors and the reviewers. Any product that may be evaluated in this article is not guaranteed or endorsed by the publisher."
+
+
+def test_a_reference_list_the_layout_model_spaced_out_is_still_a_reference_list():
+    # Docling reads this Wiley review's entries as "E.    Peled  ,    D.    Golodnitsky ,",
+    # and with that spacing left in, no pattern for an entry matches one of them: the paper
+    # arrived with 192 references and none of them in a reference list.
+    body = [("text", _vary(DISCUSSION, n), 1) for n in range(3)] + [("list_item", e, 2) for e in WILEY_ENTRIES]
+    tree = build_tree(_doc([("title", "A review of solid electrolyte interphases on lithium metal anode", 1), ("text", ABSTRACT, 1)] + body), "k")
+    assert tree.repairs.get("inferred_references") == len(WILEY_ENTRIES)
+    assert [n.role for n in tree.walk() if n.type == "list_item"] == ["references"] * len(WILEY_ENTRIES)
+
+
+def test_the_entries_a_column_scatters_are_gathered_back_into_the_reference_list():
+    # Frontiers sets the declarations in the column Docling reads between the first entry and
+    # the rest: the list closes at "Conflict of interest" and every entry after it lands in
+    # back matter. The entries are filed under the list; the declarations stay where they are.
+    body = [
+        ("section_header", "4 Discussion", 1), ("text", _vary(DISCUSSION, 0), 1), ("text", _vary(DISCUSSION, 1), 1),
+        ("section_header", "References", 2), ("text", FRONTIERS_ENTRIES[0], 2),
+        ("section_header", "Conflict of interest", 2), ("text", CONFLICT, 2),
+        ("section_header", "Publisher's note", 2), ("text", PUBLISHER, 2),
+    ] + [("text", e, 2) for e in FRONTIERS_ENTRIES[1:]]
+    tree = build_tree(_doc([("title", "Genomic epidemiology of tuberculosis in Fiji", 1), ("text", ABSTRACT, 1)] + body), "k")
+    refs = next(n for n in tree.root.children if n.type == "section" and n.role == "references")
+    assert [c.text for c in refs.children] == FRONTIERS_ENTRIES
+    assert tree.repairs.get("gathered_references") == len(FRONTIERS_ENTRIES) - 1
+    assert {n.role for n in tree.walk() if n.type == "paragraph" and n.text in (CONFLICT, PUBLISHER)} == {"back"}
+    assert "Publisher's note" in [c["why"] for c in tree.changes if c["kind"] == "gathered_references"][0]
+
+
+def test_prose_after_a_reference_list_is_not_gathered_into_it():
+    # the guard on the other side: an appendix that follows the list cites years and page
+    # ranges like an entry does, and none of it belongs in the reference lane.
+    appendix = [
+        "Recruitment ran from March 2019 to November 2021, and the numbers in Table A1 are the counts at each visit, 118-127 of the 240 who were screened.",
+        "The protocol was registered in 2019 and the analysis plan, which follows the 2020 revision, was fixed before any outcome data were seen.",
+    ]
+    body = [("section_header", "References", 2)] + [("text", e, 2) for e in FRONTIERS_ENTRIES] + [("section_header", "Appendix A", 3)] + [("text", t, 3) for t in appendix]
+    tree = build_tree(_doc([("title", "Genomic epidemiology of tuberculosis in Fiji", 1), ("text", ABSTRACT, 1)] + body), "k")
+    assert [n.text for n in tree.walk() if n.role == "references" and n.type == "paragraph"] == FRONTIERS_ENTRIES
+    assert "gathered_references" not in tree.repairs
