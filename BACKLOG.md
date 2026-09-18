@@ -240,6 +240,66 @@ Each one wants a fixture or a test before its fix, as the spot-check does.
   analyses" in a Nature Genetics paper) are laned `methods` by meaning;
   the type's shape rule reads such a paper by its order (the methods
   last) rather than by those lanes, but the lanes themselves are wrong.
+- **A PDF heading's depth from its typography** (2026-09-17, the pairs' first
+  finding) — the layout model calls every heading level 1, so the reader
+  nests any heading the vocabulary does not know under the section that
+  stands open. For an unnumbered review that is every topical section
+  under "Introduction": in 13 of the 199 pairs (three of the pilot's 31)
+  the introduction holds 60 % or more of the body, and 11 of the 13 are
+  seriously mismatched, where the XML says those sections are the paper's
+  top level. The XML side is fixed (its stated depth stands); the
+  PDF side needs the page. Measured the same day on the 958 unnumbered,
+  unknown PDF headings that have an XML twin (136 top-level, 822 deeper):
+  the box height does not tell them apart (both medians equal the height
+  of the paper's known top-level headings, so a size rule would raise
+  360 to 750 subsections to find 100 to 132 tops), nor does the left edge
+  (94 tops and 745 subsections share it). Capitals do, where a paper uses
+  them: with the known tops set in capitals, 7 of 7 unknown headings in
+  capitals were top-level and 89 of 89 others were deeper — precise, and
+  five in a hundred of the tops. What is left to try is the font itself:
+  pdfium gives every character's font name and weight, `recover.py`
+  already reads its character boxes, so give each section header its font
+  there and let `infer_level` raise a heading set in the font of the
+  paper's known top-level headings when the subsections' font differs.
+  Gate on `pairs` (depth agrees, faithful on the reviews) and the harness.
+  The confidence score flags these readings today ("the introduction
+  holds" as its reason).
+- **Author-manuscript XML for the pilot's own PDFs** (2026-09-17, Karim to
+  decide) — of looped-ligament's 43 PDFs, 28 are in PMC (23 as NIH author
+  manuscripts), but Europe PMC's REST service serves full text only for the
+  open-access subset and answers 500 for all of them. The same XML is
+  served by NCBI's PMC OAI service by PMCID (one more host than the
+  invariant allows: identifiers out, XML in, no paper text leaves), and by
+  Europe PMC's own bulk archives at EBI as 1 to 4 GB tarballs per PMCID
+  range (about 14 GB for these 23). Either would make the pilot's hardest
+  PDFs — Wiley, Elsevier, IOP — comparable with their XML. Until then the
+  pilot pairs are the 31 open-access papers whose PDFs EBI's bulk area
+  holds.
+- **What the confidence score does not see** (2026-09-17) — a partial
+  disagreement: a fifth of the text under a neighbouring lane because one
+  top-level heading was missed (11 of the 47 seriously mismatched pairs
+  score 0.9 or more, faithful 0.58 to 0.79). Candidates: run-in headings
+  ("Model architecture.") the PDF read as sentences; a lane far smaller
+  than its type's usual share; the record's abstract against the tree's
+  (Europe PMC returns `abstractText` with the record already fetched).
+  Every candidate is measured with `confidence --calibrate` before it is a
+  check.
+- **Text layers that say everything twice, interleaved** (2026-09-17) — the
+  fixture's own PDF (MDPI, pages 6 to 8) gives Docling blocks whose lines
+  alternate between two copies of the paragraph; `unrepeat` mends a copy
+  that follows another, not two woven together. Needs the lines' geometry
+  (recover.py), or a Docling backend that does not duplicate
+  (`claude/docling-bench` is measuring backends). The score's "text is
+  there twice" check flags it.
+- **A lane by meaning inside a review** (2026-09-17) — "Natural Materials" and
+  "Synthetic Materials" in a review of tendon scaffolds lie near "Materials
+  and methods" and take the methods lane; the type is known before the
+  lanes are read, so R3.2's type-conditioned lanes would refuse it.
+- **Docling dies in native code on some PDFs** (2026-09-17) — exit
+  3221226356 (heap corruption) while reading `doi:10.14814/phy2.70063`
+  mid-batch, and the same file read alone went through; with the PNAS
+  access violation (0xC0000005) that makes two. The worker should read
+  each PDF in a child it can lose, and requeue the rest.
 - **What the shape cannot read** (2026-09-14) — case reports, letters and a
   guideline written as full research papers (four, four and one of the
   286 labelled papers), MeSH's "historical article" and "video-audio

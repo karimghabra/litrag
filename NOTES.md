@@ -27,6 +27,13 @@ when it turns out durable. Mark inference as inference.
   open-access half is ~78 papers; the paywalled half (~47, `lit wanted`)
   is the ELAC canon — Akkus lab 2008–2019 — and is what the crosslinking
   and delamination questions actually need.
+- **looped-ligament-pairs** (made 2026-09-17, a measuring library, not a
+  project's) — the open-access PDFs of 32 papers that looped-ligament holds
+  as XML, from EBI's bulk area, so each can be read twice and compared
+  (`pairs.py`). With `held-out-pdf`/`held-out-xml` and
+  `held-out-2-pdf`/`held-out-2-xml` it is what the confidence score is
+  calibrated on. It shows in the window's library list; delete it when the
+  comparisons are no longer wanted.
 
 ### What worked
 
@@ -74,6 +81,144 @@ when it turns out durable. Mark inference as inference.
   a login.
 
 ## Short-term memory
+
+- **2026-09-17, papers read twice, and how far a reading can be trusted** —
+  Karim: "i want to be able to sort papers by xml and pdf", "we also need to
+  be able to filter by type of paper", and "We need to design some kind of
+  confidence metric that we can use to screen … well-matched papers. I think
+  we can probably do this, especially easily if we have both the XML and the
+  PDF of a particular paper. Could you go through the loop ligament corpus
+  and see which PDFs we can find XMLs for so that we can compare PDF and XML
+  and iterate on that?"
+  The list first: a sort (as added, format, type, title, year, confidence
+  lowest first) and chips for format, type and band of confidence over the
+  paper list (`app/src/renderer/papers.ts`, pure and tested; an e2e test
+  ingests a second, synthetic review so the real window has two types to
+  tell apart).
+  The survey. looped-ligament holds 43 PDFs and 37 XML and no paper in
+  both; the archive's 52 PDFs are those 43 files (nine are second copies
+  under their old hash names). By DOI, Europe PMC knows 40 of the 43: 28
+  are in PMC (23 as NIH author manuscripts, 5 publisher deposits that are
+  not open access), 12 are indexed with no full text, 2 it does not know,
+  1 has no DOI. Its REST service serves full-text XML for none of the 28:
+  it answers 500 for anything outside the open-access subset. So the pairs
+  were made the other way round, PDFs for the XML papers. The website's
+  `?pdf=render` links, which worked on 2026-09-12, now sit behind a
+  Cloudflare bot check (403 "Just a moment…") and were left alone; EBI's
+  bulk area (`ftp.ebi.ac.uk/pub/databases/pmc/pdf/OA/PMCxxxx<block>/
+  PMC<id>.zip`, block = the PMCID divided by 10,000 and rounded up) is made
+  for scripts and had 32 of the 37 (the other five are too new). They are
+  the library `looped-ligament-pairs`; 31 pair with their XML — the 32nd
+  had been filed under its dataset's Zenodo DOI, printed above its own, and
+  `pick_doi` now passes over a repository's DOI unless it is all there is
+  (one paper in looped-ligament itself is filed that way,
+  `doi:10.5281/zenodo.4897976`, and keeps its key until dropped and read
+  again). With the held-out sets that is 199 pairs: 31 pilot, 33 and 135.
+  Open for Karim: the 23 author manuscripts are served as XML by NCBI's PMC
+  OAI service, one host more than the invariant lists (identifiers out,
+  XML in), or by EBI's bulk tarballs at 1 to 4 GB per PMCID range, about
+  14 GB for these. I did neither.
+  What the pairs said (`pairs.py`). The text is there: recall 0.99 on all
+  three sets once presence is counted in words — by shingles it read 0.96,
+  and the missing four points were words hyphenated at a line's end, each
+  costing four shingles. What goes wrong is the lane: faithful 0.78 (pilot),
+  0.83, 0.86; precision 0.96 to 0.98; paragraphs intact 0.92 to 0.94, split
+  0.04 to 0.06; headings found 0.82 to 0.84, depth agreeing 0.91 to 0.94;
+  reference lists the same length 0.80 to 0.88; citation links 0.67 to
+  0.81. 125 of 199 are well matched (faithful and precision both at least
+  0.9), 47 seriously off (either under 0.8). The medians are high (0.95 to
+  0.98) and the tail is long: a missed or fused top-level heading moves half
+  a paper.
+  None of the reader's own older measurements sees it. Rank correlation
+  with faithful on the first 168 pairs: page coverage −0.02, dropped lines
+  −0.12, glyph residue −0.06, audit errors −0.04, warnings −0.16; the best
+  of the old numbers were whether the headings are numbered (0.34) and how
+  many joins a page needed (−0.34).
+  What the pairs found in the reader, fixed the same day: a Docling block
+  that carries its paragraph twice, a copy cut short and then the whole, or
+  the whole and then its start again (the fixture's own page 7 and 8;
+  `unrepeat`; sets of shingles had hidden it, counting words showed the
+  PDF held twice the XML's); a lane's heading fused with the subheading
+  under it, "Results and discussion Contrasting glacier mass balance …",
+  which had left three quarters of that paper under its methods
+  (`split_fused_heading`; the looser first detector flagged "Limitations of
+  the study" and "Ethics approval and consent to participate", so the rule
+  is a core lane's bare name followed by a capitalised phrase); and the
+  largest: the reader ignored the depth an XML states. `infer_level` nested
+  every unnumbered heading the vocabulary does not know under whichever
+  top-level section stood open, for XML as for PDF — 453 headings in 145 of
+  513 XML papers, and whole review bodies read as `introduction`
+  (`infer_level(stated=True)` for a document with no pages; vocabulary
+  words still stand top-level, so BMC's "Declarations" wrapper still
+  empties and drops). Not fixed: the PDF side of the same defect. Measured
+  on 958 unnumbered unknown PDF headings with an XML twin (136 top-level,
+  822 deeper): box height does not separate them, nor the left edge;
+  capitals do where a paper sets its tops in capitals (7 of 7, 89 of 89).
+  The font is what is left to try (BACKLOG). Also open: text layers woven
+  twice line by line (the fixture again), "Natural Materials" laned methods
+  by meaning inside a review, Nature's methods after the reference list.
+  The score (`confidence.py`). Eleven checks, each a measurement of the
+  tree with a limit read off the pairs and a graded penalty: the share of
+  the prose in the abstract (no well-matched research paper exceeded 0.10),
+  in back matter (0.20), in the reference list as paragraphs of a hundred
+  words or more; the introduction (0.33) or the methods (0.45) as the
+  largest lane, the discussion in a review (0.55); lanes the type should
+  have; six-word shingles seen twice (0.04); unterminated paragraphs
+  (0.10); three or more headings that are not headings; an unsettled type.
+  Multiplied, reasons kept in words. On the 199 pairs: it ranks a
+  well-matched paper above another 0.79 of the time, a seriously mismatched
+  one below the rest 0.83, rank correlation with faithful 0.50. At 0.9 or
+  more: 129 papers, 105 well matched, 11 seriously off, mean faithful
+  0.94. Under 0.5: 30 papers, 25 seriously off, mean faithful 0.38. The
+  limits were mostly read from held-out 2; on held-out 1 and the pilot
+  together the top band is 32 of 38 well matched and the bottom 11 of 13
+  seriously off, so it is not fitted to one set. What it misses: eleven
+  papers at 0.95 to 1.0 whose faithful is 0.58 to 0.79 — a fifth of the
+  text under a neighbouring lane because one heading was missed, run-in
+  headings read as sentences. `papers.confidence` and `confidence_detail`,
+  the `tree` event, the harness report, the card, the sort and the chips.
+  It flags; it changes no tree.
+  What went wrong on the way, for next time. Ollama was not running (the
+  machine had restarted since the 14th): a day of comparisons ran with no
+  embedder, every heading no rule names reading `other` on both sides. The
+  harness says so in capitals and I read past it; `pairs` now says so too.
+  After `ollama serve` the numbers moved in the third decimal, so they
+  stand. The worker died once in native code (exit 3221226356, heap
+  corruption) on a PDF that read fine alone afterwards; `resume_pairs.py`
+  in the scratch directory reads the queued papers and then the one that
+  was open, alone. `A && B && (x) & (y) & wait` backgrounds the whole
+  and-list, so only the first job sees the variables: set them with `;`.
+  The Write tool decodes `\u00ad` into the character itself: write code
+  points as numbers. Another session (`claude/docling-bench`, its own
+  worktree, data under `~/.protracker/bench`) is measuring Docling's
+  backends and scores them with `pairs.compare`.
+  The gate, with the embedder up. Pilot clean: lanes gained 28, methods
+  sections 6. The held-out sets flag three lanes lost, and all three are
+  the old baseline's mistakes coming back into view: PLOS's "Author
+  summary" (twice) had been `back` and "Key findings" `results` by the
+  hand-picked examples; the learned centroids of the 14th call both
+  `other`, the reader then nested them under the abstract where no gate
+  looked, and the XML's stated depth brought them back to the top level.
+  The catalogue already calls "Key findings" a highlights box; "author
+  summary" is one now, and ASM's "OBSERVATION", which had lost its results
+  lane the same way, has it back by the catalogue's exact spelling. Beyond
+  the buckets: titles, clean papers, errors, citations and front matter
+  unchanged on all three corpora; findings in held-out XML 2,047 to 1,984,
+  because a section the file puts beside the results is no longer under
+  them, and in held-out PDFs 328 to 348 from the headings unfused. All
+  seven libraries rebuilt; every paper carries a score. looped-ligament:
+  69 of 80 at 0.9 or more, three under 0.5 — `doi:10.1002/adhm.201600096`
+  (0.22, a Wiley communication whose built "Introduction" holds the
+  results), `doi:10.1089/ten.teb.2023.0222` (0.30, a review read as one
+  long introduction), `doi:10.1007/s11229-025-05319-6` (0.40, three lanes
+  missing). Across the corpora at 0.9 or more: PDFs 53 of 76, 24 of 35, 94
+  of 141; XML 140 of 151, 127 of 162, 160 of 200. `npm run check:all`
+  green (172 parser tests, 42 CLI, 10 app), headless e2e 9 of 9. The
+  harness runs, the pair records and the calibration are saved beside the
+  libraries, `~/.protracker/library/measurements/2026-09-17/`
+  (`harness-pilot.json`, `harness-heldout1.json`, `harness-heldout2.json`
+  are the baselines to gate against from now on; the step-7 ones lived in
+  a session's scratch directory). Nothing of this is committed yet.
 
 - **2026-09-14, later: the type rebuilt on a canonical table, and headings
   canonicalised** — Karim: "every xml is formatted differently, so we must

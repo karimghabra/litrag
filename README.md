@@ -47,7 +47,7 @@ how a paper moves through it, and every switch: `PIPELINE.md`.
 
 | Pane | What it shows |
 |---|---|
-| Papers | each paper with its key, what kind of paper it is and who said so, the authors, journal and year the file or the record states, its status and live stage — filed · models · layout · tree · saved — then a bar of its lanes, and a flag when no methods section was found |
+| Papers | each paper with its key, what kind of paper it is and who said so, the authors, journal and year the file or the record states, its status and live stage — filed · models · layout · tree · saved — how far its reading can be trusted (hover for why), then a bar of its lanes, and a flag when no methods section was found. Above the list: a sort (as added, format, type, title, year, confidence lowest first) and chips that narrow it to PDFs or XML, to one type of paper, or to one band of confidence |
 | Tree | the paper's sections nested as the paper meant them, every node coloured by lane, tables as `rows × cols`, chips to dim everything but one lane; the front matter as a few typed nodes — authors, affiliations, dates, correspondence, keywords |
 | Page | the page a node came from with its box, every other node on the page faint; the node's ancestry, role, Docling label and text; a table's cells as a grid |
 | Log | the worker's stages and Docling's own log lines, as they happen |
@@ -288,6 +288,41 @@ Ethical Considerations" is a body section, lane or no lane); a heading that
 names nothing keeps no name. Built headings take the catalogue's names, which are the corpus's
 modal spellings. The window shows the name after the heading when the two
 differ.
+
+## How far a reading can be trusted
+
+A PDF only shows what its XML states, so a paper held in both formats can be
+read twice and the two trees compared (`pairs.py`): for every paragraph of
+the XML, is its text in the PDF's reading at all (*recall*), is it in a
+paragraph of the same lane (*faithful*), did it arrive in one piece; and the
+other way round, how much of the PDF's prose does the XML hold (*precision*).
+One DOI files once in a library, so the second format lives in a companion
+library — `held-out-pdf` beside `held-out-xml`, `looped-ligament-pairs`
+beside `looped-ligament`:
+
+```
+uv run --project parser python -m litrag_parser.pairs --pdf-lib <library> --xml-lib <library> --json <outside the repo>/pairs.json
+uv run --project parser python -m litrag_parser.pairs --pdf-lib <library> --xml-lib <library> --show doi:10.…
+uv run --project parser python -m litrag_parser.confidence --calibrate <outside the repo>/pairs.json …
+```
+
+On 199 such papers the text is nearly always all there (recall 0.99), and
+what goes wrong is where it is filed: a top-level heading the layout model
+dropped or fused with the next, so the results stay under the methods; a
+review's sections read as the introduction's children; a body that starts
+with no heading and stays in the abstract; methods printed after the
+reference list; and blocks that carry their paragraph twice. None of the
+reader's older measurements of itself — page coverage, dropped lines, glyph
+residue, audit errors — predicts any of it. So `confidence.py` measures the
+tree for exactly those failures (where the prose lies by lane, the lanes a
+paper of its type should have, text that repeats, headings that are not
+headings, paragraphs cut in two) and turns them into one number in (0, 1]
+with its reasons: `papers.confidence` and `confidence_detail`, on the paper
+card, a sort and a filter in the window. Every limit is read off the pairs,
+and the score is kept honest by them: at 0.9 or more, four readings in five
+matched their XML well (faithful and precision both at least 0.9) and one in
+twelve was seriously off; under 0.5, five in six were seriously off. It
+flags; it never changes a tree.
 
 ## From a finding to the method that produced it
 

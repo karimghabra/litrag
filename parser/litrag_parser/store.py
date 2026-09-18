@@ -39,7 +39,9 @@ CREATE TABLE IF NOT EXISTS papers (
   pub_types TEXT,                   -- Europe PMC's publication types, "; "-joined, fetched once at ingest
   authors TEXT,                     -- JSON [{name, affiliations, corresponding}]: the JATS file's word, else the record's (record.py)
   journal TEXT,
-  year TEXT
+  year TEXT,
+  confidence REAL,                  -- how far the reading can be trusted, from the reading alone, in (0, 1] (confidence.py)
+  confidence_detail TEXT            -- JSON {reasons: [...], penalties: {check: points}}: why it is not 1
 );
 CREATE UNIQUE INDEX IF NOT EXISTS papers_doi ON papers(doi) WHERE doi IS NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS papers_sha ON papers(sha256) WHERE sha256 IS NOT NULL;
@@ -151,6 +153,9 @@ def open_store(path: Path) -> sqlite3.Connection:
     for col in ("type", "type_source", "type_detail", "pub_types", "authors", "journal", "year", "subtype"):
         if col not in have:  # a store from before the paper's type, or its record, was a column
             conn.execute(f"ALTER TABLE papers ADD COLUMN {col} TEXT")
+    if "confidence" not in have:  # a store from before a reading was scored
+        conn.execute("ALTER TABLE papers ADD COLUMN confidence REAL")
+        conn.execute("ALTER TABLE papers ADD COLUMN confidence_detail TEXT")
     if "canonical" not in {r[1] for r in conn.execute("PRAGMA table_info(nodes)")}:
         conn.execute("ALTER TABLE nodes ADD COLUMN canonical TEXT")  # a store from before headings had a canonical name
     conn.commit()
@@ -247,6 +252,12 @@ def save_refs(conn: sqlite3.Connection, key: str, refs: Iterable[Any], cites: It
 def set_type(conn: sqlite3.Connection, key: str, kind: str, source: str, detail: str, subtype: str | None = None) -> None:
     with conn:
         conn.execute("UPDATE papers SET type = ?, type_source = ?, type_detail = ?, subtype = ? WHERE key = ?", (kind, source, detail, subtype, key))
+
+
+def set_confidence(conn: sqlite3.Connection, key: str, confidence: float, reasons: list[str], penalties: dict[str, float]) -> None:
+    """How far this reading can be trusted, and why not further (confidence.py)."""
+    with conn:
+        conn.execute("UPDATE papers SET confidence = ?, confidence_detail = ? WHERE key = ?", (confidence, json.dumps({"reasons": reasons, "penalties": penalties}, ensure_ascii=False), key))
 
 
 def set_record(conn: sqlite3.Connection, key: str, *, pub_types: list[str] | None = None, authors: list[dict[str, Any]] | None = None, journal: str | None = None, year: str | None = None, overwrite: bool = False) -> None:

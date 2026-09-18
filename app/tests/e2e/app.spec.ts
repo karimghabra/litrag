@@ -11,7 +11,7 @@
  * folder of them wants the first lowered).
  */
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test';
-import { mkdtempSync, readdirSync, statSync } from 'node:fs';
+import { mkdtempSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
@@ -240,10 +240,62 @@ test('citations are linked both ways', async () => {
   }
 });
 
+/** a second paper of another type, so the list has something to tell apart: a short review, as JATS */
+const REVIEW_XML = `<?xml version="1.0" encoding="UTF-8"?>
+<article xmlns:xlink="http://www.w3.org/1999/xlink" article-type="review-article" dtd-version="1.2">
+<front>
+<journal-meta><journal-title-group><journal-title>Journal of End-to-End Tests</journal-title></journal-title-group></journal-meta>
+<article-meta>
+<article-id pub-id-type="doi">10.9999/litrag.e2e.review</article-id>
+<title-group><article-title>Collagen scaffolds for tendon repair: a review of the last decade</article-title></title-group>
+<contrib-group><contrib contrib-type="author"><name><surname>Tester</surname><given-names>Ada</given-names></name></contrib></contrib-group>
+<pub-date pub-type="epub"><year>2025</year></pub-date>
+<abstract><p>This review surveys the collagen scaffolds proposed for tendon repair over the last decade, the chemistries used to crosslink them, and what is known of their behaviour in animals.</p></abstract>
+</article-meta>
+</front>
+<body>
+<sec><title>1. Introduction</title><p>Tendon injuries are common and heal slowly, and scaffolds made of collagen have been studied for decades as a way to bridge a gap that sutures alone cannot close, with mixed results in the clinic.</p></sec>
+<sec><title>2. Sources of collagen</title><p>Collagen for scaffolds is extracted from bovine tendon, porcine skin and rat tail, and each source gives fibrils of a different diameter and a different content of telopeptides, which matters for the immune response.</p></sec>
+<sec><title>3. Crosslinking chemistries</title><p>Genipin, carbodiimide and glutaraldehyde are the crosslinkers reported most often, and they differ in the stiffness they give, in their toxicity to cells and in how long the scaffold survives once it is implanted.</p></sec>
+<sec><title>4. Conclusions</title><p>Collagen scaffolds are closer to the clinic than they were ten years ago, and the open questions are sterilisation, scale and the long-term fate of the crosslinks in a loaded tendon.</p></sec>
+</body>
+<back><ref-list><title>References</title>
+<ref id="r1"><label>1</label><mixed-citation>Smith JA, Lee CD. Collagen crosslinking in tendon repair. J Biomed Mater Res A. 2019;107(4):812-821.</mixed-citation></ref>
+<ref id="r2"><label>2</label><mixed-citation>Garcia M, Zhang W. Genipin and the mechanics of collagen threads. Acta Biomater. 2021;128:100-110.</mixed-citation></ref>
+</ref-list></back>
+</article>
+`;
+
 test('the audit finds no errors in the fixture', async () => {
   test.skip(Boolean(process.env['LITRAG_E2E_PAPERS']), 'a folder of real papers is measured by the harness, not gated here');
   const rows = ((await request(page, 'papers', { lib })) as { papers: PaperRow[] }).papers;
   const audit = (await request(page, 'audit', { lib, key: rows[0]!.key })) as { papers: { findings: { severity: string; kind: string; text: string }[] }[] };
   const errors = audit.papers[0]!.findings.filter((f) => f.severity === 'error');
   expect(errors.map((f) => `${f.kind} ‹${f.text}›`)).toEqual([]);
+});
+
+test('the list sorts by format, type, title or year, and narrows to one type', async () => {
+  test.skip(Boolean(process.env['LITRAG_E2E_PAPERS']), 'told apart on the fixture library: one research paper, one review');
+  const review = join(root, 'e2e-review.xml');
+  writeFileSync(review, REVIEW_XML);
+  await request(page, 'ingest', { lib, paths: [review] });
+  await expect(page.locator('#papers .paper')).toHaveCount(2, { timeout: 120_000 });
+  await expect(page.locator('#papers .paper .badge.parsing, #papers .paper .badge.queued')).toHaveCount(0, { timeout: 120_000 });
+  await expect(page.locator('#papers-tools')).toBeVisible();
+  await expect(page.locator('#papers-sort option')).toHaveText(['as added', 'format', 'type', 'title', 'year, newest first', 'confidence, lowest first']);
+  await expect(page.locator('#papers .paper .conf')).toHaveCount(2); // every reading is scored, and the card says so
+  const chips = page.locator('#type-filter .chip');
+  await expect(chips).toHaveText(['research 1', 'review 1'], { timeout: 30_000 });
+  await expect(page.locator('#format-filter .chip')).toHaveCount(0); // both are XML: nothing to narrow by format
+  await chips.filter({ hasText: 'review' }).click();
+  await expect(page.locator('#papers .paper')).toHaveCount(1);
+  await expect(page.locator('#papers .paper .title')).toContainText('a review of the last decade');
+  await expect(page.locator('#papers-count')).toHaveText('1 of 2');
+  await page.locator('#type-filter .chip.on').click();
+  await expect(page.locator('#papers .paper')).toHaveCount(2);
+  await expect(page.locator('#papers-count')).toHaveText('2');
+  await page.locator('#papers-sort').selectOption('title');
+  const titles = await page.locator('#papers .paper .title').allTextContents();
+  expect(titles).toEqual([...titles].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' })));
+  await page.locator('#papers-sort').selectOption('added');
 });

@@ -19,6 +19,7 @@ and which switches are experiments. `DESIGN.md` has the reasons; `AGENT.md`
 | `parser/`, the worker (`uv run --project parser litrag-parser`) | current | what the window does, and the ops it has no button for, among them `rebuild`, `judge`, `audit` and `sql` |
 | `npm run harness`, `npm run audit` | current | judging a change to the reader on whole libraries |
 | `python -m litrag_parser.headings`, `.meaning`, `.paper_type`, `.edges`, `.judge`, `.boundary` | maintenance | regenerating the shipped centroids, measuring a kind or the type before it decides, fetching Europe PMC records, running or calibrating the opt-in judges |
+| `python -m litrag_parser.pairs`, `.confidence --calibrate` | measurement | a PDF's reading against the XML's of the same paper, from two libraries; the confidence score against those pairs. The truth every change to the reader or to the score is judged on |
 | `src/` and `tests/`, the `lit` CLI (`npm run lit`, `bin/lit.js`) | deprecated | nothing new: it searches and fetches from Europe PMC and retrieves over `lit.sqlite`; its verbs are to be ported to `store.sqlite` one at a time and struck from `src/` (`BACKLOG.md`) |
 | `AGENT.md` §1–5, `DESIGN.md` "Revision 1" | describe the deprecated CLI | background; revision 2 overruled its reader (R2.1): pdf.js text with heading patterns, and sections cut into 250-word chunks |
 | `AGENT.md` §6 | binding | how an assistant behaves around a library, whatever it drives; the verbs it names are the CLI's |
@@ -56,7 +57,13 @@ ingest` cuts chunks into `lit.sqlite`, never a tree.
 6. **Typed.** `paper_type.py` names the kind of paper from the record, the
    file, its subject line, the title, the printed label, and last the
    tree's own shape. Where two of them disagree, a note says so.
-7. **Saved.** Rows in `store.sqlite`: `papers`, `pages`, `nodes` with
+7. **Scored.** `confidence.py` measures the tree for the ways a reading goes
+   wrong — prose filed in the abstract, the back matter or the reference
+   list, one lane holding the body, a lane the type should have and does
+   not, text said twice, headings that are not headings, paragraphs cut in
+   two — and stores one number in (0, 1] with its reasons. It flags a
+   reading; it changes nothing in it.
+8. **Saved.** Rows in `store.sqlite`: `papers`, `pages`, `nodes` with
    `nodes_fts`, `refs`, `citations`, `edges`, `judgments`, `events`. The
    audit (`audit.py`) reads them when asked.
 
@@ -67,7 +74,7 @@ ingest` cuts chunks into `lit.sqlite`, never a tree.
   minutes. Use it when what Docling is given has changed: `jats_prep.py`,
   `mathml.py`, or Docling itself.
 - **Rebuild** (the `rebuild` op; the window has no button) runs steps 3 to
-  7 again from `parsed/`, without Docling, in about a second a paper. Use
+  8 again from `parsed/`, without Docling, in about a second a paper. Use
   it after any change to those steps. The judge is not asked; its stored
   verdicts are replayed. The embedder is asked only about texts it holds no
   verdict for; while Ollama is down those read as `other` and are not
@@ -134,5 +141,7 @@ npm run harness -- --lib <library> --baseline <outside the repo>/before.json --g
 
 Run the harness on the pilot libraries and on libraries of papers no rule
 was written from, and read its summary lines against the baseline as well
-as the gate's exit code. The libraries, the papers and the harness's output
+as the gate's exit code. Where a library has a companion holding the same
+papers in the other format, run `pairs` too: it is the only check that says
+whether the text landed under the right lane. The libraries, the papers and the harness's output
 stay outside the repository.

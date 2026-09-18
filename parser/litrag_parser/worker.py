@@ -31,13 +31,14 @@ from . import __version__, boundary, lanes
 from .library import Library, create_library, library_root, list_libraries, now_iso, open_library, parsed_papers, safe_key
 from .citations import link_citations
 from .edges import link_edges, summarize as summarize_edges
+from .confidence import assess as assess_confidence
 from .paper_type import decide as decide_type
 from .record import jats_authors, jats_journal, lookup_record
 from .harness import pdf_title
 from .judge import Judge, available as judge_available, default_model as judge_model
 from .recover import recover_from_pdf
 from .citations import summarize as summarize_citations
-from .store import (cited_by, cites_of, edges_of, file_paper, list_papers, log_event, node, open_store, paper_tree, refs_of, run_select, save_edges, save_refs, save_tree, section, set_record, set_status, set_type, sha256_of, siblings)
+from .store import (cited_by, cites_of, edges_of, file_paper, list_papers, log_event, node, open_store, paper_tree, refs_of, run_select, save_edges, save_refs, save_tree, section, set_confidence, set_record, set_status, set_type, sha256_of, siblings)
 from .tree import build_tree
 
 _out_lock = threading.Lock()
@@ -98,6 +99,21 @@ def jats_stream(path: Path) -> Any:
     return DocumentStream(name=path.name, stream=io.BytesIO(raw))
 
 
+#: Repositories mint DOIs too, and a paper prints the one for its data or its code on its first
+#: page, often above its own: Zenodo, figshare, OSF, Dryad, Mendeley Data, Harvard Dataverse.
+_REPOSITORY_DOI = re.compile(r"^10\.(?:5281|6084|17605|5061|17632|7910)/", re.I)
+
+
+def pick_doi(text: str) -> str | None:
+    """The paper's own DOI among those printed on its first pages: the first whose suffix carries
+    a digit ("10.1073/pnas" at a line's end is the prefix of one, not a DOI) and that is not a
+    repository's — unless a repository's is all there is, which is a report filed there. Found
+    when a PDF was filed under its dataset's Zenodo DOI and so never met its own XML."""
+    found = [m.group(0).rstrip(".,;:") for m in _DOI.finditer(text) if any(ch.isdigit() for ch in m.group(0).split("/", 1)[1])]
+    own = [d for d in found if not _REPOSITORY_DOI.match(d)]
+    return (own or found or [None])[0]
+
+
 def sniff_ids(path: Path) -> tuple[str | None, str | None]:
     """The DOI and PMCID on a PDF's first pages, if printed there."""
     if path.suffix.lower() != ".pdf":
@@ -112,10 +128,8 @@ def sniff_ids(path: Path) -> tuple[str | None, str | None]:
         pdf.close()
     except Exception:  # a PDF pdfium cannot open still gets a hash key
         return None, None
-    # the first DOI whose suffix carries a digit: "10.1073/pnas" at a line's end is the prefix of one, not a DOI
-    doi = next((m for m in _DOI.finditer(text) if any(ch.isdigit() for ch in m.group(0).split("/", 1)[1])), None)
     pmc = _PMCID.search(text)
-    return (doi.group(0).rstrip(".,;:") if doi else None), (pmc.group(0) if pmc else None)
+    return pick_doi(text), (pmc.group(0) if pmc else None)
 
 
 def guess_title(path: Path) -> str | None:
@@ -396,7 +410,9 @@ class Worker:
             set_type(conn, key, kind["type"], kind["source"], kind["detail"], kind.get("subtype"))
             tree.notes.extend(kind.get("notes", []))
             self._note_events(conn, key, tree)
-            emit({"event": "tree", "id": req.get("id"), "paper": key, "title": tree.title, "type": kind, "roles": tree.roles, "has_methods": tree.has_methods, "nodes": n, "pages": len(tree.pages), "dropped": tree.dropped, "repairs": tree.repairs, "notes": len(tree.notes), "judged": judge.summary(), "meaning": self._meaning(), "edges": summarize_edges(tree, edges), **summarize_citations(refs, cites)})
+            sure = assess_confidence(tree, kind)
+            set_confidence(conn, key, sure["confidence"], sure["reasons"], sure["penalties"])
+            emit({"event": "tree", "id": req.get("id"), "paper": key, "title": tree.title, "type": kind, "confidence": {"confidence": sure["confidence"], "reasons": sure["reasons"]}, "roles": tree.roles, "has_methods": tree.has_methods, "nodes": n, "pages": len(tree.pages), "dropped": tree.dropped, "repairs": tree.repairs, "notes": len(tree.notes), "judged": judge.summary(), "meaning": self._meaning(), "edges": summarize_edges(tree, edges), **summarize_citations(refs, cites)})
             rebuilt.append(key)
         conn.close()
         emit({"event": "done", "id": req.get("id"), "op": req.get("op", "rebuild"), "rebuilt": rebuilt})
@@ -473,14 +489,16 @@ class Worker:
             set_type(conn, key, kind["type"], kind["source"], kind["detail"], kind.get("subtype"))
             tree.notes.extend(kind.get("notes", []))
             self._note_events(conn, key, tree)
+            sure = assess_confidence(tree, kind)
+            set_confidence(conn, key, sure["confidence"], sure["reasons"], sure["penalties"])
             o = lanes.active()
             if o is not None and o.summary()["down"] and not self._reported_down:
                 self._reported_down = True
                 stage("meaning", f"The embedder is not answering ({o.summary()['error']}): texts the vocabulary does not know read as `other` and are not stored; a rebuild once it answers will read them")
             links = summarize_citations(refs, cites)
             judged = judge.summary()
-            stage("saved", f"{n} nodes, {links['refs']} references, {links['citations']} citation links, {linked['linked']} of {linked['findings']} findings linked to a method, a {kind['type']} paper by its {kind['source']}" + (f", {judged['joined']} of {judged['asked']} judged pairs joined" if judged["asked"] else "") + f" in {seconds}s", nodes=n, **links, judged=judged, edges=linked, type=kind)
-            emit({"event": "tree", "id": req_id, "paper": key, "title": tree.title, "type": kind, "roles": tree.roles, "has_methods": tree.has_methods, "nodes": n, "pages": len(tree.pages), "seconds": seconds, "raw": str(raw_path), "dropped": tree.dropped, "repairs": tree.repairs, "notes": len(tree.notes), "judged": judged, "meaning": self._meaning(), "edges": linked, **links})
+            stage("saved", f"{n} nodes, {links['refs']} references, {links['citations']} citation links, {linked['linked']} of {linked['findings']} findings linked to a method, a {kind['type']} paper by its {kind['source']}, confidence {sure['confidence']}" + (f" ({sure['reasons'][0]})" if sure["reasons"] else "") + (f", {judged['joined']} of {judged['asked']} judged pairs joined" if judged["asked"] else "") + f" in {seconds}s", nodes=n, **links, judged=judged, edges=linked, type=kind)
+            emit({"event": "tree", "id": req_id, "paper": key, "title": tree.title, "type": kind, "confidence": {"confidence": sure["confidence"], "reasons": sure["reasons"]}, "roles": tree.roles, "has_methods": tree.has_methods, "nodes": n, "pages": len(tree.pages), "seconds": seconds, "raw": str(raw_path), "dropped": tree.dropped, "repairs": tree.repairs, "notes": len(tree.notes), "judged": judged, "meaning": self._meaning(), "edges": linked, **links})
         except Exception as e:
             set_status(conn, key, "failed", error=str(e))
             log_event(conn, key, now_iso(), "failed", str(e))

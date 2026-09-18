@@ -57,6 +57,13 @@ h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: v
 .chips { display: flex; gap: 4px; flex-wrap: wrap; }
 .chip { font-size: 11px; padding: 2px 8px; border-radius: 10px; border: 1px solid var(--line); cursor: pointer; background: #fff; color: var(--muted); }
 .chip.on { color: #fff; border-color: transparent; }
+.chip.accent.on { background: var(--accent); }
+.conf { font-size: 11px; font-variant-numeric: tabular-nums; }
+.conf.high { color: var(--ok); }
+.conf.middle { color: var(--results); }
+.conf.low { color: var(--failed); font-weight: 600; }
+.tools { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 8px 14px; border-bottom: 1px solid var(--line); font-size: 12px; }
+.tools select { min-width: 0; padding: 2px 4px; font-size: 12px; }
 .tree-node { display: flex; align-items: baseline; gap: 6px; padding: 3px 8px; cursor: pointer; border-radius: 4px; line-height: 1.35; }
 .tree-node:hover { background: #faf9f6; }
 .tree-node.selected { background: #eef3f8; }

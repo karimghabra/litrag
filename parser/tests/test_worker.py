@@ -46,6 +46,16 @@ def test_hello_init_and_parse_json(tmp_path):
     assert events[-1]["event"] == "bye"
 
 
+def test_a_papers_own_doi_is_picked_over_its_datasets():
+    from litrag_parser.worker import pick_doi
+
+    page = "HardwareX 11 (2022) e00297 Design files: https://doi.org/10.5281/zenodo.4996271 Continuous fiber extruder https://doi.org/10.1016/j.ohx.2022.e00297 Received 1 March"
+    assert pick_doi(page) == "10.1016/j.ohx.2022.e00297"  # the dataset's Zenodo DOI stands first on the page and is not the paper's
+    assert pick_doi("A technical report. https://doi.org/10.5281/zenodo.4897976.") == "10.5281/zenodo.4897976"  # all there is: a report filed there
+    assert pick_doi("PNAS 2026 https://doi.org/10.1073/pnas and then 10.1073/pnas.2601235123") == "10.1073/pnas.2601235123"
+    assert pick_doi("no identifier on this page") is None
+
+
 def test_audit_op_over_a_raw_document(tmp_path):
     events = talk(tmp_path, [
         {"id": "1", "op": "audit", "path": str(FIXTURES / "PMC11278924.jats.docling.json"), "key": "doi:10.3390/mi15070851"},

@@ -5,6 +5,56 @@
 Meaning everywhere a list used to be, and a scorer for the one question
 meaning cannot answer.
 
+- `parser/litrag_parser/pairs.py` (new): two readings of one paper compared
+  — the tree read from a PDF against the tree read from the publisher's
+  JATS XML, from two libraries that hold the same DOIs. Text is located by
+  four-word shingles of letters and counted in words: recall, *faithful*
+  (present and in a paragraph of the same lane), precision, paragraphs
+  intact, split, merged or missing, headings found, spurious and at the
+  right depth, the reference list, the citation links, the captions, the
+  title. `--show KEY` says where a paper's text landed and which headings
+  went missing. 199 pairs over three corpora: recall 0.99, faithful 0.78 to
+  0.86, precision 0.96 to 0.98 — the text is there, the lane is what goes
+  wrong.
+- `parser/litrag_parser/confidence.py` (new), `papers.confidence`,
+  `confidence_detail`: how far a reading can be trusted, from the reading
+  alone. Eleven checks, each a plain measurement of the tree with a limit
+  read off the pairs (the share of the prose in the abstract, the back
+  matter, the reference list, the largest lane; missing lanes for the type;
+  repeated text; odd headings; cut paragraphs; an unsettled type), combined
+  as graded penalties with their reasons in words. Scored at every ingest
+  and rebuild, in the `tree` event, the harness report and the window.
+  `--calibrate` scores the score against saved pairs: at 0.9 or more, 105 of
+  129 readings matched their XML well; under 0.5, 25 of 30 were seriously
+  off. The reader's older self-measurements (coverage, dropped lines, glyph
+  residue, audit errors) predict none of it.
+- The window's paper list sorts (as added, format, type, title, year,
+  confidence lowest first) and narrows by chips to PDFs or XML, one type of
+  paper, or one band of confidence (`app/src/renderer/papers.ts`, tested
+  apart from the DOM and in the real window); each card shows its reading's
+  confidence, the reasons on hover and in the tree pane's summary.
+- `tree.py`, three repairs the pairs found on their first day: a block that
+  carries its paragraph twice — a copy cut short and then the whole, or the
+  whole and then its beginning again — says it once (`unrepeat`); a lane's
+  heading fused with the subheading under it ("Results and discussion
+  Contrasting glacier mass balance …") is two headings
+  (`split_fused_heading`); and an XML's own section depth stands
+  (`infer_level(stated=True)`): 453 headings in 145 of 513 XML papers had
+  been nested under whichever section stood open, and whole review bodies
+  read as `introduction`.
+- `harness.read_paper`: one paper read again from its saved Docling
+  document the way a rebuild reads it, shared by the harness and the pairs.
+- `worker.pick_doi`: a PDF is filed under its own DOI, not the one its
+  dataset or code carries at Zenodo, figshare, OSF, Dryad, Mendeley Data or
+  Dataverse, printed above it on the first page; a repository's DOI is used
+  only when it is all there is. (A paper already filed keeps its key.)
+- `headings.py`: "observation" is a spelling of Results (ASM's article
+  type calls its body that) and "author summary" of Highlights (PLOS's lay
+  summary), both found when the XML's stated depth brought them back to the
+  top level with no lane.
+- `pairs` and the harness say in capitals when the embedder did not answer:
+  every heading no rule names then reads `other`, and the numbers are those
+  of a reading without it.
 - `PIPELINE.md` (new): the pipeline on one page — what is current, opt-in,
   experimental or deprecated (the `lit` CLI in `src/`), a paper from filing
   to saved rows, reparse against rebuild, and every `LITRAG_*` switch with

@@ -825,6 +825,33 @@ def undouble(text: str) -> str:
     return t
 
 
+_WORDISH = re.compile(r"[^0-9a-z]+")
+
+
+def unrepeat(text: str) -> str:
+    """A block that carries its own text twice: a copy cut short, then the paragraph from its
+    first word again — the layout model kept both its own reading of the cell and the page's
+    text layer ("SEM imaging was performed … resulted in higher packing SEM imaging was
+    performed … of collagen fibers."). Where the text begins again with its first eight words
+    and everything before that point is said again after it, the first copy goes. Found by
+    comparing a PDF's reading with its XML's (pairs.py): the words were there twice, the XML
+    held them once."""
+    ws = text.split()
+    if len(ws) < 30:
+        return text
+    norm = [_WORDISH.sub("", w.lower()) for w in ws]
+    head = norm[:8]
+    for p in range(12, len(ws) - 11):
+        if norm[p : p + 8] != head:
+            continue
+        first, rest = norm[:p], norm[p:]
+        if len(rest) >= p and rest[:p] == first:
+            return " ".join(ws[p:])  # a copy cut short, then the whole paragraph
+        if len(rest) < p and first[: len(rest)] == rest:
+            return " ".join(ws[:p])  # the whole paragraph, then its beginning again
+    return text
+
+
 #: The lanes a numbered heading never takes by meaning alone: no numbered heading in the
 #: corpora is an abstract, a reference list or a back-matter statement (the vocabulary's own
 #: word, "7. References" in a preprint, still counts).
@@ -837,13 +864,19 @@ def top_number(heading: str) -> str | None:
     return m.group(1).split(".")[0] if m else None
 
 
-def infer_level(heading: str, docling_level: int, open_top: bool) -> int:
+def infer_level(heading: str, docling_level: int, open_top: bool, stated: bool = False) -> int:
     """A header's depth when the layout model gives every header the same level.
 
     Numbering wins when present. A heading that names a lane (Methods, Results,
     Discussion…) is top-level whatever it looked like on the page. Anything else
     beneath an open top-level section is that section's child, one level down,
-    unless the layout model already placed it deeper.
+    unless the layout model already placed it deeper — but only where the level is
+    the layout model's guess. With `stated`, the file says how deep its sections lie
+    (a JATS file: <sec> inside <sec>) and its word stands: a review's topical
+    sections are the paper's top level, not children of whichever section stood
+    open. Measured on 513 XML papers: 453 headings in 145 of them had been nested
+    under "Introduction" or "Conclusions" against the file, and whole review bodies
+    read as `introduction`.
     """
     depth = numbering_depth(heading)
     if depth is not None:
@@ -852,12 +885,32 @@ def infer_level(heading: str, docling_level: int, open_top: bool) -> int:
         return 1  # the vocabulary's word, or the catalogue's exact spelling (two words or more) of a top-level section
     if docling_level <= 1 and role_of(heading) != "other":
         return 1  # a lane found by meaning keeps the depth the page gave it: top when the page set it top ("Methods Coral core collection"), never promoted from deeper
-    if open_top:
+    if open_top and not stated:
         return max(docling_level, 2)
     return max(docling_level, 1)
 
 
 _MERGED = re.compile(r"^(?P<head>(?:\d+\.\s+)?[A-Za-z][^.]{2,60}?)\s+(?P<num>\d+)\.(?P<sub>\d+)\.?\s+(?P<rest>\S.*)$")
+
+
+_FUSED = re.compile(r"^(?P<lane>Introduction|Background|Methods|Materials and [Mm]ethods|Results|Results and [Dd]iscussion|Discussion|Conclusions?)\s+(?P<rest>[A-Z][a-z]\S*(?:\s+\S+)+)$")
+_NOT_A_SECOND_HEADING = {"And", "Of", "For", "In", "To", "On", "With", "From", "Section", "Summary", "Overview"}
+
+
+def split_fused_heading(text: str) -> tuple[str, str] | None:
+    """"Results and discussion Contrasting glacier mass balance responses during 2021–22" → the
+    lane's heading and the subheading under it, which the layout model read as one line (an
+    unnumbered sibling of `rescue_merged_heading`). Only a lane's bare name, then a phrase that
+    starts like a heading of its own: "Results of the logistic regression", "Conclusion: the
+    2024 report" and "INTRODUCTION TO THE CONCEPT" stay whole. Found by comparing a PDF's
+    reading with its XML's: three quarters of that paper's body had stayed under its methods."""
+    m = _FUSED.match(text.strip())
+    if not m or text.isupper():
+        return None
+    rest = m.group("rest")
+    if rest.split()[0] in _NOT_A_SECOND_HEADING or len(rest.split()) < 2 or len(text) > 160:
+        return None
+    return m.group("lane"), rest
 
 
 def rescue_merged_heading(item: dict[str, Any]) -> list[dict[str, Any]] | None:
@@ -1251,11 +1304,25 @@ def build_tree(doc: dict[str, Any], key: str, title_hint: str | None = None, jud
     for k in ("recovered", "rebuilt", "formulas", "attached"):
         if doc.get("_recovery", {}).get(k):
             repairs[k] = doc["_recovery"][k]
+    for it in kept:
+        if it.get("label") in _TEXTLIKE and it.get("text"):
+            once = unrepeat(it["text"])
+            if once != it["text"]:
+                it["text"] = once
+                repairs["unrepeated"] = repairs.get("unrepeated", 0) + 1  # a block that said its paragraph twice
     items = _stitch_fragments(kept, repairs, judge, doc.get("_indents"), float(doc.get("_unit") or 10.0))
+    unfused: list[dict[str, Any]] = []
     for it in items:
         if it.get("label") == "section_header":
             it["text"] = _unspaced_heading(it.get("text") or "")
-    items = _infer_references(items, repairs)
+            two = split_fused_heading(it["text"]) if pages else None  # a PDF's layout model fuses lines; an XML's title is its title
+            if two:
+                unfused.append({**it, "text": two[0], "level": 1, "self_ref": f"{it.get('self_ref', '')}~top"})
+                unfused.append({**it, "text": two[1], "level": 2, "self_ref": f"{it.get('self_ref', '')}~sub"})
+                repairs["unfused"] = repairs.get("unfused", 0) + 1
+                continue
+        unfused.append(it)
+    items = _infer_references(unfused, repairs)
 
     # --- the title, and the front matter between it and the first known heading ---------
     skip_refs: set[str] = set()  # items filed nowhere: a title taken from beyond the front matter
@@ -1451,7 +1518,7 @@ def build_tree(doc: dict[str, Any], key: str, title_hint: str | None = None, jud
             if label == "title" or item.get("_built"):
                 level = 1
             else:
-                level = infer_level(text, level, any(lvl == 1 for lvl, _ in stack))
+                level = infer_level(text, level, any(lvl == 1 for lvl, _ in stack), stated=not pages)
                 if level == 1 and role_of(text, meaning=False) == "other" and next((n.role for lvl, n in stack if lvl == 1), None) == "references" and _entries_follow(items, index):
                     level = 2  # a statement the layout model read between the entries, named by the catalogue or by meaning: the list goes on after it, so it stays inside
             number = top_number(text)

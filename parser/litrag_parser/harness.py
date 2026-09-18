@@ -36,6 +36,7 @@ from . import lanes
 from .audit import audit_tree, summarize as summarize_audit
 from .citations import link_citations
 from .citations import summarize as summarize_citations
+from .confidence import assess as assess_confidence
 from .edges import link_edges, summarize as summarize_edges
 from .facets import role_of
 from .glyphs import glyph_residue
@@ -178,7 +179,10 @@ def measure(tree: Tree, key: str, fmt: str, source: Path | None, paper_type: dic
     topical = [n for n in tree.walk() if n.type == "section" and (n.level or 3) <= 2 and n.heading not in ("Front matter", None) and role_of(n.heading) == "other"]
     has_results = any(n.type == "section" and n.heading and role_of(n.heading) in ("results", "results-discussion") for n in tree.walk())
     review_like = (bool(_REVIEWISH.search(tree.title or "")) or (len(topical) >= 3 and not has_results)) and not tree.has_methods
+    sure = assess_confidence(tree, paper_type)
     return {
+        "confidence": sure["confidence"],
+        "confidence_reasons": sure["reasons"],
         "key": key,
         "format": fmt,
         "title": tree.title,
@@ -235,21 +239,30 @@ def library_papers(lib: Path) -> list[dict[str, Any]]:
 _safe = safe_key
 
 
+def read_paper(lib: Path, row: dict[str, Any]) -> tuple[Tree, dict[str, Any], bytes | None]:
+    """One parsed paper (a row of `parsed_papers`) read again from its saved Docling document
+    the way a rebuild reads it — the text layer recovered, the judgments already given reused,
+    no model asked: its tree, its type, and the JATS file's bytes when it is one."""
+    source = row["source"]
+    hint = pdf_title(source) if row["format"] == "pdf" and source and source.exists() else None
+    conn = sqlite3.connect(Path(lib) / "store.sqlite")
+    conn.row_factory = sqlite3.Row
+    judge = Judge(conn, row["key"], ask_model=False)  # the verdicts already given, never the model
+    doc = json.loads(row["raw"].read_text("utf-8"))
+    recover_from_pdf(doc, source if row["format"] == "pdf" else None)
+    tree = build_tree(doc, row["key"], title_hint=hint, judge=judge)
+    conn.close()
+    xml = source.read_bytes() if row["format"] == "jats" and source and source.exists() else None
+    kind = decide_type(tree, jats_xml=xml, pub_types=row.get("pub_types"), oracle=lanes.active())
+    tree.notes.extend(kind.get("notes", []))  # a label against another, or against the shape: the audit shows it
+    return tree, kind, xml
+
+
 def run_library(lib: Path) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     for row in parsed_papers(lib):
         source = row["source"]
-        hint = pdf_title(source) if row["format"] == "pdf" and source and source.exists() else None
-        conn = sqlite3.connect(lib / "store.sqlite")
-        conn.row_factory = sqlite3.Row
-        judge = Judge(conn, row["key"], ask_model=False)  # the verdicts already given, never the model
-        doc = json.loads(row["raw"].read_text("utf-8"))
-        recover_from_pdf(doc, source if row["format"] == "pdf" else None)
-        tree = build_tree(doc, row["key"], title_hint=hint, judge=judge)
-        conn.close()
-        xml = source.read_bytes() if row["format"] == "jats" and source and source.exists() else None
-        kind = decide_type(tree, jats_xml=xml, pub_types=row.get("pub_types"), oracle=lanes.active())
-        tree.notes.extend(kind.get("notes", []))  # a label against another, or against the shape: the audit shows it
+        tree, kind, _ = read_paper(lib, row)
         rec = measure(tree, row["key"], row["format"] or "?", source, kind)
         rec["library"] = lib.name
         out.append(rec)
@@ -381,6 +394,17 @@ def report(records: list[dict[str, Any]], *, n_worst: int) -> str:
     lines.append("  errors by kind: " + (", ".join(f"{k} {v}" for k, v in s["error_kinds"].items()) or "none"))
     lines.append("  types: " + ", ".join(f"{t} {v['papers']} (methods {v['methods']}; by record {v['record']}, file {v['jats']}, subject {v.get('subject', 0)}, title {v.get('title', 0)}, page {v['printed']}, shape {v.get('shape', 0)}, default {v.get('default', 0)}, none {v['none']})" for t, v in s["types"].items()))
     lines.append(f"  subtypes: {', '.join(f'{k} {v}' for k, v in s.get('subtypes', {}).items()) or 'none'} · type disagreements noted {s.get('type_notes', 0)}")
+    for fmt in sorted({r["format"] for r in records}):
+        conf = [r.get("confidence") for r in records if r["format"] == fmt and r.get("confidence") is not None]
+        if conf:
+            why: dict[str, int] = {}
+            for r in records:
+                if r["format"] == fmt:
+                    for reason in (r.get("confidence_reasons") or [])[:1]:
+                        key = reason.split(":")[0].lstrip("0123456789% ")[:48]
+                        why[key] = why.get(key, 0) + 1
+            top = ", ".join(f"{k} {v}" for k, v in sorted(why.items(), key=lambda kv: -kv[1])[:4])
+            lines.append(f"  confidence ({fmt}): at least 0.9 in {sum(1 for c in conf if c >= 0.9)} · 0.5 to 0.9 in {sum(1 for c in conf if 0.5 <= c < 0.9)} · under 0.5 in {sum(1 for c in conf if c < 0.5)}" + (f" · first reasons: {top}" if top else ""))
     lines.append(f"\nworst {n_worst}:")
     for r in worst(records, n_worst):
         flags = [] if r["title_ok"] else ["NO TITLE"]

@@ -303,6 +303,44 @@ JSON: the hits, each with its lane, its paper's type, the methods it was
 their methods" is one query; "what was measured with this assay" is the same
 edges walked the other way. Same rows, same answer, on any machine.
 
+### R3.6 How far a reading can be trusted
+
+*Built 2026-09-17.* Karim: "we need to design some kind of confidence metric
+that we can use to screen well-matched papers … especially easily if we have
+both the XML and the PDF of a particular paper." The XML is the nearest thing
+to the truth about a PDF's tree, so the design has two halves. `pairs.py`
+reads a paper from both formats and measures the distance: text located by
+four-word shingles of letters, presence counted in words (a word hyphenated
+at a line's end cost four shingles and three to eight points of recall, all
+noise), *faithful* = present and in a paragraph of the same lane, precision
+the other way round, paragraphs intact, split, merged or missing, headings,
+references, citations, captions. `confidence.py` then has to predict that
+distance from the PDF's reading alone. The first measurement decided the
+shape of the second half: on 168 pairs none of the reader's existing
+self-measurements correlated with agreement (page coverage −0.02, dropped
+lines −0.12, glyph residue −0.06, audit errors −0.04), because what goes
+wrong is not what they watch — the text is there (recall 0.99) and is filed
+under the wrong lane. So the signals are aimed at the failures the pairs
+named, each a plain measurement with a limit read off the pairs, combined as
+graded penalties with the reasons kept in words; no model, nothing learned
+that cannot be read in `CHECKS`. Measured on 199 pairs (three corpora; the
+limits mostly read from one, the other two agreeing): the score ranks a
+well-matched paper above another 0.79 of the time and separates the
+seriously mismatched at 0.83; at 0.9 or more, 105 of 129 are well matched and
+11 seriously off; under 0.5, 25 of 30 are seriously off. What it does not
+see is a partial disagreement — a fifth of the text under a neighbouring
+lane — and that is the next iteration's work (NOTES.md).
+
+The comparison is also the sharpest test the reader has had: on its first
+day it found a block that carries its paragraph twice (repaired:
+`unrepeat`), a lane's heading fused with the subheading under it (repaired:
+`split_fused_heading`), and that the reader had been ignoring the depth an
+XML states — 453 headings in 145 of 513 XML papers nested under whichever
+section stood open, whole review bodies read as `introduction` (repaired:
+`infer_level(stated=True)`). The PDF side of that last defect — a review's
+unnumbered headings, whose depth only the typography says — is open
+(BACKLOG.md).
+
 ### Order, and what each step is gated on
 
 | step | builds on | gate before it decides |

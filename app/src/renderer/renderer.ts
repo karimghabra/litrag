@@ -8,6 +8,7 @@
 import * as pdfjs from 'pdfjs-dist';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import type { LitragApi } from '../main/preload.ts';
+import { BANDS, SORT_KEYS, bandOf, countBy, filterPapers, sortPapers, validFilters, type SortKey } from './papers.ts';
 
 declare global {
   interface Window {
@@ -39,6 +40,9 @@ interface Paper {
   authors?: string | null;
   journal?: string | null;
   year?: string | null;
+  /** how far the reading can be trusted, from the reading alone, and why not further (confidence.py); the detail is JSON */
+  confidence?: number | null;
+  confidence_detail?: string | null;
   // live, from events
   stage?: string;
   message?: string;
@@ -121,6 +125,11 @@ const state = {
   refs: new Map<number, Ref>(),
   selectedNode: null as string | null,
   roleFilter: null as string | null,
+  /** the paper list: its order, and the one format and the one type it is narrowed to (papers.ts) */
+  sort: 'added' as SortKey,
+  formatFilter: null as string | null,
+  typeFilter: null as string | null,
+  bandFilter: null as string | null,
   pdf: null as PDFDocumentProxy | null,
   pdfKey: null as string | null,
   page: 1,
@@ -220,6 +229,16 @@ async function loadPapers() {
   if (state.selectedPaper && state.papers.has(state.selectedPaper)) await loadTree(state.selectedPaper);
 }
 
+/** why a reading's confidence is not 1, the heaviest reason first (the worker's confidence.py) */
+function confidenceReasons(p: Paper): string[] {
+  try {
+    const detail = p.confidence_detail ? (JSON.parse(p.confidence_detail) as { reasons?: string[] }) : {};
+    return detail.reasons ?? [];
+  } catch {
+    return [];
+  }
+}
+
 /** "Trung DD, Duong PV, Hoa NM et al. · RSC Adv · 2026" — what the record says, nothing when it says nothing */
 function byline(p: Paper, names: number): string {
   let authors: string[] = [];
@@ -249,11 +268,42 @@ function roleBar(roles: Record<string, number> | undefined): HTMLElement {
   return bar;
 }
 
+/** The chips over the list: one per format and one per type the library holds, with its count; a click narrows the list to it, a second click lets everything back. */
+function renderListTools(all: Paper[]) {
+  const chipsFor = (id: string, of: 'format' | 'type' | 'band', current: string | null, set: (v: string | null) => void) => {
+    const box = $(id);
+    box.innerHTML = '';
+    const counted = countBy(all, of);
+    if (counted.length < 2 && !current) return; // one kind only: nothing to narrow
+    for (const [value, n] of counted) {
+      const shown = of === 'band' ? `confidence ${BANDS.find((b) => b.id === value)?.label ?? value}` : value;
+      const chip = el('span', `chip accent${current === value ? ' on' : ''}`, `${shown} ${n}`);
+      chip.dataset['value'] = value;
+      chip.title = current === value ? 'Show every paper again' : `Show only ${shown} papers`;
+      chip.addEventListener('click', () => {
+        set(current === value ? null : value);
+        renderPapers();
+      });
+      box.append(chip);
+    }
+  };
+  chipsFor('format-filter', 'format', state.formatFilter, (v) => (state.formatFilter = v));
+  chipsFor('type-filter', 'type', state.typeFilter, (v) => (state.typeFilter = v));
+  chipsFor('confidence-filter', 'band', state.bandFilter, (v) => (state.bandFilter = v));
+  $('papers-tools').hidden = all.length < 2;
+}
+
 function renderPapers() {
   const box = $('papers');
   box.innerHTML = '';
-  const papers = [...state.papers.values()];
-  $('papers-count').textContent = papers.length ? `${papers.length}` : '';
+  const all = [...state.papers.values()];
+  const valid = validFilters(all, { format: state.formatFilter, type: state.typeFilter, band: state.bandFilter });
+  state.formatFilter = valid.format;
+  state.typeFilter = valid.type;
+  state.bandFilter = valid.band ?? null;
+  const papers = sortPapers(filterPapers(all, valid), state.sort);
+  $('papers-count').textContent = all.length ? (papers.length === all.length ? `${all.length}` : `${papers.length} of ${all.length}`) : '';
+  renderListTools(all);
   if (!state.lib) {
     box.append(el('div', 'empty', 'Create a library to start.'));
     return;
@@ -273,6 +323,12 @@ function renderPapers() {
     stage.append(el('span', `badge ${p.status}`, p.status));
     if (p.status === 'parsing') stage.append(el('span', 'muted', `${p.stage ?? ''}${p.elapsed !== undefined ? ` · ${p.elapsed.toFixed(0)}s` : ''}`));
     else if (p.status === 'parsed') stage.append(el('span', 'muted', `${p.nodes} nodes${p.seconds ? ` · ${p.seconds}s` : ''}`));
+    if (p.status === 'parsed' && p.confidence !== null && p.confidence !== undefined) {
+      const conf = el('span', `conf ${bandOf(p) ?? ''}`, `confidence ${p.confidence.toFixed(2)}`);
+      const why = confidenceReasons(p);
+      conf.title = why.length ? why.join('\n') : 'Nothing in the reading itself speaks against it.';
+      stage.append(conf);
+    }
     else if (p.status === 'failed') stage.append(el('span', 'muted', p.error ?? p.message ?? ''));
     card.append(stage);
     if (p.status === 'parsing') card.append(el('div', 'progress'));
@@ -366,6 +422,10 @@ function renderTree() {
   summary.append(el('span', undefined, `${Object.values(t.roles).reduce((a, b) => a + b, 0)} nodes`));
   summary.append(el('span', undefined, t.paper.has_methods ? 'methods section found' : 'no methods section'));
   if (t.paper.seconds) summary.append(el('span', undefined, `parsed in ${t.paper.seconds}s`));
+  if (t.paper.confidence !== null && t.paper.confidence !== undefined) {
+    const why = confidenceReasons(t.paper);
+    summary.append(el('span', `conf ${bandOf(t.paper) ?? ''}`, `confidence ${t.paper.confidence.toFixed(2)}${why.length ? ': ' + why.join('; ') : ''}`));
+  }
   const by = byline(t.paper, 8);
   if (by) summary.append(el('span', 'byline', by));
   for (const role of ROLES) {
@@ -903,8 +963,34 @@ function wire() {
       log('error', `event ${String(ev['event'])}: ${(e as Error).message}`);
     }
   });
+  const sortSelect = $<HTMLSelectElement>('papers-sort');
+  for (const { key, label } of SORT_KEYS) {
+    const o = document.createElement('option');
+    o.value = key;
+    o.textContent = label;
+    sortSelect.append(o);
+  }
+  try {
+    const kept = window.localStorage.getItem('litrag.papers.sort');
+    if (kept && SORT_KEYS.some((k) => k.key === kept)) state.sort = kept as SortKey;
+  } catch {
+    // no storage: the list starts in the order the papers were added
+  }
+  sortSelect.value = state.sort;
+  sortSelect.addEventListener('change', () => {
+    state.sort = sortSelect.value as SortKey;
+    try {
+      window.localStorage.setItem('litrag.papers.sort', state.sort);
+    } catch {
+      // a convenience only
+    }
+    renderPapers();
+  });
   $<HTMLSelectElement>('library').addEventListener('change', (e) => {
     state.lib = (e.target as HTMLSelectElement).value || null;
+    state.formatFilter = null;
+    state.typeFilter = null;
+    state.bandFilter = null;
     state.selectedPaper = null;
     state.tree = null;
     renderTree();
