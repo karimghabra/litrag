@@ -402,9 +402,25 @@ def _unit_of(lines_by_page: dict[int, list[Line]]) -> float:
     return heights[len(heights) // 2] if heights else 10.0
 
 
+def _note(report: dict[str, Any], kind: str, *, page: int | None = None, box: list[float] | None = None,
+          before: str | None = None, after: str | None = None, why: str | None = None, ref: str | None = None) -> None:
+    """Record one modification of the recovery pass, for the page-by-page review (changes.py)."""
+    report.setdefault("log", []).append(
+        {"kind": kind, "stage": "recovered", "page": page, "box": box, "before": before, "after": after, "why": why, "ref": ref}
+    )
+
+
+def _box_of(lines: list[Line]) -> list[float] | None:
+    """The block's box in the reader's coordinates: top-left origin, PDF points."""
+    if not lines:
+        return None
+    return [round(min(ln.l for ln in lines), 1), round(min(ln.t for ln in lines), 1),
+            round(max(ln.r for ln in lines), 1), round(max(ln.b for ln in lines), 1)]
+
+
 def recover(doc: dict[str, Any], lines_by_page: dict[int, list[Line]]) -> dict[str, int]:
     """The document with the text layer's evidence folded in; what changed, by kind."""
-    report = {"recovered": 0, "rebuilt": 0, "formulas": 0, "attached": 0, "ligatures": 0, "tables": 0, "notes": 0}
+    report: dict[str, Any] = {"recovered": 0, "rebuilt": 0, "formulas": 0, "attached": 0, "ligatures": 0, "tables": 0, "notes": 0}
     unit = _unit_of(lines_by_page)
     doc["_unit"] = round(unit, 2)
     texts: list[dict[str, Any]] = doc.setdefault("texts", [])
@@ -485,6 +501,9 @@ def recover(doc: dict[str, Any], lines_by_page: dict[int, list[Line]]) -> dict[s
                     item.setdefault("data", {})["grid"] = grid
                     item["_grid_from_layer"] = True
                     report["tables"] += 1
+                    _note(report, "tables", page=page_no, box=_box_of(inside), ref=item.get("self_ref"),
+                          after=" | ".join(str(c.get("text") if isinstance(c, dict) else c) for row in grid[:2] for c in row)[:200],
+                          why="a table the model saw but could not structure: its rows from the text layer")
                 held.update(id(ln) for ln in inside)
                 continue
             if cells:
@@ -533,6 +552,8 @@ def recover(doc: dict[str, Any], lines_by_page: dict[int, list[Line]]) -> dict[s
             texts.append(item)
             body_children.insert(_insert_at(doc, body_children, items_by_page, page_no, item["prov"][0]["bbox"]), {"$ref": item["self_ref"]})
             report["recovered"] += 1
+            _note(report, "recovered", page=page_no, box=_box_of(block), after=text, ref=item["self_ref"],
+                  why="prose the layout model left out of every block, read back from the text layer")
 
     if indents:
         doc["_indents"] = round(sum(1 for x in indents if x > 0.6 * unit) / len(indents), 2)
@@ -553,6 +574,11 @@ def _geometry(item: dict[str, Any], rows: list[Line], first_rows: list[Line], la
             indents.append(item["_first_indent"])
     last = last_rows[-1] if last_rows else rows[-1]
     item["_last_full"] = width > 0 and (last.r - last.l) / width >= 0.85
+
+
+def _first_page(item: dict[str, Any]) -> int | None:
+    prov = (item.get("prov") or [None])[0]
+    return prov.get("page_no") if isinstance(prov, dict) else None
 
 
 def _strip_furniture(item: dict[str, Any], furniture: list[Line], report: dict[str, int]) -> None:
@@ -578,8 +604,11 @@ def _strip_furniture(item: dict[str, Any], furniture: list[Line], report: dict[s
         if not hit:
             break
     if changed:
+        before = item["text"]
         item["text"] = text
         report["furniture"] = report.get("furniture", 0) + 1
+        _note(report, "furniture_stripped", page=_first_page(item), before=before, after=text, ref=item.get("self_ref"),
+              why="a running head or footer the layout model folded into the block's text")
 
 
 def _retext(item: dict[str, Any], rows: list[Line], report: dict[str, int], running: set[str] | None = None) -> None:
@@ -600,22 +629,31 @@ def _retext(item: dict[str, Any], rows: list[Line], report: dict[str, int], runn
                 return
     if label == "formula":
         if not (item.get("text") or "").strip() and layer.strip():
+            before = item.get("text")
             item["text"] = layer
             report["formulas"] += 1
+            _note(report, "formulas", page=_first_page(item), box=_box_of(rows), before=before, after=layer, ref=item.get("self_ref"),
+                  why="an equation the layout model left empty, read from the text layer")
         return
     if label not in _REBUILDABLE or not layer:
         return
     layer_letters = _letters(layer)
     text = item.get("text") or ""
     if (_LIGATURE.search(text) or "^" in layer) and _alnum(layer) == _alnum(text) and not item.get("_sidebar"):
+        before = item.get("text")
         item["text"] = layer  # the same letters and digits: the layer's words whole, its superscripts marked
         report["ligatures"] += 1
+        _note(report, "ligatures", page=_first_page(item), box=_box_of(rows), before=before, after=layer, ref=item.get("self_ref"),
+              why="the same letters, the layer's spelling: broken ligatures mended and superscripts marked")
         return
     missing = [ln for ln in rows if len(_letters(ln.text)) >= 12 and _letters(ln.text)[:12] not in have and _letters(ln.text)[-12:] not in have and _prose(ln)]
     if missing and have[:20] in layer_letters and len(layer_letters) >= 0.9 * len(have):
+        before = item.get("text")
         item["text"] = layer
         item["_rebuilt"] = True
         report["rebuilt"] += 1
+        _note(report, "rebuilt", page=_first_page(item), box=_box_of(rows), before=before, after=layer, ref=item.get("self_ref"),
+              why="lines the block's text was missing, rebuilt from the text layer")
 
 
 def _attach(block: list[Line], text: str, text_boxes: list[tuple[dict[str, Any], dict[str, float], list[Line]]], report: dict[str, int]) -> bool:
@@ -633,11 +671,15 @@ def _attach(block: list[Line], text: str, text_boxes: list[tuple[dict[str, Any],
             item["text"] = _join_lines([Line(own, 0, 0, 0, 0)] + block)
             item["_extended"] = True
             report["attached"] = report.get("attached", 0) + 1
+            _note(report, "attached", page=_first_page(item), box=_box_of(block), before=own, after=item["text"], ref=item.get("self_ref"),
+                  why="a run of lines below a block that stops mid-sentence: its tail, put back")
             return True
         if 0 <= bottom - bb["t"] <= 1.8 * height and text and text[-1] not in ".!?:;\"'”’" and len(block) <= 3 and own[:1].islower():
             item["text"] = _join_lines(block + [Line(own, 0, 0, 0, 0)])
             item["_extended"] = True
             report["attached"] = report.get("attached", 0) + 1
+            _note(report, "attached", page=_first_page(item), box=_box_of(block), before=own, after=item["text"], ref=item.get("self_ref"),
+                  why="a run of lines above a block that starts in lower case: its head, put back")
             return True
     return False
 

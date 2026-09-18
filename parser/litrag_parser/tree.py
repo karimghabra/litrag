@@ -18,6 +18,7 @@ import re
 from dataclasses import dataclass, field, asdict
 from typing import Any, Iterable
 
+from .changes import Repairs, merged
 from .facets import role_of, unspace
 from .headings import agreed, canonical_of, top_level_lane
 from .glyphs import ligature_vocabulary, repair_glyphs
@@ -85,6 +86,9 @@ class Tree:
     #: what the reader noticed and did not act on — a section whose paragraphs read as another
     #: lane than its heading names — each `{kind, node_id, page, message}`, for the audit
     notes: list[dict[str, Any]] = field(default_factory=list)
+    #: every modification, with its page, box and the text before and after (changes.py) — what a
+    #: person reviewing the paper page by page reads beside the page itself
+    changes: list[dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -95,6 +99,7 @@ class Tree:
             "dropped": self.dropped,
             "repairs": self.repairs,
             "notes": self.notes,
+            "changes": self.changes,
             "root": self.root.to_dict(),
         }
 
@@ -409,6 +414,24 @@ def _judge_candidate(a: str, b: str) -> bool:
     return b[0].isupper() or b[0].isdigit() or b[0] == "("
 
 
+def _note_join(repairs: Any, kind: str, prev: dict[str, Any], it: dict[str, Any], why: str, after: str | None = None) -> None:
+    """One block joined to, or dropped for, another: where it happened and what it read before."""
+    note = getattr(repairs, "record", None)
+    if note is None:  # a plain dict: the counters were already raised by the caller
+        return
+    prov = (it.get("prov") or [{}])[0] if isinstance(it.get("prov"), list) else {}
+    box = prov.get("bbox")
+    note(
+        kind,
+        page=_page_of(it),
+        box=[box["l"], box["t"], box["r"], box["b"]] if isinstance(box, dict) and "l" in box else None,
+        before=(it.get("text") or "")[:400],
+        after=after,
+        ref=it.get("self_ref"),
+        why=why,
+    )
+
+
 def _merged(a: dict[str, Any], b: dict[str, Any], text: str) -> dict[str, Any]:
     """`a` carrying `b`'s text, and the pages of both."""
     pages = list(a.get("_pages") or ([_page_of(a)] if _page_of(a) else []))
@@ -574,23 +597,29 @@ def _stitch_fragments(items: list[dict[str, Any]], repairs: dict[str, int], judg
                 continue
             geometry = _geometry_says(prev, it, indents, unit)
             if _continues(prev_text, text, _page_of(prev), _page_of(it), geometry, repairs):
-                out[anchor] = _merged(prev, it, _join_inline([prev, it]))
+                joined_text = _join_inline([prev, it])
+                out[anchor] = _merged(prev, it, joined_text)
                 repairs["joined"] = repairs.get("joined", 0) + 1
+                _note_join(repairs, "joined", prev, it, "the block above stops mid-sentence and this one continues it", joined_text)
                 i += 1
                 continue
             if adjacent and len(text) > 10 and (re.sub(r"\W+", " ", text).strip().lower() == re.sub(r"\W+", " ", prev_text).strip().lower() or (len(text) >= 24 and re.sub(r"\W+", "", text).lower() in re.sub(r"\W+", "", prev_text).lower())):
-                repairs["deduplicated"] = repairs.get("deduplicated", 0) + 1  # the same paragraph twice, or the end of it again: a column read twice
+                repairs["deduplicated"] = repairs.get("deduplicated", 0) + 1
+                _note_join(repairs, "deduplicated", prev, it, "the same paragraph again, or the end of it: a column read twice")  # dropped
                 i += 1
                 continue
             if judge is not None and geometry is None and _judge_candidate(prev_text, text) and judge(prev_text, text, {"prev_page": _page_of(prev), "page": _page_of(it)}):
-                out[anchor] = _merged(prev, it, _join_inline([prev, it]))
+                judged_text = _join_inline([prev, it])
+                out[anchor] = _merged(prev, it, judged_text)
                 repairs["judged"] = repairs.get("judged", 0) + 1
+                _note_join(repairs, "judged", prev, it, "the rules were silent and the local model said these two are one paragraph", judged_text)
                 i += 1
                 continue
             head = _displaced_head(out, anchor, it, text, repairs)
             if head is not None:
                 out[head] = _merged(out[head], it, _join_inline([out[head], it]))
                 repairs["rejoined"] = repairs.get("rejoined", 0) + 1
+                _note_join(repairs, "rejoined", out[head], it, "a block that belongs to a paragraph further up, not to the one before it")
                 i += 1
                 continue
         if label in _TEXTLIKE and text and anchor < 0 and _is_fragment(text) and _fragment_forward(it, items, i, out, repairs):
@@ -600,6 +629,7 @@ def _stitch_fragments(items: list[dict[str, Any]], repairs: dict[str, int], judg
             it = {**it, "label": "formula"}  # an equation the layout model read as text, after the one it read as a formula
             label = "formula"
             repairs["formula_text"] = repairs.get("formula_text", 0) + 1
+            _note_join(repairs, "formula_text", it, it, "an equation the layout model read as text, after the one it read as a formula")
         if label in _TEXTLIKE and text.startswith("=") and i + 1 < len(items) and items[i + 1].get("label") in _TEXTLIKE and len(text) >= 20 and re.sub(r"\W+", "", text).lower() in re.sub(r"\W+", "", items[i + 1].get("text") or "").lower():
             repairs["deduplicated"] = repairs.get("deduplicated", 0) + 1  # the same definitions again, cut in front
             i += 1
@@ -622,6 +652,7 @@ def _fragment_forward(it: dict[str, Any], items: list[dict[str, Any]], i: int, o
     if len(text) == 1 and not text.isascii() and nxt is not None and nxt.get("label") in _TEXTLIKE and (nxt.get("text") or "").strip() and _same_page(it, nxt):
         nxt["text"] = text + (nxt.get("text") or "").lstrip()  # a Greek letter or a symbol cut from the word after it
         repairs["stitched"] = repairs.get("stitched", 0) + 1
+        _note_join(repairs, "stitched", nxt, it, "a Greek letter or a symbol cut from the word after it", nxt["text"][:200])
         return True
     if nxt is None or nxt.get("label") in _PICTURE | _TABLE | _CAPTION:
         repairs["junk"] = repairs.get("junk", 0) + 1
@@ -1228,8 +1259,14 @@ def build_tree(doc: dict[str, Any], key: str, title_hint: str | None = None, jud
     caption_refs: set[str] = set()
     decorative = _decorative_pictures(doc)
     furniture = _recurring_furniture(doc)
-    dropped: dict[str, int] = {}
-    repairs: dict[str, int] = {}
+    dropped = Repairs()
+    repairs = Repairs()
+
+    def _where(it: dict[str, Any]) -> tuple[int | None, list[float] | None]:
+        """The page and box a change happened on, for the review."""
+        prov = _first_prov(it) or {}
+        page_no = prov.get("page_no") or _page_of(it)
+        return page_no, _bbox_top_left(prov, pages.get(page_no) if page_no else None)
     _adopt_captions(doc, repairs)
 
     def next_id(parent: Node, kind: str) -> str:
@@ -1284,7 +1321,9 @@ def build_tree(doc: dict[str, Any], key: str, title_hint: str | None = None, jud
     kept: list[dict[str, Any]] = []
     for it in items:
         if it.get("self_ref") in furniture or it.get("_sidebar"):
-            dropped["furniture"] = dropped.get("furniture", 0) + 1
+            page_no, box = _where(it)
+            dropped.note("furniture", page=page_no, box=box, before=it.get("text"), ref=it.get("self_ref"),
+                         why="printed in the margin" if it.get("_sidebar") else "the same line on three pages or more: a running head")
         elif it.get("label") not in _SKIP:  # a running head between two halves of a paragraph must not stand between them
             kept.append(it)
     if pages:
@@ -1299,17 +1338,22 @@ def build_tree(doc: dict[str, Any], key: str, title_hint: str | None = None, jud
                 fixed = repair_glyphs(text, vocabulary)
                 if fixed != text:
                     it["text"] = fixed
-                    repairs["glyphs"] = repairs.get("glyphs", 0) + 1
+                    page_no, box = _where(it)
+                    repairs.note("glyphs", page=page_no, box=box, before=text, after=fixed, ref=it.get("self_ref"),
+                                 why="what the font did to the symbols, undone (glyphs.py)")
         kept = _caption_tails(doc, kept, repairs)
     for k in ("recovered", "rebuilt", "formulas", "attached"):
         if doc.get("_recovery", {}).get(k):
             repairs[k] = doc["_recovery"][k]
+    repairs.log.extend(doc.get("_recovery", {}).get("log") or [])  # what the recovery pass changed, page by page
     for it in kept:
         if it.get("label") in _TEXTLIKE and it.get("text"):
             once = unrepeat(it["text"])
             if once != it["text"]:
+                page_no, box = _where(it)
+                repairs.note("unrepeated", page=page_no, box=box, before=it["text"], after=once, ref=it.get("self_ref"),
+                             why="the block said its paragraph twice")
                 it["text"] = once
-                repairs["unrepeated"] = repairs.get("unrepeated", 0) + 1  # a block that said its paragraph twice
     items = _stitch_fragments(kept, repairs, judge, doc.get("_indents"), float(doc.get("_unit") or 10.0))
     unfused: list[dict[str, Any]] = []
     for it in items:
@@ -1319,7 +1363,9 @@ def build_tree(doc: dict[str, Any], key: str, title_hint: str | None = None, jud
             if two:
                 unfused.append({**it, "text": two[0], "level": 1, "self_ref": f"{it.get('self_ref', '')}~top"})
                 unfused.append({**it, "text": two[1], "level": 2, "self_ref": f"{it.get('self_ref', '')}~sub"})
-                repairs["unfused"] = repairs.get("unfused", 0) + 1
+                page_no, box = _where(it)
+                repairs.note("unfused", page=page_no, box=box, before=it["text"], after=f"{two[0]} ⏎ {two[1]}",
+                             ref=it.get("self_ref"), why="the layout model fused two headings into one line")
                 continue
         unfused.append(it)
     items = _infer_references(unfused, repairs)
@@ -1403,7 +1449,9 @@ def build_tree(doc: dict[str, Any], key: str, title_hint: str | None = None, jud
             if before_title and len(text.split()) < 40:
                 if (related_content or re.search(r"you may also like|related content", text, re.I)) and label != "footnote":
                     related_content = True  # IOP's "You may also like": other papers' titles and authors, to the end of the page (a footnote is the paper's own)
-                    dropped["label"] = dropped.get("label", 0) + 1
+                    page_no, box = _where(it)
+                    dropped.note("label", page=page_no, box=box, before=text, ref=it.get("self_ref"),
+                                 why="a 'you may also like' block: other papers, not this one")
                     continue
                 if re.match(r"^\s*(?:edited by|reviewed by|handling editor|academic editor|editors?:)", text, re.I):
                     reviewers = True
@@ -1412,7 +1460,9 @@ def build_tree(doc: dict[str, Any], key: str, title_hint: str | None = None, jud
                     if fk in ("correspondence", "dates", "keywords", "funding") or _CITE_LINE.match(text) or re.match(r"^\s*(?:citation|copyright|©)", text, re.I):
                         reviewers = False  # the block ends where the paper's own lines resume
                     else:
-                        dropped["label"] = dropped.get("label", 0) + 1  # an editor's or a reviewer's name and institution
+                        page_no, box = _where(it)
+                        dropped.note("label", page=page_no, box=box, before=text, ref=it.get("self_ref"),
+                                     why="an editor's or a reviewer's name and institution")
                         continue
                 if fk in ("authors", "affiliations", "dates", "correspondence", "keywords", "funding"):
                     kind = fk  # RSC's affiliations are footnotes on the first page, its dates a line above the title: what the rules can name stays
@@ -1423,7 +1473,9 @@ def build_tree(doc: dict[str, Any], key: str, title_hint: str | None = None, jud
                 elif label == "footnote" and not _FURNITURE.search(text):
                     kind = "other"  # a footnote above the title (RSC's ESI note, "Present address: …") is the paper's: kept, unnamed
                 else:
-                    dropped["label"] = dropped.get("label", 0) + 1  # the journal's name, "Contents lists available at …", "Cite this:"
+                    page_no, box = _where(it)
+                    dropped.note("label", page=page_no, box=box, before=text, ref=it.get("self_ref"),
+                                 why="front matter the rules name as the journal's, not the paper's")
                     continue
                 if grouped and grouped[-1][0] == kind:
                     grouped[-1][1].append(it)
@@ -1477,10 +1529,14 @@ def build_tree(doc: dict[str, Any], key: str, title_hint: str | None = None, jud
             continue  # filed under its table or picture when that was made, or taken as the title
         text = (item.get("text") or "").strip()
         if label in _PROSE | _LIST | _HEADER and text and not re.search(r"[A-Za-z0-9\u0370-\u03ff]", text):
-            dropped["junk"] = dropped.get("junk", 0) + 1  # ")", "|", a control character: nothing a reader would keep
+            page_no, box = _where(item)
+            dropped.note("junk", page=page_no, box=box, before=text, ref=item.get("self_ref"),
+                         why="no letter or digit in it: a stray bracket, a rule, a control character")
             continue
         if label in _PROSE and len(text) <= 80 and re.match(r"^\s*(?:&|©|\(c\))\s*\d{4}\b", text):
-            dropped["furniture"] = dropped.get("furniture", 0) + 1  # "& 2012 Elsevier Ltd. All rights reserved."
+            page_no, box = _where(item)
+            dropped.note("furniture", page=page_no, box=box, before=text, ref=item.get("self_ref"),
+                         why="a copyright line")
             continue
         if label not in _HEADER and text:
             prose_count += 1
@@ -1566,7 +1622,9 @@ def build_tree(doc: dict[str, Any], key: str, title_hint: str | None = None, jud
                 name, how = canonical_of(text, _oracle())
                 node.canonical = agreed(name, role)  # a name whose lane is another's is no name: "Reference materials" under methods is not References
                 if how == "meaning" and node.canonical is not None:
-                    repairs["canonical_meaning"] = repairs.get("canonical_meaning", 0) + 1
+                    repairs.note("canonical_meaning", page=node.page, box=node.bbox, node_id=node.node_id,
+                                 before=text, after=node.canonical,
+                                 why="no spelling in the catalogue matched: the embedder named this heading")
             attach(parent, node)
             stack.append((level, node))
             continue
@@ -1607,7 +1665,9 @@ def build_tree(doc: dict[str, Any], key: str, title_hint: str | None = None, jud
             continue
         if label in _PICTURE:
             if item.get("self_ref") in decorative:
-                dropped["picture"] = dropped.get("picture", 0) + 1
+                page_no, box = _where(item)
+                dropped.note("picture", page=page_no, box=box, ref=item.get("self_ref"),
+                             why="the same small uncaptioned picture on three pages or more: the journal's logo")
                 continue
             node = make(parent, "picture", item, text, role)
             attach(parent, node)
@@ -1622,7 +1682,9 @@ def build_tree(doc: dict[str, Any], key: str, title_hint: str | None = None, jud
             attach(parent, make(parent, "caption", item, text, role))
             continue
         if label in _LIST and not text:
-            dropped["junk"] = dropped.get("junk", 0) + 1  # a list item with no words: Wiley's XML gives one per item and the words apart
+            page_no, box = _where(item)
+            dropped.note("junk", page=page_no, box=box, ref=item.get("self_ref"),
+                         why="a list item with no words: Wiley's XML gives one per item and the words apart")
             continue
         if label in _LIST:
             marker = (item.get("marker") or "").strip()
@@ -1665,7 +1727,8 @@ def build_tree(doc: dict[str, Any], key: str, title_hint: str | None = None, jud
         parent = next((n for n in _descendants(root) if any(c is section for c in n.children)), None)
         if parent is not None:
             parent.children.remove(section)
-            dropped["empty"] = dropped.get("empty", 0) + 1
+            dropped.note("empty", page=section.page, box=section.bbox, before=section.heading, node_id=section.node_id,
+                         why="a wrapper heading with nothing under it: the file never gave the parts")
     tree = Tree(
         title=title,
         pages=[pages[k] for k in sorted(pages)],
@@ -1676,4 +1739,5 @@ def build_tree(doc: dict[str, Any], key: str, title_hint: str | None = None, jud
         repairs=repairs,
     )
     lane_sections(tree, _oracle(), repairs)  # a top-level section whose heading names nothing, read by its paragraphs
+    tree.changes = merged(repairs.log, dropped.log)
     return tree
