@@ -12,12 +12,21 @@ default bucket ("research-article", "Journal Article", "Article"), which names n
 The decision: the most trusted *specific* label wins (`TRUST`: the record's, then the file's,
 then the subject line's, then the title's, then the printed label's); the subtype is the
 first one any agreeing label states; a default alone never makes a research paper — the
-paper's shape must agree (a methods lane and a results lane; or, with no results heading,
-the methods after the discussion as Nature sets them, or measurements reported in a tenth of
-the body's paragraphs), else the paper is `other` with the default named. Every disagreement — two labels, or a label against the
+paper's shape must agree (a results lane beside a methods or a discussion one; or, with no
+results heading, the methods after the discussion as Nature sets them, or measurements
+reported in a tenth of the body's paragraphs), else the paper is `other` with the default
+named. Every disagreement — two labels, or a label against the
 shape — is a note the audit shows, never a silent override. The shape decides on its own
 only where its rule was measured precise (`SHAPE_DECIDES`), the printed label likewise
 (`PRINTED_DECIDES`), and the profile kind only when switched on.
+
+The shape's rules read one question in order: does the paper report work of its own? A
+results heading says yes. No results heading and an abstract says no, and the paper is a
+review — a methodology section does not change that, because a review that searches the
+literature has one too. Short prose with neither lane is an editorial. Reading the rules
+this way, rather than asking each type for its own fingerprint, is what took the `other`
+bucket from 41 papers named and 1 right down to 2 named: `other` is a refusal, not an
+answer, and the shape now has an answer for all but a handful.
 
     uv run --project parser python -m litrag_parser.paper_type --fetch --lib …     Europe PMC's record for every paper with a DOI or PMID
     uv run --project parser python -m litrag_parser.paper_type --measure --lib …   every source against the stated labels, the stated ones hidden
@@ -51,9 +60,9 @@ TYPES = ("research", "review", "case-report", "letter", "editorial", "protocol",
 #: the authors', the printed label the layout model's reading of the page, the shape the reader's own
 TRUST = ("record", "jats", "subject", "title", "printed", "shape")
 
-#: what the shape may decide on its own, with no label at all: measured (NOTES.md) before any kind
-#: was let in; the rest of the shape's readings are notes
-SHAPE_DECIDES = {"research", "review", "case-report", "data"}  # measured on 286 papers a stated source labels (NOTES.md, 2026-09-14, run 4): review 69 named and 69 right, case report 9 of 9, data descriptor 5 of 5; research 97 named and 84 right — the rest case reports and letters written as research papers, a guideline, a meta-analysis with its own experiments, MeSH's oddities — noted where a label exists, and a research paper by default and shape where none does; protocol 5 of 6 and letter 4 of 4 are notes until there are more
+#: what the shape may decide on its own, with no label at all: measured before any kind was let
+#: in, and re-measured whenever a rule changes; the rest of the shape's readings are notes
+SHAPE_DECIDES = {"research", "review", "case-report", "data", "letter", "editorial"}  # measured on the 248 papers a stated source labels (2026-09-17, the four XML libraries, the stated sources hidden, so the shape and the title are all that is left): review 137 named and 133 right, research 77 and 68, data descriptor 4 of 4, case report 5 of 5, letter 5 of 5, editorial 13 and 11. Editorial is the loosest of them at 0.846 — the two it gets wrong are a letter and a book chapter, and nothing in the shape tells a letter to the editor from an editorial, since they are the same piece of writing. Protocol stays out: the shape names it 4 and gets 3, and the title already names every protocol here, so letting it decide would buy nothing and cost the one it gets wrong. Correction stays out because the shape has no rule for it at all — the title carries that one
 
 #: what a printed label the table does not know may decide through the `type-label` kind: measured
 #: on 744 labelled papers, it names research at 0.986 precision and the rest worse
@@ -202,6 +211,7 @@ _TITLE_RULES: list[tuple[re.Pattern[str], str, str | None]] = [
     (re.compile(r"\bmini-?review\b", re.I), _V, "mini-review"),
     (re.compile(r"(?:^|[:\-–—]\s*)(?:a |an )?(?:(?:comprehensive|critical|brief|short|literature|current|updated|concise|integrative|rapid|state-of-the-art|clinical|historical) )?review(?:\s+(?:of|on|and)\b|\s*$|\s*[:\-–—,(])", re.I), _V, None),
     (re.compile(r"\bcase (?:report|series|presentation)s?\b|^(?:a |an )?(?:rare |unusual |unique )?case of\b", re.I), _C, None),
+    (re.compile(r"^(?:editorial )?expression of concern\b(?=\s*[:\-\u2013\u2014]|\s+(?:about|regarding|concerning|for)\b)", re.I), _X, "expression-of-concern"),
     (re.compile(r"^(?:erratum|correction|corrigendum|retraction|addendum)\b(?=\s*[:\-\u2013\u2014]|\s+(?:to|for)\b)|^retracted:", re.I), _X, None),
     (re.compile(r"^(?:reply|response) to\b(?=.*(?:\bet al\b|\(\d{4}\)|\bcomment\b|\bletter\b|\breply\b|\bresponse\b|\bre:))|^letter to the editor\b|^letter:|^in reply\b|^authors?['’]? reply\b|^comment on\b|^re:\s", re.I), _L, None),
     (re.compile(r"^(?:guest )?editorial\b|^perspective:|^commentary:|^viewpoint:|^opinion:", re.I), _E, None),
@@ -258,6 +268,12 @@ _DATA_HEADINGS = re.compile(r"\b(?:data records?|technical validation|usage note
 _FUTURE = re.compile(r"\bwill (?:be|receive|undergo|include|have|use|take|consist|complete|provide|collect|assess|measure|compare|analy[sz]e|recruit|enrol)\b", re.I)
 _STATS = re.compile(r"±|\bp\s*[<=>]\s*0?\.\d|\bn\s*=\s*\d|\bSD\b|\bSEM\b|\bCI\b|\bmean\b|\bmedian\b", re.I)  # a paragraph that reports a measurement
 _BODY_LANES = ("other", "methods", "discussion", "results", "results-discussion")
+#: an editorial, a commentary, a perspective: opinion prose, no methods, no results, and short.
+#: Three thousand words is where the corpus separates them from a review that happens to have
+#: no results heading — the shortest such review is 4,586 words, the longest editorial 2,934.
+#: The band from 2,500 to 4,000 all score within a point and a half of each other, so the exact
+#: number carries little; what carries is that an editorial is short and a review is not.
+_EDITORIAL_WORDS = 3000
 
 
 def shape_of(tree: Tree) -> tuple[dict[str, Any], str | None]:
@@ -316,10 +332,12 @@ def shape_of(tree: Tree) -> tuple[dict[str, Any], str | None]:
         verdict = _P
     elif review_methods:
         verdict = _V
-    elif has_methods and (has_results or (has_discussion and (methods_last or stats >= 0.10))):
-        verdict = _R  # results under their own heading, or Nature's order, or a body that reports measurements; a review with a methodology section and no results is none of these and stays unread
-    elif not has_methods and not has_results and has_abstract and (len(topical) >= 3 or review_abstract):
-        verdict = _V
+    elif (has_results and (has_methods or has_discussion)) or (has_methods and has_discussion and (methods_last or stats >= 0.10)):
+        verdict = _R  # a results heading beside a methods or a discussion one — the paper reports work of its own, whether or not the methods got a heading of their own; or, with no results heading, Nature's order or a body that reports measurements
+    elif not has_methods and not has_results and words < _EDITORIAL_WORDS and len(topical) < 3 and not review_abstract:
+        verdict = _E  # short opinion prose with neither lane: an editorial, a commentary, a perspective — and a letter that does not open "Dear Editor", which nothing in the shape tells apart from them. A mini-review is short too, so a paper that has divided itself into topics, or labels its abstract "Purpose of review", is left to the review rule below
+    elif not has_results and has_abstract:
+        verdict = _V  # an abstract and no results: the paper reports no experiment of its own. A methodology section does not make it research — a review that searches the literature has one too — and the research rule above has already taken every paper whose body measures
     return features, verdict
 
 
