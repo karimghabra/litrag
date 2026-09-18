@@ -300,6 +300,8 @@ def _split_misjoined(doc: dict[str, Any], items_by_page: dict[int, list[tuple[di
             entries.append((new, bb))
             body_children.insert(_insert_at(doc, body_children, items_by_page, page, bb), {"$ref": new["self_ref"]})
             report["notes"] = report.get("notes", 0) + 1
+            _note(report, "table_notes", page=page, before=(new.get("text") or "")[:300], ref=new.get("self_ref"),
+                  why="a table's note the layout model glued onto the paragraph carried across the page break, cut off again")
             break
 
 
@@ -323,6 +325,8 @@ def _table_notes(items_by_page: dict[int, list[tuple[dict[str, Any], dict[str, f
                 item["label"] = "footnote"
                 item["_table_note"] = True
                 report["notes"] = report.get("notes", 0) + 1
+                _note(report, "table_notes", page=_first_page(item), before=text[:300], after="read as the table's footnote",
+                      ref=item.get("self_ref"), why="a short block right under a table's box, opening as a note does: the table's footnote, not a paragraph")
 
 
 def _same_row(a: Line, b: Line) -> bool:
@@ -623,9 +627,12 @@ def _retext(item: dict[str, Any], rows: list[Line], report: dict[str, int], runn
         for ln in heads:
             key = _letters(ln.text)
             if len(key) >= 8 and have.startswith(key[:8]) and _letters(layer)[:20] in have:
+                before = item.get("text")
                 item["text"] = layer
                 item["_rebuilt"] = True
                 report["furniture"] = report.get("furniture", 0) + 1
+                _note(report, "furniture_stripped", page=_first_page(item), box=_box_of(rows), before=before, after=layer,
+                      ref=item.get("self_ref"), why="the block opened with a running head: its text rebuilt from the layer without it")
                 return
     if label == "formula":
         if not (item.get("text") or "").strip() and layer.strip():

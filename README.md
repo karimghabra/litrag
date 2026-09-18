@@ -469,6 +469,7 @@ deprecated: kept until its verbs are ported to the tree store
 | `AGENT.md` | How an assistant drives the worker and the CLI — ops, shapes, conduct. |
 | `NOTES.md` | The assistant's notebook: the libraries, what worked, standing decisions. |
 | `BACKLOG.md` | Where wants wait until they are built. |
+| `PIPELINE.md` | The pipeline on one page: what is current, what is opt-in, and every switch — including `review`, which shows what the reader did to each paper, page by page. |
 | `CHANGELOG.md` | What each version changed. |
 | `CLAUDE.md` | The invariants a change to this code must keep. |
 

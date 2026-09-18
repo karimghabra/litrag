@@ -83,8 +83,22 @@ def mathml_to_text(el) -> str:
     return re.sub(r"\s+", " ", linearize(el)).strip()
 
 
-def add_tex_math(root) -> bool:
-    """A `<tex-math>` beside every formula that has only MathML; whether anything changed."""
+_CLIP = 300
+
+
+def _clip(text: str | None) -> str | None:
+    """A record is read beside the formula it belongs to, so a long line is cut short."""
+    if text is None:
+        return None
+    text = " ".join(str(text).split())
+    return text if len(text) <= _CLIP else text[: _CLIP - 1] + "…"
+
+
+def add_tex_math(root, log: list[dict] | None = None) -> bool:
+    """A `<tex-math>` beside every formula that has only MathML; whether anything changed.
+
+    `log`, when given, takes one record per formula given a line, shaped as `changes.py`
+    reads them, so a person reviewing the paper sees what the equation became."""
     from lxml import etree
 
     changed = False
@@ -100,6 +114,19 @@ def add_tex_math(root) -> bool:
         tex = etree.SubElement(holder, "tex-math")
         tex.text = text
         changed = True
+        if log is not None:
+            log.append(
+                {
+                    "kind": "add_tex_math",
+                    "stage": "xml",
+                    "page": None,
+                    "box": None,
+                    "before": None,
+                    "after": _clip(text),
+                    "why": "add_tex_math: the publisher carries this formula as MathML alone and Docling reads a formula only from <tex-math>, so the equation is linearised into one.",
+                    "ref": holder.get("id") or _local(holder.tag),
+                }
+            )
     return changed
 
 

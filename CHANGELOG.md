@@ -2,6 +2,39 @@
 
 ## Unreleased
 
+Every modification the reader makes, on the page where it happened — and the
+whole corpus read that way, so the reader can be checked rather than trusted.
+
+- `parser/litrag_parser/changes.py` (new): the counters the reader always kept
+  (`repairs["stitched"]`, `dropped["furniture"]`) now carry a record beside
+  them — the page, the box, the text as it stood, the text as it stands, and
+  the rule's own reason. `Repairs` is still a dict, so every counting site in
+  the reader works untouched; a site that knows its context calls `note()` or,
+  where the counter was already raised, `record()`. `tree.changes` is the log.
+- `tree.py`, `recover.py`, `structure.py`: the drops (running heads, logos,
+  copyright lines, an editor's block, junk), the rewrites (symbol fonts,
+  a block that said its paragraph twice, a fused heading cut in two), the joins
+  (across a page break, one the judge settled, a displaced head, a caption's
+  tail), what the text layer put back (missed prose, stripped furniture,
+  rebuilt blocks, attached runs, table notes and grids) and the shape decisions
+  (a heading built, a lane read from the paragraphs, a name from the catalogue)
+  all say where they acted. 99% of what the reader counts it can now place.
+- `jats_prep.py`, `mathml.py`: `prepare_jats(raw, log=records)` reports every
+  rewrite it makes to a publisher's XML before Docling reads it — bracketed
+  citation markers, rendered reference entries, flattened titles, folded
+  section labels, dropped processing instructions, linearised formulas. The
+  bytes handed to Docling are unchanged whether or not a log is kept.
+- `parser/litrag_parser/review.py` (new): one report per paper — every page
+  drawn at the size it was printed, every node boxed in its lane's colour,
+  every modification numbered where it happened and written out beside the
+  page with its before and after — plus the type decision and the evidence
+  behind it, the sections with their canonical names, the citations linked to
+  their entries, and an index over any set of libraries. Nothing is written to
+  a library: the trees are rebuilt in memory as `rebuild` reads them.
+- `parser/litrag_parser/summary.py` (new): the corpus on one page — what was
+  read, from which publishers, in which formats, what the reader did to it,
+  and every measurement that has been run, linking into the per-paper reports.
+
 Meaning everywhere a list used to be, and a scorer for the one question
 meaning cannot answer.
 

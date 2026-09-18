@@ -166,6 +166,12 @@ def build_headings(items: list[dict[str, Any]], front_end: int, title_ref: str |
         out.insert(at, header)
         inserted += 1
         repairs["built_headings"] = repairs.get("built_headings", 0) + 1
+        rec = getattr(repairs, "record", None)
+        if rec is not None:
+            prov = (prose[start][1].get("prov") or [{}])[0]
+            rec("built_headings", page=prov.get("page_no") if isinstance(prov, dict) else None,
+                before=(prose[start][1].get("text") or "")[:200], after=heading,
+                why=f"the paper printed no headings: these blocks read as {lane}, so a heading stands in")
     return out, front_end
 
 
@@ -205,11 +211,19 @@ def lane_sections(tree: Any, oracle: Oracle | None, repairs: dict[str, int]) -> 
                 for n in _descendants(section):
                     n.role = v.name
                 repairs["laned"] = repairs.get("laned", 0) + 1
+                rec = getattr(repairs, "record", None)
+                if rec is not None:
+                    rec("laned", page=section.page, node_id=section.node_id, before=section.heading, after=v.name,
+                        why=f"the heading names nothing the vocabulary knows; its paragraphs read as {v.name} (cosine {v.score}, margin {v.margin})")
                 changed = True
             elif v.sure:
                 tree.notes.append({"kind": "lane-suggested", "node_id": section.node_id, "page": section.page, "message": f"the paragraphs read as {v.name} (cosine {v.score}, margin {v.margin}); the heading names nothing, and only methods, results (with or without discussion) or references are taken from content"})
         elif v.sure and v.name in NOTE_LANES and v.name != section.role and not (v.name == "results-discussion" and section.role in ("results", "discussion")) and not (section.role == "results-discussion" and v.name in ("results", "discussion")):
             repairs["lane_disagreement"] = repairs.get("lane_disagreement", 0) + 1
+            rec = getattr(repairs, "record", None)
+            if rec is not None:
+                rec("lane_disagreement", page=section.page, node_id=section.node_id, before=section.heading, after=f"reads as {v.name}",
+                    why=f"the heading names {section.role}; the paragraphs read as {v.name} — noted, and the heading stands")
             tree.notes.append({"kind": "lane-disagreement", "node_id": section.node_id, "page": section.page, "message": f"the heading names {section.role}, the paragraphs read as {v.name} (cosine {v.score}, margin {v.margin}); the heading stands"})
     if changed:
         roles: dict[str, int] = {}

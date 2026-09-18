@@ -371,6 +371,10 @@ def _continues(prev_text: str, text: str, prev_page: int | None, page: int | Non
         if label is not None and _means_label(label):
             if repairs is not None:
                 repairs["label_veto"] = repairs.get("label_veto", 0) + 1
+                rec = getattr(repairs, "record", None)
+                if rec is not None:
+                    rec("label_veto", before=a[-120:], after=b[:120],
+                        why=f"the next block opens with the label {label!r}: a new part of the paper, not the end of this sentence")
             return False
         return True
     if a[-1] in _FINISHED:
@@ -458,6 +462,10 @@ def _choose_head(text: str, heads: list[int], texts: list[str], repairs: dict[st
             if v.sure:
                 if repairs is not None and heads[int(v.name)] != heads[0]:
                     repairs["rejoined_meaning"] = repairs.get("rejoined_meaning", 0) + 1
+                    rec = getattr(repairs, "record", None)
+                    if rec is not None:
+                        rec("rejoined_meaning", before=text[:200], after=texts[int(v.name)][-200:],
+                            why="two blocks could hold this run: the embedder said which one it continues")
                 return heads[int(v.name)]
     return heads[0]
 
@@ -544,6 +552,7 @@ def _caption_tails(doc: dict[str, Any], items: list[dict[str, Any]], repairs: di
                     cap["text"] = _join_inline([cap, nxt])
                     cap["_pages"] = _merged(cap, nxt, cap["text"])["_pages"]
                     repairs["caption_tail"] = repairs.get("caption_tail", 0) + 1
+                    _note_join(repairs, "caption_tail", cap, nxt, "the end of a caption the layout model cut onto the next block", cap["text"][:300])
                     i += 1
         i += 1
     return out
@@ -656,6 +665,7 @@ def _fragment_forward(it: dict[str, Any], items: list[dict[str, Any]], i: int, o
         return True
     if nxt is None or nxt.get("label") in _PICTURE | _TABLE | _CAPTION:
         repairs["junk"] = repairs.get("junk", 0) + 1
+        _note_join(repairs, "junk", it, it, "a fragment with nothing after it to join: a stray line of a figure or a table")
         return True
     return False
 
@@ -722,6 +732,11 @@ def _infer_references(items: list[dict[str, Any]], repairs: dict[str, int]) -> l
         return items
     header = {"self_ref": "#/texts/references~inferred", "parent": {"$ref": "#/body"}, "children": [], "label": "section_header", "text": "References", "level": 1, "prov": list(items[best[0]].get("prov") or []), "_inferred": True}
     repairs["inferred_references"] = best[2]
+    rec = getattr(repairs, "record", None)
+    if rec is not None:
+        rec("inferred_references", page=_page_of(items[best[0]]), after="References",
+            before=(items[best[0]].get("text") or "")[:200],
+            why=f"{best[2]} reference entries in a row with no heading above them: a References heading stands in")
     return items[: best[0]] + [header] + items[best[0] :]
 
 
@@ -762,6 +777,10 @@ def _adopt_captions(doc: dict[str, Any], repairs: dict[str, int] | None = None) 
         adopt = by_rule or (v is not None and v.sure and v.name == "caption")
         if adopt and not by_rule and repairs is not None:
             repairs["captions_meaning"] = repairs.get("captions_meaning", 0) + 1
+            rec = getattr(repairs, "record", None)
+            if rec is not None:
+                rec("captions_meaning", page=_page_of(child), before=text[:200], ref=child.get("self_ref"),
+                    why="short, and under a figure: the embedder read it as that figure's legend")
         if adopt:
             pic.setdefault("captions", []).append({"$ref": child["self_ref"]})
     for pic, _ in pending:
@@ -1178,6 +1197,10 @@ def _front_by_meaning(text: str, repairs: dict[str, int] | None = None) -> str |
     if v.name in _FRONT_KINDS:
         if repairs is not None:
             repairs["front_meaning"] = repairs.get("front_meaning", 0) + 1
+            rec = getattr(repairs, "record", None)
+            if rec is not None:
+                rec("front_meaning", before=text[:200], after=v.name,
+                    why="no rule named this line of the front matter: the embedder did")
         return v.name
     return None
 
@@ -1237,6 +1260,11 @@ def _built_over(intro_items: list[dict[str, Any]], abstract_items: list[dict[str
             return out
     header = {"self_ref": "#/texts/built~introduction", "parent": {"$ref": "#/body"}, "children": [], "label": "section_header", "text": "Introduction", "level": 1, "prov": list(intro_items[0].get("prov") or []), "_built": True, "_built_lane": "introduction"}
     repairs["built_headings"] = repairs.get("built_headings", 0) + 1
+    rec = getattr(repairs, "record", None)
+    if rec is not None:
+        rec("built_headings", page=_page_of(intro_items[0]), after="Introduction",
+            before=(intro_items[0].get("text") or "")[:200],
+            why="the body begins with no heading of its own: an Introduction heading stands in, its place says so")
     return [header, *intro_items]
 
 
@@ -1342,10 +1370,14 @@ def build_tree(doc: dict[str, Any], key: str, title_hint: str | None = None, jud
                     repairs.note("glyphs", page=page_no, box=box, before=text, after=fixed, ref=it.get("self_ref"),
                                  why="what the font did to the symbols, undone (glyphs.py)")
         kept = _caption_tails(doc, kept, repairs)
-    for k in ("recovered", "rebuilt", "formulas", "attached"):
-        if doc.get("_recovery", {}).get(k):
-            repairs[k] = doc["_recovery"][k]
-    repairs.log.extend(doc.get("_recovery", {}).get("log") or [])  # what the recovery pass changed, page by page
+    # what the text layer put back (recover.py), counted under the same names the log uses so the two agree
+    recovery = doc.get("_recovery") or {}
+    for counter, kind in (("recovered", "recovered"), ("rebuilt", "rebuilt"), ("formulas", "formulas"),
+                          ("attached", "attached"), ("ligatures", "ligatures"), ("tables", "tables"),
+                          ("furniture", "furniture_stripped"), ("unglued", "unglued"), ("notes", "table_notes")):
+        if recovery.get(counter):
+            repairs[kind] = repairs.get(kind, 0) + recovery[counter]
+    repairs.log.extend(recovery.get("log") or [])
     for it in kept:
         if it.get("label") in _TEXTLIKE and it.get("text"):
             once = unrepeat(it["text"])

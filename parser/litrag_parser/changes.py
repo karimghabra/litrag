@@ -31,6 +31,7 @@ STAGES: dict[str, str] = {
     "tables": "recovered",
     "unglued": "recovered",
     "furniture_stripped": "recovered",
+    "table_notes": "recovered",        # a table's note the layout model glued to a paragraph, cut off again
     # what is left out of the body on purpose
     "page_furniture": "dropped",
     "furniture": "dropped",
@@ -61,6 +62,8 @@ STAGES: dict[str, str] = {
     "canonical_meaning": "structure",
     "label_veto": "structure",
     "front_meaning": "structure",
+    "laned": "structure",              # a section whose heading names nothing, read by its paragraphs
+    "lane_disagreement": "structure",  # the heading and the paragraphs disagree: noted, never applied
     "captions_meaning": "structure",
 }
 
