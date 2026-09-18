@@ -118,3 +118,26 @@ def test_the_page_names_the_papers_to_open_first(tmp_path):
     assert "Where to look first" in html
     assert 'href="lib--bad/index.html"' in html and "9%" in html
     assert html.index("A paper read badly") < html.index("A paper read well")
+
+
+def test_how_much_of_the_reader_is_visible_is_computed_not_claimed(tmp_path):
+    review = tmp_path / "review"
+    review.mkdir()
+    (review / "index.json").write_text(json.dumps([
+        {"key": "a", "changes": 40, "counted": 40, "unplaced": 0},
+        {"key": "b", "changes": 20, "counted": 60, "unplaced": 40},   # a pass that counts more than it records
+        {"key": "c", "failed": True, "error": "no pages"},            # never read, so it counts for nothing
+    ]), encoding="utf-8")
+
+    placed, counted, whole = report.placement(review)
+    assert (placed, counted, whole) == (60, 100, 1)
+
+    html = report.build(NUMBERS, placed=(placed, counted, whole))
+    assert "60 of 100" in html and "60%" in html
+    assert "1 papers have no gap at all" in html
+
+
+def test_without_the_counters_the_page_makes_no_claim_about_placement():
+    html = report.build(NUMBERS, placed=(0, 0, 0))
+    assert "Every change, on its page" in html   # the card still explains what was built
+    assert "counted modifications" not in html   # but claims no share it cannot compute

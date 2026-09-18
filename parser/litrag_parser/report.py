@@ -173,6 +173,23 @@ def recorded_changes(review: Path) -> int:
     return sum(int(row.get("changes") or 0) for row in index)
 
 
+def placement(review: Path) -> tuple[int, int, int]:
+    """Modifications placed on a page, counted by the reader, and papers where the two agree.
+
+    The reader's counters and its log are kept as separate things on purpose, so the claim "you can see
+    everything it did" can be checked rather than believed. This reads both out of the index.
+    """
+    try:
+        index = json.loads((review / "index.json").read_text("utf-8"))
+    except Exception:
+        return 0, 0, 0
+    rows = [row for row in index if not row.get("failed")]
+    placed = sum(int(row.get("changes") or 0) for row in rows)
+    counted = sum(int(row.get("counted") or 0) for row in rows)
+    whole = sum(1 for row in rows if not row.get("unplaced"))
+    return placed, counted, whole
+
+
 def worst_read(review: Path, count: int = 6) -> list[dict]:
     """The papers the reader trusts least, which are the ones worth opening first."""
     try:
@@ -183,7 +200,8 @@ def worst_read(review: Path, count: int = 6) -> list[dict]:
     return sorted(scored, key=lambda row: row["confidence"])[:count]
 
 
-def build(n: dict, publishers: int = 0, changes: int = 0, worst: list[dict] | None = None) -> str:
+def build(n: dict, publishers: int = 0, changes: int = 0, worst: list[dict] | None = None,
+          placed: tuple[int, int, int] = (0, 0, 0)) -> str:
     harness = (n.get("harness") or {}).get("by_format_corpus_wide") or {}
     pdf, jats = harness.get("pdf") or {}, harness.get("jats") or {}
     pairs = n.get("pairs") or {}
@@ -331,6 +349,24 @@ def build(n: dict, publishers: int = 0, changes: int = 0, worst: list[dict] | No
   <th class="n">trust</th><th class="n">changes</th></tr></thead><tbody>{worst_rows}</tbody></table></div>
 </section>"""
 
+    # The claim about how much of the reader's work is visible is computed from the reports themselves.
+    shown, counted_total, whole = placed
+    if counted_total:
+        share = shown / counted_total
+        placed_card = (
+            f'<div class="card"><h4>Every change, on its page</h4><p>The reader always counted what it did — '
+            f'<code>stitched 3</code>, <code>furniture 8</code> — and never said where. Each pass now records '
+            f'the page, the box, the text as it stood, the text as it stands, and the rule\'s own reason. '
+            f'<b>{shown:,} of {counted_total:,}</b> counted modifications ({share:.0%}) are placed on a page, and '
+            f'{whole:,} papers have no gap at all. What cannot be placed is named in the paper\'s own report '
+            f'rather than quietly dropped.</p></div>')
+    else:
+        placed_card = (
+            '<div class="card"><h4>Every change, on its page</h4><p>The reader always counted what it did — '
+            '<code>stitched 3</code>, <code>furniture 8</code> — and never said where. Each pass now records '
+            'the page, the box, the text as it stood, the text as it stands, and the rule\'s own reason, and '
+            'what it cannot place is named in the report rather than quietly dropped.</p></div>')
+
     run = n.get("run") or {}
 
     return f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
@@ -354,10 +390,7 @@ def build(n: dict, publishers: int = 0, changes: int = 0, worst: list[dict] | No
   reference entries, comes out. Everything the reader alters on the way is written down.</p>
   {PIPELINE}
   <div class="two" style="margin-top:14px">
-    <div class="card"><h4>Every change, on its page</h4><p>The reader always counted what it did —
-    <code>stitched 3</code>, <code>furniture 8</code> — and never said where. Each pass now records the page,
-    the box, the text as it stood, the text as it stands, and the rule's own reason. 99% of what it counts it
-    can place on a page; what it cannot place is named rather than hidden.</p></div>
+    {placed_card}
     <div class="card"><h4>A report for every paper</h4><p>All {papers:,} papers render to their own report:
     every page drawn at the size it was printed, every region boxed in the colour of the lane it was filed
     under, every modification numbered where it happened and written out beside the page.</p></div>
@@ -448,7 +481,7 @@ def main(argv: list[str] | None = None) -> int:
     numbers = json.loads((args.measure / "numbers.json").read_text("utf-8"))
     out = args.out or (args.review / "report.html")
     out.write_text(build(numbers, publisher_count(args.review), recorded_changes(args.review),
-                         worst_read(args.review)), encoding="utf-8")
+                         worst_read(args.review), placement(args.review)), encoding="utf-8")
     print(json.dumps({"report": str(out), "bytes": out.stat().st_size}, indent=1))
     return 0
 

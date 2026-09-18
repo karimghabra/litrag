@@ -886,6 +886,10 @@ def render_paper(lib: Path, row: dict[str, Any], out_root: Path, scale: float) -
     (folder / "index.html").write_text(html_out, encoding="utf-8")
 
     stages = Counter(c.get("stage") or stage_of(c["kind"]) for c in changes)
+    # What the reader counted, against what the log could place. Carrying both into the index is what lets a
+    # claim about how much of the reader's work is visible be computed over a corpus rather than asserted.
+    counted_all = Counter(tree.repairs) + Counter(tree.dropped)
+    placed = Counter(c["kind"] for c in changes)
     return {
         "library": lib.name,
         "key": key,
@@ -900,6 +904,8 @@ def render_paper(lib: Path, row: dict[str, Any], out_root: Path, scale: float) -
         "band": trust_band(conf.get("confidence")),
         "changes": len(changes),
         "by_stage": dict(stages),
+        "counted": sum(counted_all.values()),
+        "unplaced": sum(max(0, counted_all[k] - placed.get(k, 0)) for k in counted_all),
         "refs": cite_counts.get("refs", 0),
         "citations": cite_counts.get("citations", 0),
         "unlinked": len(loose_markers),
