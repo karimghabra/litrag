@@ -82,6 +82,25 @@ when it turns out durable. Mark inference as inference.
 
 ## Short-term memory
 
+- **2026-09-17 (late), the measurement named three failures and two are fixed** —
+  Re-measured the whole corpus against the fixes, twelve runs, none failed.
+  **Words filed under the right heading: 0.840 → 0.899** over the 199 papers
+  read both ways (per pairing 0.775 → 0.949, 0.832 → 0.896, 0.857 → 0.889),
+  and word-weighted 0.806 → 0.884. Heading recall and precision are unchanged
+  to four decimals, so nothing was traded for it: the fix re-parents headings
+  the reader had already found. **The type decision 0.786 → 0.927**, and 0.738
+  → 0.820 on libraries never inspected while tuning. The trust score followed
+  both: AUC 0.788 → 0.835, seriously mismatched 47 → 26, and PDFs the reader
+  reads badly (its own score under 0.5) 40 → 26 out of 284.
+  What the corpus still cannot see: the new type rules read an arXiv preprint
+  as a review, because its results sit under topic names rather than a Results
+  heading, and every paper in this corpus is biomedical IMRaD. Right for a
+  tissue-engineering library, wrong for a machine-learning one, and untestable
+  here — noted rather than tuned around.
+  Also corrected: the earlier "99% of modifications placed on a page" came
+  from a 36-paper sample. Over all 801 it is 89%, and the index now carries
+  both counters so the claim is computed rather than asserted.
+
 - **2026-09-17, the lanes were lost to depth, not to detection** — the entry
   below blames faithful 0.840 on the PDF finding only ~0.83 of the headings.
   That was wrong, and the worst papers say so: `10.1089/ten.teb.2016.0181`

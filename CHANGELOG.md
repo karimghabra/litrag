@@ -41,26 +41,32 @@ whole corpus read that way, so the reader can be checked rather than trusted.
   it exists to predict. A measurement that was never run leaves no section
   behind, so no number on the page is one the page invented.
 
-Measured, on the whole corpus, with the failures named.
+Measured on the whole corpus, then fixed where the measurement pointed.
 
 - 797 papers in seven libraries (284 PDF, 513 publisher JATS), twelve runs,
   none failed. The reader finds the right title on 0.989 of PDFs and 1.000 of
-  XML, reads 0.968/0.992 of papers with no audit error, and finds a methods
-  section or correctly calls the paper a review 0.944/0.951 of the time.
+  XML, reads 0.968/0.992 with no audit error, and finds a methods section or
+  correctly calls the paper a review 0.944/0.951 of the time.
 - 199 of those papers exist in both formats, so the XML can score the PDF
-  reading: word recall 0.990, paragraphs missing 0.001, **faithful 0.840**.
-  Nothing is lost; one word in six is filed under the wrong heading, because
-  the PDF finds only about 0.83 of the headings the XML declares.
-- The type cascade scores 0.786 while every source it gates is accurate
-  (printed 1.000, title 0.941, subject 0.935, shape alone 0.929, together
-  0.932); the whole loss is the `other` bucket, which names 41 papers and is
-  right about one.
-- The trust score is decisive at the bottom and weak at the top: its lowest
-  band averages 0.384 faithful with 25 of 30 seriously mismatched, but 11 of
-  129 papers scoring ≥0.9 are seriously mismatched, five at exactly 1.0.
-  AUC 0.788.
-- The heading catalogue holds up with each library's own headings withheld:
-  lane precision 1.000 / recall 0.995, canonical name 0.994 / 0.902.
+  reading. Word recall 0.990 and paragraphs missing 0.001 — the text is not
+  lost. Words filed under the right heading: **0.840 → 0.899**, after the
+  depth fix below. Papers below 0.5 faithful: 22 → 10.
+- The type decision: **0.786 → 0.927** on 248 papers whose stated type was
+  hidden, and 0.738 → 0.820 on 61 papers in libraries never inspected while
+  tuning. The `other` bucket went from 41 papers named and 1 right to 2 and 0.
+- The trust score: AUC **0.788 → 0.835**, papers seriously mismatched 47 → 26,
+  and papers scoring ≥0.9 while seriously mismatched 11 of 129 → 5 of 138.
+  Still weaker at the top than at the bottom.
+- The heading catalogue, scored with each library's own headings withheld:
+  lane precision 1.000 / recall 0.993, canonical name 0.994 / 0.904.
+- 14,447 of 16,308 counted modifications (89%) are placed on a page, and 723
+  of 801 papers have no gap at all. The shortfall is one pass that counts
+  reference entries one by one and records the list as a single change.
+
+Named, not fixed: in-text citations agree with the XML's markup 0.734 of the
+time; the type rules are right for biomedical literature and read an ML
+preprint as a review, which this corpus cannot see; `other` recall is 0.0 and
+letter recall 0.5.
 
 Meaning everywhere a list used to be, and a scorer for the one question
 meaning cannot answer.
