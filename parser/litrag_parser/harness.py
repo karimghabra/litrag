@@ -295,6 +295,8 @@ def corpus_summary(records: list[dict[str, Any]]) -> dict[str, Any]:
             "judged_joins": sum(r["repairs"].get("judged", 0) for r in rows),
             "built_headings": sum(r.get("built_headings", 0) for r in rows),
             "papers_with_built_headings": sum(1 for r in rows if r.get("built_headings")),
+            "headings_relevelled": sum(r["repairs"].get("heading_level", 0) for r in rows),  # a heading's depth read off the type it is set in
+            "papers_with_relevelled_headings": sum(1 for r in rows if r["repairs"].get("heading_level")),
             "laned_by_content": sum(r["repairs"].get("laned", 0) for r in rows),
             "lane_disagreements": sum(r["repairs"].get("lane_disagreement", 0) for r in rows),
             "by_meaning": {k: sum(r["repairs"].get(k, 0) for r in rows) for k in ("front_meaning", "label_veto", "captions_meaning", "rejoined_meaning")},

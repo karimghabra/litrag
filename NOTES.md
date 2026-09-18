@@ -82,6 +82,41 @@ when it turns out durable. Mark inference as inference.
 
 ## Short-term memory
 
+- **2026-09-17, the lanes were lost to depth, not to detection** — the entry
+  below blames faithful 0.840 on the PDF finding only ~0.83 of the headings.
+  That was wrong, and the worst papers say so: `10.1089/ten.teb.2016.0181`
+  read faithful 0.108 with heading recall **1.000** — every heading found,
+  every one of them filed as a child of "Introduction", so a whole review's
+  body read as its introduction. Docling gives most PDFs' headers one level,
+  and `infer_level` then put every header the vocabulary does not know under
+  whichever section stood open. The page itself says which is which: a
+  publisher sets a section's heading and a subsection's in different type —
+  BMC in 7.1pt capitals against 6.3, SAGE in Gill Sans Bold against Gill Sans
+  Medium Italic, Frontiers in the same face but INTRODUCTION against
+  Eligibility Criteria. So the text layer now reads each row's capital height
+  and font (`recover.py`, pdfium's `FPDFText_GetFontInfo`), the headings the
+  vocabulary *knows* are top-level say what this paper's sections are set in,
+  and a header set the same way is one of them — `tree.type_levels`, logged
+  as `heading_level` on the page it happened. It settles the depth both ways:
+  a header set as the subsections are is no longer promoted out of its
+  section by the embedder either ("Natural Materials", under a Discussion,
+  reads as methods). Over the same 199 pairs, unchanged libraries, no
+  re-parse: **faithful 0.840 → 0.899** (word-weighted 0.829 → 0.909), depth
+  agreement 0.92 → 0.98, papers below 0.5 **22 → 10**, and heading recall
+  (0.833) and precision (0.877) untouched — nothing new is called a heading.
+  Per pairing: 0.775 → 0.949 (31), 0.832 → 0.896 (33), 0.857 → 0.889 (135);
+  34 papers better, 3 worse by 0.02–0.06. Words swallowed by the introduction
+  fell 5.9% → 2.6% and by the methods 3.9% → 0.5%. Two guards were bought
+  with regressions: a figure's label set in the sections' type ("Figure 2"
+  opened a section that swallowed a discussion), and an anchor type smaller
+  than the body's, which means the measurement failed.
+  What is left is not depth: the missing headings are back matter the PDF
+  never prints as a heading (of 688 listed, 98 "Footnotes", 79 "Data
+  availability statement", 31 "Acknowledgments" …) — 43 are the same heading
+  spelled differently ("Risk Factors for T endinopathy"). A search for
+  headings the layout model read as prose found none in the sections' type
+  across all 199 papers, so that is not where the remaining loss is either.
+
 - **2026-09-17, the reader shows its work** — Karim, on day six of a week and
   submitting in the morning: "i want to see every modification that is made to
   the workflow for every paper i run it through, and i want to see the changes

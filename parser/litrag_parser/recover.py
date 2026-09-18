@@ -49,6 +49,14 @@ class Line:
     b: float
     r: float
     t: float
+    #: the height of the capitals sitting on this row's baseline, in points — the type size
+    #: as the page shows it, which is how a heading set larger than the body is told from one
+    #: set in the body's size (`_line_of` measures it; 0.0 where the row has no capital)
+    cap: float = 0.0
+    #: the font the row's capitals are set in, with its weight ("GillSansMTPro-Bold/700"),
+    #: empty where pdfium cannot say: a publisher's second-level heading is often the same
+    #: size as its first-level one and only the cut of the type tells them apart
+    font: str = ""
 
     @property
     def cx(self) -> float:
@@ -75,6 +83,30 @@ def clean(text: str) -> str:
     return _CONTROL.sub("", text.replace(_SOFT_BREAK, "")).strip()
 
 
+def _font_reader(textpage: Any) -> Any:
+    """A function from a glyph's index to the name of the font it is set in, with its weight
+    — "GillSansMTPro-Bold/700". It is how a heading is told from a subheading printed in the
+    same size: publishers set the two in different cuts of the same family. Empty where
+    pdfium cannot say."""
+    import ctypes
+
+    import pypdfium2.raw as pdfium_c
+
+    buf = ctypes.create_string_buffer(128)
+    flags = ctypes.c_int()
+
+    def font_of(index: int) -> str:
+        try:
+            got = pdfium_c.FPDFText_GetFontInfo(textpage, index, buf, len(buf), ctypes.byref(flags))
+            name = buf.value[: max(got - 1, 0)].decode("utf-8", "replace") if got else ""
+            weight = pdfium_c.FPDFText_GetFontWeight(textpage, index)
+        except Exception:
+            return ""
+        return f"{name}/{weight}" if name or weight > 0 else ""
+
+    return font_of
+
+
 def pdf_lines(path: Path) -> dict[int, list[Line]]:
     """Every visual row of every page with its box, from pdfium's text in reading order and
     its character boxes. pdfium's own line breaks are one clue; a row also ends where the
@@ -91,14 +123,15 @@ def pdf_lines(path: Path) -> dict[int, list[Line]]:
             if not n:
                 continue
             text = tp.get_text_range(0, n)
+            font_of = _font_reader(tp.raw)
             lines: list[Line] = []
             start = 0
             for raw in text.split("\r\n"):
                 end = start + len(raw)
-                chars = [(text[j], None if text[j].isspace() else tp.get_charbox(j)) for j in range(start, min(end, n))]
+                chars = [(text[j], None if text[j].isspace() else tp.get_charbox(j), j) for j in range(start, min(end, n))]
                 start = end + 2
                 for row in _visual_rows(chars):
-                    line = _line_of(row)
+                    line = _line_of(row, font_of)
                     if line is None:
                         continue
                     prev = lines[-1] if lines else None
@@ -112,13 +145,15 @@ def pdf_lines(path: Path) -> dict[int, list[Line]]:
     return out
 
 
-def _visual_rows(chars: list[tuple[str, tuple[float, float, float, float] | None]]) -> list[list[tuple[str, tuple[float, float, float, float] | None]]]:
-    """One pdfium line cut where its baseline moves by most of a line: the next visual row."""
-    rows: list[list[tuple[str, tuple[float, float, float, float] | None]]] = []
-    cur: list[tuple[str, tuple[float, float, float, float] | None]] = []
+def _visual_rows(chars: list[tuple[Any, ...]]) -> list[list[tuple[Any, ...]]]:
+    """One pdfium line cut where its baseline moves by most of a line: the next visual row.
+    A char is `(text, box)`, and `(text, box, index)` where the caller kept pdfium's index."""
+    rows: list[list[tuple[Any, ...]]] = []
+    cur: list[tuple[Any, ...]] = []
     ref_cy: float | None = None
     ref_h = 0.0
-    for ch, box in chars:
+    for item in chars:
+        ch, box = item[0], item[1]
         if box is None or not (box[2] > box[0] and box[3] > box[1]):
             if cur:
                 cur.append((ch, None))
@@ -129,15 +164,17 @@ def _visual_rows(chars: list[tuple[str, tuple[float, float, float, float] | None
             cur, ref_cy = [], None
         if ref_cy is None or h > ref_h:
             ref_cy, ref_h = cy, h  # the row's largest glyph sets its baseline: a superscript never does
-        cur.append((ch, box))
+        cur.append(item)
     if cur:
         rows.append(cur)
     return rows
 
 
-def _line_of(row: list[tuple[str, tuple[float, float, float, float] | None]]) -> Line | None:
-    """A visual row as a Line: its text with superscript numbers marked, its box."""
-    boxes = [bx for _, bx in row if bx is not None]
+def _line_of(row: list[tuple[Any, ...]], font_of: Any = None) -> Line | None:
+    """A visual row as a Line: its text with superscript numbers marked, its box. With
+    `font_of` — pdfium's glyph index to a font name — the row also says what it is set in,
+    read off the capital that stands for its size."""
+    boxes = [item[1] for item in row if item[1] is not None]
     if not boxes:
         return None
     # the baseline is where most glyphs sit; the body size is theirs
@@ -145,12 +182,12 @@ def _line_of(row: list[tuple[str, tuple[float, float, float, float] | None]]) ->
     for _, b, _, _ in boxes:
         counts[round(b)] = counts.get(round(b), 0) + 1
     base = max(counts, key=lambda k: (counts[k], -k))
-    on_base = [(ch, t - b) for ch, bx in row if bx is not None for _, b, _, t in [bx] if abs(b - base) <= 1.0 and t - b > 0]
-    caps = sorted(h for ch, h in on_base if ch.isdigit() or ch.isupper())
-    body = caps[len(caps) // 2] if caps else max((h for _, h in on_base), default=0.0)  # a capital's height: what a digit on the baseline stands
+    on_base = [(item[0], item[1][3] - item[1][1], item) for item in row if item[1] is not None and abs(item[1][1] - base) <= 1.0 and item[1][3] - item[1][1] > 0]
+    caps = sorted(h for ch, h, _ in on_base if ch.isdigit() or ch.isupper())
+    body = caps[len(caps) // 2] if caps else max((h for _, h, _ in on_base), default=0.0)  # a capital's height: what a digit on the baseline stands
 
     def raised(k: int) -> bool:
-        ch, bx = row[k]
+        ch, bx = row[k][0], row[k][1]
         if bx is None or not ch.isdigit() or body <= 0:
             return False
         _, b, _, t = bx
@@ -160,13 +197,15 @@ def _line_of(row: list[tuple[str, tuple[float, float, float, float] | None]]) ->
         return 0.35 * body <= h < 0.8 * body and b - base > 0.3 * body
 
     flags = [raised(k) for k in range(len(row))]
-    for k, (ch, bx) in enumerate(row):  # a sign belongs to the exponent after it: "cm^-1"
+    for k, item in enumerate(row):  # a sign belongs to the exponent after it: "cm^-1"
+        ch, bx = item[0], item[1]
         if ch in "+\u2212\u2013-" and bx is not None and k + 1 < len(row) and flags[k + 1]:
             _, b, _, t = bx
             flags[k] = (t - b) < 0.85 * body and b - base > 0.15 * body
     pieces: list[str] = []
     in_sup = False
-    for k, (ch, bx) in enumerate(row):
+    for k, item in enumerate(row):
+        ch, bx = item[0], item[1]
         if bx is None:
             pieces.append(ch)
             in_sup = False
@@ -180,7 +219,21 @@ def _line_of(row: list[tuple[str, tuple[float, float, float, float] | None]]) ->
     text = re.sub(r"\^(?![\d+−–-])", "", clean(" ".join("".join(pieces).split())))  # a mark with nothing after it marks nothing
     if not text:
         return None
-    return Line(text, min(x[0] for x in boxes), min(x[1] for x in boxes), max(x[2] for x in boxes), max(x[3] for x in boxes))
+    font = ""
+    if font_of is not None:
+        # the font most of the row's own capitals are set in: not a superscript's, not a
+        # symbol's, and not one italic word's. Five of them decide; asking every glyph of a
+        # line set in capitals would say no more
+        stands = [item for ch, h, item in on_base if (ch.isdigit() or ch.isupper()) and abs(h - body) <= 0.5 and len(item) > 2]
+        step = max(len(stands) // 5, 1)
+        seen: dict[str, int] = {}
+        for item in stands[::step][:5]:
+            name = font_of(item[2])
+            if name:
+                seen[name] = seen.get(name, 0) + 1
+        if seen:
+            font = max(seen, key=lambda f: seen[f])
+    return Line(text, min(x[0] for x in boxes), min(x[1] for x in boxes), max(x[2] for x in boxes), max(x[3] for x in boxes), cap=round(body, 2) if caps else 0.0, font=font)
 
 
 def _adjacent(a: Line, b: Line) -> bool:
@@ -213,6 +266,8 @@ def _fold(prev: Line, line: Line) -> None:
         gap = prev.l - line.r
         prev.text = piece + ("" if gap < 0.15 * h else (" " if gap < 0.6 * h else "  ")) + prev.text
     prev.l, prev.b, prev.r, prev.t = min(prev.l, line.l), min(prev.b, line.b), max(prev.r, line.r), max(prev.t, line.t)
+    if line.cap > prev.cap:
+        prev.cap, prev.font = line.cap, line.font or prev.font  # the row's type is its largest capitals': a superscript never sets it
 
 
 def _cells(line: Line) -> list[str]:
@@ -406,6 +461,20 @@ def _unit_of(lines_by_page: dict[int, list[Line]]) -> float:
     return heights[len(heights) // 2] if heights else 10.0
 
 
+def _cap_of(lines: list[Line]) -> float:
+    """The type size of a block, in points: the median capital height of its rows. A row
+    whose capitals pdfium could not measure says nothing and is left out."""
+    caps = sorted(ln.cap for ln in lines if ln.cap > 0)
+    return round(caps[len(caps) // 2], 2) if caps else 0.0
+
+
+def body_cap(lines_by_page: dict[int, list[Line]]) -> float:
+    """The paper's body type size: the median capital height of its prose rows. A heading is
+    told from a subheading by its size against this, since the layout model gives most PDFs'
+    headers one level and says nothing about how they were set."""
+    return _cap_of([ln for lines in lines_by_page.values() for ln in lines if _prose(ln) and 0 < ln.height < 60])
+
+
 def _note(report: dict[str, Any], kind: str, *, page: int | None = None, box: list[float] | None = None,
           before: str | None = None, after: str | None = None, why: str | None = None, ref: str | None = None) -> None:
     """Record one modification of the recovery pass, for the page-by-page review (changes.py)."""
@@ -427,6 +496,7 @@ def recover(doc: dict[str, Any], lines_by_page: dict[int, list[Line]]) -> dict[s
     report: dict[str, Any] = {"recovered": 0, "rebuilt": 0, "formulas": 0, "attached": 0, "ligatures": 0, "tables": 0, "notes": 0}
     unit = _unit_of(lines_by_page)
     doc["_unit"] = round(unit, 2)
+    doc["_cap"] = body_cap(lines_by_page)  # the body's type size: what a header's own is read against
     texts: list[dict[str, Any]] = doc.setdefault("texts", [])
     body_children: list[dict[str, str]] = doc.setdefault("body", {}).setdefault("children", [])
     pages_meta = doc.get("pages") or {}
@@ -568,6 +638,15 @@ def recover(doc: dict[str, Any], lines_by_page: dict[int, list[Line]]) -> dict[s
 def _geometry(item: dict[str, Any], rows: list[Line], first_rows: list[Line], last_rows: list[Line], indents: list[float]) -> None:
     """First-line indent from the block's first page, last-line width from its last."""
     item["_lines"] = len(rows)
+    cap = _cap_of(rows)
+    if cap:
+        item["_cap"] = cap  # the block's type size, for the header rules in tree.py
+    fonts: dict[str, int] = {}
+    for ln in rows:
+        if ln.font:
+            fonts[ln.font] = fonts.get(ln.font, 0) + len(ln.text)
+    if fonts:
+        item["_font"] = max(fonts, key=lambda f: fonts[f])  # the type most of the block is set in
     if len(rows) < 2:
         return
     left = min(ln.l for ln in rows)

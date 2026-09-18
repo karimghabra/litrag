@@ -61,6 +61,18 @@ def test_a_superscript_digit_in_the_layer_is_marked_and_a_sliver_of_a_box_is_not
     assert _line_of(row).text == "well-de"  # a hyphen sits at mid-height: never a superscript
 
 
+def test_a_row_reads_off_the_type_its_capitals_are_set_in():
+    # pdfium's glyph index is kept so the row can be asked what font it is set in: a
+    # publisher's subheading is often the same size as its heading and only the cut differs
+    def glyph(ch, l, b, h, j):
+        return (ch, (l, b, l + 4, b + h), j)
+
+    row = [glyph("T", 10, 100, 7, 0), glyph("E", 15, 100, 7, 1), glyph("N", 20, 100, 7, 2), glyph("D", 26, 100, 7, 3)]
+    line = _line_of(row, lambda j: "GillSans-Bold/700" if j < 3 else "GillSans-Italic/500")
+    assert line.text == "TEND" and line.cap == 7.0 and line.font == "GillSans-Bold/700"  # the font most of the capitals are in
+    assert _line_of(row).font == ""  # no reader, nothing claimed
+
+
 def test_a_table_without_structure_gets_its_rows_from_the_layer():
     table = {"self_ref": "#/tables/0", "parent": {"$ref": "#/body"}, "children": [], "label": "table", "captions": [], "data": {"grid": [], "table_cells": []}, "prov": [{"page_no": 3, "bbox": {"l": 54, "t": 600, "r": 290, "b": 560, "coord_origin": "BOTTOMLEFT"}}]}
     doc = doc_of([item(0, "section_header", "3 Results", 3, 54, 700, 200, 710)], tables=[table])

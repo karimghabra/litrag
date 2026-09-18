@@ -914,30 +914,109 @@ def top_number(heading: str) -> str | None:
     return m.group(1).split(".")[0] if m else None
 
 
-def infer_level(heading: str, docling_level: int, open_top: bool, stated: bool = False) -> int:
+def infer_level(heading: str, docling_level: int, open_top: bool, stated: bool = False, typed: bool | None = None) -> int:
     """A header's depth when the layout model gives every header the same level.
 
     Numbering wins when present. A heading that names a lane (Methods, Results,
-    Discussion…) is top-level whatever it looked like on the page. Anything else
-    beneath an open top-level section is that section's child, one level down,
-    unless the layout model already placed it deeper — but only where the level is
-    the layout model's guess. With `stated`, the file says how deep its sections lie
-    (a JATS file: <sec> inside <sec>) and its word stands: a review's topical
-    sections are the paper's top level, not children of whichever section stood
-    open. Measured on 513 XML papers: 453 headings in 145 of them had been nested
-    under "Introduction" or "Conclusions" against the file, and whole review bodies
-    read as `introduction`.
+    Discussion…) is top-level whatever it looked like on the page. Then the page's own
+    type, where `type_levels` could read it: `typed` is True for a header set as this
+    paper's own sections are and False for one set otherwise, and it settles the depth
+    either way — a review's topical sections are sections, and a subsection the embedder
+    takes for a lane ("Natural Materials", under a Discussion, reads as methods) is not
+    promoted out of the section it was printed inside. Anything else beneath an open
+    top-level section is that section's child, one level down, unless the layout model
+    already placed it deeper — but only where the level is the layout model's guess. With
+    `stated`, the file says how deep its sections lie (a JATS file: <sec> inside <sec>)
+    and its word stands: a review's topical sections are the paper's top level, not
+    children of whichever section stood open. Measured on 513 XML papers: 453 headings in
+    145 of them had been nested under "Introduction" or "Conclusions" against the file,
+    and whole review bodies read as `introduction`.
     """
     depth = numbering_depth(heading)
     if depth is not None:
         return depth
     if role_of(heading, meaning=False) != "other" or top_level_lane(heading, promote=True) is not None:
         return 1  # the vocabulary's word, or the catalogue's exact spelling (two words or more) of a top-level section
-    if docling_level <= 1 and role_of(heading) != "other":
+    if typed is True:
+        return 1
+    if typed is None and docling_level <= 1 and role_of(heading) != "other":
         return 1  # a lane found by meaning keeps the depth the page gave it: top when the page set it top ("Methods Coral core collection"), never promoted from deeper
     if open_top and not stated:
         return max(docling_level, 2)
     return max(docling_level, 1)
+
+
+#: the lanes whose headings the vocabulary alone calls top-level: the anchors of the type
+#: rule below. Back matter is left out on purpose — publishers set "Acknowledgements" and
+#: "References" smaller than the body's sections (measured: BMC sets them two points down),
+#: so their type is not the type of a section.
+_ANCHOR_LANES = frozenset({"introduction", "methods", "results", "results-discussion", "discussion"})
+_CAP_TOLERANCE = 0.4  # points of capital height: how far two headings may stand and still be one size
+#: a figure's or a table's label, which many journals set in the same bold as their section
+#: headings and the layout model then calls a header. It names a picture, never a section:
+#: found the hard way — "Figure 2" opened a section that swallowed a paper's whole discussion
+_A_LABEL = re.compile(r"^\s*(?:fig(?:ure)?|table|scheme|chart|box|panel|exhibit|plate)\.?\s*S?\d", re.I)
+
+
+def _type_of(item: dict[str, Any]) -> tuple[str, float, bool]:
+    """How a header is set: the font its capitals are in, their height, and whether it is all
+    capitals. The three together are what a publisher varies between its levels."""
+    return str(item.get("_font") or ""), float(item.get("_cap") or 0.0), (item.get("text") or "").strip().isupper()
+
+
+def type_levels(items: list[dict[str, Any]], body_cap: float = 0.0, tolerance: float = _CAP_TOLERANCE) -> dict[int, bool]:
+    """Which headers are set as the paper's own top-level sections are: `{id(item): True}`
+    for those, `False` for those set otherwise, and absent where the page says nothing.
+
+    The layout model gives most PDFs' headers one level, so `infer_level` files every header
+    that names no lane under whichever section stands open. That is right for "Statistical
+    analysis" under Methods and wrong for a review, whose topical sections are the paper's
+    top level and whose whole body then reads as one introduction. The page says which it is:
+    a publisher sets a section's heading and a subsection's in different type — a different
+    size (BMC: 7.1pt capitals against 6.3), a different cut of the same family (SAGE: Gill
+    Sans Bold against Gill Sans Medium Italic), or the same type in capitals rather than
+    caps-and-lower (Frontiers: INTRODUCTION against Eligibility Criteria). So the headings
+    the vocabulary *knows* are top-level — Introduction, Methods, Results, Discussion — say
+    what this paper's top level is set in, and a header set the same way is one of them.
+
+    Two such anchors of one type are asked for, so that a single oddly-set heading decides
+    nothing, and only a header the layout model put at its top level is spoken for: where the
+    model did mark depth, its word stands. `body_cap` is the paper's body type size
+    (`recover.body_cap`): a section's heading is never set smaller than the body it heads,
+    so an anchor type that is says the measurement went wrong, and nothing is decided.
+    """
+    heads = [it for it in items if it.get("label") == "section_header" and (it.get("text") or "").strip()]
+    anchors = [it for it in heads if _lane_by_rule(it.get("text") or "") in _ANCHOR_LANES and it.get("_cap")]
+    best: list[dict[str, Any]] = []
+    for a in anchors:
+        font, cap, upper = _type_of(a)
+        same = [b for b in anchors if _type_of(b)[0] == font and _type_of(b)[2] == upper and abs(_type_of(b)[1] - cap) <= tolerance]
+        if len(same) > len(best):
+            best = same
+    if len(best) < 2:
+        return {}
+    font, upper = _type_of(best[0])[0], _type_of(best[0])[2]
+    cap = sum(_type_of(b)[1] for b in best) / len(best)
+    if body_cap and cap < body_cap - tolerance:
+        return {}
+    out: dict[int, bool] = {}
+    for it in heads:
+        text = (it.get("text") or "").strip()
+        if _lane_by_rule(text) is not None or numbering_depth(text) is not None or int(it.get("level") or 1) > 1:
+            continue  # the rules already place it, or the layout model said how deep it lies
+        if _A_LABEL.match(text):
+            continue  # a figure's label in the sections' type is still a figure's label
+        f, c, u = _type_of(it)
+        if c:
+            out[id(it)] = f == font and u == upper and abs(c - cap) <= tolerance
+    return out
+
+
+def _lane_by_rule(heading: str) -> str | None:
+    """The lane the vocabulary or the catalogue names, without the embedder: None where
+    neither knows the heading. What `infer_level` asks before it looks at the page."""
+    lane = role_of(heading, meaning=False)
+    return lane if lane != "other" else top_level_lane(heading, promote=True)
 
 
 _MERGED = re.compile(r"^(?P<head>(?:\d+\.\s+)?[A-Za-z][^.]{2,60}?)\s+(?P<num>\d+)\.(?P<sub>\d+)\.?\s+(?P<rest>\S.*)$")
@@ -1553,6 +1632,9 @@ def build_tree(doc: dict[str, Any], key: str, title_hint: str | None = None, jud
                 attach(abstract, make(abstract, "paragraph", it, text, "abstract"))
         items = body_items
 
+    # which headers this paper sets in the type of its own sections and which in the type of
+    # its subsections (type_levels): the layout model gives most PDFs' headers one level
+    by_type = type_levels(items, float(doc.get("_cap") or 0.0)) if pages else {}  # a PDF's page; an XML states its depths
     first_title_taken = title_ref is not None
     for index, item in enumerate(items):
         label = item.get("label", "text")
@@ -1606,7 +1688,21 @@ def build_tree(doc: dict[str, Any], key: str, title_hint: str | None = None, jud
             if label == "title" or item.get("_built"):
                 level = 1
             else:
-                level = infer_level(text, level, any(lvl == 1 for lvl, _ in stack), stated=not pages)
+                open_top_here = any(lvl == 1 for lvl, _ in stack)
+                typed = by_type.get(id(item))
+                level = infer_level(text, level, open_top_here, stated=not pages, typed=typed)
+                if typed is not None and level != infer_level(text, int(item.get("level") or 1), open_top_here, stated=not pages):
+                    # the page's own type moved this heading (type_levels): a heading set as
+                    # the paper's sections are opens a section of its own, and one set as its
+                    # subsections are stays inside the section it was printed in
+                    under = next((n.heading for lvl, n in stack if lvl == 1), None)
+                    page_no, box = _where(item)
+                    inside, alone = f"{text} — a subsection of {under!r}", f"{text} — a section of its own"
+                    repairs.note("heading_level", page=page_no, box=box,
+                                 before=inside if typed else alone, after=alone if typed else inside,
+                                 ref=item.get("self_ref"),
+                                 why=f"set as this paper's {'own sections' if typed else 'subsections'} are"
+                                     f" ({item.get('_font') or 'font unknown'}, {item.get('_cap')}pt capitals)")
                 if level == 1 and role_of(text, meaning=False) == "other" and next((n.role for lvl, n in stack if lvl == 1), None) == "references" and _entries_follow(items, index):
                     level = 2  # a statement the layout model read between the entries, named by the catalogue or by meaning: the list goes on after it, so it stays inside
             number = top_number(text)

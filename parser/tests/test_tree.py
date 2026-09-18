@@ -113,6 +113,12 @@ def test_helpers():
     assert infer_level("Western blot", 1, True) == 2
     assert infer_level("RESULTS", 1, True) == 1
     assert infer_level("Western blot", 1, False) == 1
+    # the page's own type, where it could be read: it settles the depth either way
+    assert infer_level("Tendon biology", 1, True, typed=True) == 1
+    assert infer_level("Tendon biology", 1, True, typed=False) == 2
+    assert infer_level("2.1 Cells", 1, True, typed=True) == 2  # numbering still wins
+    assert infer_level("Statistical methods", 1, True) == 1  # a lane by meaning, with nothing else to go on
+    assert infer_level("Statistical methods", 1, True, typed=False) == 2  # set as this paper's subsections are
     assert undouble("3.4. Simulation Results 3.4. Simulation Results") == "3.4. Simulation Results"
     assert undouble("Results") == "Results"
     r = rescue_merged_heading({"label": "list_item", "text": "Experimental Results 3.1. Quantification of Crosslinking 3.1. Quantification", "self_ref": "#/texts/1", "prov": []})
@@ -302,3 +308,79 @@ def test_a_table_footnote_is_a_node_after_its_table():
     kinds = [(n.type, n.text[:22]) for n in tree.walk() if n.type in ("table", "caption", "footnote", "paragraph")]
     assert kinds == [("table", ""), ("caption", "TABLE I. Host response"), ("footnote", "a Parameters were defi"), ("paragraph", "Scores rose with time ")]
 
+
+
+# ---- a heading's depth from the type it is set in ----
+
+
+def typed_doc():
+    """A review whose layout model gave every header one level: two headings set as the
+    paper's own sections are, one set as its subsections are."""
+    def head(i, text, page, cap, font, level=1):
+        return {"self_ref": f"#/texts/{i}", "parent": {"$ref": "#/body"}, "children": [], "label": "section_header", "text": text, "level": level,
+                "_cap": cap, "_font": font, "prov": [{"page_no": page, "bbox": {"l": 54, "t": 700, "r": 200, "b": 690, "coord_origin": "BOTTOMLEFT"}}]}
+
+    def para(i, text, page):
+        return {"self_ref": f"#/texts/{i}", "parent": {"$ref": "#/body"}, "children": [], "label": "text", "text": text,
+                "_cap": 6.1, "_font": "Gill-Regular/400", "prov": [{"page_no": page, "bbox": {"l": 54, "t": 660, "r": 290, "b": 600, "coord_origin": "BOTTOMLEFT"}}]}
+
+    items = [
+        {"self_ref": "#/texts/0", "parent": {"$ref": "#/body"}, "children": [], "label": "title", "text": "Genipin crosslinked biomaterials in the skeletal system", "prov": [{"page_no": 1, "bbox": {"l": 54, "t": 760, "r": 400, "b": 740, "coord_origin": "BOTTOMLEFT"}}]},
+        head(1, "Introduction", 1, 8.2, "Gill-Bold/700"),
+        para(2, "Tendon injuries are common and heal slowly, and the repaired tissue rarely regains the strength of the tissue it replaces.", 1),
+        head(3, "Use of genipin in tissue regeneration", 2, 8.2, "Gill-Bold/700"),
+        para(4, "Genipin is a natural crosslinker extracted from the fruit of Gardenia jasminoides and used to stabilise collagen scaffolds.", 2),
+        head(5, "Articular cartilage regeneration", 2, 8.2, "Gill-MediumItalic/500"),
+        para(6, "Crosslinked scaffolds seeded with chondrocytes kept their shape for twelve weeks in the defect and carried load.", 2),
+        head(7, "Conclusion", 3, 8.2, "Gill-Bold/700"),
+        para(8, "Genipin crosslinking is a promising route to stable scaffolds, and its safety in man is still to be shown.", 3),
+    ]
+    return {"name": "d", "body": {"self_ref": "#/body", "children": [{"$ref": it["self_ref"]} for it in items]}, "texts": items,
+            "pictures": [], "tables": [], "groups": [], "pages": {str(p): {"page_no": p, "size": {"width": 600, "height": 800}} for p in (1, 2, 3)}}
+
+
+def test_a_heading_set_as_the_papers_own_sections_are_opens_a_section():
+    tree = build_tree(typed_doc(), "k")
+    tops = [(n.heading, n.role, n.level) for n in sections(tree) if n.level == 1]
+    assert ("Use of genipin in tissue regeneration", "other", 1) in tops  # not a child of the introduction
+    topical = next(n for n in sections(tree) if n.heading == "Use of genipin in tissue regeneration")
+    assert topical.children[0].role == "other"  # and its prose is not the introduction's
+    # the subheading, set in the italic the paper uses for its subsections, stays inside it
+    sub = next(n for n in sections(tree) if n.heading == "Articular cartilage regeneration")
+    assert sub.level == 2 and sub.parent == topical.node_id
+
+
+def test_the_type_rule_writes_down_what_it_moved_and_why():
+    tree = build_tree(typed_doc(), "k")
+    moved = [e for e in tree.repairs.log if e["kind"] == "heading_level"]
+    assert [e["after"] for e in moved] == ["Use of genipin in tissue regeneration — a section of its own"]
+    assert moved[0]["before"] == "Use of genipin in tissue regeneration — a subsection of 'Introduction'"
+    assert moved[0]["page"] == 2 and moved[0]["box"] is not None
+    assert "Gill-Bold/700" in moved[0]["why"] and tree.repairs["heading_level"] == 1
+
+
+def test_a_figures_label_in_the_sections_type_stays_a_label():
+    doc = typed_doc()
+    for it in doc["texts"]:
+        if it["text"] == "Use of genipin in tissue regeneration":
+            it["text"] = "Figure 2"  # journals set figure labels in the same bold as their headings
+    tree = build_tree(doc, "k")
+    assert not [e for e in tree.repairs.log if e["kind"] == "heading_level"]
+    assert next(n for n in sections(tree) if n.heading == "Figure 2").level == 2
+
+
+def test_nothing_is_moved_where_the_headings_are_set_smaller_than_the_body():
+    doc = typed_doc()
+    doc["_cap"] = 9.0  # the body's capitals stand taller than the headings': the measurement is not to be trusted
+    tree = build_tree(doc, "k")
+    assert not [e for e in tree.repairs.log if e["kind"] == "heading_level"]
+
+
+def test_nothing_is_moved_where_the_page_shows_only_one_section_of_its_kind():
+    doc = typed_doc()
+    for it in doc["texts"]:
+        if it["text"] == "Conclusion":
+            it["text"] = "Closing thoughts"  # now only "Introduction" names a lane: one anchor, no type to match
+    tree = build_tree(doc, "k")
+    assert not [e for e in tree.repairs.log if e["kind"] == "heading_level"]
+    assert next(n for n in sections(tree) if n.heading == "Use of genipin in tissue regeneration").level == 2

@@ -62,6 +62,7 @@ STAGES: dict[str, str] = {
     "canonical_meaning": "structure",
     "label_veto": "structure",
     "front_meaning": "structure",
+    "heading_level": "structure",      # a heading set in the type of the paper's own sections, taken out of the section above it
     "laned": "structure",              # a section whose heading names nothing, read by its paragraphs
     "lane_disagreement": "structure",  # the heading and the paragraphs disagree: noted, never applied
     "captions_meaning": "structure",

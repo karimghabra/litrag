@@ -119,3 +119,19 @@ def test_geometry_decides_a_continuation_before_any_judge():
     paragraphs = [n.text[:30] for n in tree.walk() if n.type == "paragraph"]
     assert paragraphs == ["The samples were fixed in para", "Results were expressed as mean"]  # joined by the page's geometry, not by a model
     assert tree.repairs.get("joined") == 1 and asked == []
+
+
+def test_a_block_says_what_type_it_is_set_in():
+    # the type is how a heading is told from a subheading: the layout model gives both one level
+    texts = [
+        item(0, "section_header", "Introduction", 3, 54, 700, 130, 710),
+        item(1, "text", "Tendon injuries are common and heal slowly, and the repaired tissue rarely regains its strength.", 3, 54, 600, 290, 690),
+    ]
+    doc = doc_of(texts)
+    p3 = lines([("Introduction", 54, 700, 130, 710), ("Tendon injuries are common and heal slowly, and the", 54, 680, 290, 690), ("repaired tissue rarely regains its strength.", 54, 668, 230, 678)])
+    p3[0].cap, p3[0].font = 8.2, "GillSans-Bold/700"
+    p3[1].cap, p3[1].font = 6.1, "GillSans-Regular/400"
+    p3[2].cap, p3[2].font = 6.1, "GillSans-Regular/400"
+    recover(doc, {3: p3})
+    assert doc["texts"][0]["_cap"] == 8.2 and doc["texts"][0]["_font"] == "GillSans-Bold/700"
+    assert doc["texts"][1]["_cap"] == 6.1 and doc["_cap"] == 6.1  # the body's own size, which the headings are read against
