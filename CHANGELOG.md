@@ -34,6 +34,33 @@ whole corpus read that way, so the reader can be checked rather than trusted.
 - `parser/litrag_parser/summary.py` (new): the corpus on one page — what was
   read, from which publishers, in which formats, what the reader did to it,
   and every measurement that has been run, linking into the per-paper reports.
+  Each run renders as a table rather than as JSON: the two formats side by
+  side with the counts behind every rate, the PDF scored against its own XML,
+  each type source ranked by the accuracy it earns where it answers, the
+  heading catalogue at each threshold, and the trust score against the error
+  it exists to predict. A measurement that was never run leaves no section
+  behind, so no number on the page is one the page invented.
+
+Measured, on the whole corpus, with the failures named.
+
+- 797 papers in seven libraries (284 PDF, 513 publisher JATS), twelve runs,
+  none failed. The reader finds the right title on 0.989 of PDFs and 1.000 of
+  XML, reads 0.968/0.992 of papers with no audit error, and finds a methods
+  section or correctly calls the paper a review 0.944/0.951 of the time.
+- 199 of those papers exist in both formats, so the XML can score the PDF
+  reading: word recall 0.990, paragraphs missing 0.001, **faithful 0.840**.
+  Nothing is lost; one word in six is filed under the wrong heading, because
+  the PDF finds only about 0.83 of the headings the XML declares.
+- The type cascade scores 0.786 while every source it gates is accurate
+  (printed 1.000, title 0.941, subject 0.935, shape alone 0.929, together
+  0.932); the whole loss is the `other` bucket, which names 41 papers and is
+  right about one.
+- The trust score is decisive at the bottom and weak at the top: its lowest
+  band averages 0.384 faithful with 25 of 30 seriously mismatched, but 11 of
+  129 papers scoring ≥0.9 are seriously mismatched, five at exactly 1.0.
+  AUC 0.788.
+- The heading catalogue holds up with each library's own headings withheld:
+  lane precision 1.000 / recall 0.995, canonical name 0.994 / 0.902.
 
 Meaning everywhere a list used to be, and a scorer for the one question
 meaning cannot answer.
