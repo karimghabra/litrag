@@ -19,6 +19,7 @@ and which switches are experiments. `DESIGN.md` has the reasons; `AGENT.md`
 | `parser/`, the worker (`uv run --project parser litrag-parser`) | current | what the window does, and the ops it has no button for, among them `rebuild`, `judge`, `audit` and `sql` |
 | `npm run harness`, `npm run audit` | current | judging a change to the reader on whole libraries |
 | `python -m litrag_parser.review` | current | reading, paper by paper and page by page, **what the reader did**: every page drawn, every node boxed in its lane, every modification numbered where it happened with the text before and after, and an index over any set of libraries |
+| `python -m litrag_parser.summary`, `.report` | current | the corpus on one page — every library, publisher, kind of paper and measurement, in tables — and the front page over it: what the reader does, what it scores against the XML of the same papers, and what is most wrong with it. Both read what the measurements wrote; neither invents a number |
 | `python -m litrag_parser.headings`, `.meaning`, `.paper_type`, `.edges`, `.judge`, `.boundary` | maintenance | regenerating the shipped centroids, measuring a kind or the type before it decides, fetching Europe PMC records, running or calibrating the opt-in judges |
 | `python -m litrag_parser.pairs`, `.confidence --calibrate` | measurement | a PDF's reading against the XML's of the same paper, from two libraries; the confidence score against those pairs. The truth every change to the reader or to the score is judged on |
 | `src/` and `tests/`, the `lit` CLI (`npm run lit`, `bin/lit.js`) | deprecated | nothing new: it searches and fetches from Europe PMC and retrieves over `lit.sqlite`; its verbs are to be ported to `store.sqlite` one at a time and struck from `src/` (`BACKLOG.md`) |
@@ -101,9 +102,15 @@ they always did — the log never disagrees with them — and `tree.changes` is 
 yet is named in the review rather than hidden, so the two can be read against each other.
 
 ```
-uv run --project parser python -m litrag_parser.review --lib <library> --out <outside the repo>/review
-                                                       [--limit N] [--key KEY] [--format pdf|jats] [--scale 1.4]
+uv run --project parser python -m litrag_parser.review  --lib <library> --out <outside the repo>/review
+                                                        [--limit N] [--key KEY] [--format pdf|jats] [--scale 1.4]
+uv run --project parser python -m litrag_parser.summary --review <dir> --measure <dir> [--lib <library> ...]
+uv run --project parser python -m litrag_parser.report  --review <dir> --measure <dir>
 ```
+
+`summary` puts the corpus in tables and `report` writes the page over both — the argument, with every figure,
+including the ones inside its prose, read out of the measurement run rather than typed. A measurement that was
+never run leaves no section behind instead of a row of zeroes that read as a result.
 
 Nothing is written to a library: the trees are rebuilt in memory the way `rebuild` reads them, and the pages
 are drawn from the paper's own file. One paper that fails is reported and the run goes on.
