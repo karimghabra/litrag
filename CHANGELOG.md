@@ -63,10 +63,16 @@ Measured on the whole corpus, then fixed where the measurement pointed.
   of 801 papers have no gap at all. The shortfall is one pass that counts
   reference entries one by one and records the list as a single change.
 
-Named, not fixed: in-text citations agree with the XML's markup 0.734 of the
-time; the type rules are right for biomedical literature and read an ML
-preprint as a review, which this corpus cannot see; `other` recall is 0.0 and
-letter recall 0.5.
+- In-text citations against the XML's own markup: **0.734 -> 0.758** pooled
+  (0.808 -> 0.819, 0.672 -> 0.723, 0.732 -> 0.753), after seven printed styles
+  that were being missed and six kinds of false positive that were not.
+
+Named, not fixed: **34 of 199 papers have a truncated or absent reference
+lane, costing 2,683 of the 3,630 missing citation links** — two of them hold
+zero reference nodes against the XML's 192 and 294, so their markers are read
+perfectly and link nowhere. That is the biggest remaining lever. The type
+rules are right for biomedical literature and read an ML preprint as a review,
+which this corpus cannot see; `other` recall is 0.0 and letter recall 0.5.
 
 Meaning everywhere a list used to be, and a scorer for the one question
 meaning cannot answer.
