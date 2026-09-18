@@ -28,6 +28,14 @@ def pct(value: float | None, places: int = 1) -> str:
     return "—" if value is None else f"{float(value) * 100:.{places}f}%"
 
 
+def _landing_words(where: str) -> str:
+    """`pairs.py` names a destination "lane methods", "nowhere", "caption"; say it as a person would."""
+    if where.startswith("lane "):
+        return f"read as {where[5:]}"
+    return {"nowhere": "read into no section at all", "front matter": "read as front matter",
+            "caption": "read as a caption", "heading": "read as a heading"}.get(where, f"read as {where}")
+
+
 def num(value: float | None, places: int = 3) -> str:
     """A measured figure, or a dash. Never a zero — a zero here reads as a measurement that came out badly."""
     return "—" if value is None else f"{float(value):.{places}f}"
@@ -267,8 +275,15 @@ def build(n: dict, publishers: int = 0, changes: int = 0, worst: list[dict] | No
     )
 
     # Each failure card quotes the measurement's own worst cases, so the prose cannot drift from the run.
-    flows = (allp.get("lane_confusion_word_counts") or {})
-    worst_flows = ", ".join(f"{words:,} words {name}" for name, words in list(flows.items())[:3])
+    # Where the XML's body words actually landed, weighted by length — a long paper misread costs the
+    # corpus more than a short one. "same lane" is the part that went right, so it is not a failure to name.
+    landed = allp.get("word_weighted_landing") or {}
+    landed_words = allp.get("word_weighted_landing_words") or {}
+    astray = [(where, share) for where, share in landed.items() if where != "same lane"][:3]
+    worst_flows = ", ".join(
+        f"{share:.1%} {_landing_words(where)}" + (f" ({landed_words[where]:,} words)" if where in landed_words else "")
+        for where, share in astray
+    )
 
     shipped = by_source.get("cascade-shipped") or {}
     other = (shipped.get("per_type") or {}).get("other") or {}
@@ -285,11 +300,11 @@ def build(n: dict, publishers: int = 0, changes: int = 0, worst: list[dict] | No
     cards = []
     if mean.get("faithful") is not None and worst_flows:
         cards.append(f"""  <div class="fail">
-    <h4>{len(cards) + 1}. A missed heading swallows the section behind it</h4>
-    <p>This is the entire gap between {pct(mean.get("recall"))} read and {pct(mean.get("faithful"))} filed
-    correctly. Nothing is lost; it lands under the previous heading.</p>
-    <div class="ev">Where the words actually go, by the measurement's own count: {worst_flows}. The worst
-    papers are reviews whose every section was read as part of the introduction.</div>
+    <h4>{len(cards) + 1}. Text read correctly, then filed under the wrong heading</h4>
+    <p>The gap between {pct(mean.get("recall"))} of the words read and {pct(mean.get("faithful"))} filed
+    correctly. Nothing is lost — it lands in a neighbouring section, which for a retriever that walks the
+    tree is the error that matters.</p>
+    <div class="ev">Where the words actually go, by the measurement's own count: {worst_flows}.</div>
   </div>""")
     if other.get("named"):
         cards.append(f"""  <div class="fail">
