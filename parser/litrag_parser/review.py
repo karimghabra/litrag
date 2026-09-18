@@ -1147,7 +1147,8 @@ def render_index(rows: list[dict[str, Any]], out_root: Path) -> Path:
 <title>What the reader did — {len(rows)} papers</title><style>{INDEX_CSS}</style></head><body>
 <header class="top"><h1>What the reader did</h1>
 <div class="meta">{len(read)} papers read · {sum(r["pages"] for r in read)} pages · {sum(r["changes"] for r in read)} modifications ({_e(summary)})
-{f" · {len(failed)} failed" if failed else ""}</div></header>
+{f" · {len(failed)} failed" if failed else ""}
+ · <a href="report.html">what this shows</a> · <a href="summary.html">the corpus, measured</a></div></header>
 <main>
 {controls}
 <div class="side">

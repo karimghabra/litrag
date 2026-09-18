@@ -415,7 +415,7 @@ def build(review: Path, measure: Path, libs: list[Path]) -> str:
 <title>The reader, measured — litrag</title><style>{CSS}</style></head><body>
 <header><h1>Reading scientific papers into structure</h1>
 <div class="sub">What the corpus is, what the reader does to it, and how well that has been measured ·
-<a href="index.html">every paper, page by page</a></div></header>
+<a href="report.html">what this shows</a> · <a href="index.html">every paper, page by page</a></div></header>
 <main>
 <div class="stats">{stat_html}</div>
 
