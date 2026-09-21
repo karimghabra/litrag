@@ -2198,7 +2198,13 @@ def build_tree(doc: dict[str, Any], key: str, title_hint: str | None = None, jud
                 if by_rule is None and role in _NOT_NUMBERED and top_number(text) is not None:
                     role = "other"  # a heading that carries a body number is a body section: of 3,664 back-matter sections across three corpora, the only numbered one was a review's "8. Regulatory and Ethical Considerations", laned back by meaning — unassignable beats misassigned
             held_back = None
-            if CANONICAL_ONLY and level == 1 and role != "other" and text and not item.get("_built"):
+            # `pages` means this came from a PDF. A JATS file *states* its structure — its title
+            # is its title — and this policy is about a layout model's uncertainty, so applying
+            # it to an XML would withhold lanes the file declares outright. It would also wreck
+            # any measurement made with one: the first end-to-end run of this rule moved the
+            # witness's own `other` count from 914 to 2,408, because the twin was being filtered
+            # alongside the reading. A comparison that changes both sides measures nothing.
+            if pages and CANONICAL_ONLY and level == 1 and role != "other" and text and not item.get("_built"):
                 known, guess = _recognised_by(text, role)
                 if len(known) < CANONICAL_ONLY:
                     role, held_back = "other", (guess, known)

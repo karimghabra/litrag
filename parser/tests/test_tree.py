@@ -582,3 +582,27 @@ def test_the_floor_is_off_and_changes_nothing(monkeypatch):
     tree = build_tree(doc, "k")
     assert not any(n.guess for n in tree.walk())
     assert "lane_held_for_agreement" not in tree.repairs
+
+
+def test_the_floor_never_touches_a_jats_reading(monkeypatch):
+    """A JATS file states its structure; this policy is about a layout model's uncertainty.
+
+    It is also what makes the policy measurable at all. The first end-to-end run applied the
+    floor to both sides of the comparison and moved the *witness's* own `other` count from 914
+    to 2,408 — a comparison that changes both sides measures nothing."""
+    import importlib
+    import json as _json
+
+    import litrag_parser.tree as t
+
+    monkeypatch.setenv("LITRAG_CANONICAL_ONLY", "3")
+    importlib.reload(t)
+    try:
+        xml = t.build_tree(_json.loads((FIXTURES / "PMC11278924.jats.docling.json").read_text("utf-8")), "k")
+        assert not any(n.guess for n in xml.walk()), "the witness must be built by the baseline reader"
+        assert "lane_held_for_agreement" not in xml.repairs
+        pdf = t.build_tree(_json.loads((FIXTURES / "PMC11278924.docling.json").read_text("utf-8")), "k")
+        assert any(n.guess for n in pdf.walk()), "and the PDF reading must still be filtered"
+    finally:
+        monkeypatch.delenv("LITRAG_CANONICAL_ONLY", raising=False)
+        importlib.reload(t)
