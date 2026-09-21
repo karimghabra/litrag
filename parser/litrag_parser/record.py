@@ -86,13 +86,20 @@ def jats_journal(xml: bytes | None) -> tuple[str | None, str | None]:
     return (_text(j.group(1)) or None if j else None), (y.group(1) if y else None)
 
 
-def lookup_record(doi: str | None = None, pmid: str | None = None, timeout: float = 6.0) -> dict[str, Any] | None:
-    """Europe PMC's record for one paper, by DOI else PMID: `{pub_types, authors, journal,
-    year}` — the authors as the record's author string gives them, surname and initials,
-    with no affiliations. None offline or when the record is unknown."""
-    if not doi and not pmid:
+def lookup_record(doi: str | None = None, pmid: str | None = None, timeout: float = 6.0,
+                  pmcid: str | None = None) -> dict[str, Any] | None:
+    """Europe PMC's record for one paper, by DOI, else PMID, else PMCID: `{pub_types, authors,
+    journal, year}` — the authors as the record's author string gives them, surname and initials,
+    with no affiliations. None offline or when the record is unknown.
+
+    A paper filed under its PMCID — which is what a PDF printing no DOI is filed under — had no
+    route to a record at all before. It is asked for last and checked: `NOTES.md` records a
+    round where a PMCID's digits were passed as `EXT_ID` and fetched a *different article
+    entirely*, caught only because the titles were absurd. So the query names `PMCID:` and the
+    answer is refused unless it carries back the PMCID that was asked for."""
+    if not doi and not pmid and not pmcid:
         return None
-    query = f'DOI:"{doi}"' if doi else f"EXT_ID:{pmid} AND SRC:MED"
+    query = f'DOI:"{doi}"' if doi else f"EXT_ID:{pmid} AND SRC:MED" if pmid else f"PMCID:{pmcid}"
     url = f"https://www.ebi.ac.uk/europepmc/webservices/rest/search?query={urllib.parse.quote(query)}&format=json&resultType=lite&pageSize=1"
     try:
         with urllib.request.urlopen(url, timeout=timeout) as resp:
@@ -103,6 +110,8 @@ def lookup_record(doi: str | None = None, pmid: str | None = None, timeout: floa
     if not hits:
         return None
     h = hits[0]
+    if not doi and not pmid and pmcid and str(h.get("pmcid") or "").upper() != str(pmcid).upper():
+        return None  # the service answered about another paper: no record beats the wrong one
     authors = [{"name": a.strip().rstrip("."), "affiliations": [], "corresponding": False} for a in (h.get("authorString") or "").split(",") if a.strip()]
     return {
         "pub_types": [p.strip() for p in (h.get("pubType") or "").split(";") if p.strip()],

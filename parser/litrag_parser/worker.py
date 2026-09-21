@@ -419,8 +419,8 @@ class Worker:
                         src.unlink()  # the inbox is a doorway, not a shelf
                 conn.execute("UPDATE papers SET file = ?, format = ?, sha256 = ? WHERE key = ?", (dest.name, fmt, sha, result.key))
             conn.commit()
-            if not already and not req.get("offline") and (doi or pmid):
-                record = lookup_record(doi, pmid)  # Europe PMC's word: who wrote it, where, when, and what kind of paper it is — kept with the paper
+            if not already and not req.get("offline") and (doi or pmid or pmcid):
+                record = lookup_record(doi, pmid, pmcid=pmcid)  # Europe PMC's word: who wrote it, where, when, and what kind of paper it is — kept with the paper
                 if record:
                     set_record(conn, result.key, **record)
             log_event(conn, result.key, now_iso(), "filed", f"{'seen before, kept' if already else 'seen before' if result.existed else 'new'}: {src.name}")
