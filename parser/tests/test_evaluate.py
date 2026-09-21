@@ -16,6 +16,7 @@ import pytest
 
 from litrag_parser.evaluate import (
     Landing, accounting, layer_words, bootstrap, by_lane, check_no_leak, confusion, coverage_of, landings,
+    node_verdicts,
     precision_and_coverage, precision_of, redact, risk_coverage, SplitViolation,
 )
 from litrag_parser.tree import build_tree
@@ -380,3 +381,96 @@ def test_one_document_owning_the_weight_is_reported(tmp_path=None):
     assert got["precision"] < 0.1  # the micro-average is that document
     assert got["precision_median_paper"] == 1.0  # the typical paper is not
     assert got["papers"] == 10
+
+
+# ---- the witness's opinion of a node, which is what a located finding is priced against -----
+
+
+def test_node_verdicts_speak_only_about_blocks_the_witness_can_see():
+    """A caption, a table, a heading: the XML twin has no paragraph there, so the block is
+    absent from the verdicts rather than present and correct. Counting the unjudgeable as right
+    would flatter every invariant priced against it."""
+    pdf, xml = _trees()
+    got = node_verdicts(pdf, xml)
+    assert got, "the fixture pair should produce verdicts"
+    kinds = {v.kind for v in got.values()}
+    assert kinds <= {"paragraph", "list_item"}, kinds
+    ids = {n.node_id for n in pdf.walk()}
+    assert set(got) < ids  # strictly fewer blocks than the reading has
+
+
+def test_a_well_read_paper_has_few_wrong_blocks():
+    pdf, xml = _trees()
+    got = node_verdicts(pdf, xml)
+    wrong = sum(1 for v in got.values() if v.wrong)
+    assert wrong / len(got) < 0.25, (wrong, len(got))
+
+
+def test_swapping_two_lanes_in_the_reading_makes_those_blocks_wrong():
+    """The same mutation `precision_of` is shown failing under, seen from the other side: the
+    blocks themselves, which is the side an invariant fires at."""
+    pdf, xml = _trees()
+    before = sum(1 for v in node_verdicts(pdf, xml).values() if v.lane_wrong)
+    for n in pdf.walk():
+        if n.role == "methods":
+            n.role = "results"
+        elif n.role == "results":
+            n.role = "methods"
+    after = node_verdicts(pdf, xml)
+    assert sum(1 for v in after.values() if v.lane_wrong) > before + 10
+    assert all(v.wrong for v in after.values() if v.lane_wrong)
+
+
+def test_gluing_two_paragraphs_together_is_seen_as_a_merge():
+    """The two blocks glued have to be two the *witness* has as separate paragraphs.
+
+    The first cut of this test took the first two long paragraphs of a section, and one of them
+    was the fixture's front-matter citation line — text the XML twin does not have at all. Gluing
+    it to its neighbour merges nothing, and the test failed for a reason that had nothing to do
+    with the measure. So the blocks are chosen from the verdicts themselves."""
+    pdf, xml = _trees()
+    before = node_verdicts(pdf, xml)
+    assert not any(v.merged for v in before.values())
+    single = {nid for nid, v in before.items() if v.paragraphs == 1}
+    for section in pdf.walk():
+        kids = [c for c in section.children if c.node_id in single]
+        if len(kids) >= 2:
+            kids[0].text = kids[0].text + " " + kids[1].text
+            section.children.remove(kids[1])
+            break
+    else:
+        pytest.skip("the fixture has no section with two judgeable paragraphs")
+    after = node_verdicts(pdf, xml)
+    merged = [v for v in after.values() if v.merged]
+    assert merged and all(v.wrong for v in merged)
+
+
+def test_cutting_a_paragraph_in_two_is_seen_as_a_split():
+    pdf, xml = _trees()
+    before = sum(1 for v in node_verdicts(pdf, xml).values() if v.holds_a_split)
+    from litrag_parser.tree import Node
+
+    for section in pdf.walk():
+        for i, c in enumerate(list(section.children)):
+            if c.type == "paragraph" and len(c.text) > 600:
+                half = len(c.text) // 2
+                tail = Node(**{**c.__dict__, "node_id": c.node_id + "#tail",
+                               "text": c.text[half:], "children": []})
+                c.text = c.text[:half]
+                section.children.insert(i + 1, tail)
+                after = sum(1 for v in node_verdicts(pdf, xml).values() if v.holds_a_split)
+                assert after > before, (before, after)
+                return
+    pytest.skip("the fixture has no paragraph long enough to cut")
+
+
+def test_a_landing_names_the_block_it_landed_in():
+    """`xml_node` says which paragraph of the witness a row is about; `pdf_node` says which
+    block of the reading is answerable for it. Without the second, a finding at a node cannot be
+    joined to the witness at all."""
+    rows = _rows()
+    landed = [r for r in rows if r.where != "nowhere"]
+    assert landed and all(r.pdf_node for r in landed)
+    assert all(not r.pdf_node for r in rows if r.where == "nowhere")
+    ids = {n.node_id for n in _trees()[0].walk()}
+    assert {r.pdf_node for r in landed} <= ids

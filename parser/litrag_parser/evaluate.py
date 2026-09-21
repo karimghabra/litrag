@@ -160,6 +160,10 @@ class Landing:
     #: the witness paragraph this is about. Carried so an audit can find the text again and show
     #: it — a disagreement without its quote and its page is a number nobody can check.
     xml_node: str = ""
+    #: the block of the *reading* it mostly landed in, when it landed anywhere. `xml_node` says
+    #: which paragraph of the witness this row is about; this says which block of the PDF is
+    #: answerable for it, which is what an invariant firing at a node has to be joined against.
+    pdf_node: str = ""
     #: where it went when no lane was asserted — "front matter", "caption", "heading", "table",
     #: "nowhere", or "silent" for prose the reader kept but declined to lane. Without this the
     #: largest error class the reader has would be invisible: body prose swallowed by a
@@ -189,8 +193,10 @@ def landings(pdf: Tree, xml: Tree, *, paper: str, prefix: str, split: str,
         held, _ = _held(u, landed, pu) if landed else (0.0, 0.0)
         lane: str | None = None
         where = "nowhere"
+        pdf_node = ""
         if landed and held >= 0.5:  # the same bar `pairs.py` uses before it calls a paragraph found
             top = pu[_top(landed)]
+            pdf_node = top.node_id
             if top.prose:
                 lane, where = top.role, "silent" if top.role == "other" else "a lane"
             elif top.front:
@@ -202,8 +208,87 @@ def landings(pdf: Tree, xml: Tree, *, paper: str, prefix: str, split: str,
             paper=paper, prefix=prefix, split=split, familiar=familiar, paper_type=paper_type,
             words=sum(u.tokens.values()), xml_lane=u.role, pdf_lane=lane,
             asserted=asserted, correct=bool(asserted and lane == u.role), where=where,
-            xml_node=u.node_id,
+            xml_node=u.node_id, pdf_node=pdf_node,
         ))
+    return out
+
+
+# ---- the witness's opinion of one node, so a located finding can be priced ------------------
+
+
+@dataclass(frozen=True)
+class NodeVerdict:
+    """What the witness says about one block of the PDF's reading.
+
+    `landings` turns the comparison around the witness's paragraphs, which is right for asking
+    how much of a paper was read correctly and useless for asking whether a finding is a real
+    one. An invariant fires at a *node*, so pricing it needs the same comparison indexed the
+    other way: this block, and whether the XML twin disagrees with what the reading did to it.
+
+    Three disagreements, and they are not the same fault. `lane_wrong` is prose filed under the
+    wrong heading. `merged` is two of the witness's paragraphs inside one of the reading's.
+    `holds_a_split` is one of the witness's cut across this block and others. A block can be all
+    three, and `wrong` is any of them.
+    """
+
+    node_id: str
+    kind: str
+    role: str
+    page: int | None
+    paragraphs: int  # the witness's paragraphs that lie mostly in this block
+    lane_wrong: int  # ... of which this block's lane is not the witness's
+    merged: bool
+    holds_a_split: bool
+
+    @property
+    def wrong(self) -> bool:
+        return bool(self.lane_wrong or self.merged or self.holds_a_split)
+
+
+#: a witness paragraph with fewer shingles than this says nothing about how it arrived —
+#: `pairs.compare` uses the same floor before it calls a paragraph intact, split or merged
+MIN_SHINGLES = 8
+_SPLIT_SHARE = 0.15  # a block holding less of a cut paragraph than this is a stray landing
+
+
+def node_verdicts(pdf: Tree, xml: Tree) -> dict[str, NodeVerdict]:
+    """Every block of the PDF's reading the witness can speak about, and what it says.
+
+    Blocks the witness is silent about — a caption, a table, prose the XML does not have — are
+    absent rather than present and correct. An invariant's precision is over the blocks that
+    could have been judged, and counting the unjudgeable as right would flatter every check.
+    """
+    pu, xu = units_of(pdf), units_of(xml)
+    index = _index(pu)
+    dominant: dict[int, list[Unit]] = {}
+    pieces: dict[int, int] = {}
+    for u in xu:
+        if not (u.prose and u.shingles) or len(u.shingles) < MIN_SHINGLES:
+            continue
+        landed = _land(u, index)
+        if not landed:
+            continue
+        held, held_top = _held(u, landed, pu)
+        if held < 0.5:
+            continue  # the reading does not hold it: a loss, and no one block's fault
+        if held_top >= 0.85:
+            dominant.setdefault(_top(landed), []).append(u)
+        else:
+            got = sum(landed.values()) or 1
+            for j, c in landed.items():
+                if pu[j].prose and c / got >= _SPLIT_SHARE:
+                    pieces[j] = pieces.get(j, 0) + 1
+    out: dict[str, NodeVerdict] = {}
+    for j in sorted(set(dominant) | set(pieces)):
+        v = pu[j]
+        inside = dominant.get(j, [])
+        out[v.node_id] = NodeVerdict(
+            node_id=v.node_id, kind=v.kind, role=v.role, page=v.page,
+            paragraphs=len(inside),
+            lane_wrong=sum(1 for u in inside if v.role in NAMED and v.role != u.role),
+            merged=len(inside) >= 2 and v.kind in ("paragraph", "list_item"),
+            holds_a_split=bool(pieces.get(j)),
+        )
     return out
 
 
