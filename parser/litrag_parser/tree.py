@@ -1750,7 +1750,13 @@ def build_tree(doc: dict[str, Any], key: str, title_hint: str | None = None, jud
     for it in items:
         if it.get("self_ref") in furniture or it.get("_sidebar"):
             _drop(dropped, dropped_items, "furniture", it.get("text") or "")
-        elif it.get("label") not in _SKIP:  # a running head between two halves of a paragraph must not stand between them
+        elif it.get("label") in _SKIP:  # a running head between two halves of a paragraph must not stand between them
+            # recorded, not merely discarded: measured over the pilot's pages, the lines the
+            # layout model labels a running head or a footer are the single largest class of
+            # text the reading could not account for, and a count cannot tell a journal's URL
+            # from a paragraph. Leaving text out is a decision; leaving it out in silence is not.
+            _drop(dropped, dropped_items, "running", it.get("text") or "")
+        else:
             kept.append(it)
     if pages:
         kept = _reading_order(kept, pages, repairs)
