@@ -1,7 +1,9 @@
 # litrag — the design
 
-Two revisions, one direction. **Revision 2 (2026-09-11)** is what is being
-built now: papers read into trees by Docling, watched from a desktop
+Four revisions, one direction. **Revision 4 (2026-09-21)** is what is being
+built now: a reader measured on publishers it has never seen, and made to say
+what it is unsure of rather than guess. **Revision 2 (2026-09-11)** is the shape
+it reads into: papers read into trees by Docling, watched from a desktop
 window, stored as rows. **Revision 1 (2026-09-03)** is the retrieval loop
 that will feed on those rows — Europe PMC, chunks, embeddings, the graph
 walk — as it was built in the `lit` CLI; its store is separate for now and
@@ -558,6 +560,134 @@ standing in for "in the store", and they are far apart: 93.4 per cent of
 chunks against 0.9995 of words. Conflating them made a 47-chunk residue look
 like lost text when it is 360 words of run-in labels read as headings, and
 sent a whole planned stage after a vision model that had nothing to recover.
+
+---
+
+# Revision 4 — a reader measured on publishers it has never seen
+
+*Begun 2026-09-21.* Karim wants 99.9 per cent on novel papers from novel
+publishers, "a dynamic way of handling classification and ingestion". R3.11 had
+already found the reason that is hard: the rules key on publishers' layout
+conventions, and a publisher has either been parsed before or has not — 0.966
+faithful on one already fitted, 0.906 on one never seen, and 0.933 against 0.699
+for editorials and letters. The aggregate had been reading as generalisation
+because every corpus so far was drawn by subject and kept landing on the same
+dozen publishers.
+
+Revision 4 is the answer to that in three parts, in the order each earns the
+next: measure it properly, survive measuring it, then change the reader.
+
+## R4.1 The publisher is the unit, not the paper
+
+*Settled 2026-09-21.* A corpus drawn by topic measures transfer to new **papers**
+and is read as transfer to new **layouts**. So the corpus is drawn the other way,
+which `BACKLOG.md` had asked for: 87 DOI registrant prefixes are what the reader
+was built on (1,371 papers, and five prefixes are half of them), and a paper
+counts as novel only if its prefix is in none of them.
+
+Three consequences, each of which changes a number.
+
+**Splits are a hash of the publisher's own name**, not a shuffle: recomputable by
+anyone, independent of the order a search happened to return things in, and — the
+part that matters — **a split cannot move when the corpus grows.** A second
+sampling wave adds publishers and shifts nobody.
+
+**Intervals are bootstrapped over publishers, not paragraphs.** Papers from one
+publisher share a layout and fail together; resampling paragraphs would call a
+dozen readings of one template a dozen independent observations. On a corpus of
+eleven publishers where ten read perfectly and one reads nothing right, the
+clustered interval is [0.727, 1.0] and the paragraph-level one [0.868, 0.945] —
+the second is a confident statement about a reader that fails entirely on one
+publisher in eleven. Macro is reported beside micro for the same reason: on the
+fitted corpora they are 0.912 and 0.978, and the gap is the small publishers.
+
+**Availability is settled before the split is fixed.** Europe PMC's `HAS_PDF:y`
+is its index, not EBI's holdings: 47 per cent of candidates have no PDF in the
+bulk open-access area, and a paper held in one format is no witness. Finding that
+out after drawing the splits would have shrunk whichever split the misses fell
+in — quietly, and differently per split.
+
+## R4.2 What is asserted, and what is right, are different measurements
+
+*Settled 2026-09-21.* A lane the reader declines to name is a silence, not an
+error. Counted together, abstaining looks like accuracy; counted apart, they are
+*coverage* (the share of the witness's paragraphs that get a named lane) and
+*precision* (the share of those that match), and a reader can buy either with the
+other. Both, always, with the risk-coverage curve behind them.
+
+Two things the first measurement forced, and both were faults in the measure
+rather than in the reader.
+
+**The witness abstains too, and on a quarter of its paragraphs.** Where the XML
+lanes a paragraph `other`, it was *impossible* for the reader to be scored
+correct — asserting means naming a lane, and being correct means matching
+`other`. That is 5,280 of 21,139 paragraphs reading precision 0.0 by definition.
+Precision is now reported twice: strict, where naming a lane the paper does not
+have is wrong, and with the witness's silences set aside. `NOTES.md` already had
+the case that makes both defensible — Cureus wraps a systematic review in one
+section its XML lanes `other`, forty-four chunks on one paper, "a journal's
+convention, not an error".
+
+**And a reading that never reaches a lane is not an abstention.** Body prose
+swallowed by a publisher's furniture, or read as a caption, costs coverage and no
+precision — so the reader's largest error class was scoring as honest silence.
+Every unasserted paragraph now records where it went instead.
+
+## R4.3 Conservation, because most papers have no witness
+
+*Settled 2026-09-21.* `faithful` needs an XML twin and Karim's own libraries have
+none. Conservation does not: every word of the PDF's own text layer should be
+inside a node, or inside a dropped record that says why it was left out. It is
+the one measure that runs on the libraries that matter most.
+
+Building it found two things and only one was the reader's.
+
+**The measure was counting typesetting as loss.** pdfium marks a word broken at a
+line end, `recover.clean` strips the mark before a `Line` exists, and "cell cul"
+plus "tures modify" is four tokens where the page has three words. That artefact
+alone was 63.6 per cent of the apparent loss. The mend is bounded so it cannot
+flatter: two fragments join only when the joined word is one the reading holds and
+neither fragment is.
+
+**And the reader discarded text in silence.** An item the layout model labels
+`page_header` or `page_footer` was dropped with no record at all — not even a
+count. A count cannot tell a journal's URL from a paragraph, so they carry their
+text now. Leaving text out is a decision the reader is entitled to make; leaving
+it out silently is not. This is `unassignable beats misassigned` applied to the
+page rather than to the lane.
+
+Where it stands: 0.811 of the pilot's text layer accounted for, against 0.788
+before those two changes, and a long way from 0.999. What is left is mostly
+one- and two-word lines, about two thousand a paper, which is what the inside of
+a figure or a table looks like in a text layer. Two attempts to place it
+spatially were both refused by measurement — 0.7 per cent lies inside a picture,
+and the table test is worthless because 46 per cent of table boxes cover more than
+half their page. Named, counted, and not yet solved.
+
+## R4.4 A crash costs one paper
+
+*Built 2026-09-21.* The worker died part-way through runs of PDFs, and the cost
+was never the paper: the process went, and every paper still queued was never
+read — seventeen of held-out 4, silently, because idempotency then *skipped* a
+paper that had a row and no tree.
+
+Measured, it is two faults. A **hang**, reproducible at the same paper four times,
+which is not Docling's: Docling reads the whole 25-paper batch in one process
+without complaint, and the paper it hangs the worker on for 2,402 seconds converts
+alone in 13. What the worker adds is a fresh thread per paper, and CUDA behind it.
+And a genuine **native crash** — `0xC0000374`, heap corruption — which happened
+during this revision's own corpus ingest.
+
+Docling's layout stage therefore runs in a child process the worker supervises.
+The seam was already in the design: the raw document is written before any row and
+everything after it is pure Python, so the child's whole job is to produce that
+file. Long-lived, because Docling takes seconds to build; a timeout, a respawn, one
+retry in a fresh child, then the paper fails with a reason. When the crash arrived
+in the wild it cost one retry and the run continued.
+
+And "already read" is now a fact about the tree — nodes exist *and* the raw
+document exists — rather than about the `papers` row that says one was meant. That
+row was the whole of the silence.
 
 ---
 
