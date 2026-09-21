@@ -126,7 +126,16 @@ on, so it is a novel-*paper* set, not a novel-*publisher* one. It is not EXAM.
 Phase 2 will adapt to sample by publisher), and the refusal probes
 (`joinreach.py`, `proseheads.py`, `latefurniture.py`, `tablenotes.py`).
 
-## 6. Karim's libraries were not written to
+## 6. No data in Karim's libraries was modified
 
 Fingerprinted before any command ran: 3,354 files, size and mtime, in
-`campaign/karim-root-digest.json`. Re-checked at this gate: every  **unchanged** in size and mtime. His directory did acquire SQLite / sidecars from read-only opens; see  D6 for what that was and was not.
+`campaign/karim-root-digest.json`. Re-checked: **every `store.sqlite` unchanged in
+size and mtime**, all eleven of them.
+
+His directory did, later, acquire SQLite `-shm`/`-wal` sidecars — six added, eight
+touched — because `manifest.py` read his libraries to decide what the corpus must
+exclude, and opening a SQLite database creates those even read-only. Every
+`store.sqlite-wal` is 0 bytes: there were no pending writes to flush. The check
+caught it, and `DECISIONS.md` D6 has what it was and what it was not. "Nothing was
+written to his directory" and "no data of his was modified" are different
+sentences; the second is the true one.
