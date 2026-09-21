@@ -1,6 +1,7 @@
 """Headings named by meaning: the verdict is a deterministic function of the heading, the
 prototypes and the model; it is kept in a store; with no embedder it is `other`."""
 
+import json
 import math
 import sqlite3
 
@@ -78,15 +79,65 @@ def test_the_rows_lanes_wrote_before_are_read_once_into_verdicts(tmp_path, monke
     assert "lanes" not in names and "lanes_migrated" in names
 
 
-def test_editing_a_kinds_threshold_asks_again_instead_of_replaying(tmp_path, monkeypatch):
+def test_editing_a_kinds_threshold_decides_again_without_asking_again(tmp_path, monkeypatch):
+    """A threshold decides what to do with a ranking; it does not change the ranking.
+
+    This test used to require the opposite — that editing a threshold re-embed everything —
+    because the threshold was part of the cache key, and a row that said `other` no longer knew
+    what it had refused. That made a sweep cost a re-reading of the corpus and left
+    `lanes.sqlite` with five signatures for `heading` alone. The ranking is stored now, so the
+    decision is taken again for nothing. What has to be proved is that taking it again gives the
+    same answer asking again would, which is the property the old test was standing in for.
+    """
     calls = []
     monkeypatch.setattr(meaning.Oracle, "_embed", lambda self, texts: (calls.append(len(texts)), fake_embed(texts))[1])
     store = tmp_path / "lanes.sqlite"
-    for threshold in (0.5, 0.5, 0.9):
-        o = meaning.Oracle(store)
+
+    def ask(path, threshold):
+        o = meaning.Oracle(path)
         o.register(meaning.Kind("toy", {"methods": ["Methods"], "results": ["Results"]}, threshold, 0.05))
-        o.nearest("toy", "experimental methods")
-    assert len(calls) == 4  # examples and text once, replayed once, then examples and text again under the new threshold
+        return o.nearest("toy", "experimental methods")
+
+    first = ask(store, 0.5)
+    assert first.name == "methods" and len(calls) == 2  # the examples and the text
+
+    assert ask(store, 0.5).name == "methods"
+    assert len(calls) == 2, "a repeat under the same rule must not ask"
+
+    strict = ask(store, 0.9)
+    assert len(calls) == 2, "a new threshold must not ask: the ranking is already stored"
+
+    # and the replayed decision is the one a fresh embedding would have reached
+    fresh = ask(tmp_path / "other.sqlite", 0.9)
+    assert strict.name == fresh.name == "other"
+    assert strict.score == fresh.score and strict.ranked == fresh.ranked
+
+    loose = ask(store, 0.1)
+    assert loose.name == "methods"  # and it goes back down again, which the old store could not do
+    assert len(calls) == 4  # only the fresh store's examples and text
+
+
+def test_a_row_from_a_rule_no_longer_in_force_is_not_passed_off_as_this_rules_answer(tmp_path, monkeypatch):
+    """The rows already in Karim's cache carry no ranking and were decided under whatever
+    threshold was set that day. Such a row is a hit only under the rule that wrote it."""
+    monkeypatch.setattr(meaning.Oracle, "_embed", lambda self, texts: fake_embed(texts))
+    store = tmp_path / "lanes.sqlite"
+    kind = meaning.Kind("toy", {"methods": ["Methods"], "results": ["Results"]}, 0.5, 0.05)
+    o = meaning.Oracle(store)
+    o.register(kind)
+    assert o.nearest("toy", "experimental methods").name == "methods"
+    o._conn.execute("UPDATE verdicts SET ranked = NULL")  # as the rows written before this change
+    o._conn.commit()
+
+    same = meaning.Oracle(store)
+    same.register(kind)
+    same._memo.clear()
+    assert same._lookup(kind, meaning.key_of("experimental methods")) is not None  # its own rule: a hit
+
+    other = meaning.Oracle(store)
+    other.register(meaning.Kind("toy", {"methods": ["Methods"], "results": ["Results"]}, 0.9, 0.05))
+    other._memo.clear()
+    assert other._lookup(other.kinds["toy"], meaning.key_of("experimental methods")) is None  # another rule: ask
 
 
 def test_editing_a_kinds_examples_asks_again_instead_of_replaying(tmp_path, monkeypatch):
@@ -125,3 +176,31 @@ def test_which_names_the_candidate_a_text_belongs_with(tmp_path, monkeypatch):
     assert v.name == "1"
     assert o.which("senescence", ["introduction", "results"]).name == "other"  # near neither
     assert o.which("anything", []).name == "other"
+
+
+def test_refresh_asks_again_for_a_row_that_has_no_ranking(tmp_path, monkeypatch):
+    """The upgrade path for a cache written before rankings existed, and the reason it is off
+    by default: it re-embeds every row Karim's libraries already hold."""
+    calls = []
+    monkeypatch.setattr(meaning.Oracle, "_embed", lambda self, texts: (calls.append(len(texts)), fake_embed(texts))[1])
+    store = tmp_path / "lanes.sqlite"
+    kind = meaning.Kind("toy", {"methods": ["Methods"], "results": ["Results"]}, 0.5, 0.05)
+    o = meaning.Oracle(store)
+    o.register(kind)
+    o.nearest("toy", "experimental methods")
+    o._conn.execute("UPDATE verdicts SET ranked = NULL")  # a row as it was written before
+    o._conn.commit()
+
+    quiet = meaning.Oracle(store)  # refresh off: the row stands, nothing is asked
+    quiet.register(kind)
+    before = len(calls)
+    assert quiet.nearest("toy", "experimental methods").name == "methods"
+    assert len(calls) == before
+
+    loud = meaning.Oracle(store, refresh=True)
+    loud.register(kind)
+    assert loud.nearest("toy", "experimental methods").name == "methods"
+    assert len(calls) > before  # it asked
+    row = loud._conn.execute("SELECT ranked FROM verdicts WHERE key = ?",
+                             (meaning.key_of("experimental methods"),)).fetchone()
+    assert row[0] and json.loads(row[0])[0][0] == "methods"  # and the row can now be swept

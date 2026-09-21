@@ -46,15 +46,29 @@ QUERY, CLASSIFY = "search_query: ", "classification: "  # nomic's task prefixes
 
 @dataclass(frozen=True)
 class Verdict:
-    """What the oracle said: the nearest group (or `other`), how near, and by how much."""
+    """What the oracle said: the nearest group (or `other`), how near, and by how much.
+
+    `ranked` is what it was near*er* than — the groups in order with their scores, kept so the
+    decision can be taken again under another threshold without asking the embedder. A verdict
+    with an empty `ranked` is one restored from a row written before rankings were stored, or
+    one a caller reached itself from `scores`; it can be replayed under the rule it was made
+    with and under no other.
+    """
 
     name: str
     score: float = 0.0
     margin: float = 0.0
+    ranked: tuple[tuple[str, float], ...] = ()
 
     @property
     def sure(self) -> bool:
         return self.name != "other"
+
+    @property
+    def top(self) -> str | None:
+        """The nearest group whatever the rule decided — `name` is `other` when the rule
+        refused it, and then this is the only record of what it refused."""
+        return self.ranked[0][0] if self.ranked else (self.name if self.sure else None)
 
 
 @dataclass
@@ -84,16 +98,38 @@ class Kind:
         """A kind with nothing to compare against answers `other` to everything."""
         return not self.groups and not self.centroids
 
-    def signature(self) -> str:
-        """What a verdict depends on besides the text and the embedder: the examples (or the
-        centroids and the prior), the threshold, the margin, the prefix. Any edit to them is
-        a new model string, so the store re-asks instead of replaying a decision made under
-        another rule."""
-        what = [self.groups, self.threshold, self.margin, self.prefix, sorted(self.lane_margin.items())]
+    def space(self) -> str:
+        """What the **ranking** depends on: the examples (or the centroids and the prior), the
+        prefix, the embedder. Edit any of them and the scores mean something else, so the store
+        must ask again.
+
+        The threshold and the margin are deliberately **not** here. They decide what to do with
+        a ranking, not what the ranking is, and putting them in the cache key made a threshold
+        sweep cost a re-embedding of the whole corpus: `lanes.sqlite` carries up to five
+        signatures per kind, one per time a threshold was edited, 125,739 rows for what is a
+        much smaller set of questions.
+        """
+        what: list[Any] = [self.groups, self.prefix]
         if self.centroids is not None:
             what.append({g: [round(x, 5) for x in v] for g, v in self.centroids.items()})
             what.append([self.position, self.prior_weight, self.prior_clamp, self.embedder])
         return hashlib.sha1(json.dumps(what, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()[:8]
+
+    def rule(self) -> str:
+        """What the **decision** depends on: the threshold, the margin, the per-lane margins.
+        Stored beside a verdict rather than in its key, so a row written under one rule can be
+        recognised as such — and replayed under another when it carries its ranking."""
+        what = [self.threshold, self.margin, sorted(self.lane_margin.items())]
+        return hashlib.sha1(json.dumps(what, sort_keys=True).encode("utf-8")).hexdigest()[:8]
+
+    def signature(self) -> str:
+        """Both together: the old cache key, kept for the one-time migration below."""
+        return hashlib.sha1(json.dumps(
+            [self.groups, self.threshold, self.margin, self.prefix, sorted(self.lane_margin.items())]
+            + ([{g: [round(x, 5) for x in v] for g, v in self.centroids.items()},
+                [self.position, self.prior_weight, self.prior_clamp, self.embedder]]
+               if self.centroids is not None else []),
+            sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()[:8]
 
     def prior(self, group: str, at: float | None) -> float:
         """A nudge from where in the paper a text sits: `prior_weight` × log of how much
@@ -403,19 +439,34 @@ def _rank(vec: list[float], protos: list[tuple[str, list[float]]]) -> list[tuple
     return sorted(best.items(), key=lambda x: (-x[1], x[0]))
 
 
+#: how much of a ranking is kept. `_decide` reads the first two; the rest is there so a sweep
+#: can see what the runner-up was and what a wider per-lane margin would have cost
+KEEP_RANKED = 4
+
+
 def _decide(ranked: list[tuple[str, float]], threshold: float, margin: float, lane_margin: dict[str, float] | None = None) -> Verdict:
     name, score = ranked[0]
     gap = score - ranked[1][1] if len(ranked) > 1 else 1.0
     need = max(margin, (lane_margin or {}).get(name, 0.0))
-    return Verdict(name if score >= threshold and gap >= need else "other", round(score, 4), round(gap, 4))
+    return Verdict(name if score >= threshold and gap >= need else "other", round(score, 4), round(gap, 4),
+                   tuple((g, round(c, 4)) for g, c in ranked[:KEEP_RANKED]))
 
 
 class Oracle:
     """Every kind's verdicts, from the store first and the embedder only for a text no one has asked about."""
 
-    def __init__(self, cache: Path | None, url: str | None = None, model: str = DEFAULT_MODEL):
+    #: Ask again for a row that has no ranking, so that it gains one. Off by default, and
+    #: deliberately: every row Karim's libraries already hold was written before rankings were
+    #: stored, and turning this on re-embeds all of them the next time a paper is read. It is
+    #: what a threshold sweep needs — a ranking is the only thing a lower threshold can be tried
+    #: against — so the campaign turns it on once per corpus and the cache is sweepable after.
+    REFRESH = os.environ.get("LITRAG_LANES_REFRESH", "off").lower() in ("on", "1", "true", "yes")
+
+    def __init__(self, cache: Path | None, url: str | None = None, model: str = DEFAULT_MODEL,
+                 refresh: bool | None = None):
         self.url = (url or os.environ.get("LITRAG_OLLAMA_URL") or "http://127.0.0.1:11434").rstrip("/")
         self.model = model
+        self.refresh = self.REFRESH if refresh is None else refresh
         self.cache_path = cache
         self.kinds: dict[str, Kind] = {}
         self._memo: dict[tuple[str, str], Verdict] = {}
@@ -431,6 +482,11 @@ class Oracle:
             self._conn = sqlite3.connect(str(cache), check_same_thread=False, timeout=30)
             self._conn.execute("PRAGMA journal_mode=WAL")
             self._conn.execute("CREATE TABLE IF NOT EXISTS verdicts (kind TEXT NOT NULL, key TEXT NOT NULL, model TEXT NOT NULL, name TEXT NOT NULL, score REAL, margin REAL, at TEXT, PRIMARY KEY (kind, key, model))")
+            have = {r[1] for r in self._conn.execute("PRAGMA table_info(verdicts)")}
+            if "ranked" not in have:  # the groups in order: what lets another threshold be tried
+                self._conn.execute("ALTER TABLE verdicts ADD COLUMN ranked TEXT")
+            if "rule" not in have:  # which threshold and margin decided it
+                self._conn.execute("ALTER TABLE verdicts ADD COLUMN rule TEXT")
             self._conn.commit()
         else:
             self._conn = None
@@ -442,6 +498,33 @@ class Oracle:
         self.kinds[kind.name] = kind
         if kind.name == "heading":
             self._migrate_lanes(kind)
+        self._migrate_space(kind)
+
+    def _migrate_space(self, kind: Kind) -> None:
+        """Rows written while the cache key still carried the threshold, copied once to the key
+        that does not.
+
+        Only the rows decided by the rule in force now: a row written under a threshold that has
+        since been edited is a decision by a rule no longer in force, and copying it forward
+        would pass off one rule's answer as another's. Those rows stay where they are, inert.
+        They are most of the table — `lanes.sqlite` held five signatures for `heading` alone —
+        and they cannot be rescued, because 90.8 per cent of every row ever written says `other`
+        and no longer knows what it refused.
+        """
+        if self._conn is None:
+            return
+        old, new = f"{self.model}@{kind.signature()}", self._model_of(kind)
+        if old == new:
+            return
+        self._conn.execute("CREATE TABLE IF NOT EXISTS migrated (kind TEXT NOT NULL, model TEXT NOT NULL, PRIMARY KEY (kind, model))")
+        if self._conn.execute("SELECT 1 FROM migrated WHERE kind = ? AND model = ?", (kind.name, new)).fetchone():
+            return
+        self._conn.execute(
+            "INSERT OR IGNORE INTO verdicts (kind, key, model, name, score, margin, at, ranked, rule) "
+            "SELECT kind, key, ?, name, score, margin, at, NULL, ? FROM verdicts WHERE kind = ? AND model = ?",
+            (new, kind.rule(), kind.name, old))
+        self._conn.execute("INSERT OR REPLACE INTO migrated (kind, model) VALUES (?, ?)", (kind.name, new))
+        self._conn.commit()
 
     def _migrate_lanes(self, kind: Kind) -> None:
         """The rows `lanes.py` wrote before there was a `verdicts` table, copied once: the
@@ -491,17 +574,36 @@ class Oracle:
         return self._protos[kind.name]
 
     def _model_of(self, kind: Kind) -> str:
-        return f"{self.model}@{kind.signature()}"
+        """The cache key: the embedder and the space, never the rule."""
+        return f"{self.model}@{kind.space()}"
 
     # -- the store ------------------------------------------------------------------------------
     def _lookup(self, kind: Kind, key: str) -> Verdict | None:
+        """A stored row, decided again under today's rule when it can be.
+
+        Three cases, and the third is the one that matters. A row with a ranking is replayed
+        under whatever threshold is set now — that is what makes a sweep free. A row without
+        one, written under today's rule, is returned as it was. A row without one written under
+        *another* rule is not a hit at all: it is a decision made by a rule that is no longer in
+        force, and the honest thing is to ask again rather than to pass it off as this rule's
+        answer.
+        """
         memo = self._memo.get((kind.name, key))
         if memo is not None:
             return memo
         if self._conn is not None:
-            row = self._conn.execute("SELECT name, score, margin FROM verdicts WHERE kind = ? AND key = ? AND model = ?", (kind.name, key, self._model_of(kind))).fetchone()
+            row = self._conn.execute("SELECT name, score, margin, ranked, rule FROM verdicts WHERE kind = ? AND key = ? AND model = ?", (kind.name, key, self._model_of(kind))).fetchone()
             if row:
-                v = Verdict(row[0], row[1] or 0.0, row[2] or 0.0)
+                name, score, margin, ranked, rule = row
+                if ranked:
+                    v = _decide([(g, c) for g, c in json.loads(ranked)],
+                                kind.threshold, kind.margin, kind.lane_margin)
+                elif self.refresh:
+                    return None  # ask again, so the row gains the ranking it lacks
+                elif rule == kind.rule() or rule is None:
+                    v = Verdict(name, score or 0.0, margin or 0.0)
+                else:
+                    return None
                 self._memo[(kind.name, key)] = v
                 return v
         return None
@@ -509,7 +611,11 @@ class Oracle:
     def _save(self, kind: Kind, key: str, v: Verdict) -> None:
         self._memo[(kind.name, key)] = v
         if self._conn is not None:
-            self._conn.execute("INSERT OR REPLACE INTO verdicts (kind, key, model, name, score, margin, at) VALUES (?, ?, ?, ?, ?, ?, ?)", (kind.name, key, self._model_of(kind), v.name, v.score, v.margin, time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())))
+            self._conn.execute(
+                "INSERT OR REPLACE INTO verdicts (kind, key, model, name, score, margin, at, ranked, rule) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (kind.name, key, self._model_of(kind), v.name, v.score, v.margin,
+                 time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                 json.dumps([[g, c] for g, c in v.ranked]) if v.ranked else None, kind.rule()))
             self._conn.commit()
 
     def _count(self, kind: str, verdicts: list[Verdict], asked: int) -> None:
