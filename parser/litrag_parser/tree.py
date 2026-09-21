@@ -18,7 +18,7 @@ import re
 from dataclasses import dataclass, field, asdict
 from typing import Any, Iterable
 
-from .facets import role_of, unspace
+from .facets import normalise as normalise_heading, role_of, unspace
 from .headings import agreed, canonical_of, top_level_lane
 from .glyphs import ligature_vocabulary, repair_glyphs
 from .structure import CANONICAL, build_headings, lane_sections
@@ -157,11 +157,14 @@ def _decorative_pictures(doc: dict[str, Any]) -> set[str]:
 
 
 def _recurring_furniture(doc: dict[str, Any]) -> set[str]:
-    """Refs of short text items that recur on three or more pages — a publisher's mark
-    ("1 3"), a running head with the page number in it ("Micromachines 2024, 15, 851 7 of
-    14"), a page number the layout model did not call a footer."""
-    pages_of: dict[str, set[int]] = {}
-    refs_of: dict[str, list[str]] = {}
+    """Refs of short text items that recur on three or more pages at the same height — a
+    publisher's mark ("1 3"), a running head with the page number in it ("Micromachines 2024,
+    15, 851 7 of 14"), a page number the layout model did not call a footer. A running head
+    stands where the page always puts it; the same words at three different heights are the
+    paper's own, and only the occurrences that stand together are dropped: Diabetes Care prints
+    "RESULTS" in its visual abstract, again in its structured abstract, and over the section
+    itself, whose heading is no running head."""
+    spots: dict[str, list[tuple[int, float, str]]] = {}
     for t in doc.get("texts") or []:
         if t.get("label") not in ("text", "paragraph", "list_item", "section_header"):
             continue
@@ -169,9 +172,16 @@ def _recurring_furniture(doc: dict[str, Any]) -> set[str]:
         prov = _first_prov(t)
         if not key or len(key) > 80 or not prov:
             continue
-        pages_of.setdefault(key, set()).add(int(prov.get("page_no", 0)))
-        refs_of.setdefault(key, []).append(t.get("self_ref", ""))
-    return {ref for key, pages in pages_of.items() if len(pages) >= 3 for ref in refs_of[key]}
+        box = prov.get("bbox") or {}
+        y = (float(box["t"]) + float(box["b"])) / 2 if "t" in box and "b" in box else -1e9  # a file without boxes: the words alone, as before
+        spots.setdefault(key, []).append((int(prov.get("page_no", 0)), y, t.get("self_ref", "")))
+    out: set[str] = set()
+    for places in spots.values():
+        for _, y, _ in places:
+            together = [p for p in places if abs(p[1] - y) <= 4.0]
+            if len({p[0] for p in together}) >= 3:
+                out.update(p[2] for p in together)
+    return out
 
 
 def _table_cells(item: dict[str, Any]) -> dict[str, Any] | None:
@@ -276,6 +286,16 @@ def _vertical_gap(a: dict[str, Any], b: dict[str, Any]) -> float:
     return float(a["b"]) - float(b["t"])
 
 
+def _same_column(prev: dict[str, Any], it: dict[str, Any]) -> bool:
+    """Whether two blocks stand in one column of the page: they share a third of the narrower's
+    width. Their pages may differ — a paragraph carries on in the same column of the next page."""
+    pa, pb = (prev.get("prov") or [None])[-1], (it.get("prov") or [None])[0]
+    if not pa or not pb or not pa.get("bbox") or not pb.get("bbox"):
+        return False
+    a, b = pa["bbox"], pb["bbox"]
+    return min(float(a["r"]), float(b["r"])) - max(float(a["l"]), float(b["l"])) > 0.3 * (float(b["r"]) - float(b["l"]))
+
+
 def _stacked_apart(prev: dict[str, Any], it: dict[str, Any]) -> bool:
     """Two boxes in one column of one page with more than two lines of space between them,
     or overlapping: a figure, a heading or a paragraph break stood there, and the page's
@@ -291,19 +311,133 @@ def _stacked_apart(prev: dict[str, Any], it: dict[str, Any]) -> bool:
     return gap > 2.2 * line or gap < -0.5 * line
 
 
-def _geometry_says(prev: dict[str, Any], it: dict[str, Any], indents: float | None, unit: float = 10.0) -> bool | None:
+def _box_of(item: dict[str, Any], pages: dict[int, "Page"]) -> list[float] | None:
+    """A block's box on its page, origin top-left — None when the file gives none, or when the
+    box is too small to hold the block's own text (a rotated sidebar reaches Docling as a sliver,
+    and nothing about the page can be read from it)."""
+    prov = _first_prov(item)
+    if not prov or "page_no" not in prov:
+        return None
+    box = _bbox_top_left(prov, pages.get(int(prov["page_no"])))
+    if not box:
+        return None
+    n = len((item.get("text") or "").split())
+    if n >= 20 and (box[2] - box[0]) * (box[3] - box[1]) < 40 * n:
+        return None  # a word of the smallest type still takes some hundred square points: the box is not this block's
+    return box
+
+
+def _one_column(a: list[float], b: list[float]) -> bool:
+    """Whether two boxes stand in one column: they share more than half the narrower's width."""
+    over = min(a[2], b[2]) - max(a[0], b[0])
+    return over > 0.5 * min(a[2] - a[0], b[2] - b[0])
+
+
+def _columns(blocks: list[tuple[list[float], int]]) -> list[list[float]]:
+    """The page's columns as x-intervals, from the blocks that carry a paragraph of text: a
+    heading, a page number or a one-line statement says nothing about how the page is set, and a
+    block that spans two columns joins them, which is what a full-width figure does. A page of
+    one band is set in one column."""
+    bands = [[box[0], 0.0, box[2], 0.0] for box, n in sorted(blocks, key=lambda t: t[0][0]) if n >= 25]
+    merged = True
+    while merged:
+        merged = False
+        for i in range(len(bands)):
+            for j in range(i + 1, len(bands)):
+                if _one_column(bands[i], bands[j]):
+                    bands[i] = [min(bands[i][0], bands[j][0]), 0.0, max(bands[i][2], bands[j][2]), 0.0]
+                    bands.pop(j)
+                    merged = True
+                    break
+            if merged:
+                break
+    return bands
+
+
+def _reading_order(items: list[dict[str, Any]], pages: dict[int, "Page"], repairs: dict[str, int]) -> list[dict[str, Any]]:
+    """A page read out of order, put back. Where the layout model jumps back up one column of a
+    page — MDPI sets its reference list at the foot of the page and the model reads it before the
+    text above it, so a conclusion files under "References" — the blocks above are read first.
+    Only within one column of one page, only where a heading stands in what was read early (that
+    is where the order costs a section its text), and on a page of two columns only where both
+    runs stand in the same one: there the column, not the height, is the order. Pages the file
+    gives no boxes for are left exactly as they came."""
+    out = list(items)
+    by_page: dict[int | None, list[tuple[list[float], int]]] = {}
+    for it in out:
+        box = _box_of(it, pages)
+        if box:
+            by_page.setdefault(_page_of(it), []).append((box, len((it.get("text") or "").split())))
+    bands = {pg: _columns(blocks) for pg, blocks in by_page.items() if pg is not None}
+
+    def band_of(box: list[float], page: int | None) -> int | None:
+        for k, band in enumerate(bands.get(page) or []):
+            if _one_column(band, box):
+                return k
+        return None
+
+    i, moved = 1, 0
+    while i < len(out):
+        prev, it = out[i - 1], out[i]
+        a, b = _box_of(prev, pages), _box_of(it, pages)
+        page = _page_of(it)
+        if not a or not b or _page_of(prev) != page or not _one_column(a, b) or b[3] >= a[1]:
+            i += 1
+            continue
+        end = i
+        while end + 1 < len(out):
+            nxt = _box_of(out[end + 1], pages)
+            if _page_of(out[end + 1]) != page or not nxt or nxt[3] >= a[1]:
+                break
+            end += 1
+        above = out[i : end + 1]
+        low = max(_box_of(x, pages)[3] for x in above)  # the lowest the blocks above reach
+        start = i
+        while start - 1 >= 0:
+            box = _box_of(out[start - 1], pages)
+            if _page_of(out[start - 1]) != page or not box or box[1] < low:
+                break
+            start -= 1
+        early = out[start:i]
+        column = len(bands.get(page) or []) < 2 or len({band_of(_box_of(x, pages), page) for x in early + above}) == 1 and band_of(b, page) is not None
+        if start == i or not column or not any(x.get("label") == "section_header" for x in early) or not any(len((x.get("text") or "").split()) >= 10 for x in above):
+            i = end + 1
+            continue
+        out[start : end + 1] = above + early
+        moved += len(early)
+        i = start + len(above)
+    if moved:
+        repairs["reordered_page"] = repairs.get("reordered_page", 0) + moved
+    return out
+
+
+#: How much of a paper must indent its paragraphs before an unindented first line means anything.
+#: Measured 2026-09-19: at 0.0 — the full last line deciding alone, in papers that indent nothing —
+#: paragraphs cut fell a little (0.041 → 0.039 of them on 127 novel pairs) and paragraphs silently
+#: merged rose three and a half times (0.015 → 0.054). A merge leaves no mark in the tree; a split
+#: does. The threshold stays where the measurement put it.
+INDENTS_ENOUGH = 0.35
+
+
+def _geometry_says(prev: dict[str, Any], it: dict[str, Any], indents: float | None, unit: float = 10.0, bridged: bool = False) -> bool | None:
     """What the page itself says about two blocks, from the text layer (recover.py):
     a block whose last line stops short ended its paragraph; in a paper that indents,
     a block whose first line is flush left continues the one before — when the two sit
     where a continuation can: at a column or page break, or one right under the other.
-    None: no word."""
+    None: no word.
+
+    `bridged` — a figure, a table or a caption stands between the two — is measured and not used:
+    taking the gap as the figure's and asking only that the column agree joined a paragraph's tail
+    to the next paragraph's head often enough to cost `intact` on all four corpora (2026-09-19). A
+    caption read between the halves is two fifths of every paragraph that arrives cut, and a fuller
+    last line is not enough to recover it."""
     last_full, indent = prev.get("_last_full"), it.get("_first_indent")
     if last_full is False:
         return False
-    if last_full and indent is not None and indents is not None and indents >= 0.35:
-        if _stacked_apart(prev, it):
-            return None
-        return indent < 0.6 * unit  # flush left: within a bit over half a line of the block's edge
+    if last_full and indent is not None and indents is not None and indents >= INDENTS_ENOUGH:
+        if not _stacked_apart(prev, it):
+            return indent < 0.6 * unit  # flush left: within a bit over half a line of the block's edge
+        return None
     return None
 
 
@@ -633,13 +767,19 @@ _REF_ENTRY = re.compile(r"^(?:\[\d{1,3}\]|\d{1,3}\.)\s+\S|^[A-Z][A-Za-z'\u2019\-
 _A_YEAR = re.compile(r"\b(?:19|20)\d{2}\b")
 
 
-def _entries_follow(items: list[dict[str, Any]], index: int, within: int = 8) -> bool:
-    """Whether a reference entry stands among the next few items after the heading at `index`:
-    the heading was read between the entries of a list that goes on — "Generative AI statement"
-    and "Publisher's note" set in the left column under the start of a Frontiers PDF's
-    reference list — and belongs inside it, whatever lane its name has."""
+def _entries_follow(items: list[dict[str, Any]], index: int, within: int = 40) -> bool:
+    """Whether a reference entry stands among the items after the heading at `index`, before
+    any heading that opens a body section: the heading was read between the entries of a list
+    that goes on — "Generative AI statement" and "Publisher's note" set in the left column
+    under the start of a Frontiers PDF's reference list; MDPI's whole block of statements,
+    "Funding" to "Conflicts of Interest", set between the entries — and belongs inside it,
+    whatever lane its name has."""
     for it in items[index + 1 : index + 1 + within]:
         text = (it.get("text") or "").strip()
+        if it.get("label") == "section_header":
+            if top_number(text) is not None or role_of(text, meaning=False) not in ("other", "back"):
+                return False  # a body section begins: the list is over
+            continue
         if it.get("label") in ("list_item", "text", "paragraph") and len(text) < 700 and _REF_ENTRY.match(text) and _A_YEAR.search(text):
             return True
     return False
@@ -825,6 +965,33 @@ def undouble(text: str) -> str:
     return t
 
 
+_WORDISH = re.compile(r"[^0-9a-z]+")
+
+
+def unrepeat(text: str) -> str:
+    """A block that carries its own text twice: a copy cut short, then the paragraph from its
+    first word again — the layout model kept both its own reading of the cell and the page's
+    text layer ("SEM imaging was performed … resulted in higher packing SEM imaging was
+    performed … of collagen fibers."). Where the text begins again with its first eight words
+    and everything before that point is said again after it, the first copy goes. Found by
+    comparing a PDF's reading with its XML's (pairs.py): the words were there twice, the XML
+    held them once."""
+    ws = text.split()
+    if len(ws) < 30:
+        return text
+    norm = [_WORDISH.sub("", w.lower()) for w in ws]
+    head = norm[:8]
+    for p in range(12, len(ws) - 11):
+        if norm[p : p + 8] != head:
+            continue
+        first, rest = norm[:p], norm[p:]
+        if len(rest) >= p and rest[:p] == first:
+            return " ".join(ws[p:])  # a copy cut short, then the whole paragraph
+        if len(rest) < p and first[: len(rest)] == rest:
+            return " ".join(ws[:p])  # the whole paragraph, then its beginning again
+    return text
+
+
 #: The lanes a numbered heading never takes by meaning alone: no numbered heading in the
 #: corpora is an abstract, a reference list or a back-matter statement (the vocabulary's own
 #: word, "7. References" in a preprint, still counts).
@@ -837,27 +1004,66 @@ def top_number(heading: str) -> str | None:
     return m.group(1).split(".")[0] if m else None
 
 
-def infer_level(heading: str, docling_level: int, open_top: bool) -> int:
+#: A core section's own name: its level is not in doubt, and its look is the look of the
+#: paper's top level (`typography.depth_by_type`).
+TOP_NAMES = frozenset({
+    "introduction", "background", "methods", "method", "materials and methods", "material and methods", "methods and materials",
+    "materials and experimental methods", "experimental", "experimental section", "experimental procedures", "results", "result",
+    "results and discussion", "discussion", "conclusion", "conclusions", "concluding remarks", "discussion and conclusions",
+})
+
+
+def infer_level(heading: str, docling_level: int, open_top: bool, stated: bool = False, typo_level: int | None = None, list_number: bool = False, open_top_role: str | None = None) -> int:
     """A header's depth when the layout model gives every header the same level.
 
     Numbering wins when present. A heading that names a lane (Methods, Results,
     Discussion…) is top-level whatever it looked like on the page. Anything else
     beneath an open top-level section is that section's child, one level down,
-    unless the layout model already placed it deeper.
+    unless the layout model already placed it deeper — but only where the level is
+    the layout model's guess. With `stated`, the file says how deep its sections lie
+    (a JATS file: <sec> inside <sec>) and its word stands: a review's topical
+    sections are the paper's top level, not children of whichever section stood
+    open. Measured on 513 XML papers: 453 headings in 145 of them had been nested
+    under "Introduction" or "Conclusions" against the file, and whole review bodies
+    read as `introduction`.
     """
+    if list_number and typo_level is not None and not stated:
+        return typo_level  # a number the paper's top level does not use, set below it: a list's number, not a section's
     depth = numbering_depth(heading)
     if depth is not None:
         return depth
+    if typo_level is not None and not stated and normalise_heading(heading) not in TOP_NAMES and role_of(heading, meaning=False) not in ("references", "abstract") and not (typo_level > 1 and open_top_role == "references"):
+        return typo_level  # the page's type: set like the paper's core sections, or less prominently (`typography.depth_by_type`; a back statement only inside the body; never a subsection of the reference list)
     if role_of(heading, meaning=False) != "other" or top_level_lane(heading, promote=True) is not None:
         return 1  # the vocabulary's word, or the catalogue's exact spelling (two words or more) of a top-level section
     if docling_level <= 1 and role_of(heading) != "other":
         return 1  # a lane found by meaning keeps the depth the page gave it: top when the page set it top ("Methods Coral core collection"), never promoted from deeper
-    if open_top:
+    if open_top and not stated:
         return max(docling_level, 2)
     return max(docling_level, 1)
 
 
 _MERGED = re.compile(r"^(?P<head>(?:\d+\.\s+)?[A-Za-z][^.]{2,60}?)\s+(?P<num>\d+)\.(?P<sub>\d+)\.?\s+(?P<rest>\S.*)$")
+
+
+_FUSED = re.compile(r"^(?P<lane>Introduction|Background|Methods|Materials and [Mm]ethods|Results|Results and [Dd]iscussion|Discussion|Conclusions?)\s+(?P<rest>[A-Z][a-z]\S*(?:\s+\S+)+)$")
+_NOT_A_SECOND_HEADING = {"And", "Of", "For", "In", "To", "On", "With", "From", "Section", "Summary", "Overview"}
+
+
+def split_fused_heading(text: str) -> tuple[str, str] | None:
+    """"Results and discussion Contrasting glacier mass balance responses during 2021–22" → the
+    lane's heading and the subheading under it, which the layout model read as one line (an
+    unnumbered sibling of `rescue_merged_heading`). Only a lane's bare name, then a phrase that
+    starts like a heading of its own: "Results of the logistic regression", "Conclusion: the
+    2024 report" and "INTRODUCTION TO THE CONCEPT" stay whole. Found by comparing a PDF's
+    reading with its XML's: three quarters of that paper's body had stayed under its methods."""
+    m = _FUSED.match(text.strip())
+    if not m or text.isupper():
+        return None
+    rest = m.group("rest")
+    if rest.split()[0] in _NOT_A_SECOND_HEADING or len(rest.split()) < 2 or len(text) > 160:
+        return None
+    return m.group("lane"), rest
 
 
 def rescue_merged_heading(item: dict[str, Any]) -> list[dict[str, Any]] | None:
@@ -886,6 +1092,8 @@ def rescue_merged_heading(item: dict[str, Any]) -> list[dict[str, Any]] | None:
     base = {k: v for k, v in item.items() if k not in ("text", "label", "children")}
     top = {**base, "label": "section_header", "level": 1, "text": f"{num}. {head}", "self_ref": f"{item.get('self_ref', '')}~top"}
     below = {**base, "label": "section_header", "level": 2, "text": f"{num}.{sub}. {rest}", "self_ref": f"{item.get('self_ref', '')}~sub"}
+    if "_typo_level" in base:
+        top["_typo_level"], below["_typo_level"] = 1, 2  # the row's look is the first heading's
     return [top, below]
 
 
@@ -939,7 +1147,61 @@ def _prose_like(text: str) -> bool:
     """A paragraph the introduction could open with: not furniture, not "Abstract: …", not an
     affiliation block, not an author line with its degrees."""
     return not _FURNITURE.search(text) and not _LICENCE.search(text) and not _citation_line(text) and not _ABSTRACT_LEAD.match(text) and not _affiliation_like(text) and len(_DEGREES.findall(text)) < 2
-_KEYWORDS = re.compile(r"^\s*(key ?words?|index terms)\b", re.I)
+_KEYWORDS = re.compile(r"^\s*(key ?words?|index terms)\b|^\s*(?:categories|subject areas)\s*[:\u2014]", re.I)
+#: the publisher's own lines, by their opening: an editor, a licensee. A date line is
+#: `_dates_only`'s, which asks that the whole line be dates — this one only reads its opening, and
+#: a line that opens "Received:" may still carry a sentence of the body away with it
+_EDITOR_LINE = re.compile(r"^\s*(?:academic|handling|guest|associate|section)?\s*editors?\b|^\s*(?:edited|reviewed)\s*(?:by\b|:)|^\s*licensee\b", re.I)
+
+
+_DATE_WORDS = {"received", "revised", "accepted", "published", "online", "first", "epub", "available", "in", "revised", "form",
+               "january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december",
+               "jan", "feb", "mar", "apr", "jun", "jul", "aug", "sep", "sept", "oct", "nov", "dec"}
+
+
+def _dates_only(text: str) -> bool:
+    """Whether a line is nothing but dates and the words a journal prints beside them. A date line
+    that carried a sentence away with it is not one: the reader joins a lowercase fragment onto the
+    block before it, and that block may be this one."""
+    words = re.findall(r"[A-Za-z]+", text)
+    return bool(words) and all(w.lower() in _DATE_WORDS for w in words)
+
+
+def _late_front(text: str) -> bool:
+    """Whether a line is unmistakably the publisher's, wherever the layout model read it: a date
+    line, an editor's name, the licence, the citation line, the imprint, the keywords, an author
+    list, an institution's address, a correspondence line. MDPI sets these in the left column of
+    its first page and the model
+    reads them between the introduction's paragraphs, where they became chunks of the body that no
+    paper holds (79 of them over 57 papers). None of these is a sentence of a paper, which is why
+    the shape may decide after the body has begun — the kinds `_front_kind` reads by meaning may
+    not. Three of the shapes run past the short-line cap and carry their own: a licence sentence
+    and a citation line are the publisher's at any length, and neither ever cites a reference,
+    which is what separates them from a paper whose subject is licensing."""
+    t = text.strip()
+    if re.search(r"[.!?]\s+[a-z]", t):
+        return False  # a sentence carries on inside it: the block holds the body's words too
+    words = len(t.split())
+    if _CITE_LINE.match(t) or _citation_line(t) or _LICENCE.search(t):
+        return words <= 120 and not _CITES.search(t)
+    if _COPYRIGHT_LINE.match(t):
+        return words <= 40
+    if words > 25:
+        return False  # any other shape this long is holding a paragraph of the paper as well
+    if _BARE_DATE.match(t) or _dates_only(t):
+        return True
+    if _KEYWORDS.match(t):
+        return True
+    if _EDITOR_LINE.match(t) and words <= 14:
+        return True
+    if _looks_like_authors(t) or _name_list(t) or _affiliation_like(t):
+        return True  # a name list or an institution's address, which `_front_kind` then names
+    return bool(_CORRESPONDENCE.search(t) and words <= 14)
+
+
+#: the imprint, which opens a line and never a sentence of a paper: "© The Author(s) 2026.
+#: Published by Oxford University Press on behalf of …", "Published by Oxford University Press."
+_COPYRIGHT_LINE = re.compile(r"^\s*(?:\u00a9|\(c\)\s*\d{4}|copyright\b|published (?:by|in|online)\b)", re.I)
 _BARE_DATE = re.compile(r"^\s*(?:\d{1,2}\s*[A-Z][a-z]+,?\s+(?:19|20)\d{2}|[A-Z][a-z]+\s+\d{1,2},?\s+(?:19|20)\d{2}|(?:19|20)\d{2})\s*$")
 _CITE_LINE = re.compile(r"^\s*(?:to cite this article|citation|cite this|to link to this article)\b", re.I)  # a publisher's citation line runs past forty words
 _ABSTRACT_LEAD = re.compile(r"^\s*(abstract|summary)\b[\s:.—–-]*", re.I)
@@ -987,9 +1249,113 @@ def _name_list(text: str) -> bool:
     return all(_NAME_PIECE.match(p) and not any(w.lower() in _FUNCTION_WORDS for w in p.split()) for p in pieces)
 
 
+_FRONT_LABEL = re.compile(r"^\W*(?:edited by|reviewed by|correspondence|citation|copyright|received|accepted|published|open access|keywords?|key words|abbreviations|highlights|research highlights|article info(?:rmation)?|graphical abstract|abstract|summary|significance(?: statement)?|author summary|impact statement|research in context|key points|key findings|what is already known|what this study adds|how this study might affect|editor'?s? summary|in brief|at a glance|lay summary|lay abstract|plain language summary|full-length text|research article|original article|original research|review article|short communication|brief report|case report|letter to the editor|perspective|commentary|editorial|mini-?review)\b", re.I)
+
+
+#: a page's folio: "7 of 9", "12/48", "Page 3" — the same shape `typography._FOLIO` reads in the rows
+_FOLIO = re.compile(r"^\s*(?:page\s*)?\d{1,4}\s*(?:of|/|\||\u2013|\u2014|-)\s*\d{1,4}\s*$|^\s*page\s+\d{1,4}\s*$", re.I)
+
+
+def _journal_name(text: str, journal: str | None) -> bool:
+    """Whether a line is the journal's own name, which owns no prose: the record's title, or the
+    same words abbreviated in order, either way round — a record holds "Chem Sci" where the page
+    prints "Chemical Science", and "J Xenobiot" where it prints "Journal of Xenobiotics"."""
+    if not journal or len(text.split()) > 8:
+        return False
+    a, b = _norm_letters(text), _norm_letters(journal)
+    if not a or not b:
+        return False
+    if a == b or a in b or b in a:
+        return True
+    skip = {"of", "the", "and", "for", "in", "on", "de", "la"}
+    ws = [w for w in re.findall(r"[a-z]+", text.lower()) if w not in skip]
+    js = [w for w in re.findall(r"[a-z]+", journal.lower()) if w not in skip]
+
+    def abbreviates(short: list[str], long_: list[str]) -> bool:
+        return len(short) >= 2 and len(short) <= len(long_) and all(long_[k].startswith(w) for k, w in enumerate(short))
+
+    return abbreviates(ws, js) or abbreviates(js, ws)  # either side may be the abbreviated one
+
+
+def _repeated_short(doc: dict[str, Any]) -> set[str]:
+    """The short lines the pages repeat, whatever their height — a journal's banner — by their
+    letters alone, so "Chem. Sci." and "Chem Sci" are one. The record's journal is better evidence;
+    this is what stands in when a library has none."""
+    pages_of: dict[str, set[int]] = {}
+    for t in doc.get("texts") or []:
+        text = (t.get("text") or "").strip()
+        prov = _first_prov(t)
+        if not text or len(text.split()) > 3 or not prov or "page_no" not in prov:
+            continue
+        pages_of.setdefault(_norm_letters(text), set()).add(int(prov["page_no"]))
+    return {k for k, pages in pages_of.items() if k and len(pages) >= 3}
+
+
+def _refuse_front_furniture(items: list[dict[str, Any]], title_ref: str | None, doc: dict[str, Any], journal: str | None, has_abstract_heading: bool, repairs: dict[str, int], notes: list[dict[str, Any]]) -> None:
+    """A line of the paper's furniture the layout model read as a heading — the journal's banner, an
+    affiliation or correspondence line, a date line, a page's folio — is no section, and the prose
+    under it belongs to the body, not to it. This is the one place where a heading with prose under
+    it may still be refused, so only the *shape* of the line may do it: `_front_kind` with the
+    vocabulary alone, never the embedder, whose wrong verdict would file a section's prose under the
+    section before. Marked here (`_furniture_head`), filed as a notice by the main loop; a folio at
+    any page or place, everything else only in the front region, and never a heading another rule
+    already claims."""
+    # where the body begins, by the vocabulary and the author's numbering alone: the embedder's word
+    # must not decide it, or a banner it happens to lane ("Chemical Science") closes the front region
+    def _body_start(it: dict[str, Any]) -> bool:
+        text = (it.get("text") or "").strip()
+        return it.get("label") == "section_header" and bool(text) and not it.get("_furniture_head") and (role_of(text, meaning=False) != "other" or numbering_depth(text) == 1)
+
+    body_at = next((i for i, it in enumerate(items) if _body_start(it)), len(items))
+    repeated = _repeated_short(doc)
+    title = next((_norm_letters((it.get("text") or "")) for it in items if it.get("self_ref") == title_ref), "")
+    for i, it in enumerate(items):
+        text = (it.get("text") or "").strip()
+        if it.get("label") != "section_header" or not text or it.get("self_ref") == title_ref or it.get("_built") or it.get("_runin"):
+            continue
+        why = "a page's folio" if _FOLIO.match(text) else None
+        if why is None and title and len(title) >= 24 and len(text.split()) >= 4:
+            other = _norm_letters(text)
+            if other == title or (len(other) >= 24 and (title.startswith(other) or other.startswith(title))):
+                why = "the paper's own title"  # its banner again over the body, or its running head
+        if why is None:
+            clean = normalise_heading(text)
+            claimed = (role_of(text, meaning=False) != "other" or numbering_depth(text) is not None
+                       or _FRONT_LABEL.match(text) or clean in _BOX_HEADINGS or _ABSTRACT_PART.match(text) or _MESSAGE_BOX.match(clean))
+            kind = None if claimed else _front_kind(text, has_abstract_heading, meaning=False)
+            if kind == "dates":
+                why = kind  # "Received: 19 May 2025 / Accepted: 7 January 2026": a date line heads no
+                # section at any page — of the front-matter shapes read as a heading past the second
+                # page, it is the only one the witness never finds among the paper's own headings
+                # (9 of 9, against an affiliation's 10 of 31 and an author line's 4 of 6)
+            elif _page_of(it) not in (None, 1, 2) or claimed:
+                continue  # the first pages, where a paper's furniture is printed; and never a
+                # heading the vocabulary, the author's numbering, a label or a box already claims
+            elif kind in ("authors", "affiliations", "correspondence"):
+                why = kind  # a line of this shape heads no section, wherever the layout read it: RSC
+                # prints its affiliations after the introduction's first lines
+            elif i < body_at and kind in ("funding", "notice"):
+                why = kind  # a word that could head a section of its own later: the front region only
+            elif i < body_at and (_journal_name(text, journal) or (len(text.split()) <= 3 and _norm_letters(text) in repeated)):
+                why = "the journal's name"
+        if why:
+            it["_furniture_head"] = why
+            repairs["furniture_headings"] = repairs.get("furniture_headings", 0) + 1
+            notes.append({"kind": "heading-refused", "node_id": None, "page": _page_of(it), "message": f"{text[:80]!r} reads as {why}, not a heading: the prose under it is the body's"})
+
+
+def _body_heading(item: dict[str, Any]) -> bool:
+    """A printed heading of the paper's own: not the title, not one of the front matter's labels
+    or boxes, not a line of furniture, two words or more."""
+    if item.get("label") != "section_header" or item.get("_furniture_head"):
+        return False
+    text = (item.get("text") or "").strip()
+    return len(text.split()) >= 2 and not _FRONT_LABEL.match(text) and not _FURNITURE.search(text)
+
+
 def _known_heading(item: dict[str, Any]) -> bool:
     """A header the vocabulary knows, or a numbered one: where the paper proper begins."""
-    if item.get("label") != "section_header":
+    if item.get("label") != "section_header" or item.get("_furniture_head"):
         return False
     text = (item.get("text") or "").strip()
     return bool(text) and (role_of(text) != "other" or numbering_depth(text) is not None)
@@ -999,7 +1365,16 @@ _ABSTRACT_PART = re.compile(r"^(?:background|objectives?|aims?|purpose|methods?|
 
 
 _DEGREES = re.compile(r"\b(?:MD|PhD|Ph\.D|DDS|DVM|MSc|BSc|MPH|RN|FRCS|FACS|Dr)\b\.?")
-_LICENCE = re.compile(r"author and source are credited|open-access article|distributed under the terms|creative commons|permits unrestricted|noncommercial use|provided the original|all rights reserved|early access|accepted manuscript|licen[cs]ed under|\bcc[- ]by\b", re.I)
+_LICENCE = re.compile(
+    r"author and source are credited|open-access article|distributed under the terms|creative commons"
+    r"|creativecommons\.org|permits unrestricted|non-?commercial use|provided the original|all rights reserved"
+    r"|early access|accepted manuscript|licen[cs]ed under|\bcc[- ]by\b"
+    # the sentence as the layout model cuts it, which is how it reaches the body: a column break
+    # leaves "International License, which permits any non-commercial use, sharing, …" on its own
+    r"|international licen[cs]e|licen[cs]e,? which permits|sharing,? adaptation,? distribution and reproduction"
+    r"|full list of author information",
+    re.I,
+)
 
 
 def _never_a_title(text: str) -> bool:
@@ -1020,6 +1395,13 @@ def _never_a_title(text: str) -> bool:
     return t.endswith(".") and len(words) >= 12 and not t.endswith(("et al.", "sp.", "spp."))
 
 
+#: Ranking a title candidate that names the journal last ("A Nature Portfolio journal", which
+#: Nature sets above the abstract and which took the title on 10.1038/s43247-025-02822-z) was tried
+#: on 2026-09-20 and refused. Alone it changed nothing — the real title sits below the abstract,
+#: past where the scan stops — and reading on to find it cost a heading elsewhere (the `prose > 3`
+#: break below carries that measurement).
+#: `_journal_name` is also too loose to ask here: it calls a figure panel's "A" the name of
+#: "Proc Natl Acad Sci U S A". The wrong title survives; the prose under it does not move.
 def _pick_title(items: list[dict[str, Any]], hint: str | None) -> str | None:
     """The self_ref of the item that is the paper's title.
 
@@ -1046,7 +1428,10 @@ def _pick_title(items: list[dict[str, Any]], hint: str | None) -> str | None:
         if label in ("text", "paragraph") and len(text.split()) >= 40:
             prose += 1
             if prose > 3:
-                break
+                break  # three paragraphs in, the first page's furniture is behind us. Reading on
+                # while the only candidate is the journal's line was tried (2026-09-20) and refused:
+                # the scan then reaches the body's own first heading, which outranks a `text`
+                # candidate near the top, and PNAS lost "Can White Noise Cause…" (faithful −0.090)
         if _never_a_title(text):
             continue
         if label == "title" and len(text.split()) >= 2 and not _FURNITURE.search(text) and text.lower().strip(" .:") not in _GENERIC_LABELS:
@@ -1078,7 +1463,115 @@ def _norm_letters(text: str) -> str:
 _FRONT_KINDS = {"authors", "affiliations", "dates", "correspondence", "keywords", "funding", "notice"}
 
 
-_CITES = re.compile(r"\[\d{1,3}[\]\u2013,-]|\(\d{4}[a-z]?\)|et al\.|(?<=[A-Za-z)\]])\.\s?\d{1,3}(?:\s?[-\u2013,]\s?\d{1,3})*\s+[A-Z][a-z]|[.,;]\^\d{1,3}\b|[A-Za-z]{3,}\^\d{1,3}\b(?![.,]?\d)")  # "[12]", "(2019)", "et al.", or a superscript after the full stop: "(PL). 1 - 3 These"
+#: A front-matter box whose own content is a few words or bullets: prose after it is the body.
+_BOX_HEADINGS = frozenset({"keywords", "key words", "keyword", "highlights", "research highlights", "article info", "article information", "graphical abstract", "lay abstract", "lay summary", "plain language summary", "author summary", "significance", "significance statement", "impact statement", "key points"})
+
+
+def _box_prose(text: str) -> bool:
+    """Body prose, not a keyword list or a highlight: forty words or more in sentences."""
+    words = text.split()
+    return len(words) >= 40 and text.rstrip().endswith((".", ")", "]")) and text.count(". ") >= 1 and _prose_like(text) and not _REF_ENTRY.match(text)
+
+
+#: A key-message box, set on the first page in or before the introduction: BMJ's three questions,
+#: BMJ Open's strengths and limitations, Diabetes Care's article highlights, AME's highlight box.
+_MESSAGE_BOX = re.compile(
+    r"^(?:what (?:is|was) (?:already )?known(?: on this (?:topic|subject))?(?: and what is new)?\??"
+    r"|what (?:this|the) (?:study|paper|article|report) adds\??"
+    r"|how (?:this|the) study (?:might|may|could|will) affect research,? practice,? (?:and|or) policy\??"
+    r"|strengths and limitations of (?:this|the) study|key messages?|highlight box"
+    r"|why did we undertake this study\??|what (?:is|are) the specific questions? we wanted to answer\??"
+    r"|what did we find\??|what are the implications of (?:our|these) findings\??)$"
+)
+
+
+def _message_ends(box: Node, text: str, label: str, root: Node) -> bool:
+    """Whether this prose is the body's, read after a key-message box: the box's own blocks are
+    bullets that cite nothing, and this prose cites (BMJ's introduction continued after "How this
+    study might affect research, practice or policy"). Only on the first pages' box: once a
+    methods, results or discussion section is open, a heading that asks a question is the body's."""
+    kids = [c for c in box.children if c.type in ("paragraph", "list_item")]
+    if not kids or label not in _PROSE or len(text.split()) < 40 or not _CITES.search(text):
+        return False
+    if any(_CITES.search(c.text or "") for c in kids):
+        return False
+    return not any(c is not box and c.type == "section" and c.role in ("methods", "results", "results-discussion", "discussion") for c in root.children)
+
+
+def _back_ends(section: Node, text: str, label: str, root: Node) -> bool:
+    """Whether this prose is the body's, read under a back-matter heading printed before the body:
+    Scientific Reports sets an "Abbreviations" list on the first page, and the introduction — whose
+    heading the paper never prints — follows it. The list's entries are a few words each and cite
+    nothing; prose that runs long and cites is not one of them. Only while no methods, results or
+    discussion section is open, so a real Abbreviations section at the end is untouched."""
+    kids = [c for c in section.children if c.type in ("paragraph", "list_item", "text")]
+    if not kids or label not in _PROSE or len(text.split()) < 40 or not _CITES.search(text):
+        return False
+    if (section.page or 9) > 3 or not all(len((c.text or "").split()) <= 10 for c in kids):
+        return False
+    return not any(c is not section and c.type == "section" and c.role in ("methods", "results", "results-discussion", "discussion") for c in root.children)
+
+
+#: what a structured abstract calls its parts, printed as headings: Diabetes Care's "OBJECTIVE",
+#: "RESEARCH DESIGN AND METHODS", "RESULTS", "CONCLUSIONS"; NEJM's and the Lancet's own words
+_ABSTRACT_PART_WIDE = re.compile(
+    r"^(?:background|objectives?(?: and hypothesis)?|aims?|purpose|rationale|context|importance"
+    r"|methods?|research design and methods|(?:patients?|subjects?|participants?|materials?) and methods"
+    r"|design(?: and setting)?|setting(?: and participants)?|participants?|patients?|interventions?"
+    r"|exposures?|measurements?|outcome measures|main outcome measures|main outcomes?(?: and measures?)?"
+    r"|data sources|study selection|data extraction(?: and synthesis)?|evidence (?:acquisition|synthesis|review)"
+    r"|results?|main results|key results|findings|conclusions?(?: and relevance)?|interpretation"
+    r"|significance|limitations|funding|(?:clinical )?trial registration|registration)\s*[:.]?\s*$",
+    re.I,
+)
+
+
+def _body_prose_follows(items: list[dict[str, Any]], index: int, within: int = 4) -> bool:
+    """Whether the heading at `index` opens on the body's prose: its first paragraph cites, or runs
+    past what a structured abstract's part holds. A part is short and cites nothing. The first
+    paragraph only — what follows may already be the body, read after the abstract's last part."""
+    for it in items[index + 1 : index + 1 + within]:
+        if it.get("label") in _HEADER:
+            return False
+        text = (it.get("text") or "").strip()
+        if it.get("label") not in _PROSE | _LIST or not text:
+            continue
+        return _CITES.search(text) is not None or len(text.split()) > 150
+    return False
+
+
+def _mark_abstract_parts(items: list[dict[str, Any]], repairs: dict[str, int]) -> None:
+    """A structured abstract printed as sections reads like the body by its names, and files
+    whole sections of a paper under the wrong lane — Diabetes Care's introduction landed under
+    "CONCLUSIONS". Three or more of a structured abstract's part names in a row on the first
+    pages, each over short prose that cites nothing and before any section of the body, are the
+    abstract's parts: marked here, laned `abstract` under the abstract itself when the tree is
+    built. Three, because a body whose first three sections are named for an abstract's parts and
+    hold a few uncited words each is not a paper."""
+    run: list[int] = []
+    for i, it in enumerate(items):
+        if (_page_of(it) or 1) > 3:
+            break
+        if it.get("label") not in _HEADER or it.get("label") == "title":
+            continue
+        text = (it.get("text") or "").strip()
+        if text and _ABSTRACT_PART_WIDE.match(normalise_heading(text)) and not _body_prose_follows(items, i):
+            run.append(i)
+            continue
+        if len(run) >= 3:
+            break
+        run = []
+    if len(run) >= 3:
+        for i in run:
+            items[i]["_abstract_part"] = True
+        repairs["abstract_parts"] = repairs.get("abstract_parts", 0) + len(run)
+
+
+_CITES = re.compile(
+    r"\[\d{1,3}[\]\u2013,-]|\(\d{4}[a-z]?\)|et al\.|(?<=[A-Za-z)\]])\.\s?\d{1,3}(?:\s?[-\u2013,]\s?\d{1,3})*\s+[A-Z][a-z]|[.,;]\^\d{1,3}\b|[A-Za-z]{3,}\^\d{1,3}\b(?![.,]?\d)"
+    r"|(?<=[a-z]) \(\d{1,3}(?:\s?[,\u2013-]\s?\d{1,3})*\)(?=[.,;:])"  # ASM's and PNAS's "control (1, 2)." — a number in brackets closed by punctuation, not an enumeration's "(1) the"
+    r"|\([A-Z][A-Za-z&'\u2019. -]{1,60}?,? (?:19|20)\d{2}[a-z]?(?:[;,][^)]{0,80})?\)"  # "(Plastics Europe 2024)", "(Smith and Lee, 2019; Wu 2020)"
+)  # "[12]", "(2019)", "et al.", or a superscript after the full stop: "(PL). 1 - 3 These"
 
 
 def _front_by_meaning(text: str, repairs: dict[str, int] | None = None) -> str | None:
@@ -1107,8 +1600,10 @@ def _front_kind(text: str, has_abstract_heading: bool, repairs: dict[str, int] |
     words = t.split()
     if _KEYWORDS.match(t):
         return "keywords"
-    if (_DATE_LINE.search(t) and len(words) <= 30) or _BARE_DATE.match(t):
-        return "dates"  # "Received 22nd August 2026 …", or IOP's "21 January 2015" on a line of its own under "RECEIVED"
+    if _EDITOR_LINE.match(t) and len(words) <= 14:
+        return "notice"  # "Academic Editors: Steven C. Cook and Simona Sagona" — MDPI's, beside the dates
+    if (_DATE_LINE.search(t) and len(words) <= 30) or _BARE_DATE.match(t) or _dates_only(t):
+        return "dates"  # …and the line that is nothing but dates and the words beside them  # "Received 22nd August 2026 …", or IOP's "21 January 2015" on a line of its own under "RECEIVED"
     if _CORRESPONDENCE.search(t) and len(words) <= 60:
         return "correspondence"
     if _FUNDING.match(t) and len(words) <= 80:
@@ -1156,13 +1651,16 @@ def _built_over(intro_items: list[dict[str, Any]], abstract_items: list[dict[str
     return [header, *intro_items]
 
 
-def build_tree(doc: dict[str, Any], key: str, title_hint: str | None = None, judge: Any = None) -> Tree:
+def build_tree(doc: dict[str, Any], key: str, title_hint: str | None = None, judge: Any = None, record: dict[str, Any] | None = None) -> Tree:
     """The node tree for one document, given Docling's exported dict.
 
     `title_hint` is a title the file itself declares (a PDF's Title metadata); it decides
     between candidates on the first page and stands in when the page offers none.
     `judge(a, b, ctx) -> bool | None` is asked about adjacent blocks the joining rules
     leave alone — see judge.py; None means no verdict, and the blocks stay apart.
+    `record` is what the library knows of the paper (`{"journal": …}`): the journal's name tells a
+    banner read as a heading from a heading. Every reader must pass it — `pairs` through
+    `harness.read_paper` as much as the worker — or a measurement measures another reader.
     """
     pages = {int(k): Page(page_no=int(k), width=float(v["size"]["width"]), height=float(v["size"]["height"])) for k, v in (doc.get("pages") or {}).items()}
     title = (doc.get("name") or key).strip()
@@ -1177,6 +1675,8 @@ def build_tree(doc: dict[str, Any], key: str, title_hint: str | None = None, jud
     furniture = _recurring_furniture(doc)
     dropped: dict[str, int] = {}
     repairs: dict[str, int] = {}
+    notes: list[dict[str, Any]] = []
+    journal = (record or {}).get("journal")
     _adopt_captions(doc, repairs)
 
     def next_id(parent: Node, kind: str) -> str:
@@ -1184,7 +1684,12 @@ def build_tree(doc: dict[str, Any], key: str, title_hint: str | None = None, jud
         return f"{parent.node_id}#{kind}-{counters[parent.node_id]}"
 
     def current_role(parent: Node) -> str:
-        # The role of the top-level section, inherited; the document itself is `other`.
+        # The role of the top-level section, inherited; the document itself is `other`. A statement
+        # nested inside the reference list ("Funding" set under the start of a Frontiers list) keeps
+        # its paragraphs back matter, not entries.
+        for level, node in reversed(stack):
+            if level > 1 and node.role == "back":
+                return "back"
         for level, node in stack:
             if level == 1:
                 return node.role
@@ -1235,6 +1740,7 @@ def build_tree(doc: dict[str, Any], key: str, title_hint: str | None = None, jud
         elif it.get("label") not in _SKIP:  # a running head between two halves of a paragraph must not stand between them
             kept.append(it)
     if pages:
+        kept = _reading_order(kept, pages, repairs)
         # a PDF's fonts: "pH ¼ 7.4" was "pH = 7.4", "signi fi cantly" — see glyphs.py; every text,
         # the captions filed under their figures included
         every = {id(it): it for it in kept if it.get("label") not in _TABLE | _PICTURE}
@@ -1248,14 +1754,28 @@ def build_tree(doc: dict[str, Any], key: str, title_hint: str | None = None, jud
                     it["text"] = fixed
                     repairs["glyphs"] = repairs.get("glyphs", 0) + 1
         kept = _caption_tails(doc, kept, repairs)
-    for k in ("recovered", "rebuilt", "formulas", "attached"):
+    for k in ("recovered", "rebuilt", "formulas", "attached", "retexted_headings", "run_in_headings", "unfused_headings", "recovered_headings", "running_headings", "caps_headings", "depth_by_type", "depth_by_type_one_level"):
         if doc.get("_recovery", {}).get(k):
             repairs[k] = doc["_recovery"][k]
+    for it in kept:
+        if it.get("label") in _TEXTLIKE and it.get("text"):
+            once = unrepeat(it["text"])
+            if once != it["text"]:
+                it["text"] = once
+                repairs["unrepeated"] = repairs.get("unrepeated", 0) + 1  # a block that said its paragraph twice
     items = _stitch_fragments(kept, repairs, judge, doc.get("_indents"), float(doc.get("_unit") or 10.0))
+    unfused: list[dict[str, Any]] = []
     for it in items:
         if it.get("label") == "section_header":
             it["text"] = _unspaced_heading(it.get("text") or "")
-    items = _infer_references(items, repairs)
+            two = split_fused_heading(it["text"]) if pages else None  # a PDF's layout model fuses lines; an XML's title is its title
+            if two:
+                unfused.append({**it, "text": two[0], "level": 1, "self_ref": f"{it.get('self_ref', '')}~top", **({"_typo_level": 1} if "_typo_level" in it else {})})
+                unfused.append({**it, "text": two[1], "level": 2, "self_ref": f"{it.get('self_ref', '')}~sub", **({"_typo_level": 2} if "_typo_level" in it else {})})  # the row's look is the first heading's; the second is its subsection
+                repairs["unfused"] = repairs.get("unfused", 0) + 1
+                continue
+        unfused.append(it)
+    items = _infer_references(unfused, repairs)
 
     # --- the title, and the front matter between it and the first known heading ---------
     skip_refs: set[str] = set()  # items filed nowhere: a title taken from beyond the front matter
@@ -1264,11 +1784,18 @@ def build_tree(doc: dict[str, Any], key: str, title_hint: str | None = None, jud
         title = title_hint
         root.text = title_hint
     has_abstract_heading = any(it.get("label") == "section_header" and role_of(it.get("text") or "") == "abstract" for it in items)
+    if pages:
+        _refuse_front_furniture(items, title_ref, doc, journal, has_abstract_heading, repairs, notes)
     front_end = 0  # items[:front_end] are front matter
+    long_prose = False
     for i, it in enumerate(items):
         page = _page_of(it)
         if _known_heading(it) or (page is not None and page > 2) or i >= 60:
             break
+        if long_prose and _body_heading(it):
+            break  # a heading of the paper's own after its prose has begun: the body, with no heading the vocabulary knows (an editorial's "Natural selfish genetic element systems")
+        if it.get("label") in _PROSE and len((it.get("text") or "").split()) >= 40 and _prose_like((it.get("text") or "").strip()):
+            long_prose = True
         front_end = i + 1
     items, front_end = build_headings(items, front_end, title_ref, _oracle(), repairs)  # a paper with no headings gets them built from its blocks
     front_items = items[:front_end]
@@ -1402,6 +1929,8 @@ def build_tree(doc: dict[str, Any], key: str, title_hint: str | None = None, jud
                 attach(abstract, make(abstract, "paragraph", it, text, "abstract"))
         items = body_items
 
+    if pages:
+        _mark_abstract_parts(items, repairs)
     first_title_taken = title_ref is not None
     for index, item in enumerate(items):
         label = item.get("label", "text")
@@ -1433,12 +1962,16 @@ def build_tree(doc: dict[str, Any], key: str, title_hint: str | None = None, jud
                 continue
             following = next((it for it in items[index + 1 :] if (it.get("text") or "").strip() or it.get("label") in _TABLE | _PICTURE), None)
             heads_nothing = following is None or following.get("label") in _HEADER
-            if heads_nothing and not body_started and _page_of(item) in (None, 1) and role_of(text) == "other" and numbering_depth(text) is None and _front_by_meaning(text) == "notice":
+            furniture = item.get("_furniture_head")
+            if furniture or (heads_nothing and not body_started and _page_of(item) in (None, 1) and role_of(text) == "other" and numbering_depth(text) is None and _front_by_meaning(text) == "notice"):
                 # the journal's name or the article's type set as a heading on the first page
-                # ("RSC Advances", "RESEARCH ARTICLE") with another heading right after it: front
-                # matter, not a section. A heading with prose under it is never demoted, on page
-                # one or later — a wrong verdict would file that prose under the section before.
-                repairs["front_meaning"] = repairs.get("front_meaning", 0) + 1
+                # ("RSC Advances", "RESEARCH ARTICLE"): front matter, not a section. Where the line's
+                # own shape says so (`_refuse_front_furniture`) the prose under it is the body's and
+                # this holds whatever follows; on the embedder's word alone it holds only when
+                # another heading follows, since a wrong verdict would file that prose under the
+                # section before.
+                if not furniture:
+                    repairs["front_meaning"] = repairs.get("front_meaning", 0) + 1
                 front = next((c for c in root.children if c.type == "section" and c.heading == "Front matter"), None)
                 if front is None:
                     front = make(root, "section", {"label": "section_header"}, "", "other", heading="Front matter", level=1)
@@ -1450,21 +1983,51 @@ def build_tree(doc: dict[str, Any], key: str, title_hint: str | None = None, jud
             level = int(item.get("level") or 1)
             if label == "title" or item.get("_built"):
                 level = 1
+            elif item.get("_runin"):
+                open_top_node = next((n for lvl, n in stack if lvl == 1), None)
+                level = 2 if open_top_node is not None and open_top_node.label != "built" else 1  # a heading printed run in at a paragraph's front is a subsection of the section it stands in, whatever its name ("Statistics" under Materials and Methods) — never of a heading the reader built
             else:
-                level = infer_level(text, level, any(lvl == 1 for lvl, _ in stack))
-                if level == 1 and role_of(text, meaning=False) == "other" and next((n.role for lvl, n in stack if lvl == 1), None) == "references" and _entries_follow(items, index):
-                    level = 2  # a statement the layout model read between the entries, named by the catalogue or by meaning: the list goes on after it, so it stays inside
+                open_top_node = next((n for lvl, n in stack if lvl == 1), None)
+                level = infer_level(text, level, open_top_node is not None and open_top_node.label != "built", stated=not pages, typo_level=item.get("_typo_level"), list_number=bool(item.get("_list_number")), open_top_role=open_top_node.role if open_top_node is not None else None)
+                if level > 1 and open_top_node is not None and open_top_node.label == "built" and numbering_depth(text) is None:
+                    level = 1  # a printed heading is never the child of one the reader built: the built "Introduction" covers the prose before the first printed heading, no more
+                if level == 1 and role_of(text, meaning=False) in ("other", "back") and pages and next((n.role for lvl, n in stack if lvl == 1), None) == "references" and _entries_follow(items, index):
+                    level = 2  # a statement the layout model read between the entries — named by the catalogue, by meaning, or by the vocabulary itself ("Data availability statement", "Funding": Frontiers sets them in the left column under the start of the list, and 93 entries had filed as acknowledgements) — stays inside the list, since the list goes on after it
+            as_part = bool(pages and item.get("_abstract_part") and not body_started and level == 1)
+            if as_part:
+                host = next((n for lvl, n in stack if lvl == 1 and n.role == "abstract"), None) or next((c for c in reversed(root.children) if c.type == "section" and c.level == 1 and c.role == "abstract"), None)
+                if host is None:
+                    while len(stack) > 1:
+                        stack.pop()
+                    host = make(root, "section", {**item, "label": "section_header"}, "", "abstract", heading="Abstract", level=1)
+                    host.label = "built"  # the paper printed its abstract's parts and no heading over them
+                    attach(root, host)
+                    repairs["built_headings"] = repairs.get("built_headings", 0) + 1
+                while len(stack) > 1 and stack[-1][1] is not host:
+                    stack.pop()
+                if stack[-1][1] is not host:
+                    stack.append((1, host))
+                level = 2
             number = top_number(text)
             open_top = next((n for lvl, n in stack if lvl == 1), None)
-            if level > 1 and number is not None and open_top is not None and open_top.heading and top_number(open_top.heading) not in (None, number):
+            if level > 1 and number is not None and open_top is not None and open_top.heading and top_number(open_top.heading) not in (None, number) and not item.get("_list_number"):
                 # "3.2 …" arrives while "2. Methods" is open and no "3." was seen: the layout
                 # model dropped the parent heading. Stand in an untitled section rather than
                 # file results under methods; its role is `other`, which is honest.
                 while len(stack) > 1:
                     stack.pop()
-                ghost = make(root, "section", {"label": "section_header"}, "", "other", heading=f"{number}. (heading not detected)", level=1)
-                attach(root, ghost)
-                stack.append((1, ghost))
+                read_before = next((c for c in reversed(root.children) if c.type == "section" and c.heading and c.label != "built" and top_number(c.heading) == number), None)
+                if read_before is not None:
+                    # …unless the parent *was* read, out of order: a two-column page whose right
+                    # column came first puts "2 METHODS" and "2.1" before "1 INTRODUCTION", and
+                    # "2.2" then arrives with the introduction open. The author numbered both, so
+                    # this is the author's own word for where it belongs, not a guess
+                    stack.append((1, read_before))
+                    repairs["renumbered_parent"] = repairs.get("renumbered_parent", 0) + 1
+                else:
+                    ghost = make(root, "section", {"label": "section_header"}, "", "other", heading=f"{number}. (heading not detected)", level=1)
+                    attach(root, ghost)
+                    stack.append((1, ghost))
             open_here = next((n for lvl, n in stack if lvl == level), None)
             if open_here is not None and open_here.heading and _same_heading(text, open_here.heading):
                 # "4. Discussion" again after a page break: the same section continues.
@@ -1479,14 +2042,16 @@ def build_tree(doc: dict[str, Any], key: str, title_hint: str | None = None, jud
             parent = stack[-1][1]
             last_heading = text
             prose_since_heading = False
-            role = role_of(text, meaning=False) if level == 1 else current_role(parent)
+            role = role_of(text, meaning=False) if level == 1 else (role_of(text, meaning=False) if role_of(text, meaning=False) == "back" else current_role(parent))  # a statement nested inside the reference list is still a statement
             if role == "other" and level == 1 and text:
                 by_rule = top_level_lane(text)
                 role = by_rule or role_of(text)  # rules first: the vocabulary, then the catalogue ("Case presentation" is results, "Declaration of competing interest" is back), the embedder last
                 if by_rule is None and role in _NOT_NUMBERED and top_number(text) is not None:
                     role = "other"  # a heading that carries a body number is a body section: of 3,664 back-matter sections across three corpora, the only numbered one was a review's "8. Regulatory and Ethical Considerations", laned back by meaning — unassignable beats misassigned
-            if role == "abstract" and (body_started or top_number(text) is not None):
-                role = "discussion"  # "6 Summary", a closing section: the abstract came first
+            if as_part:
+                role = "abstract"  # a part of the structured abstract, whatever its name says
+            if role == "abstract" and normalise_heading(text) != "abstract" and (body_started or top_number(text) is not None):
+                role = "discussion"  # "6 Summary", a closing section: the abstract came first (a heading that says "Abstract" is the abstract, wherever the layout read it)
             if level == 1 and (role not in ("abstract", "other") or top_number(text) is not None):
                 body_started = True
             if item.get("_built"):
@@ -1505,16 +2070,50 @@ def build_tree(doc: dict[str, Any], key: str, title_hint: str | None = None, jud
             continue
 
         parent = stack[-1][1]
-        if parent.type == "section" and parent.role == "abstract" and parent.children and label in _PROSE and len(text.split()) >= 15 and _CITES.search(text) and _prose_like(text) and not body_started:
-            # the abstract has a paragraph already and this one cites: the introduction has begun without its
-            # heading (missed by the layout model, or never printed) — a built "Introduction" opens here
+        if len(stack) > 1 and stack[-1][0] > 1 and parent.role == "back" and next((n.role for lvl, n in stack if lvl == 1), None) == "references" and label in ("list_item", "text", "paragraph") and len(text) < 700 and _REF_ENTRY.match(text) and _A_YEAR.search(text):
+            while len(stack) > 1 and stack[-1][0] > 1:
+                stack.pop()  # an entry again: the statement read between the entries is over, the list goes on
+            parent = stack[-1][1]
+        box = next((n for lvl, n in reversed(stack) if lvl >= 1 and n.type == "section" and normalise_heading(n.heading or "") in _BOX_HEADINGS), None)
+        message = None if box is not None else next((n for lvl, n in reversed(stack) if lvl >= 1 and n.type == "section" and _MESSAGE_BOX.match(normalise_heading(n.heading or ""))), None)
+        early_back = None if (box is not None or message is not None) else next((n for lvl, n in reversed(stack) if lvl >= 1 and n.type == "section" and n.role == "back"), None)
+        if pages and ((box is not None and box.children and label in _PROSE and _box_prose(text)) or (message is not None and _message_ends(message, text, label, root)) or (early_back is not None and _back_ends(early_back, text, label, root))):
+            # a front-matter box holds a few words — the keywords, the highlights' bullets: prose read after
+            # it is the body, which the layout read after the box (Wiley's KEYWORDS under the abstract, a
+            # highlights box, Elsevier's article info; a key-message box's bullets, then prose that cites).
+            # It joins the introduction already read, or opens one
+            intro = next((c for c in reversed(root.children) if c.type == "section" and c.role == "introduction"), None)
             while len(stack) > 1:
                 stack.pop()
-            intro = make(root, "section", {**item, "label": "section_header"}, "", "introduction", heading="Introduction", level=1)
-            intro.label = "built"
-            attach(root, intro)
+            if intro is None:
+                intro = make(root, "section", {**item, "label": "section_header"}, "", "introduction", heading="Introduction", level=1)
+                intro.label = "built"
+                attach(root, intro)
+                repairs["built_headings"] = repairs.get("built_headings", 0) + 1
             stack.append((1, intro))
-            repairs["built_headings"] = repairs.get("built_headings", 0) + 1
+            repairs["box_prose" if early_back is None else "back_box_prose"] = repairs.get("box_prose" if early_back is None else "back_box_prose", 0) + 1
+            body_started = True
+            parent = intro
+        read_before = next((c for c in reversed(root.children) if c.type == "section" and c.role == "introduction"), None) if body_started else None
+        if parent.type == "section" and parent.role == "abstract" and parent.children and label in _PROSE and len(text.split()) >= 15 and _prose_like(text) and (
+            (_CITES.search(text) and (not body_started or read_before is not None))
+            or (read_before is not None and len(text.split()) >= 40 and (_page_of(item) or 0) > (parent.page or 0))
+        ):
+            # the abstract has a paragraph already and this one cites: the introduction has begun without its
+            # heading (missed by the layout model, or never printed) — a built "Introduction" opens here. Where the
+            # introduction's heading was read before the abstract (Elsevier's first page: the left column's
+            # "1. Introduction" under the abstract box), the prose after the abstract goes back to it
+            while len(stack) > 1:
+                stack.pop()
+            if read_before is not None:
+                intro = read_before
+                repairs["abstract_to_introduction"] = repairs.get("abstract_to_introduction", 0) + 1
+            else:
+                intro = make(root, "section", {**item, "label": "section_header"}, "", "introduction", heading="Introduction", level=1)
+                intro.label = "built"
+                attach(root, intro)
+                repairs["built_headings"] = repairs.get("built_headings", 0) + 1
+            stack.append((1, intro))
             body_started = True
             parent = intro
         if parent is root and text:
@@ -1572,10 +2171,17 @@ def build_tree(doc: dict[str, Any], key: str, title_hint: str | None = None, jud
             stack.append((1, abstract))
             attach(abstract, make(abstract, "paragraph", item, _ABSTRACT_BLOCK.sub("", text).strip(), "abstract"))
             continue
-        if label in _PROSE and text and not body_started and parent is not root:
+        early = (_page_of(item) or 9) <= 2 and parent.role not in ("references", "back") and _late_front(text)
+        if label in _PROSE and text and (not body_started or early) and parent is not root:
             # keywords, a copyright line, the journal's home page, a correspondence address,
-            # after the abstract's heading and before the paper proper: front matter
-            fk = _front_kind(text, True, repairs, meaning=parent.role != "abstract")
+            # after the abstract's heading and before the paper proper: front matter. And the same
+            # lines where the layout model read them after the body's first heading: MDPI sets
+            # "Academic Editors", "Received / Revised / Accepted / Published" and its licence in the
+            # left column of the first page, which the model reads between the introduction's
+            # paragraphs, and 79 chunks of the working half carried text no paper of it has. A short
+            # line of that shape on the first pages is front matter wherever it was read; the
+            # embedder is not asked once the body has begun, only the line's own shape counts
+            fk = _front_kind(text, True, repairs, meaning=not body_started and parent.role != "abstract")
             if fk in _FRONT_KINDS:
                 front = next((c for c in root.children if c.type == "section" and c.heading == "Front matter"), None)
                 if front is None:
@@ -1607,6 +2213,7 @@ def build_tree(doc: dict[str, Any], key: str, title_hint: str | None = None, jud
         has_methods=roles.get("methods", 0) > 0,
         dropped=dropped,
         repairs=repairs,
+        notes=notes,
     )
     lane_sections(tree, _oracle(), repairs)  # a top-level section whose heading names nothing, read by its paragraphs
     return tree

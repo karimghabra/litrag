@@ -33,8 +33,9 @@ def safe_key(key: str) -> str:
 
 def parsed_papers(lib_dir: Path, keys: list[str] | None = None) -> list[dict[str, Any]]:
     """Every parsed paper of a library that still has its raw Docling document:
-    `{key, format, file, source, raw}`, in the order they were added. `source` is the
-    paper file (or None), `raw` the saved document beside it."""
+    `{key, format, file, source, raw, pub_types, type, journal}`, in the order they were added.
+    `source` is the paper file (or None), `raw` the saved document beside it; `journal` is what the
+    record knows, which the reader uses to tell a banner from a heading."""
     import sqlite3
 
     store = Path(lib_dir) / "store.sqlite"
@@ -44,18 +45,19 @@ def parsed_papers(lib_dir: Path, keys: list[str] | None = None) -> list[dict[str
     try:
         have = {r[1] for r in conn.execute("PRAGMA table_info(papers)")}
         extra = ", pub_types, type" if "pub_types" in have else ", NULL, NULL"
+        extra += ", journal" if "journal" in have else ", NULL"
         rows = conn.execute(f"SELECT key, format, file{extra} FROM papers WHERE status = 'parsed' ORDER BY added_at, key").fetchall()
     finally:
         conn.close()
     wanted = set(keys) if keys else None
     out: list[dict[str, Any]] = []
-    for key, fmt, file, pub_types, kind in rows:
+    for key, fmt, file, pub_types, kind, journal in rows:
         if wanted is not None and key not in wanted:
             continue
         raw = Path(lib_dir) / "parsed" / f"{safe_key(key)}.docling.json"
         if not raw.exists():
             continue
-        out.append({"key": key, "format": fmt, "file": file, "source": (Path(lib_dir) / "papers" / file) if file else None, "raw": raw, "pub_types": pub_types, "type": kind})
+        out.append({"key": key, "format": fmt, "file": file, "source": (Path(lib_dir) / "papers" / file) if file else None, "raw": raw, "pub_types": pub_types, "type": kind, "journal": journal})
     return out
 
 

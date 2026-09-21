@@ -32,6 +32,7 @@ def test_the_catalogue_names_every_spelling_the_corpus_uses_and_its_families():
     assert top_level_lane("Declaration of Competing Interest") == "back" and top_level_lane("Case presentation") == "results" and top_level_lane("Limitations of the present study") == "discussion"
     assert top_level_lane("Reference materials") is None and top_level_lane("Image registration") is None and top_level_lane("Contributions of macrophages to fibrosis") is None  # a family never gives references or back matter
     assert top_level_lane("Materials characterization") is None and top_level_lane("Method for detecting mechanical properties") is None  # the methods family is the whole heading
+    assert top_level_lane("OBSERVATION") == "results" and canonical_of("Author summary") == ("Highlights", "table")  # a journal's own words for its results, and for its lay summary: found when the XML's stated depth brought both back to the top level
     assert top_level_lane("2. Data Collection and Outcome Assessment") == "methods" and canonical_of("2. Data Collection and Outcome Assessment") == ("Materials", "pattern")  # data collection is a methods family
     assert top_level_lane("Notation", promote=True) is None and top_level_lane("Data availability statement", promote=True) == "back" and top_level_lane("Results across models", promote=True) is None
     assert agreed("References", "methods") is None and agreed("Conclusions", "abstract") is None and agreed("Statistical analysis", "methods") == "Statistical analysis" and agreed("Keywords", "back") == "Keywords" and agreed(None, "methods") is None
@@ -95,6 +96,27 @@ def test_a_numbered_heading_takes_no_back_lane_by_meaning(monkeypatch):
     assert got["8. Regulatory and Ethical Considerations"] == ("other", None)  # not back, and so not "Ethics" either
     assert got["Author Contributions"] == ("back", "Author contributions")  # an unnumbered statement keeps its lane
     assert facets.role_of("Regulatory and ethical considerations") == "back"  # the verdict itself stands; the number is what refuses it
+
+
+def test_a_known_statement_read_between_the_entries_does_not_cut_the_list_either():
+    # a Frontiers PDF's left column: "DATA AVAILABILITY STATEMENT", "FUNDING" under the start of the list, the entries going on after them
+    from test_structure import ENTRY
+
+    doc = _doc([
+        ("title", "A crosslinked collagen scaffold for tendon repair", 1),
+        ("section_header", "1 Introduction", 1), ("text", CITING, 1),
+        ("section_header", "REFERENCES", 2),
+        *[("list_item", ENTRY.format(n=n), 2) for n in range(1, 4)],
+        ("section_header", "DATA AVAILABILITY STATEMENT", 2), ("text", "The datasets generated for this study are available on request to the corresponding author.", 2),
+        ("section_header", "FUNDING", 2), ("text", "This work was supported by the National Natural Science Foundation of China under grant 81871838.", 2),
+        *[("list_item", ENTRY.format(n=n), 2) for n in range(4, 9)],
+    ])
+    tree = build_tree(doc, "k")
+    assert sum(1 for n in tree.walk() if n.type == "list_item" and n.role == "references") == 8
+    assert [n.heading for n in tree.root.children if n.type == "section"] == ["1 Introduction", "REFERENCES"]
+    nested = {n.heading: n.role for n in tree.walk() if n.type == "section" and (n.level or 1) > 1}
+    assert nested == {"DATA AVAILABILITY STATEMENT": "back", "FUNDING": "back"}  # inside the list, and still statements
+    assert all(n.role == "back" for n in tree.walk() if n.type == "paragraph" and n.text.startswith(("The datasets", "This work")))
 
 
 def test_a_statement_read_between_the_reference_entries_does_not_cut_the_list():

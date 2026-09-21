@@ -700,4 +700,9 @@ def recover_from_pdf(doc: dict[str, Any], path: Path | None) -> dict[str, int]:
         lines = pdf_lines(path)
     except Exception:
         return {}
-    return recover(doc, lines)
+    report = recover(doc, lines)
+    from .typography import restyle_from_pdf
+
+    report.update(restyle_from_pdf(doc, path))  # the page's type: headings run in, fused, dropped, misspelt
+    doc["_recovery"] = report
+    return report

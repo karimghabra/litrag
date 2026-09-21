@@ -60,7 +60,8 @@ def test_top_level_skeleton(nar):
     assert nar.roles["methods"] == 23 and nar.roles["results"] == 22  # one results paragraph was split across pages 4 and 5; it is one again
     front = sections(nar, 1)[0]
     # the lines above the abstract, each a typed node, not a paragraph apiece
-    assert [(c.type, c.label, c.page) for c in front.children] == [("meta", "authors", 1), ("meta", "affiliations", 1), ("meta", "dates", 1)]
+    assert [(c.type, c.label, c.page) for c in front.children] == [("meta", "authors", 1), ("meta", "affiliations", 1), ("meta", "dates", 1), ("meta", "dates", 1), ("meta", "notice", 1)]
+    assert front.children[3].text.startswith("The Author(s) 2011. Published by")  # the imprint, read between the body's paragraphs
     assert front.children[0].text.startswith("Shuai Li 1") and "Xiaofei Zheng" in front.children[0].text
 
 
@@ -205,8 +206,12 @@ def test_a_paragraph_split_at_a_page_break_is_joined():
         "This mirrors other proposals (Friston, 2019, Fields et al., 2022, Friston et al., 2023, Fields, 2024)-to optimize trade-offs between heterogeneous goals.",
         "Empirically plausible models of amoeboid chemotaxis ( K ≈ 2 ) (Sect. 5) and planarian head regeneration converge.",
         "A new paragraph starts here.",
-        "Received: 30 June 2025 / Accepted: 8 October 2025",  # unfinished, but what follows starts a new sentence in capitals
-        "© The Author(s) 2025",
+    ]
+    # the publisher's own line, whole and on the first pages, is front matter wherever it was read:
+    # the dates, and the imprint, which opens a line and never a sentence of a paper
+    assert [(c.label, c.text) for c in tree.walk() if c.type == "meta"] == [
+        ("dates", "Received: 30 June 2025 / Accepted: 8 October 2025"),
+        ("notice", "© The Author(s) 2025"),
     ]
     assert tree.repairs == {"joined": 2}
     # a break three pages away is not a continuation
@@ -216,9 +221,139 @@ def test_a_paragraph_split_at_a_page_break_is_joined():
 
 def test_recurring_page_furniture_is_dropped():
     doc = _doc([("section_header", "1 Intro", 1), ("text", "1 3", 1), ("text", "Real text.", 1), ("text", "1 3", 2), ("text", "More text.", 2), ("text", "1 3", 3), ("text", "Once only", 3)], pages=(1, 2, 3))
+    for it in doc["texts"]:
+        if it["text"] == "1 3":
+            it["prov"][0]["bbox"].update({"t": 40, "b": 30})  # a publisher's mark sits at the foot of every page
     tree = build_tree(doc, "k")
     assert [n.text for n in tree.walk() if n.type == "paragraph"] == ["Real text.", "More text.", "Once only"]
     assert tree.dropped == {"furniture": 3}
+
+
+CONCLUDING = "Taken together these results show that the crosslinked scaffolds support cell growth while providing mechanical properties in the range of native cartilage, and that the method is simple enough for a clinical workflow."
+FINDING = "The compressive modulus increased from 12 kPa to 48 kPa as the crosslinker concentration rose, and the swelling ratio decreased correspondingly over the seven days of the experiment."
+ARGUING = "Our findings show that the crosslinked scaffolds support cell growth at a stiffness in the range of native cartilage, and several limitations of the approach should be acknowledged before any clinical use."
+
+
+BANNER_PROSE = "Perovskite solar cells have reached efficiencies above 25 per cent in the laboratory, and their stability under damp heat is now the question that decides whether they leave it [1,2]."
+
+
+def test_the_journals_banner_is_no_heading_though_prose_follows_it():
+    # RSC prints "Chemical Science" at the head of the page; the layout model calls it a heading and the
+    # introduction files under it. The record's abbreviated journal names it, and the prose is the body's
+    doc = _doc([
+        ("section_header", "Chemical Science", 1), ("section_header", "REVIEW", 1),
+        ("title", "Stability of perovskite solar cells under damp heat", 1),
+        ("text", "Jane Doe, a John Roe b and Wei Zhang a", 1),
+        ("section_header", "1. Introduction", 1), ("text", BANNER_PROSE, 1),
+        ("section_header", "2. Experimental", 2), ("text", "Films were annealed at 120 °C for 30 min and measured by XRD.", 2),
+    ])
+    tree = build_tree(doc, "k", record={"journal": "Chem Sci"})
+    assert tree.repairs.get("furniture_headings") == 2  # the banner and the article's type
+    assert [n.heading for n in tree.root.children if n.type == "section"] == ["Front matter", "1. Introduction", "2. Experimental"]
+    intro = next(n for n in tree.root.children if n.heading == "1. Introduction")
+    assert [c.text[:10] for c in intro.children if c.type == "paragraph"] == ["Perovskite"]
+    assert [n["kind"] for n in tree.notes] == ["heading-refused", "heading-refused"]
+
+
+def test_an_affiliation_read_as_a_heading_keeps_no_prose():
+    # RSC sets its affiliations after the introduction's first lines, so the refusal cannot wait for the
+    # front matter to end: an affiliation line heads no section wherever the model read it
+    doc = _doc([
+        ("title", "Stability of perovskite solar cells under damp heat", 1),
+        ("section_header", "1. Introduction", 1), ("text", BANNER_PROSE, 1),
+        ("section_header", "b Institute of Physics, Government College University, Lahore 54000, Pakistan", 1),
+        ("text", "Damp heat drives iodide out of the absorber and the cells lose a fifth of their output [3].", 1),
+    ])
+    tree = build_tree(doc, "k", record={"journal": "RSC Adv"})
+    assert tree.repairs.get("furniture_headings") == 1
+    intro = next(n for n in tree.root.children if n.heading == "1. Introduction")
+    assert [c.text[:10] for c in intro.children if c.type == "paragraph"] == ["Perovskite", "Damp heat "]
+
+
+def test_a_folio_is_no_heading_anywhere_in_the_paper():
+    doc = _doc([
+        ("title", "Stability of perovskite solar cells under damp heat", 1),
+        ("section_header", "2. Methods", 4), ("text", "Films were annealed at 120 °C and measured by XRD after each cycle of damp heat.", 4),
+        ("section_header", "7 of 9", 4), ("text", "Each cycle ran for 1,000 hours at 85 per cent humidity, and the cells were measured again.", 4),
+    ], pages=(1, 2, 3, 4))
+    tree = build_tree(doc, "k", record={"journal": "Med Phys"})
+    assert tree.repairs.get("furniture_headings") == 1
+    methods = next(n for n in tree.walk() if n.heading == "2. Methods")
+    assert [c.text[:10] for c in methods.children if c.type == "paragraph"] == ["Films were", "Each cycle"]
+
+
+def test_a_two_word_heading_the_vocabulary_knows_survives_a_banner_rule():
+    doc = _doc([
+        ("title", "Stability of perovskite solar cells under damp heat", 1),
+        ("section_header", "Chemical Science", 1),
+        ("section_header", "Materials and methods", 1), ("text", "Films were annealed at 120 °C for 30 min and measured by XRD.", 1),
+        ("section_header", "Results", 2), ("text", "The films kept 94 per cent of their output after 1,000 hours.", 2),
+    ])
+    tree = build_tree(doc, "k", record={"journal": "Chem Sci"})
+    assert [(n.heading, n.role) for n in tree.root.children if n.type == "section"] == [
+        ("Front matter", "other"), ("Materials and methods", "methods"), ("Results", "results"),
+    ]
+
+
+def test_a_title_that_recurs_as_its_own_running_head_is_not_refused():
+    # a short paper whose title is printed at the head of every page: four words or more, so it is the
+    # title and not a banner, and it stays the title
+    doc = _doc([
+        ("section_header", "Stability of perovskite solar cells under damp heat", 1),
+        ("text", "Jane Doe, John Roe", 1),
+        ("section_header", "1. Introduction", 1), ("text", BANNER_PROSE, 1),
+    ])
+    tree = build_tree(doc, "k", record={"journal": "Chem Sci"})
+    assert tree.title.startswith("Stability of perovskite")
+    assert "furniture_headings" not in tree.repairs
+
+
+def test_a_page_read_out_of_order_in_one_column_is_put_back():
+    # MDPI sets its reference list at the foot of the page: the layout model reads the list before the
+    # text above it in the same column, and the conclusion's last paragraphs file under "References"
+    doc = _doc([
+        ("section_header", "4. Conclusions", 1), ("text", FINDING, 1),
+        ("section_header", "References", 2), ("list_item", "1. Smith JA, Lee CD. Collagen crosslinking. J Biomed Mater Res. 2019;107:812.", 2), ("list_item", "2. Brown EF, Wu T. Tendon repair. Acta Biomater. 2020;101:44.", 2),
+        ("text", CONCLUDING, 2), ("text", "Funding: this work was supported by a grant.", 2),
+    ], pages=(1, 2))
+    boxes = {2: (50, 500, 200, 190), 3: (50, 500, 180, 170), 4: (50, 500, 160, 150), 5: (50, 500, 760, 700), 6: (50, 500, 690, 680)}
+    for k, (l, r, t, b) in boxes.items():
+        doc["texts"][k]["prov"][0]["bbox"].update({"l": l, "r": r, "t": t, "b": b})
+    tree = build_tree(doc, "k")
+    assert tree.repairs.get("reordered_page") == 3  # the heading and its two entries were read too early
+    conclusions = next(n for n in tree.walk() if n.heading == "4. Conclusions")
+    assert [c.text[:14] for c in conclusions.children if c.type == "paragraph"] == ["The compressiv", "Taken together", "Funding: this "]  # the page's order: the text above the list, then the statements under it
+    refs = next(n for n in tree.walk() if n.heading == "References")
+    assert [c.type for c in refs.children] == ["list_item", "list_item"]
+
+
+def test_a_heading_at_the_top_of_the_other_column_stays_where_it_was_read():
+    # two columns: the right column's first heading stands above the left column's last paragraph and
+    # is read after it, which is the order the page means
+    doc = _doc([
+        ("section_header", "3. Discussion", 2), ("text", ARGUING, 2), ("text", CONCLUDING, 2),
+        ("section_header", "Conflicts of interest", 2), ("text", "The authors declare none.", 2),
+    ], pages=(1, 2))
+    boxes = {0: (50, 290, 700, 690), 1: (50, 290, 680, 500), 2: (50, 290, 490, 300), 3: (310, 460, 760, 750), 4: (310, 550, 740, 700)}
+    for k, (l, r, t, b) in boxes.items():
+        doc["texts"][k]["prov"][0]["bbox"].update({"l": l, "r": r, "t": t, "b": b})
+    tree = build_tree(doc, "k")
+    assert "reordered_page" not in tree.repairs
+    assert [(n.heading, n.role) for n in tree.root.children if n.type == "section"] == [("3. Discussion", "discussion"), ("Conflicts of interest", "back")]
+
+
+def test_the_same_words_at_three_different_heights_are_the_papers_own():
+    # Diabetes Care prints "RESULTS" in its visual abstract, again in its structured abstract, and
+    # over the section itself: three pages, three heights, and the section's heading is no running head
+    doc = _doc([
+        ("section_header", "RESULTS", 1), ("text", "A total of 43 participants were randomised in the trial.", 1),
+        ("section_header", "RESULTS", 2), ("text", "In the first week, thirty-nine of the participants used the device.", 2),
+        ("section_header", "RESULTS", 3), ("text", "The mean time in range was higher in the closed-loop group.", 3),
+    ], pages=(1, 2, 3))
+    tree = build_tree(doc, "k")
+    assert [n.heading for n in tree.walk() if n.type == "section" and n.heading == "RESULTS"]  # the heading stands
+    assert [len((n.text or "").split()) for n in tree.walk() if n.type in ("paragraph", "meta")] == [10, 11, 11]  # and its words with it
+    assert "furniture" not in tree.dropped
 
 
 def test_a_paragraph_continues_across_a_figure_and_a_running_head():
@@ -302,3 +437,91 @@ def test_a_table_footnote_is_a_node_after_its_table():
     kinds = [(n.type, n.text[:22]) for n in tree.walk() if n.type in ("table", "caption", "footnote", "paragraph")]
     assert kinds == [("table", ""), ("caption", "TABLE I. Host response"), ("footnote", "a Parameters were defi"), ("paragraph", "Scores rose with time ")]
 
+
+def test_an_abbreviation_list_on_the_first_page_is_no_back_matter():
+    # Scientific Reports sets its abbreviations beside the abstract and prints no "Introduction":
+    # the prose after the list is the introduction, not eight paragraphs of back matter
+    doc = _doc([
+        ("section_header", "Abstract", 1),
+        ("text", "Occupational hearing loss is a common work-related health problem among industrial workers in many settings.", 1),
+        ("section_header", "Abbreviations", 1),
+        ("text", "Threshold limit value", 1),
+        ("text", "Personal protective equipment", 1),
+        ("text", "Structural equation modeling", 1),
+        ("text", "Hearing disorders are among the most common sensory impairments worldwide, and noise is the cause most often named in industry [1,2]. The burden falls hardest on workers whose exposure is long and whose protection is least, as several surveys of the last decade have shown. Prevalence rises with the years a worker has spent on the line.", 2),
+        ("section_header", "Method", 2),
+        ("text", "This analytical descriptive cross-sectional study was conducted in industrial workplaces.", 2),
+    ], pages=(1, 2))
+    tree = build_tree(doc, "k")
+    intro = next(n for n in tree.walk() if n.type == "section" and n.role == "introduction")
+    assert intro.label == "built" and len(intro.children) == 1
+    assert tree.repairs.get("back_box_prose") == 1
+    # the list itself is still its own section, and still back matter
+    back = next(n for n in tree.walk() if n.type == "section" and n.heading == "Abbreviations")
+    assert back.role == "back" and len(back.children) == 3
+
+
+def test_a_real_abbreviations_section_after_the_body_keeps_its_prose():
+    # the same heading once results are open: the prose under it stays back matter
+    doc = _doc([
+        ("section_header", "Results", 1),
+        ("text", "Scores rose with time in every group of the cohort we followed.", 1),
+        ("section_header", "Abbreviations", 2),
+        ("text", "Threshold limit value", 2),
+        ("text", "The authors thank the reviewers of an earlier draft for the objections raised there, which shaped the analysis reported above and are answered in full in the supplement (Smith et al., 2021).", 2),
+    ], pages=(1, 2))
+    tree = build_tree(doc, "k")
+    assert not any(n.type == "section" and n.role == "introduction" for n in tree.walk())
+    back = next(n for n in tree.walk() if n.type == "section" and n.heading == "Abbreviations")
+    assert [c.role for c in back.children] == ["back", "back"]
+
+
+def test_the_licence_sentence_is_front_matter_though_it_runs_long():
+    # the shapes that carry their own length: a licence sentence of forty words is the publisher's,
+    # and a paper whose own subject is licensing cites, which is what keeps its prose out of this
+    doc = _doc([
+        ("section_header", "1. Introduction", 1),
+        ("text", "This article is distributed under the terms of the Creative Commons Attribution 4.0 International License, which permits any non-commercial use, sharing, adaptation, distribution and reproduction in any medium, provided the original author and source are credited and a link to the licence is given.", 1),
+        ("text", "Academic Editors: Steven C. Cook and Simona Sagona", 1),
+        ("text", "Published by Oxford University Press.", 1),
+        ("text", "Open licensing of trial data is now required by most funders, and the terms of the Creative Commons family are the ones most often named (Smith et al., 2021). We read every policy published since 2019.", 1),
+    ])
+    tree = build_tree(doc, "k")
+    meta = [c.text[:24] for c in tree.walk() if c.type == "meta"]
+    assert meta == ["This article is distribu", "Academic Editors: Steven", "Published by Oxford Univ"]
+    kept = [n.text[:34] for n in tree.walk() if n.type == "paragraph"]
+    assert kept == ["Open licensing of trial data is no"]
+
+
+def test_a_subsection_goes_back_to_the_numbered_section_already_read():
+    # a two-column page read right column first puts "2 METHODS" and "2.1" before "1 INTRODUCTION",
+    # so "2.2" arrives with the introduction open. The author numbered both: it belongs to methods
+    doc = _doc([
+        ("section_header", "2 METHODS", 2),
+        ("section_header", "2.1 Patient data", 2),
+        ("text", "Eighty patients were enrolled in the trial, of which fifty-four were treated at a single institution.", 2),
+        ("section_header", "1 INTRODUCTION", 2),
+        ("text", "In the radiation treatment of prostate cancer, hypofractionation has become the standard of care.", 2),
+        ("section_header", "2.2 Setup error evaluation", 3),
+        ("text", "To evaluate the setup error, we reviewed the cone-beam images of every fraction retrospectively.", 3),
+    ], pages=(2, 3))
+    tree = build_tree(doc, "k")
+    assert not any("heading not detected" in (n.heading or "") for n in tree.walk())
+    assert tree.repairs.get("renumbered_parent") == 1
+    got = [(n.heading, n.role, n.depth) for n in tree.walk() if n.type == "section" and n.heading != "Front matter"]
+    assert got == [("2 METHODS", "methods", 1), ("2.1 Patient data", "methods", 2),
+                   ("2.2 Setup error evaluation", "methods", 2), ("1 INTRODUCTION", "introduction", 1)]
+
+
+def test_a_subsection_whose_parent_was_never_read_still_stands_one_in():
+    # nothing numbered "3" was read anywhere: an untitled section, role `other`, as before
+    doc = _doc([
+        ("section_header", "2 METHODS", 1),
+        ("text", "Eighty patients were enrolled in the trial, of which fifty-four were treated here.", 1),
+        ("section_header", "3.2 Residual errors", 2),
+        ("text", "Median residual errors were below two millimetres in every direction we measured.", 2),
+    ], pages=(1, 2))
+    tree = build_tree(doc, "k")
+    ghost = next(n for n in tree.walk() if "heading not detected" in (n.heading or ""))
+    assert ghost.role == "other" and ghost.heading.startswith("3.")
+    assert tree.repairs.get("renumbered_parent") is None

@@ -91,11 +91,55 @@ def test_a_section_whose_heading_names_nothing_takes_the_lane_its_paragraphs_are
     assert build_tree(doc, "k").to_dict() == tree.to_dict()
 
 
+def test_a_reviews_topical_section_keeps_other_though_its_paragraphs_read_as_methods(fake_oracle):
+    # a review names neither methods nor results, and its XML lanes its topical sections `other`:
+    # the verdict is stored and noted, and the heading's own silence stands
+    doc = _doc([
+        ("title", "Collagen scaffolds for tendon repair: a review", 1),
+        ("section_header", "1 Introduction", 1), ("text", _vary(INTRO, 0), 1),
+        ("section_header", "2 Scaffold fabrication and testing", 1), ("text", _vary(METHODS, 0), 1), ("text", _vary(METHODS, 1), 1), ("text", _vary(METHODS, 2), 1),
+        ("section_header", "3 Applications in orthopaedics", 2), ("text", _vary(DISCUSSION, 0), 2),
+    ])
+    tree = build_tree(doc, "k")
+    assert {n.heading: n.role for n in tree.root.children if n.type == "section"}["2 Scaffold fabrication and testing"] == "other"
+    assert "laned" not in tree.repairs and [n["kind"] for n in tree.notes] == ["lane-suggested"]
+    assert "stay `other`" in tree.notes[0]["message"]
+
+
+def test_a_structured_abstract_printed_as_sections_is_the_abstract():
+    # Diabetes Care prints its abstract's parts as headings — "OBJECTIVE", "RESEARCH DESIGN AND
+    # METHODS", "RESULTS", "CONCLUSIONS" — and the body had filed under them, its introduction under
+    # "CONCLUSIONS". Three or more such names over short uncited prose are the abstract's
+    doc = _doc([
+        ("title", "Intrapartum use of automated insulin delivery in type 1 diabetes", 1),
+        ("section_header", "BACKGROUND", 1), ("text", "Intravenous insulin has traditionally been used to manage glycemia during labour and delivery in these women.", 1),
+        ("section_header", "RESEARCH DESIGN AND METHODS", 1), ("text", "Eighty-eight pregnant women were randomised, and time in range was measured for the first week after delivery.", 1),
+        ("section_header", "RESULTS", 1), ("text", "Closed loop was associated with three hours more time in range per day than standard care was.", 1),
+        ("section_header", "CONCLUSIONS", 1), ("text", "Use of the closed-loop system resulted in superior glycemia with no added hypoglycaemia for the mothers.", 1),
+        ("text", LONG_CITING, 2),
+        ("section_header", "RESEARCH DESIGN AND METHODS", 2), ("text", _vary(CITING, 1), 2), ("text", _vary(METHODS, 0), 2),
+        ("section_header", "RESULTS", 2), ("text", _vary(CITING, 2), 2), ("text", _vary(RESULTS, 0), 2),
+    ])
+    tree = build_tree(doc, "k")
+    assert [(n.heading, n.role, n.label) for n in tree.root.children if n.type == "section"] == [
+        ("Abstract", "abstract", "built"), ("Introduction", "introduction", "built"),
+        ("RESEARCH DESIGN AND METHODS", "methods", "section_header"), ("RESULTS", "results", "section_header"),
+    ]
+    abstract = tree.root.children[0]
+    assert [c.heading for c in abstract.children if c.type == "section"] == ["BACKGROUND", "RESEARCH DESIGN AND METHODS", "RESULTS", "CONCLUSIONS"]
+    assert all(n.role == "abstract" for n in tree.walk() if n.type == "paragraph" and "Abstract" in n.ancestry)
+    assert tree.repairs.get("abstract_parts") == 4
+    assert [n.role for n in tree.walk() if n.type == "paragraph"][4:] == ["introduction", "methods", "methods", "results", "results"]
+    # and the body's own sections, named for the same parts, keep their prose: it cites
+    assert [c.role for c in tree.root.children[2].children if c.type == "paragraph"] == ["methods", "methods"]
+
+
 def test_the_embedder_going_away_mid_paper_leaves_the_counts_true(fake_oracle, monkeypatch):
     doc = _doc([
         ("title", "A crosslinked collagen scaffold for tendon repair", 1),
         ("section_header", "2 Scaffold fabrication and testing", 1), ("text", _vary(METHODS, 0), 1), ("text", _vary(METHODS, 1), 1), ("text", _vary(METHODS, 2), 1),
         ("section_header", "3 Applications in orthopaedics", 2), ("text", _vary(DISCUSSION, 0), 2), ("text", _vary(DISCUSSION, 1), 2), ("text", _vary(DISCUSSION, 2), 2),
+        ("section_header", "4 Results", 2), ("text", _vary(RESULTS, 0), 2),  # a heading that names a lane: the paper reads as research, so unnamed sections take the lane their paragraphs are of
     ])
     real = fake_oracle._embed
     monkeypatch.setattr(fake_oracle, "_embed", lambda texts: None if any("Our findings" in t and "as seen in sample" in t for t in texts) else real(texts))  # gone by the second section
@@ -350,6 +394,113 @@ def test_a_title_read_after_the_introductions_first_lines_keeps_its_front_matter
     assert tree.dropped == {"label": 2}  # the DOI line and the licence line: furniture
 
 
+LONG_CITING = CITING + " " + INTRO  # sixty-odd words in sentences, citing
+
+
+def test_prose_after_a_keywords_box_is_the_introduction():
+    # Wiley's KEYWORDS under the abstract: the introduction's first paragraph, printed with no heading, is
+    # read after the box — the box holds its few words, the prose opens the introduction
+    doc = _doc([
+        ("title", "A crosslinked collagen scaffold for tendon repair", 1),
+        ("section_header", "Abstract", 1), ("text", ABSTRACT, 1),
+        ("section_header", "KEYWORDS", 1), ("text", "collagen, tendon, scaffold, crosslinking", 1),
+        ("text", LONG_CITING, 1),
+        ("section_header", "2 Materials and methods", 1), ("text", _vary(METHODS, 0), 1),
+    ])
+    tree = build_tree(doc, "k")
+    assert [(n.heading, n.label) for n in tree.root.children if n.type == "section"] == [("Abstract", "section_header"), ("KEYWORDS", "section_header"), ("Introduction", "built"), ("2 Materials and methods", "section_header")]
+    keywords, intro = tree.root.children[1], tree.root.children[2]
+    assert [c.text[:8] for c in keywords.children] == ["collagen"] and intro.role == "introduction" and intro.children[0].text.startswith("Tendon injuries")
+    assert tree.repairs.get("box_prose") == 1 and tree.repairs.get("built_headings") == 1
+
+
+BULLETS = [
+    "⇒ Changes in healthcare policy and practice guidelines have promoted a decrease in overall opioid prescribing.",
+    "⇒ Within a sample of service members, most initial prescriptions came from dentists and emergency physicians.",
+    "⇒ This study highlights the need for additional research on initial prescribing.",
+]
+CONTINUED = "to a declining number of prescribers who initiated opioid therapy among insured adults [4,5], and the trend held across regions and specialties over a decade of claims, as the national surveys also show [6]. We therefore examined the first prescriptions in a military health system."
+
+
+def test_prose_that_cites_after_a_key_message_box_goes_back_to_the_introduction():
+    # BMJ's three questions set in the introduction's column: their bullets cite nothing, and the
+    # introduction's own prose, read after the box, returns to it. Once the methods are open, a heading
+    # that asks a question is the body's and keeps its prose
+    doc = _doc([
+        ("title", "Initial opioid prescribing practices among providers in a military health system", 1),
+        ("section_header", "ABSTRACT", 1), ("text", ABSTRACT, 1),
+        ("section_header", "INTRODUCTION", 1), ("text", LONG_CITING, 1),
+        ("section_header", "WHAT IS ALREADY KNOWN ON THIS TOPIC", 1), ("text", BULLETS[0], 1),
+        ("section_header", "WHAT THE STUDY ADDS", 1), ("text", BULLETS[1], 1),
+        ("section_header", "HOW THIS STUDY MIGHT AFFECT RESEARCH, PRACTICE OR POLICY", 1), ("text", BULLETS[2], 1),
+        ("text", CONTINUED, 1), ("text", _vary(LONG_CITING, 1), 2),
+        ("section_header", "METHODS", 2), ("text", _vary(METHODS, 0), 2),
+        ("section_header", "RESULTS", 2), ("text", _vary(RESULTS, 0), 2),
+        ("section_header", "What did we find?", 2), ("text", "In short, the scaffolds were stiffer and the cells grew on them as well as on the controls.", 2), ("text", _vary(LONG_CITING, 2), 2),
+    ])
+    tree = build_tree(doc, "k")
+    intro = next(n for n in tree.root.children if n.heading == "INTRODUCTION")
+    assert [c.text[:14] for c in intro.children if c.type == "paragraph"] == ["Tendon injurie", "to a declining", "Tendon injurie"]
+    box = [n for n in tree.walk() if n.type == "section" and n.heading.startswith(("WHAT", "HOW"))]
+    assert [len(n.children) for n in box] == [1, 1, 1] and all(n.children[0].text.startswith("⇒") for n in box)
+    assert tree.repairs.get("box_prose") == 1 and "built_headings" not in tree.repairs
+    asked = next(n for n in tree.walk() if n.type == "section" and n.heading == "What did we find?")
+    assert len(asked.children) == 2 and asked.role == "results"
+
+
+def test_a_printed_heading_is_never_the_child_of_one_the_reader_built():
+    # Nature's main text: the abstract, the introduction's paragraphs with no heading of their own (a built
+    # "Introduction"), then the first printed heading, which the layout model set a level down
+    doc = _doc([
+        ("title", "A crosslinked collagen scaffold for tendon repair", 1),
+        ("section_header", "Abstract", 1), ("text", ABSTRACT, 1),
+        ("text", CITING, 1), ("text", "Here we present a scaffold that is capable of load-bearing repair in the rabbit knee, and measure it.", 1),
+        ("section_header", "Stiffness across crosslinker doses", 1), ("text", _vary(RESULTS, 0), 1),
+        ("section_header", "Methods", 2), ("text", _vary(METHODS, 0), 2),
+    ])
+    doc["texts"][5]["level"] = 2
+    tree = build_tree(doc, "k")
+    assert [(n.heading, n.label) for n in tree.root.children if n.type == "section"] == [("Abstract", "section_header"), ("Introduction", "built"), ("Stiffness across crosslinker doses", "section_header"), ("Methods", "section_header")]
+    assert [len(n.children) for n in tree.root.children] == [1, 2, 1, 1]
+
+
+def test_front_matter_ends_at_the_first_printed_heading_after_the_prose_has_begun():
+    # an editorial under topical headings alone: none is a name the vocabulary knows, and before the rule
+    # everything up to page 3 was front matter, the headings joined to its lines. After forty words of
+    # prose, a heading is the body's; set alike on the page, the headings are top-level
+    heads = ["Genomes of wild populations", "Experimental evolution in the laboratory"]
+    doc = _doc([
+        ("title", "Genetics of adaptation in the wild: a special issue", 1),
+        ("text", "Jane Doe, John Roe", 1),
+        ("text", "This issue gathers papers on adaptation in natural populations, from yeast to sticklebacks, and the methods that make such work possible in the field and in the laboratory. We introduce them here, say why they belong together, and point to what the field may do next.", 1),
+        ("section_header", heads[0], 1), ("text", LONG_CITING, 1),
+        ("section_header", heads[1], 2), ("text", _vary(DISCUSSION, 0), 2),
+    ])
+    for t in doc["texts"]:
+        if t["text"] in heads:
+            t["_typo_level"] = 1  # what `typography.depth_by_type` says of headings all set one way
+    tree = build_tree(doc, "k")
+    sections = {n.heading: n for n in tree.walk() if n.type == "section"}
+    assert all(h in sections and sections[h].level == 1 and sections[h].parent == tree.root.node_id for h in heads)
+    assert sections[heads[0]].children[0].text.startswith("Tendon injuries") and sections[heads[1]].children[0].text.startswith("Our findings")
+
+
+def test_an_abstract_read_after_the_introductions_heading_gives_the_prose_after_it_back():
+    # Elsevier's first page: the left column's "1. Introduction" is read before the abstract box, and the
+    # introduction's prose after the abstract goes back to it rather than into the abstract or a built one
+    doc = _doc([
+        ("title", "A crosslinked collagen scaffold for tendon repair", 1),
+        ("section_header", "1. Introduction", 1),
+        ("section_header", "Abstract", 1), ("text", ABSTRACT, 1),
+        ("text", LONG_CITING, 1),
+        ("text", "Collagen is the main constituent of tendon and has been the material of choice for its repair for many years now.", 1),
+        ("section_header", "2. Materials and methods", 2), ("text", _vary(METHODS, 0), 2),
+    ])
+    tree = build_tree(doc, "k")
+    assert [(n.heading, n.role, len(n.children)) for n in tree.root.children if n.type == "section"] == [("1. Introduction", "introduction", 2), ("Abstract", "abstract", 1), ("2. Materials and methods", "methods", 1)]
+    assert tree.repairs.get("abstract_to_introduction") == 1 and "built_headings" not in tree.repairs
+
+
 def test_what_an_author_line_a_head_and_a_citation_are():
     from litrag_parser.tree import _CITES, _head_like, _looks_like_authors
 
@@ -390,6 +541,9 @@ def test_what_an_author_line_a_head_and_a_citation_are():
     assert _front_kind("Department of Orthopaedic Surgery, Daejeon Eulji Medical Center, Eulji University School of Medicine, Daejeon, Korea", True, meaning=False) == "affiliations"
     assert _front_kind("Investigation performed at Case Western Reserve University, Cleveland, Ohio, USA", True, meaning=False) == "affiliations"
     assert _CITES.search("among the earliest microbial forms on Earth^1 and") and not _CITES.search("an area of 4 cm^2 was") and not _CITES.search("at 300 min^-1 for")
+    # ASM's and PNAS's numbers in brackets closed by punctuation, and a name with a year in brackets
+    assert _CITES.search("higher than in the control (1, 2). The") and _CITES.search("than plastics (Plastics Europe 2024) and") and _CITES.search("as reported (Smith and Lee, 2019; Wu 2020).")
+    assert not _CITES.search("in two steps: (1) the cells were") and not _CITES.search("as in (2) and in (3)")
 
 
 def test_viterbi_pays_to_switch_and_keeps_references_last():

@@ -150,6 +150,73 @@ def repair_ligatures(text: str, vocabulary: dict[str, set[str]] | None = None) -
     return "".join(toks)
 
 
+_PRESENTATION = {"\ufb00": "ff", "\ufb01": "fi", "\ufb02": "fl", "\ufb03": "ffi", "\ufb04": "ffl"}
+_PUA_IN_WORD = re.compile(r"(?<=[A-Za-z])[\ue000-\uf8ff](?=[a-z])|(?<![A-Za-z])[\ue000-\uf8ff](?=[a-z]{2})")
+_WORDS = re.compile(r"[A-Za-z]+")
+# Wiley's Advanced journals: the ligature kept with the left fragment, the rest set apart — "specifi c",
+# "briefl y", "Pacifi c", "suffi cient": a fragment ending in the ligature, one to four letters after it
+_SPLIT_AFTER = re.compile(r"\b([A-Za-z]*(?:ffi|ffl|fi|fl|ff))([ \u00a0]{1,2})([a-z]{1,4})\b")
+
+
+def _candidate_known(word: str, vocabulary: dict[str, set[str]]) -> bool:
+    low = word.lower()
+    for prefix in ("", "pre", "re", "un", "mis", "non", "sub", "co"):
+        if prefix and not low.startswith(prefix):
+            continue
+        if _known(low[len(prefix):], vocabulary):
+            return True
+    return False
+
+
+def repair_ligature_glyphs(text: str, vocabulary: dict[str, set[str]] | None = None) -> str:
+    """A ligature the font drew with a glyph of its own, undone: the presentation forms ("ﬁ")
+    always; a private-use glyph inside a word ("identi\ue103cation", RSC) where one ligature
+    makes it a known word; and a "fi" the text layer read as its "f" alone ("identifed",
+    "beneft", Hindawi's STIX fonts) where restoring the "i" makes a known word and the word
+    as read is none."""
+    if not text:
+        return text
+    vocab = vocabulary or {"whole": set(), "real": set()}
+    out = text
+    if any(ch in out for ch in _PRESENTATION):
+        for ch, lig in _PRESENTATION.items():
+            out = out.replace(ch, lig)
+    if _PUA_IN_WORD.search(out):
+        def pua(m: re.Match[str]) -> str:
+            start, end = m.start(), m.end()
+            left = re.search(r"[A-Za-z]*$", out[:start]).group(0)
+            right = re.match(r"[a-z]*", out[end:]).group(0)
+            for lig in ("fi", "fl", "ff", "ffi", "ffl"):
+                if _candidate_known(left + lig + right, vocab):
+                    return lig
+            return m.group(0)
+        out = _PUA_IN_WORD.sub(pua, out)
+    if _SPLIT_AFTER.search(out):
+        def split_after(m: re.Match[str]) -> str:
+            left, gap, right = m.group(1), m.group(2), m.group(3)
+            whole = left + right
+            if right.lower() in _STOP and not _candidate_known(whole, vocab):
+                return m.group(0)
+            if left.lower().endswith("ff") and not _candidate_known(whole, vocab):
+                return m.group(0)  # "off", "staff": words in their own right before a short word
+            return whole
+        out = _SPLIT_AFTER.sub(split_after, out)
+    if "f" in out:
+        def lost_i(m: re.Match[str]) -> str:
+            word = m.group(0)
+            low = word.lower()
+            if "f" not in low or len(low) < 4 or _known(low, vocab) or low in _STOP:
+                return word
+            for k, ch in enumerate(low):
+                if ch == "f" and (k + 1 == len(low) or low[k + 1] != "i"):
+                    cand = word[: k + 1] + "i" + word[k + 1 :]
+                    if _candidate_known(cand, vocab):
+                        return cand
+            return word
+        out = _WORDS.sub(lost_i, out)
+    return out
+
+
 def repair_glyphs(text: str, vocabulary: dict[str, set[str]] | None = None) -> str:
     """The text with the known font-mapping errors undone; unchanged when it has none."""
     if not text:
@@ -157,7 +224,7 @@ def repair_glyphs(text: str, vocabulary: dict[str, set[str]] | None = None) -> s
     out = text
     for pattern, repl, _ in RULES:
         out = pattern.sub(repl, out)
-    return repair_ligatures(out, vocabulary)
+    return repair_ligature_glyphs(repair_ligatures(out, vocabulary), vocabulary)
 
 
 _STRAY = re.compile(r"(?:^| )(?:ffi|ffl|ff|fi|fl)(?: |$)")
