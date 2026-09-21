@@ -19,6 +19,8 @@ and which switches are experiments. `DESIGN.md` has the reasons; `AGENT.md`
 | `parser/`, the worker (`uv run --project parser litrag-parser`) | current | what the window does, and the ops it has no button for, among them `rebuild`, `judge`, `audit` and `sql` |
 | `npm run harness`, `npm run audit` | current | judging a change to the reader on whole libraries |
 | `python -m litrag_parser.headings`, `.meaning`, `.paper_type`, `.edges`, `.judge`, `.boundary` | maintenance | regenerating the shipped centroids, measuring a kind or the type before it decides, fetching Europe PMC records, running or calibrating the opt-in judges |
+| `python -m litrag_parser.pairs`, `.confidence --calibrate` | measurement | a PDF's reading against the XML's of the same paper, from two libraries; the confidence score against those pairs. The truth every change to the reader or to the score is judged on |
+| `python -m litrag_parser.outline --pdf-lib DIR --xml-lib DIR --model M` | measurement | the outline judge (a local model reading the whole paper) scored on the pairs: faithful before and after, per model |
 | `src/` and `tests/`, the `lit` CLI (`npm run lit`, `bin/lit.js`) | deprecated | nothing new: it searches and fetches from Europe PMC and retrieves over `lit.sqlite`; its verbs are to be ported to `store.sqlite` one at a time and struck from `src/` (`BACKLOG.md`) |
 | `AGENT.md` §1–5, `DESIGN.md` "Revision 1" | describe the deprecated CLI | background; revision 2 overruled its reader (R2.1): pdf.js text with heading patterns, and sections cut into 250-word chunks |
 | `AGENT.md` §6 | binding | how an assistant behaves around a library, whatever it drives; the verbs it names are the CLI's |
@@ -41,22 +43,40 @@ ingest` cuts chunks into `lit.sqlite`, never a tree.
    saved as `parsed/<key>.docling.json` and never edited. This is the only
    step that runs Docling.
 3. **Recovered.** For a PDF, the text layer is read back for the lines the
-   layout model missed (`recover.py`).
+   layout model missed (`recover.py`), and its type for the headings it
+   missed: run-in, fused into a paragraph, dropped, or misspelt, and every
+   heading's depth as the page sets it (`typography.py`). Both are
+   deterministic and run again on `rebuild`.
 4. **Built.** `tree.py` turns the document into nodes (front matter,
    sections, paragraphs, tables, figures and captions, each with its page
-   and box) and undoes what the fonts did to symbols (`glyphs.py`). A
+   and box) and undoes what the fonts did to symbols (`glyphs.py`). Front
+   matter is not only what stands before the body: a line whose shape is
+   unmistakably the publisher's — a date line, the licence, an imprint, an
+   editor's name, an author list — is front matter on the first two pages
+   wherever the layout model read it, because journals set these down the
+   margin and the model reads them between the body's paragraphs. A
    top-level heading's lane comes from the vocabulary (`facets.py`), else
    the catalogue (`headings.py`, which also gives the section its
    `nodes.canonical` name), else the embedder (`meaning.py`). A paper that
    printed no headings gets built ones, labelled `built` (`structure.py`).
    A page break the rules cannot join goes to the judge only when asked
-   (`judge.py`; `boundary.py` when switched on).
+   (`judge.py`; `boundary.py` when switched on). With `LITRAG_OUTLINE=on`
+   a local model then reads the whole paper and says where its sections
+   are (`outline.py`): a lane where the rules gave none, a built heading
+   where the reader missed a boundary (its lane by the reader's rule, not
+   the model's), never the depth; the answer is a row a rebuild replays.
 5. **Linked.** In-text citations to the reference list (`citations.py`),
    and findings to the methods that produced them (`edges.py`).
 6. **Typed.** `paper_type.py` names the kind of paper from the record, the
    file, its subject line, the title, the printed label, and last the
    tree's own shape. Where two of them disagree, a note says so.
-7. **Saved.** Rows in `store.sqlite`: `papers`, `pages`, `nodes` with
+7. **Scored.** `confidence.py` measures the tree for the ways a reading goes
+   wrong — prose filed in the abstract, the back matter or the reference
+   list, one lane holding the body, a lane the type should have and does
+   not, text said twice, headings that are not headings, paragraphs cut in
+   two — and stores one number in (0, 1] with its reasons. It flags a
+   reading; it changes nothing in it.
+8. **Saved.** Rows in `store.sqlite`: `papers`, `pages`, `nodes` with
    `nodes_fts`, `refs`, `citations`, `edges`, `judgments`, `events`. The
    audit (`audit.py`) reads them when asked.
 
@@ -67,7 +87,7 @@ ingest` cuts chunks into `lit.sqlite`, never a tree.
   minutes. Use it when what Docling is given has changed: `jats_prep.py`,
   `mathml.py`, or Docling itself.
 - **Rebuild** (the `rebuild` op; the window has no button) runs steps 3 to
-  7 again from `parsed/`, without Docling, in about a second a paper. Use
+  8 again from `parsed/`, without Docling, in about a second a paper. Use
   it after any change to those steps. The judge is not asked; its stored
   verdicts are replayed. The embedder is asked only about texts it holds no
   verdict for; while Ollama is down those read as `other` and are not
@@ -115,6 +135,7 @@ examples, threshold, margin or centroids makes it ask again once.
 | `LITRAG_LANES_MODEL` | `nomic-embed-text` | the embedder | current |
 | `LITRAG_OLLAMA_URL` | `http://127.0.0.1:11434` | where the embedder and the judge are asked; keep it local | current |
 | `LITRAG_JUDGE`, `LITRAG_JUDGE_MODEL` | off, `qwen3:14b` | `1` asks the judge on every ingest and reparse | opt-in |
+| `LITRAG_OUTLINE`, `LITRAG_OUTLINE_MODEL` | off, `qwen3:14b` | `on` asks the outline judge on every PDF ingest and reparse, and replays its rows on rebuild | opt-in; measured on the pairs (NOTES.md) |
 | `LITRAG_BOUNDARY`, `LITRAG_BOUNDARY_MODEL` | off, `Qwen/Qwen2.5-0.5B` | `on` scores the page breaks the rules leave open | opt-in; below its gate |
 | `LITRAG_EDGES_SIMILARITY` | off | `on` lets resemblance link a finding to a method where no pointer or mark does | opt-in |
 | `LITRAG_TYPE_PROFILE` | off | `on` lets the profile kind name a paper's type | opt-in; measured at 0.66 accuracy |
@@ -134,5 +155,7 @@ npm run harness -- --lib <library> --baseline <outside the repo>/before.json --g
 
 Run the harness on the pilot libraries and on libraries of papers no rule
 was written from, and read its summary lines against the baseline as well
-as the gate's exit code. The libraries, the papers and the harness's output
+as the gate's exit code. Where a library has a companion holding the same
+papers in the other format, run `pairs` too: it is the only check that says
+whether the text landed under the right lane. The libraries, the papers and the harness's output
 stay outside the repository.
