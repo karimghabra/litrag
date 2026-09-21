@@ -100,31 +100,31 @@ def dropped_sentences(tree: Tree, path: Path) -> list[tuple[int, str]]:
             blob[page] = blob.get(page, "") + letters(text)
     blob[1] = blob.get(1, "") + letters(tree.title or "")  # the title is the root's, not a node's
     out: list[tuple[int, str]] = []
-    try:
+    try:  # only the read: a failure inside the analysis below must raise, not read as "none"
         with open_pdf(path) as pdf:
             pages_text = [pdf[i].get_textpage().get_text_range() for i in range(len(pdf))]
-        # a line on three or more pages is a running head, whatever it says
-        seen_on: dict[str, set[int]] = {}
-        for i, text in enumerate(pages_text):
-            for line in text.splitlines():
-                norm = re.sub(r"\d+", "#", " ".join(line.split()).lower())
-                if len(norm) > 12:
-                    seen_on.setdefault(norm, set()).add(i)
-        for i, text in enumerate(pages_text):
-            got = blob.get(i + 1, "")
-            for line in text.splitlines():
-                line = " ".join(line.split())
-                words = _WORD.findall(line.lower())
-                if len(words) < 8 or sum(1 for w in words if not w.isdigit()) < 6:
-                    continue
-                if _RUNNING.search(line) or _FURNITURE.search(line) or len(seen_on.get(re.sub(r"\d+", "#", line.lower()), ())) >= 3:
-                    continue
-                key = letters(line)
-                if len(key) < 24 or key[:24] in got or key[-24:] in got or key[len(key) // 2 - 12 : len(key) // 2 + 12] in got:
-                    continue
-                out.append((i + 1, line))
     except Exception:
         return []
+    # a line on three or more pages is a running head, whatever it says
+    seen_on: dict[str, set[int]] = {}
+    for i, text in enumerate(pages_text):
+        for line in text.splitlines():
+            norm = re.sub(r"\d+", "#", " ".join(line.split()).lower())
+            if len(norm) > 12:
+                seen_on.setdefault(norm, set()).add(i)
+    for i, text in enumerate(pages_text):
+        got = blob.get(i + 1, "")
+        for line in text.splitlines():
+            line = " ".join(line.split())
+            words = _WORD.findall(line.lower())
+            if len(words) < 8 or sum(1 for w in words if not w.isdigit()) < 6:
+                continue
+            if _RUNNING.search(line) or _FURNITURE.search(line) or len(seen_on.get(re.sub(r"\d+", "#", line.lower()), ())) >= 3:
+                continue
+            key = letters(line)
+            if len(key) < 24 or key[:24] in got or key[-24:] in got or key[len(key) // 2 - 12 : len(key) // 2 + 12] in got:
+                continue
+            out.append((i + 1, line))
     return out
 
 
@@ -142,17 +142,18 @@ def page_coverage(tree: Tree, path: Path) -> list[tuple[int, float]]:
             for page in n.pages or [n.page]:  # a paragraph joined across a break counts for every page it spans
                 have.setdefault(page, Counter()).update(words)
     out: list[tuple[int, float]] = []
-    try:
+    try:  # only the read: a failure in the arithmetic below must raise, not read as "no problem"
         with open_pdf(path) as pdf:
-            for i in range(len(pdf)):
-                words = Counter(_WORD.findall(pdf[i].get_textpage().get_text_range().lower()))
-                total = sum(words.values())
-                if total < 40:
-                    continue  # a figure page, a blank
-                got = have.get(i + 1, Counter())
-                out.append((i + 1, round(sum(min(c, got.get(w, 0)) for w, c in words.items()) / total, 3)))
+            pages = [pdf[i].get_textpage().get_text_range().lower() for i in range(len(pdf))]
     except Exception:
         return []
+    for i, text in enumerate(pages):
+        words = Counter(_WORD.findall(text))
+        total = sum(words.values())
+        if total < 40:
+            continue  # a figure page, a blank
+        got = have.get(i + 1, Counter())
+        out.append((i + 1, round(sum(min(c, got.get(w, 0)) for w, c in words.items()) / total, 3)))
     return out
 
 
@@ -262,7 +263,7 @@ def unread_papers(lib: Path) -> dict[str, list[str]]:
     nothing said. That is how seventeen PDFs of held-out 4 went missing for a day (BACKLOG.md).
     Counting them is the whole of T4: every file ends in a state someone can see."""
     store = Path(lib) / "store.sqlite"
-    out: dict[str, list[str]] = {"no_nodes": [], "no_raw": [], "not_parsed": []}
+    out: dict[str, list[str]] = {"no_nodes": [], "no_raw": [], "unfinished": [], "failed": []}
     if not store.exists():
         return out
     conn = sqlite3.connect(f"file:{store}?mode=ro", uri=True)
@@ -275,14 +276,24 @@ def unread_papers(lib: Path) -> dict[str, list[str]]:
     finally:
         conn.close()
     for key, status, file, nodes in rows:
-        if status != "parsed":
-            out["not_parsed"].append(f"{key} [{status}]")
-            continue
-        if not nodes:
+        # exactly one bucket a paper: counting a row with neither nodes nor a raw document twice
+        # would make the gate's total larger than the number of papers it is about
+        if status == "failed":
+            out["failed"].append(key)  # a terminal state with a reason: reported, never a gate failure
+        elif status != "parsed":
+            out["unfinished"].append(f"{key} [{status}]")
+        elif not nodes:
             out["no_nodes"].append(key)
-        if file and not (Path(lib) / "parsed" / f"{safe_key(key)}.docling.json").exists():
+        elif file and not (Path(lib) / "parsed" / f"{safe_key(key)}.docling.json").exists():
             out["no_raw"].append(key)
     return out
+
+
+#: what `--gate` treats as a regression. A `failed` paper is an accounted-for terminal state —
+#: a PDF Docling genuinely cannot read stays failed, and a gate that goes red on it forever
+#: teaches people to stop passing `--gate`. A row that claims to be `parsed` and has no tree,
+#: or a paper still `queued` or `parsing` with no worker behind it, is a broken claim.
+BROKEN = ("no_nodes", "no_raw", "unfinished")
 
 
 def run_library(lib: Path) -> list[dict[str, Any]]:
@@ -476,7 +487,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--lib", action="append", default=[], help="a library directory (repeatable)")
     ap.add_argument("--json", help="save the run here")
     ap.add_argument("--baseline", help="a saved run to compare with")
-    ap.add_argument("--gate", action="store_true", help="exit 1 when a title, a methods section or a section's lane is lost, citations fall, or errors rise against the baseline")
+    ap.add_argument("--gate", action="store_true", help="exit 1 when a paper is filed but not read (a `parsed` row with no tree, or one still queued or parsing), or when a title, a methods section or a section's lane is lost, citations fall, or errors rise against the baseline")
     ap.add_argument("--worst", type=int, default=15)
     ap.add_argument("--show", help="one paper's headings, front matter and findings")
     args = ap.parse_args(argv)

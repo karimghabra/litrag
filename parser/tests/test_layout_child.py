@@ -6,8 +6,9 @@ each of the ways that matter — an abrupt exit, a wedge, a refusal — so what 
 the supervision, which is the part that was written.
 """
 
-import os
+import json
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -47,9 +48,10 @@ def test_a_crash_costs_one_paper_one_retry_and_the_worker_lives(tmp_path, monkey
         answer = child.convert(tmp_path / "a.pdf", out, on_retry=retries.append)
         assert answer["ok"] and out.exists()
         assert child.spawns == 2  # the dead child was replaced
-        # the reason names the real access-violation exit code (0xC0000005 = 3221225477),
-        # because "the child died" without the code is not a diagnosis
-        assert len(retries) == 1 and "3221225477" in retries[0], retries
+        # the reason names the code the process died with, because "the child died" without it
+        # is not a diagnosis: 3221225477 (0xC0000005) on Windows, -11 (SIGSEGV) on POSIX
+        assert len(retries) == 1, retries
+        assert ("3221225477" in retries[0]) or ("-11" in retries[0]), retries
     finally:
         child.stop()
 
@@ -128,3 +130,57 @@ def test_the_switch_is_on_by_default_and_can_be_turned_off(monkeypatch):
         assert not enabled()
     monkeypatch.setenv("LITRAG_LAYOUT_CHILD", "on")
     assert enabled()
+
+
+def test_a_child_that_hangs_before_it_is_ready_does_not_freeze_the_worker(tmp_path, monkeypatch):
+    """The startup read used to have no deadline at all, so a child stuck importing torch — or
+    fetching Docling's models on a first run — froze the worker with no heartbeat: the exact
+    failure this module exists to remove, reintroduced by the module itself."""
+    beats: list[int] = []
+    child = _child(tmp_path, monkeypatch, "never-ready", counter=False)
+    started = time.time()
+    try:
+        # bounded, retried once in a fresh child, then given up on with both attempts in the
+        # reason — the same shape as a hang on a paper, because a slow start can also be transient
+        with pytest.raises((LayoutCrashed, LayoutTimedOut)) as e:
+            child.convert(tmp_path / "a.pdf", tmp_path / "a.docling.json", timeout=3,
+                          heartbeat=lambda: beats.append(1))
+        assert "starting up" in str(e.value)
+    finally:
+        child.stop()
+    assert time.time() - started < 60  # bounded, and not by luck
+    assert beats  # and the window was told the worker is alive while it waited
+
+
+def test_a_child_that_dies_before_it_is_ready_is_reported_not_retried_forever(tmp_path, monkeypatch):
+    child = _child(tmp_path, monkeypatch, "die-before-ready", counter=False)
+    try:
+        with pytest.raises(LayoutCrashed) as e:
+            child.convert(tmp_path / "a.pdf", tmp_path / "a.docling.json", timeout=10)
+        assert "before it was ready" in str(e.value)
+        assert child.spawns == 2  # the one retry, and no more
+    finally:
+        child.stop()
+
+
+def test_a_killed_child_is_waited_for_rather_than_left_behind(tmp_path, monkeypatch):
+    """A multi-gigabyte torch child holding GPU memory must not be left for the collector."""
+    child = _child(tmp_path, monkeypatch, "hang:1")
+    try:
+        child.convert(tmp_path / "a.pdf", tmp_path / "a.docling.json", timeout=2)
+    finally:
+        child.stop()
+    assert child.proc is None or child.proc.returncode is not None
+
+
+def test_the_document_is_written_whole_or_not_at_all(tmp_path, monkeypatch):
+    """Everything downstream tests only that the raw document exists, so half a file is worse
+    than none: `_has_a_tree` would call the paper read and `rebuild` would then choke on it."""
+    child = _child(tmp_path, monkeypatch, "ok")
+    out = tmp_path / "a.docling.json"
+    try:
+        child.convert(tmp_path / "a.pdf", out)
+    finally:
+        child.stop()
+    assert json.loads(out.read_text(encoding="utf-8"))["texts"]
+    assert not list(tmp_path.glob("*.part*"))  # nothing left half-written

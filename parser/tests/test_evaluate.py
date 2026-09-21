@@ -15,7 +15,7 @@ from pathlib import Path
 import pytest
 
 from litrag_parser.evaluate import (
-    Landing, accounting, bootstrap, by_lane, check_no_leak, confusion, coverage_of, landings,
+    Landing, accounting, layer_words, bootstrap, by_lane, check_no_leak, confusion, coverage_of, landings,
     precision_and_coverage, precision_of, redact, risk_coverage, SplitViolation,
 )
 from litrag_parser.tree import build_tree
@@ -153,20 +153,65 @@ def test_a_word_held_once_and_printed_twice_is_one_word_short(layer_from):
     assert got["layer_words"] == 2 and got["in_a_node"] == 1 and got["accounted"] == 0.5
 
 
-def test_precision_falls_when_two_sections_swap_their_lanes():
-    rows = _rows()
-    before = precision_of(rows)
-    swapped = []
-    for r in rows:
-        lane = r.pdf_lane
-        if lane == "methods":
-            lane = "results"
-        elif lane == "results":
-            lane = "methods"
-        swapped.append(Landing(**{**r.__dict__, "pdf_lane": lane,
-                                  "correct": bool(r.asserted and lane == r.xml_lane)}))
-    after = precision_of(swapped)
-    assert after < before, (before, after)
+def test_conservation_counts_the_numbers_too(layer_from):
+    """A paper is mostly numbers exactly where text is most likely to be lost — a table's cells,
+    an axis label, a p-value, a reference year. `pairs.words` is `[a-z]{2,}` and would score a
+    reading that dropped every one of them at 1.0."""
+    assert layer_words("Table 2 shows 43.7 +/- 1.2 mg/L at 298 K (n = 6)") == [
+        "table", "2", "shows", "43", "7", "1", "2", "mg", "l", "at", "298", "k", "n", "6"]
+
+    pdf, _ = _trees()
+    layer_from(["the modulus was 43 kPa at 298 K"])
+    bare = copy.deepcopy(pdf)
+    for n in bare.walk():
+        n.text, n.heading, n.table = "", None, None
+    bare.dropped_items = []
+    bare.title = "the modulus was kPa at K"  # every word but the numbers
+    got = accounting(bare, Path("x.pdf"))
+    assert got["unaccounted"] == 2  # "43" and "298": the two the old tokeniser could not see
+    assert got["accounted"] < 1.0
+
+
+def test_precision_falls_when_two_sections_swap_their_lanes_in_the_tree():
+    """The mutation is made to the **reading**, not to the rows it produces.
+
+    An earlier version of this test rebuilt `Landing`s with `correct` computed by the test and
+    then asserted that `precision_of` reported it — which checks arithmetic and leaves
+    `landings()`, the only function that turns a reading into numbers, with no test that can
+    fail. Here the PDF tree's own lanes are swapped and the whole pipeline is run again."""
+    pdf, xml = _trees()
+    before = precision_of(_rows(pdf, xml))
+    assert before is not None and before > 0.9
+
+    for n in pdf.walk():
+        if n.role == "methods":
+            n.role = "results"
+        elif n.role == "results":
+            n.role = "methods"
+    after = precision_of(_rows(pdf, xml))
+    assert after < 0.6 < before, (before, after)
+
+
+def test_a_reading_that_lanes_everything_the_same_way_is_caught():
+    """The degenerate reader — one lane for the whole paper — has full coverage and must not
+    have good precision."""
+    pdf, xml = _trees()
+    for n in pdf.walk():
+        if n.role in ("methods", "results", "discussion", "introduction", "abstract"):
+            n.role = "methods"
+    rows = _rows(pdf, xml)
+    got = precision_and_coverage(rows)
+    assert got["coverage"] > 0.9  # it asserts on nearly everything
+    assert got["precision"] < 0.5  # and is wrong about most of it
+
+
+def test_a_reading_that_names_nothing_has_no_precision_and_no_coverage():
+    pdf, xml = _trees()
+    for n in pdf.walk():
+        n.role = "other"
+    got = precision_and_coverage(_rows(pdf, xml))
+    assert got["coverage"] == 0.0 and got["precision"] is None
+    assert got["not_asserted"].get("silent", 0) > 0  # the prose is still held, just unnamed
 
 
 def test_precision_falls_to_chance_when_the_labels_are_shuffled():
@@ -221,18 +266,40 @@ def _fake(prefix: str, n: int, right: int, split: str = "VAL") -> list[Landing]:
     return out
 
 
+def _unclustered(rows, stat, draws=500, seed=1):
+    """What the interval would be if it resampled paragraphs instead of publishers — the wrong
+    thing, written out so the right thing can be shown to differ from it."""
+    rng = random.Random(seed)
+    got = []
+    for _ in range(draws):
+        pick = [rows[rng.randrange(len(rows))] for _ in rows]
+        v = stat(pick)
+        if v is not None:
+            got.append(v)
+    got.sort()
+    return got[max(0, int(0.025 * len(got)) - 1)], got[min(len(got) - 1, int(0.975 * len(got)))]
+
+
 def test_the_interval_is_clustered_on_the_publisher_not_the_paragraph():
-    """Ten publishers that read perfectly and one that reads nothing right. Resampling
-    paragraphs would call that a narrow interval; resampling publishers must not, because the
-    next publisher could be the bad one."""
+    """Ten publishers that read perfectly and one that reads nothing right.
+
+    Asserting only that the interval is wide would not test the clustering: an interval over
+    paragraphs is wide too, just less so. What separates them is that resampling publishers can
+    draw the bad one twice — or not at all — so the clustered interval must reach materially
+    further in both directions than the unclustered one. This is checked against an unclustered
+    bootstrap computed here, rather than against a number chosen by hand."""
     rows: list[Landing] = []
     for i in range(10):
         rows += _fake(f"10.100{i}", 20, 20)
     rows += _fake("10.2000", 20, 0)
+
     ci = bootstrap(rows, precision_of, draws=500, seed=1)
+    lo, hi = _unclustered(rows, precision_of, draws=500, seed=1)
     assert ci["publishers"] == 11
-    assert ci["lo"] < ci["point"] <= ci["hi"]
-    assert ci["lo"] < 0.92  # the bad publisher is drawn more than once in some resamples
+    assert ci["lo"] < lo, (ci, lo)  # the clustered interval reaches lower
+    assert ci["hi"] >= hi           # ... and higher: some resamples have no bad publisher at all
+    assert (ci["hi"] - ci["lo"]) > 2 * (hi - lo)  # and is much wider, not marginally
+    assert ci["hi"] == 1.0  # the bad publisher is left out of some draws entirely
 
 
 def test_the_interval_is_reproducible_and_moves_with_the_seed_only_a_little():
@@ -284,8 +351,11 @@ def test_sealed_is_redacted_and_reserve_is_not_scored_at_all():
     # once because it was not on this list.
     assert redact("FITTED", report) == report
     assert redact("VAL", report) == report
-    sealed = redact("SEALED", report)
+    sealed = redact("SEALED", {"overall": {"precision": 0.99}, "papers_detail": [{"key": "a"}],
+                               "worst": ["b"], "a_key_nobody_has_thought_of_yet": ["c"]})
     assert "papers_detail" not in sealed and "worst" not in sealed
-    assert sealed["precision"] == 0.99 and "aggregates only" in sealed["redacted"]
+    # a whitelist, so a key added to the report later does not reach a sealed split by default
+    assert "a_key_nobody_has_thought_of_yet" not in sealed
+    assert sealed["overall"] == {"precision": 0.99} and "aggregates only" in sealed["redacted"]
     with pytest.raises(SplitViolation):
         redact("RESERVE", report)

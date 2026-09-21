@@ -33,7 +33,7 @@ from typing import Any
 from . import lanes
 from .evaluate import (
     Landing, accounting, bootstrap, by_lane, check_no_leak, confusion, coverage_of, landings,
-    precision_and_coverage, precision_of, redact,
+    precision_and_coverage, precision_of, precision_on_named_of, redact,
 )
 from .harness import read_paper
 from .library import library_root
@@ -56,22 +56,32 @@ def manifest() -> dict[str, Any]:
 
 
 def _prefix_of(key: str, doi: str | None) -> str:
+    """The publisher, from a DOI.
+
+    A key that carries none — a paper filed by content hash because no DOI could be read from it
+    — becomes its own cluster rather than joining one called `?`. Collapsing them would let the
+    bootstrap treat a dozen unrelated papers as a single publisher, and narrow every interval
+    that touched them."""
     import re
 
     m = re.search(r"\b(10\.\d{4,9})/", f"{doi or ''} {key or ''}".lower().replace("doi:", ""))
-    return m.group(1) if m else "?"
+    return m.group(1) if m else f"?{key}"
 
 
 def collect(pdf_lib: Path, xml_lib: Path, want: dict[str, dict] | None, fitted: set[str],
-            split: str, source: Path | None = None) -> tuple[list[Landing], list[dict]]:
+            split: str) -> tuple[list[Landing], list[dict], list[str]]:
     """Every pair of the library, as landings, plus a conservation record per PDF."""
     rows: list[Landing] = []
     per_paper: list[dict] = []
+    skipped: list[str] = []
+    wanted = set(want or ())
     for p_row, x_row in pairs_of(pdf_lib, xml_lib):
         key = p_row["key"]
         meta = (want or {}).get(key.replace("doi:", "").lower())
         if want is not None and meta is None:
             continue
+        if meta is not None:
+            wanted.discard(key.replace("doi:", "").lower())
         prefix = (meta or {}).get("prefix") or _prefix_of(key, None)
         pdf, kind, _ = read_paper(pdf_lib, p_row)
         xml, _, _ = read_paper(xml_lib, x_row)
@@ -85,7 +95,11 @@ def collect(pdf_lib: Path, xml_lib: Path, want: dict[str, dict] | None, fitted: 
         if src and Path(src).exists() and str(src).lower().endswith(".pdf"):
             record["accounting"] = accounting(pdf, Path(src))
         per_paper.append(record)
-    return rows, per_paper
+    # Say what is missing rather than quietly scoring a smaller split: a corpus line that shrinks
+    # by one with nothing said is the failure this campaign fixed in the harness, and it would be
+    # worse here — a split scored on the papers that happened to ingest is not that split.
+    skipped = sorted(wanted)
+    return rows, per_paper, skipped
 
 
 def conservation(per_paper: list[dict]) -> dict[str, Any]:
@@ -153,10 +167,12 @@ def main(argv: list[str] | None = None) -> int:
 
     rows: list[Landing] = []
     per_paper: list[dict] = []
+    missing: list[str] = []
     for pdf_lib, xml_lib in pairs:
-        got, papers = collect(pdf_lib, xml_lib, want, fitted, split)
+        got, papers, skipped = collect(pdf_lib, xml_lib, want, fitted, split)
         rows.extend(got)
         per_paper.extend(papers)
+        missing = skipped
     if not rows:
         print("no pairs found — are both libraries ingested?", file=sys.stderr)
         return 1
@@ -168,6 +184,7 @@ def main(argv: list[str] | None = None) -> int:
         "flags": {k: v for k, v in sorted(os.environ.items()) if k.startswith("LITRAG_")},
         "overall": overall,
         "precision_ci": bootstrap(rows, precision_of, draws=a.draws, seed=a.seed),
+        "precision_on_named_ci": bootstrap(rows, precision_on_named_of, draws=a.draws, seed=a.seed),
         "coverage_ci": bootstrap(rows, coverage_of, draws=a.draws, seed=a.seed),
         "by_lane": by_lane(rows),
         "by_type": {t: precision_and_coverage([r for r in rows if r.paper_type == t])
@@ -176,16 +193,25 @@ def main(argv: list[str] | None = None) -> int:
         "novel": precision_and_coverage([r for r in rows if not r.familiar]),
         "confusion": confusion(rows),
         "conservation": conservation(per_paper),
+        "in_the_manifest_but_not_read": missing,
         "papers_detail": sorted(per_paper, key=lambda p: (p["precision"] is None, p["precision"] or 0)),
     }
     shown = redact(split, report)
 
     o = shown["overall"]
     print(f"{split} ({a.corpus}): {o['papers']} papers · {o['publishers']} publishers · {o['paragraphs']} witness paragraphs")
+    if missing:
+        print(f"  !! {len(missing)} papers are in the manifest and not in the libraries: "
+              f"{', '.join(missing[:6])}{' …' if len(missing) > 6 else ''}")
     print(f"  asserted {o['asserted']} ({o['coverage']:.1%} coverage) · right {o['correct']} · wrong {o['wrong']}")
     ci = shown["precision_ci"]
     print(f"  precision  micro {o['precision']}  macro {o['precision_macro']}  "
           f"95% CI [{ci['lo']}, {ci['hi']}] over {ci['publishers']} publishers")
+    ni = shown["precision_on_named_ci"]
+    print(f"  precision where the witness itself names a lane: {o['precision_on_named']} "
+          f"95% CI [{ni['lo']}, {ni['hi']}] · coverage {o['coverage_on_named']} "
+          f"· {o['witness_other']} of {o['paragraphs']} witness paragraphs are `other`, "
+          f"{o['wrong_where_witness_said_other']} of them asserted")
     cc = shown["coverage_ci"]
     print(f"  coverage   {o['coverage']}  95% CI [{cc['lo']}, {cc['hi']}]")
     print("  not asserted, by where it went instead: "
@@ -208,7 +234,9 @@ def main(argv: list[str] | None = None) -> int:
         print(f"  [{shown['redacted']}]")
 
     if a.json:
-        Path(a.json).write_text(json.dumps(report, indent=1, default=str), encoding="utf-8")
+        # `shown`, never `report`: a sealed split that prints aggregates and then writes every
+        # paper's number to a file beside it has not been sealed at all
+        Path(a.json).write_text(json.dumps(shown, indent=1, default=str), encoding="utf-8")
         print(f"\nsaved {a.json}")
 
     if not a.no_ledger:
@@ -218,8 +246,9 @@ def main(argv: list[str] | None = None) -> int:
             "libs": [str(p.name) for pair in pairs for p in pair],
             "manifest": report["manifest_sha256"], "flags": report["flags"],
             "seed": a.seed, "command": " ".join(sys.argv),
-            "metrics": {k: shown[k] for k in ("overall", "precision_ci", "coverage_ci",
-                                              "familiar", "novel", "conservation") if k in shown},
+            "metrics": {k: shown[k] for k in ("overall", "precision_ci", "precision_on_named_ci",
+                                              "coverage_ci", "familiar", "novel", "conservation")
+                        if k in shown},
             "note": "",
         }
         ledger = repo_root() / "campaign" / "LEDGER.jsonl"

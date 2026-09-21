@@ -71,15 +71,38 @@ def test_the_harness_names_the_papers_that_are_in_no_line_of_its_report(tmp_path
     found = unread_papers(lib.dir)
     assert found["no_nodes"] == ["no_nodes"]
     assert found["no_raw"] == ["no_raw"]
-    assert sorted(found["not_parsed"]) == ["broke [failed]", "stuck [parsing]"]
+    assert found["unfinished"] == ["stuck [parsing]"]
+    assert found["failed"] == ["broke"]
     assert "whole" not in json.dumps(found)  # the one good paper is not named
+    # every paper lands in exactly one bucket: a row with neither nodes nor a raw document
+    # counted twice would make the gate's total larger than the number of papers it is about
+    named = [k for keys in found.values() for k in keys]
+    assert len(named) == len(set(named)) == 4
+
+
+def test_the_gate_fires_on_a_broken_claim_and_not_on_an_honest_failure(tmp_path):
+    """A PDF Docling genuinely cannot read stays `failed` — a terminal state with a reason. A
+    gate that goes red on it forever teaches people to stop passing `--gate`."""
+    from litrag_parser.harness import BROKEN
+
+    lib = _library(tmp_path)
+    _file_a_paper(lib, "whole", status="parsed", nodes=3, raw=True)
+    _file_a_paper(lib, "broke", status="failed", nodes=0, raw=False)
+    found = unread_papers(lib.dir)
+    assert sum(len(found[k]) for k in BROKEN) == 0  # nothing to gate on
+    assert found["failed"] == ["broke"]  # but it is still reported
+
+    _file_a_paper(lib, "no_nodes", status="parsed", nodes=0, raw=True)
+    found = unread_papers(lib.dir)
+    assert sum(len(found[k]) for k in BROKEN) == 1
 
 
 def test_a_healthy_library_reports_nothing(tmp_path):
     lib = _library(tmp_path)
     _file_a_paper(lib, "whole", status="parsed", nodes=3, raw=True)
-    assert unread_papers(lib.dir) == {"no_nodes": [], "no_raw": [], "not_parsed": []}
-    assert unread_papers(tmp_path / "not-a-library") == {"no_nodes": [], "no_raw": [], "not_parsed": []}
+    empty = {"no_nodes": [], "no_raw": [], "unfinished": [], "failed": []}
+    assert unread_papers(lib.dir) == empty
+    assert unread_papers(tmp_path / "not-a-library") == empty
 
 
 def test_a_paper_left_parsing_is_given_a_terminal_state_when_the_worker_next_opens_it(tmp_path):

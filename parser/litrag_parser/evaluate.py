@@ -30,12 +30,14 @@ Nothing here asks a model, and nothing here writes to a library.
 from __future__ import annotations
 
 import random
+import re
+import unicodedata
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Iterable, Sequence
 
-from .pairs import LANES, Unit, _held, _index, _land, _top, units_of, words
+from .pairs import _SOFT, LANES, Unit, _held, _index, _land, _top, units_of
 from .tree import Tree
 
 #: a lane the reader names. `other` is a silence — the reader declining to say — and every
@@ -44,6 +46,21 @@ NAMED = tuple(lane for lane in LANES if lane != "other")
 
 
 # ---- T1: conservation of the text layer, no witness needed ---------------------------------
+
+
+#: T1's own tokens. `pairs.words` is `[a-z]{2,}` after folding, which is right for *locating* a
+#: paragraph — digits and single letters differ between a PDF and its XML and would only add
+#: noise. It is wrong for *conserving* one: under it a reading that dropped every number in
+#: every table, every axis label, every p-value and every reference year would still score 1.0.
+#: A paper is mostly numbers in the places most likely to be lost, so T1 counts them.
+_TOKEN = re.compile(r"[^\W_]+", re.UNICODE)
+
+
+def layer_words(text: str) -> list[str]:
+    """Every alphanumeric run, folded — digits, single letters and non-Latin scripts included."""
+    t = unicodedata.normalize("NFKD", text or "")
+    t = "".join(ch for ch in t if not unicodedata.combining(ch)).lower().translate(_SOFT)
+    return _TOKEN.findall(t)
 
 
 def accounting(tree: Tree, pdf_path: Path) -> dict[str, Any]:
@@ -64,21 +81,21 @@ def accounting(tree: Tree, pdf_path: Path) -> dict[str, Any]:
     layer: Counter[str] = Counter()
     for page in lines.values():
         for line in page:
-            layer.update(words(getattr(line, "text", "") or ""))
+            layer.update(layer_words(getattr(line, "text", "") or ""))
 
     held: Counter[str] = Counter()
     for n in tree.walk():
-        held.update(words(n.text or ""))
-        held.update(words(n.heading or ""))
+        held.update(layer_words(n.text or ""))
+        held.update(layer_words(n.heading or ""))
         if n.table:
             for row in n.table.get("cells", []):
                 for cell in row:
-                    held.update(words(str(cell)))
-    held.update(words(tree.title or ""))
+                    held.update(layer_words(str(cell)))
+    held.update(layer_words(tree.title or ""))
 
     dropped: Counter[str] = Counter()
     for item in tree.dropped_items:
-        dropped.update(words(item.get("text") or ""))
+        dropped.update(layer_words(item.get("text") or ""))
 
     total = sum(layer.values())
     in_node = sum(min(c, held[w]) for w, c in layer.items())
@@ -159,10 +176,29 @@ def landings(pdf: Tree, xml: Tree, *, paper: str, prefix: str, split: str,
 
 
 def precision_and_coverage(rows: Sequence[Landing]) -> dict[str, Any]:
-    """Micro over paragraphs, macro over publishers, and the counts both rest on."""
+    """Micro over paragraphs, macro over publishers, and the counts both rest on.
+
+    Reported twice, because a quarter of the witness's own paragraphs are laned `other` and on
+    those two readings of "right" are defensible:
+
+    - **strict** (`precision`): an asserted lane on a paragraph the witness lanes `other` is
+      wrong. The reader claimed a lane the paper does not have. Note that under this reading it
+      is *impossible* to score correct on such a paragraph, since asserting means naming a lane
+      and being correct means matching `other`.
+    - **on named** (`precision_on_named`): those paragraphs are set aside, and what is left is
+      the question "when the paper names a lane, does the reader name the same one?"
+
+    Neither is the truth on its own. `NOTES.md` records the case that makes it: Cureus wraps a
+    whole systematic review in one "Review" section which its XML lanes `other`, and the reader
+    calls its parts methods — forty-four chunks on one paper, and "a journal's convention, not
+    an error". So both are printed, always, and the gap between them is the size of the question.
+    """
     n = len(rows)
     asserted = [r for r in rows if r.asserted]
     correct = [r for r in asserted if r.correct]
+    named = [r for r in rows if r.xml_lane in NAMED]  # the witness named a lane of its own
+    named_asserted = [r for r in named if r.asserted]
+    named_correct = [r for r in named_asserted if r.correct]
     by_prefix: dict[str, list[Landing]] = {}
     for r in rows:
         by_prefix.setdefault(r.prefix, []).append(r)
@@ -181,6 +217,13 @@ def precision_and_coverage(rows: Sequence[Landing]) -> dict[str, Any]:
         "precision": round(len(correct) / len(asserted), 5) if asserted else None,
         "coverage": round(len(asserted) / n, 5) if n else None,
         "precision_macro": round(sum(per_publisher) / len(per_publisher), 5) if per_publisher else None,
+        # the witness's own silences set aside: of the paragraphs the paper itself lanes, how
+        # often does the reader name the same lane, and how many does it name at all
+        "witness_named": len(named),
+        "witness_other": n - len(named),
+        "precision_on_named": round(len(named_correct) / len(named_asserted), 5) if named_asserted else None,
+        "coverage_on_named": round(len(named_asserted) / len(named), 5) if named else None,
+        "wrong_where_witness_said_other": sum(1 for r in asserted if r.xml_lane not in NAMED),
         # what happened to everything that was not asserted. A reader can reach any precision by
         # asserting less, and this is where that would show: prose swallowed by front matter or
         # read as a caption is a loss, not the same thing as a lane honestly left unnamed.
@@ -241,7 +284,14 @@ def bootstrap(rows: Sequence[Landing], stat: Callable[[Sequence[Landing]], float
 
 
 def precision_of(rows: Sequence[Landing]) -> float | None:
+    """Strict: an asserted lane on a paragraph the witness lanes `other` counts wrong."""
     asserted = [r for r in rows if r.asserted]
+    return (sum(1 for r in asserted if r.correct) / len(asserted)) if asserted else None
+
+
+def precision_on_named_of(rows: Sequence[Landing]) -> float | None:
+    """The witness's own silences set aside: where the paper names a lane, does the reader?"""
+    asserted = [r for r in rows if r.asserted and r.xml_lane in NAMED]
     return (sum(1 for r in asserted if r.correct) / len(asserted)) if asserted else None
 
 
@@ -277,6 +327,15 @@ def risk_coverage(rows: Sequence[Landing], score: Callable[[Landing], float],
 
 class SplitViolation(RuntimeError):
     """A split was read in a way the protocol does not allow."""
+
+
+#: everything a sealed split may show: numbers about the corpus, never about a paper. A key not
+#: on this list does not reach a SEALED or EXAM report, however it is asked for.
+AGGREGATE = (
+    "split", "corpus", "commit", "manifest_sha256", "flags",
+    "overall", "precision_ci", "precision_on_named_ci", "coverage_ci",
+    "by_lane", "by_type", "familiar", "novel", "confusion", "conservation",
+)
 
 
 #: what may be looked at, per split (`PLAN.md` §3). `FITTED` is not one of the campaign corpus's
@@ -321,7 +380,11 @@ def redact(split: str, report: dict[str, Any]) -> dict[str, Any]:
     if split in ("DEV", "FITTED", "VAL"):
         return report
     if split in ("SEALED", "EXAM"):
-        out = {k: v for k, v in report.items() if k not in ("papers_detail", "worst", "examples", "landings")}
+        # A whitelist, not a blacklist. Naming the keys to *remove* means every key added to the
+        # report later is visible on SEALED by default, and the one that leaks will be the one
+        # nobody thought about. Naming the keys to keep means a new one is invisible until
+        # somebody decides it is an aggregate.
+        out = {k: report[k] for k in AGGREGATE if k in report}
         out["redacted"] = f"{split}: {VISIBLE[split]}"
         return out
     raise SplitViolation(f"{split} is not a split that is scored ({VISIBLE.get(split, 'unknown')})")

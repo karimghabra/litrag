@@ -22,6 +22,7 @@ one JSON line per request, and writes the document itself rather than piping meg
 
 from __future__ import annotations
 
+import atexit
 import json
 import os
 import subprocess
@@ -98,7 +99,12 @@ def serve() -> int:
 
                 converter = Worker(Path(req.get("root") or ".")).converter(None)
             doc = _convert(converter, Path(req["path"]))
-            Path(req["out"]).write_text(json.dumps(doc, ensure_ascii=False), encoding="utf-8")
+            # written aside and renamed: a kill on the timeout path must not leave half a
+            # document behind, because everything downstream tests only that the file exists
+            out = Path(req["out"])
+            tmp = out.with_suffix(out.suffix + f".part{os.getpid()}")
+            tmp.write_text(json.dumps(doc, ensure_ascii=False), encoding="utf-8")
+            os.replace(tmp, out)
             answer({"ok": True, "out": req["out"], "seconds": round(time.time() - started, 2),
                     "texts": len(doc.get("texts", [])), "tables": len(doc.get("tables", [])),
                     "pictures": len(doc.get("pictures", []))})
@@ -119,6 +125,10 @@ class LayoutChild:
     def __init__(self, root: Path, on_log: Callable[[str], None] | None = None,
                  command: list[str] | None = None):
         self.root = root
+        #: called per line of the child's stderr. A plain attribute rather than a closure held
+        #: from the first paper, so it can be repointed as papers go by — the first version
+        #: captured one paper's id for the life of the child and filed every later paper's
+        #: Docling log under it.
         self.on_log = on_log
         #: the child's command line. The tests give a stub that crashes, hangs or refuses on
         #: demand, so the supervision can be measured without Docling and without waiting for a
@@ -126,53 +136,37 @@ class LayoutChild:
         self.command = command or [sys.executable, "-m", "litrag_parser.layout", "--serve"]
         self.proc: subprocess.Popen[str] | None = None
         self.spawns = 0
+        # a multi-gigabyte torch child holding GPU memory must not outlive its parent. `stop()`
+        # runs on the `quit` op, but a worker can die without one — which is the premise of this
+        # whole module — and the window kills it 1.5 s after asking it to quit.
+        atexit.register(self.stop)
 
-    def _spawn(self) -> subprocess.Popen[str]:
-        env = {**os.environ, "PYTHONUNBUFFERED": "1", "PYTHONUTF8": "1"}
-        proc = subprocess.Popen(
-            self.command,
-            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-            text=True, encoding="utf-8", env=env, cwd=str(Path(__file__).resolve().parent.parent),
-        )
-        self.spawns += 1
-        threading.Thread(target=self._drain, args=(proc,), daemon=True).start()
-        assert proc.stdout is not None
-        hello = proc.stdout.readline()  # the child says it is up before anything is asked of it
-        if not hello:
-            raise LayoutCrashed("the layout child died before it was ready")
-        return proc
+    @staticmethod
+    def _reap(proc: subprocess.Popen[str]) -> int | None:
+        """Kill a child and wait for it, so nothing is left behind.
 
-    def _drain(self, proc: subprocess.Popen[str]) -> None:
-        """Docling's own log lines, so they are not lost and the pipe never fills."""
-        if proc.stderr is None:
-            return
-        for line in proc.stderr:
-            if self.on_log:
-                self.on_log(line.rstrip())
-
-    def ensure(self) -> subprocess.Popen[str]:
-        if self.proc is None or self.proc.poll() is not None:
-            self.proc = self._spawn()
-        return self.proc
-
-    def stop(self) -> None:
-        proc, self.proc = self.proc, None
-        if proc is None or proc.poll() is not None:
-            return
+        `kill()` without `wait()` leaves a zombie and holds the three pipes and the drain thread
+        until the collector reaches the abandoned object — and this class exists to stop a
+        process outliving its purpose, so it cannot do that itself."""
         try:
-            if proc.stdin:
-                proc.stdin.write(json.dumps({"op": "quit"}) + "\n")
-                proc.stdin.flush()
-            proc.wait(timeout=5)
-        except Exception:  # noqa: BLE001
             proc.kill()
+        except Exception:  # noqa: BLE001 — already gone
+            pass
+        try:
+            return proc.wait(timeout=10)
+        except Exception:  # noqa: BLE001
+            return proc.poll()
 
-    def _ask(self, path: Path, out: Path, timeout: float, heartbeat: Callable[[], None] | None) -> dict[str, Any]:
-        proc = self.ensure()
-        assert proc.stdin is not None and proc.stdout is not None
-        proc.stdin.write(json.dumps({"path": str(path), "out": str(out), "root": str(self.root)}) + "\n")
-        proc.stdin.flush()
-        box: dict[str, Any] = {}
+    def _line(self, proc: subprocess.Popen[str], timeout: float,
+              heartbeat: Callable[[], None] | None, what: str) -> str:
+        """One line from the child, within `timeout`, beating while it waits.
+
+        Every read of the child's pipe goes through here. The first version read the child's
+        `ready` line with a bare blocking `readline()` outside any deadline, so a child that
+        hung while importing torch — or while fetching Docling's models on a first run — froze
+        the worker with no heartbeat: exactly the failure this module exists to remove."""
+        assert proc.stdout is not None
+        box: dict[str, str] = {}
 
         def read() -> None:
             assert proc.stdout is not None
@@ -186,17 +180,69 @@ class LayoutChild:
             if th.is_alive() and heartbeat:
                 heartbeat()
         if th.is_alive():
-            proc.kill()
-            self.proc = None
-            raise LayoutTimedOut(f"the layout child took more than {timeout:g}s on {path.name} and was killed")
-        line = box.get("line") or ""
+            code = self._reap(proc)
+            if self.proc is proc:
+                self.proc = None
+            raise LayoutTimedOut(f"the layout child took more than {timeout:g}s {what} (killed, exit {code})")
+        return box.get("line") or ""
+
+    def _spawn(self, timeout: float, heartbeat: Callable[[], None] | None) -> subprocess.Popen[str]:
+        env = {**os.environ, "PYTHONUNBUFFERED": "1", "PYTHONUTF8": "1"}
+        proc = subprocess.Popen(
+            self.command,
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True, encoding="utf-8", env=env, cwd=str(Path(__file__).resolve().parent.parent),
+        )
+        self.spawns += 1
+        threading.Thread(target=self._drain, args=(proc,), daemon=True).start()
+        hello = self._line(proc, timeout, heartbeat, "starting up")
+        if not hello.strip():
+            raise LayoutCrashed(f"the layout child exited {self._reap(proc)} before it was ready")
+        return proc
+
+    def _drain(self, proc: subprocess.Popen[str]) -> None:
+        """Docling's own log lines, so they are not lost and the pipe never fills."""
+        if proc.stderr is None:
+            return
+        for line in proc.stderr:
+            if self.on_log:
+                self.on_log(line.rstrip())
+
+    def ensure(self, timeout: float = TIMEOUT,
+               heartbeat: Callable[[], None] | None = None) -> subprocess.Popen[str]:
+        if self.proc is None or self.proc.poll() is not None:
+            self.proc = self._spawn(timeout, heartbeat)
+        return self.proc
+
+    def stop(self) -> None:
+        """Ask the child to go, and make sure it has. Safe to call more than once."""
+        proc, self.proc = self.proc, None
+        if proc is None:
+            return
+        if proc.poll() is not None:
+            proc.wait()  # reap it even when it is already dead
+            return
+        try:
+            if proc.stdin:
+                proc.stdin.write(json.dumps({"op": "quit"}) + "\n")
+                proc.stdin.flush()
+            proc.wait(timeout=5)
+        except Exception:  # noqa: BLE001
+            self._reap(proc)
+
+    def _ask(self, path: Path, out: Path, timeout: float, heartbeat: Callable[[], None] | None) -> dict[str, Any]:
+        proc = self.ensure(timeout, heartbeat)
+        assert proc.stdin is not None
+        proc.stdin.write(json.dumps({"path": str(path), "out": str(out), "root": str(self.root)}) + "\n")
+        proc.stdin.flush()
+        line = self._line(proc, timeout, heartbeat, f"on {path.name}")
         if not line.strip():  # the child died: an empty read is how a native crash arrives here
             try:
                 code = proc.wait(timeout=5)  # not `poll`: the pipe closes before the process is reaped
             except subprocess.TimeoutExpired:
-                proc.kill()
-                code = proc.poll()
-            self.proc = None
+                code = self._reap(proc)
+            if self.proc is proc:
+                self.proc = None
             raise LayoutCrashed(f"the layout child exited {code} reading {path.name}")
         return json.loads(line)
 

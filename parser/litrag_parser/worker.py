@@ -231,6 +231,7 @@ class Worker:
         self._scorer_tried = False
         self._reported_down = False
         self._recovered: set[Path] = set()  # libraries whose interrupted papers have been closed
+        self._recover_lock = threading.Lock()
         self._layout: Any = None  # the Docling child, spawned on the first paper and respawned when it dies
 
     @staticmethod
@@ -335,15 +336,22 @@ class Worker:
         and nothing ever reports the paper as anything. Every file handed to `ingest` has to end
         in a state with a reason, so an interrupted paper is `failed` — which the window already
         shows with its error, and which `ingest` and `reparse` will both pick up again."""
-        if lib.dir in self._recovered:
-            return
-        self._recovered.add(lib.dir)
+        # `_lib` is called from the stdin thread as well as the ingest thread, so the check and
+        # the add have to be one step: otherwise a read op could run this while a paper is being
+        # parsed and mark that very paper `failed` underneath it.
+        with self._recover_lock:
+            if lib.dir in self._recovered:
+                return
+            self._recovered.add(lib.dir)
         try:
             conn = open_store(lib.store_path)
         except Exception:  # a library with no store yet has nothing to recover
             return
         try:
-            stuck = [r["key"] for r in conn.execute("SELECT key FROM papers WHERE status = 'parsing'")]
+            # never the paper this worker is reading right now: it is legitimately `parsing`
+            in_flight = {self.current.get("paper")}
+            stuck = [r["key"] for r in conn.execute("SELECT key FROM papers WHERE status = 'parsing'")
+                     if r["key"] not in in_flight]
             for key in stuck:
                 set_status(conn, key, "failed", error="the worker stopped while reading this paper")
                 log_event(conn, key, now_iso(), "interrupted", "left parsing by a worker that did not finish")
@@ -427,36 +435,55 @@ class Worker:
         """Rows again from the raw parses, without Docling — the tree builder changed."""
         lib = self._lib(req)
         conn = open_store(lib.store_path)
-        rebuilt = []
+        rebuilt: list[str] = []
+        refused: list[dict[str, str]] = []
         keys = set(req.get("keys") or [])
         for row in parsed_papers(lib.dir, sorted(keys) or None):
             key = row["key"]
             source = row["source"]
-            hint = pdf_title(source) if row["format"] == "pdf" and source and source.exists() else None
-            ask = bool(req.get("judge"))
-            judge = Judge(conn, key, ask_model=ask and judge_available(), model=judge_model(lib.dir), scorer=self.scorer() if ask else None)
-            doc = json.loads(row["raw"].read_text("utf-8"))
-            recover_from_pdf(doc, source if row["format"] == "pdf" else None)
-            tree = build_tree(doc, key, title_hint=hint, judge=judge, record={"journal": row.get("journal")})
-            if outline_enabled() or req.get("outline"):
-                judge_outline(tree, conn, key, ask_model=ask, pub_types=row["pub_types"])  # a rebuild replays the outline's row; only the judge op asks the model
-            n = save_tree(conn, key, tree, parser=f"{'judge ' + judge.model if ask else 'rebuild'} {__version__}", parsed_at=now_iso(), seconds=0.0)
-            xml = source.read_bytes() if row["format"] == "jats" and source and source.exists() else None
-            if xml:
-                journal, year = jats_journal(xml)
-                set_record(conn, key, authors=jats_authors(xml), journal=journal, year=year, overwrite=True)  # the file's own word on who wrote it, where and when
-            refs, cites = link_citations(tree, xml)
-            save_refs(conn, key, refs, cites)
-            edges = link_edges(tree, key, lanes.active())
-            save_edges(conn, key, edges)
-            kind = decide_type(tree, jats_xml=xml, pub_types=row["pub_types"], oracle=lanes.active())
-            set_type(conn, key, kind["type"], kind["source"], kind["detail"], kind.get("subtype"))
-            tree.notes.extend(kind.get("notes", []))
-            self._note_events(conn, key, tree)
-            sure = assess_confidence(tree, kind)
-            set_confidence(conn, key, sure["confidence"], sure["reasons"], sure["penalties"])
-            emit({"event": "tree", "id": req.get("id"), "paper": key, "title": tree.title, "type": kind, "confidence": {"confidence": sure["confidence"], "reasons": sure["reasons"]}, "roles": tree.roles, "has_methods": tree.has_methods, "nodes": n, "pages": len(tree.pages), "dropped": tree.dropped, "repairs": tree.repairs, "notes": len(tree.notes), "judged": judge.summary(), "meaning": self._meaning(), "edges": summarize_edges(tree, edges), **summarize_citations(refs, cites)})
+            try:
+                self._rebuild_one(conn, lib, req, row, key, source)
+            except Exception as e:  # noqa: BLE001
+                # One paper must not cost the rest: a raw document that is truncated — a child
+                # killed mid-write before the write became atomic, a disk that filled — would
+                # otherwise abort the whole rebuild on the first bad file, which is the same
+                # "one paper costs the run" shape the layout child was built to remove.
+                refused.append({"paper": key, "reason": f"{type(e).__name__}: {e}"})
+                log_event(conn, key, now_iso(), "rebuild-refused", str(e)[:400])
+                emit({"event": "stage", "id": req.get("id"), "paper": key, "stage": "failed",
+                      "message": f"rebuild: {e}", "trace": traceback.format_exc()})
+                continue
             rebuilt.append(key)
+        conn.close()
+        emit({"event": "done", "id": req.get("id"), "op": req.get("op", "rebuild"),
+              "rebuilt": rebuilt, "refused": refused})
+
+    def _rebuild_one(self, conn: Any, lib: Library, req: dict[str, Any], row: dict[str, Any],
+                     key: str, source: Any) -> None:
+        hint = pdf_title(source) if row["format"] == "pdf" and source and source.exists() else None
+        ask = bool(req.get("judge"))
+        judge = Judge(conn, key, ask_model=ask and judge_available(), model=judge_model(lib.dir), scorer=self.scorer() if ask else None)
+        doc = json.loads(row["raw"].read_text("utf-8"))
+        recover_from_pdf(doc, source if row["format"] == "pdf" else None)
+        tree = build_tree(doc, key, title_hint=hint, judge=judge, record={"journal": row.get("journal")})
+        if outline_enabled() or req.get("outline"):
+            judge_outline(tree, conn, key, ask_model=ask, pub_types=row["pub_types"])  # a rebuild replays the outline's row; only the judge op asks the model
+        n = save_tree(conn, key, tree, parser=f"{'judge ' + judge.model if ask else 'rebuild'} {__version__}", parsed_at=now_iso(), seconds=0.0)
+        xml = source.read_bytes() if row["format"] == "jats" and source and source.exists() else None
+        if xml:
+            journal, year = jats_journal(xml)
+            set_record(conn, key, authors=jats_authors(xml), journal=journal, year=year, overwrite=True)  # the file's own word on who wrote it, where and when
+        refs, cites = link_citations(tree, xml)
+        save_refs(conn, key, refs, cites)
+        edges = link_edges(tree, key, lanes.active())
+        save_edges(conn, key, edges)
+        kind = decide_type(tree, jats_xml=xml, pub_types=row["pub_types"], oracle=lanes.active())
+        set_type(conn, key, kind["type"], kind["source"], kind["detail"], kind.get("subtype"))
+        tree.notes.extend(kind.get("notes", []))
+        self._note_events(conn, key, tree)
+        sure = assess_confidence(tree, kind)
+        set_confidence(conn, key, sure["confidence"], sure["reasons"], sure["penalties"])
+        emit({"event": "tree", "id": req.get("id"), "paper": key, "title": tree.title, "type": kind, "confidence": {"confidence": sure["confidence"], "reasons": sure["reasons"]}, "roles": tree.roles, "has_methods": tree.has_methods, "nodes": n, "pages": len(tree.pages), "dropped": tree.dropped, "repairs": tree.repairs, "notes": len(tree.notes), "judged": judge.summary(), "meaning": self._meaning(), "edges": summarize_edges(tree, edges), **summarize_citations(refs, cites)})
         conn.close()
         emit({"event": "done", "id": req.get("id"), "op": req.get("op", "rebuild"), "rebuilt": rebuilt})
 
@@ -474,8 +501,11 @@ class Worker:
 
         if child_enabled():
             if self._layout is None:
-                self._layout = LayoutChild(self.root, on_log=lambda line: emit(
-                    {"event": "log", "id": req_id, "paper": key, "logger": "layout", "level": "info", "message": line}))
+                self._layout = LayoutChild(self.root)
+            # repointed per paper: the child outlives the paper, so a callback captured when it
+            # was spawned would file every later paper's Docling log under the first paper's id
+            self._layout.on_log = lambda line: emit(
+                {"event": "log", "id": req_id, "paper": key, "logger": "layout", "level": "info", "message": line})
             stage("layout", "Reading the layout: headings, paragraphs, tables, figures")
             self._layout.convert(
                 path, raw_path, heartbeat=beat,

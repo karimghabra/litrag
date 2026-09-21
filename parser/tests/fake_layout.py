@@ -8,12 +8,15 @@ hoped for. `LITRAG_FAKE_LAYOUT` says how it should behave:
     ok            answer every request
     crash:N       exit abruptly on request N (1-based) — a native crash, no Python exception
     hang:N        never answer request N
+    never-ready   hang before saying it is up
+    die-before-ready  exit before saying it is up
     error:N       answer request N with a refusal, the way a Python failure in Docling arrives
     crash-always  exit abruptly on every request, in every fresh process
 """
 import json
 import os
 import sys
+import time
 
 
 def main() -> int:
@@ -31,6 +34,13 @@ def main() -> int:
         wire.write(json.dumps(msg) + "\n")
         wire.flush()
 
+    if kind == "never-ready":
+        # a child that hangs before it says it is up: importing torch, or fetching Docling's
+        # models on a first run. The first version read this line with no deadline at all.
+        while True:
+            time.sleep(3600)
+    if kind == "die-before-ready":
+        os._exit(7)
     answer({"ready": True, "pid": os.getpid()})
     for line in sys.stdin:
         line = line.strip()
@@ -59,8 +69,6 @@ def main() -> int:
             os._exit(1)  # unreachable on any platform that has memory protection
         if kind == "hang" and n == which:
             while True:
-                import time
-
                 time.sleep(3600)
         if kind == "error" and n == which:
             answer({"ok": False, "error": "RuntimeError: Docling read nothing from the file"})
