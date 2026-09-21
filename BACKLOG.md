@@ -653,3 +653,36 @@ Each one wants a fixture or a test before its fix, as the spot-check does.
   `Volker Kahlenberg et al. — K0.72Na1.71…` matches the XML's *contributor block*, so the removal
   scores wrong when it was right. Judging against prose in a named body lane removes most of it,
   not all. Rules over short strings carry that caveat.
+
+## Found by the invariants (2026-09-21, Phase 4)
+
+- **I10 looks at the right fault with the wrong granularity** (measured) — a line that recurs
+  across pages, read as body prose, is the largest junk class the reader has, and the check for
+  it fired on **one** paper in 123 and at no block the witness could judge. The reason is
+  visible on the fixture: the running heads are there — `Micromachines 2024 , 15 , 851`,
+  `x FOR PEER REVIEW 10 of 15` — but glued *inside* paragraphs rather than standing as nodes of
+  their own, so a check comparing whole nodes cannot see them. I2 and I9 both trip over the same
+  text from the other side. The check should compare *lines* within a node, not nodes. Price it
+  before writing it: the candidate set must be built from the side the rule acts on.
+- **I11's column heuristic is noise as written** — 869 firings on DEV, 1,141 more at places the
+  witness cannot judge, and a lane-error lift of 1.02 [0.78, 1.29]. It splits a page at its
+  mid-line and excludes blocks wider than three fifths of it, which reads front matter and
+  full-width figures as column members. Either detect columns from the page's own gutter or drop
+  the inversion half of the check and keep the page-coverage half, which is the useful one.
+- **I1 cannot be both a target and a guard** — conservation fails on 123 of 123 DEV papers at
+  the 0.999 floor T1 asks for, so it separates nothing: P(a paper reads below 0.90 | I1 fails) is
+  0.146, which is DEV's own share. `PLAN.md`'s repair rule says "accept only if the total
+  violation score falls and I1 still holds"; "still holds" has to mean *does not get worse*. The
+  floor stays at 0.999 because that is the target, and a second, relative reading of it is what a
+  repair guard needs.
+- **A paragraph set like a heading is a question, not a repair** (measured) — `I12
+  odd-one-out:paragraph-read-as-section` concentrates lane errors 5.85× [1.82, 17.88] inside the
+  paper it fires in, over 60 papers and 41 publishers, keyed on nothing but the document's own
+  typography. But against its literal claim — that the block is not a heading — it scores 0.4375
+  against a base rate of 0.4699, a lift of 0.93. It finds a bad place and the heading there is
+  usually real. Escalation should be handed these 80 places; demoting the heading should not.
+- **The witness's headings are a noisy ground truth** — 1,507 of 3,207 headings the reading
+  prints have no match in the XML twin (0.470), which cannot mean the reader invents half of
+  them. The XML often does not carry subsection headings the PDF prints, and one supplement
+  contributes 1,091 of the 1,507. Any rule priced against "the witness has no heading here"
+  carries the `front:keywords` caveat.

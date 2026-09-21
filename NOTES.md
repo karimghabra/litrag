@@ -82,6 +82,55 @@ when it turns out durable. Mark inference as inference.
 
 ## Short-term memory
 
+- **2026-09-21: thirteen invariants, priced, and twelve of them say nothing** — the reader now
+  has a module that checks its own work and answers with a *place* rather than a share
+  (`invariants.py`, I1-I13, each pass/fail/not-applicable with a node, a page and the text).
+  Nothing in the reader acts on any of them, and that is the measured conclusion rather than
+  caution: on DEV — 123 papers, 66 publishers never seen — **none reaches a precision a
+  deterministic repair could use**, so all thirteen stay `advisory` and the repair loop was not
+  built. `PLAN.md` wrote that fallback itself: if invariants prove imprecise, demote them.
+
+  **The one that survives.** Text set the way its own document sets its paragraphs, but read as
+  a section heading (`I12 odd-one-out:paragraph-read-as-section`). 80 firings, 64 papers, 41
+  publishers, no paper owning more than 4 per cent of them. Precision 0.225 against a base rate
+  of 0.053 — **lift 4.23, 95% [1.91, 8.53]** over publishers. And conditioned on the paper it is
+  in, which is the test that matters: flagged sections hold a lane error 0.189 of the time
+  against 0.032 for the *other sections of the same paper* — **within-paper lift 5.85, 95%
+  [1.82, 17.88]** over 60 papers. It finds a place, not just a bad paper.
+
+  **And it does not find what it says it finds.** Its literal claim is that the block is not a
+  heading at all, and the witness answers that directly: of 3,207 headings the reading prints,
+  1,507 have no match in the XML (0.470); I12 flags 80 and 35 are unmatched — 0.4375, **lift
+  0.93**. No better than picking a printed heading at random. Its examples are `Abstract`,
+  `OBJECTIVES`, `1. Study design` — real headings, set in a face that does not stand apart, in
+  papers where something near them goes wrong. So the repair it licenses is *look here*, not
+  *delete this heading*, and the first number alone would have produced the second.
+
+  **Three tests now stand between a located finding and a claim, and each killed something.**
+  (1) Price the rule, not the check it lives in — I6 is three rules; I13 looked like the best
+  check in the set at 0.967 and is one rule on one paper. (2) Resample the base rate **with** the
+  numerator, over publishers — a bootstrapped numerator over a fixed denominator is not a lift,
+  and fixing it swapped which shape of I9 survived, days before "the page break is the
+  discriminator" would have been written down. (3) Condition on the paper — this killed every
+  split-predicting rule, `I9 lowercase-start` included: right 77 per cent of the time about a cut
+  paragraph, and within its own paper the *unflagged* blocks are right 63 per cent of the time,
+  lift 1.22 [0.89, 7.13].
+
+  **That third test answers the join classifier `PLAN.md` asks for in this phase.** Its named
+  structural features — punctuation, case, column extent — carry no information about *which*
+  boundary is a join once the paper is held fixed. A classifier over them would score respectably
+  leave-publisher-out by learning which papers are hard, and a boundary classifier that has
+  learnt the paper is a confidence score wearing the wrong name. Whether the small language
+  model's likelihood carries what the structure does not is the live question, and is not
+  answered.
+
+  **The supplement, for the third time.** `10.15167/2421-4248/jpmh2019.60.3s1` is **32 per cent
+  of every judgeable block in DEV** — 1,834 of 5,671 — and dropping it moves the split base rate
+  from 0.393 to 0.105 and the spurious-heading count by 1,091 of 1,507. It has now falsified the
+  abstract-lane finding, I13's precision and two base rates. The per-paper column is what caught
+  it each time; every rule table carries the largest paper's share of its firings for that reason.
+
+
 - **2026-09-21: the reader measured on publishers it has never seen** — the corpus `BACKLOG`
   asked for, drawn by publisher rather than by topic, and the first honest answer to "how far
   does this generalise". 87 DOI registrant prefixes are what the reader was built on (1,371

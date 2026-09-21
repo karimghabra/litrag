@@ -3,12 +3,16 @@
 **Read order after any fresh start or compaction:** `campaign/PROMPT.md` (the
 brief), `campaign/PLAN.md` (what to build), then this file. Then carry on.
 
-- **Phase:** 2 (the measurement apparatus). Phase 0 **gate passed**; Phase 1
-  (reliability) landed except for its two-full-pass gate, which runs on the new
-  corpus. See `reports/phase0.md` and the Phase 1 section below.
-- **Branch:** `campaign/dynamic-reader`, cut from `8fae8aa`
-  (`origin/claude/decisions-by-meaning`, the merge commit of PR #20). See
-  `DECISIONS.md` D1.
+- **Phase:** 4 (closed-loop reading) — **gate not met, and the reason is the
+  finding**: thirteen invariants are built and priced on DEV, and none reaches a
+  precision a deterministic repair could use, so all thirteen stay advisory and
+  the repair loop was not built. `reports/phase4.md`. Phase 0 **gate passed**;
+  Phase 1 (reliability) landed; Phase 2 (the measurement apparatus) and Phase 3
+  (one reader change, the abstract's end) landed. Phases 5-8 not started; VAL,
+  SEALED and EXAM never scored.
+- **Branch:** `campaign/phase4-closed-loop`, cut from `campaign/dynamic-reader`,
+  itself cut from `8fae8aa` (`origin/claude/decisions-by-meaning`, the merge
+  commit of PR #20). See `DECISIONS.md` D1.
 - **Campaign root:** `~/.protracker/campaign/library` — copies of all eleven
   libraries plus `lanes.sqlite`. **Every command sets
   `LITRAG_ROOT=C:/Users/ihave/.protracker/campaign/library`.** Karim's own root
@@ -419,3 +423,36 @@ and is superseded.
   hand — but 92% of held-out 4 comes from publisher prefixes the rules were
   already fitted on, so it is *not* a novel-publisher set. Treat it as a second
   novel-**paper** set, not as EXAM.
+
+---
+
+## Phase 4: closed-loop reading — gate not met
+
+`parser/litrag_parser/invariants.py`: thirteen checks, each returning pass, fail
+or not-applicable with a **location** — the thing `confidence.py`'s shares cannot
+give a repair. `evaluate.node_verdicts` is the join that lets a located finding be
+priced: this block of the reading, and whether the XML twin disagrees with what
+was done to it, keeping lane errors, merges and splits apart.
+
+Priced on DEV (123 papers, 66 novel publishers, 5,671 judgeable blocks), with the
+lift bootstrapped over publishers and the base rate resampled inside each draw:
+
+| | |
+|---|---|
+| checks built | 13, all `advisory` |
+| rules whose lift interval clears 1 | **4** |
+| rules that survive conditioning on the paper | **1** |
+| checks precise enough to be `hard` | **0** |
+
+The survivor is `I12 odd-one-out:paragraph-read-as-section` — text set the way its
+document sets its paragraphs, read as a section heading. Lift 4.23 [1.91, 8.53]
+against a wrong lane; **within-paper lift 5.85 [1.82, 17.88]** over 60 papers. But
+against its own literal claim — that the block is not a heading — it scores 0.4375
+against a base rate of 0.4699, lift 0.93. It finds a bad place; the heading there
+is usually real. That is a question for escalation (Phase 6), not a repair.
+
+Three ledger lines: `invariants-priced-DEV`, `invariants-within-paper-DEV`,
+`spurious-headings-DEV`. Run outputs in `~/.protracker/campaign/runs/phase4/`.
+
+**Nothing in the reader changed in this phase.** `npm run check:all` green at 321
+tests (271 → 321: 49 invariant and node-verdict tests, one for heading node ids).

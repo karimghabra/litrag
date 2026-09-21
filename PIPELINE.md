@@ -84,6 +84,19 @@ ingest` cuts chunks into `lit.sqlite`, never a tree.
    `nodes_fts`, `refs`, `citations`, `edges`, `judgments`, `events`. The
    audit (`audit.py`) reads them when asked.
 
+`invariants.py` asks the same kind of question as `confidence.py` and answers
+with a **place** rather than a share: thirteen checks (conservation, no text
+twice, heading numbering, the reference list, citation markers, figures and
+captions, the type's contract, lane order, paragraph integrity, furniture in
+the body, geometry, style classes, headings) each returning pass, fail or
+not-applicable, and a failure carrying one violation per node with its page
+and its text. It is not in the pipeline: nothing calls it while a paper is
+read, and nothing in the reader acts on it. Every check is `advisory` —
+priced on 66 publishers the reader had never seen, one predicts a wrong lane
+at four times chance and the rest are at or near it
+(`campaign/reports/phase4.md`), which is not a precision a repair can act on.
+`python -m litrag_parser.invariants --lib <dir> [--only I3,I9] [--json]`.
+
 ## Reparse, rebuild, judge
 
 - **Reparse** (the window's **Reparse all**, the `reparse` op) runs every
