@@ -79,6 +79,19 @@ def test_headings_found_missing_spurious_and_at_the_wrong_depth():
     assert compare_headings(_paper(headings=("Introduction", "Materials and Methods:", "Results", "Discussion")), xml)["recall"] == 1.0  # numbering and a colon are not the heading
 
 
+def test_a_heading_carries_the_node_it_came_from():
+    """`spurious` names the headings the witness does not have, and a name is not a location:
+    two sections of one paper can print the same words. The node id is what lets a finding at a
+    heading be priced against whether the witness has that heading at all."""
+    from litrag_parser.pairs import _headings
+
+    pdf = _paper(headings=("1 Introduction", "2 Materials and methods", "Figure legends and notes", "4 Discussion"))
+    heads = _headings(pdf)
+    ids = {n.node_id for n in pdf.walk() if n.type == "section"}
+    assert heads and all(h["node_id"] in ids for h in heads)
+    assert len({h["node_id"] for h in heads}) == len(heads)  # one row per section, not per spelling
+
+
 def test_an_xml_states_its_sections_depth_and_a_pdf_does_not():
     # found by reading reviews from both formats: the XML's topical sections had all become the introduction's
     items = [

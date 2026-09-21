@@ -183,7 +183,7 @@ def _headings(tree: Tree) -> list[dict[str, Any]]:
             continue
         clean = normalise(n.heading)
         if clean:
-            out.append({"heading": n.heading, "clean": clean, "words": frozenset(words(clean)), "top": (n.level or 9) <= 1, "role": n.role, "built": n.label == "built"})
+            out.append({"node_id": n.node_id, "heading": n.heading, "clean": clean, "words": frozenset(words(clean)), "top": (n.level or 9) <= 1, "role": n.role, "built": n.label == "built"})
     return out
 
 
