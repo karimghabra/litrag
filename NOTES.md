@@ -82,6 +82,66 @@ when it turns out durable. Mark inference as inference.
 
 ## Short-term memory
 
+- **2026-09-21: the reader has one mechanism for a heading's lane, wearing three hats** — the
+  vocabulary's anchored regexes, the catalogue of canonical spellings and the embedder on the
+  heading disagree **zero times in 434 chances** across DEV's 1,134 scoreable top-level sections.
+  They are different code — regexes, a lookup table, a cosine — reading the same string, and the
+  table and the centroids are both harvested from the same corpus of canonical spellings, so a
+  heading any of them knows is one they all know. Every policy built on their agreement scores
+  identically to the last digit because they are the same policy.
+
+  That also re-reads the 2026-09-21 route table. Vocabulary 0.891, catalogue 0.956, embedder
+  0.988 was measuring **which route got there first**, not which route was right: precedence
+  hands the vocabulary every heading it recognises, so the vocabulary's column is the canonical
+  headings *plus* everything odd it matches anyway, and the embedder's column is only what the
+  other two had already declined. A genuinely independent opinion has to read something other
+  than the heading.
+
+  **What agreement can still mean.** Not conflict resolution — how canonical the heading is.
+  Asserting only where all three recognise it: section precision 0.9380 [0.9013, 0.9668] →
+  **0.9886 [0.9759, 0.9974]**, word precision 0.9759 → **0.9972**, at word coverage 0.981 →
+  0.811. Sixty-six publishers never seen, clustered over publishers.
+
+- **2026-09-21: a threshold sweep cost a re-reading of the corpus, and half of it was impossible**
+  — `Kind.signature()`, the oracle's cache key, hashed the threshold and the margin along with
+  the examples and the prefix. Editing a threshold did not re-decide anything; it changed the key
+  and re-embedded everything. `lanes.sqlite` has **125,739 rows and up to five signatures for one
+  kind**, one per time a threshold was edited. And `_decide` stored the verdict without the
+  ranking, so a row that says `other` no longer knows what it refused — **90.8 per cent of every
+  row ever written**. A threshold could be raised by replay and never lowered.
+
+  Split into `Kind.space()` (what fixes the ranking: examples, centroids, prefix, prior, embedder)
+  and `Kind.rule()` (threshold, margin, per-lane margins), stored beside the verdict with the top
+  of the ranking. DEV re-scored afterwards is identical to the digit — 0.90115 / 0.95073 /
+  0.79715 / 0.96805 — which is what a refactor should be. `LITRAG_LANES_REFRESH=on` upgrades old
+  rows and is off by default because it re-embeds a library.
+
+  **What was not wrong:** whether `meaning.py` sends nomic-embed-text its task prefix. It does,
+  at every call site, and the prefix is in the cache key. That was my hypothesis and it was wrong.
+
+- **2026-09-21: the one mechanism that could disagree with a heading is refused before it can** —
+  the block classifier reads a section's *paragraphs*, which makes it the only opinion independent
+  of the heading. Its scores cluster: about 0.70–0.76 against the best lane and **0.02** behind
+  against the second, where the kind requires a margin of **0.08**. So `lane_sections`'s note —
+  "the heading names methods, the paragraphs read as results; the heading stands" — almost never
+  fires. It was also the one kind storing no ranking, because `lane_sections` builds its `Verdict`
+  by hand rather than through `Oracle._decide`: the kind most in need of a sweep was the one kind
+  that could not be swept. Both fixed.
+
+- **2026-09-21: a layout can be recognised without being named** — `template.py` reads a paper's
+  setting off its own type: page size, one column or two, the body's face and size, the faces that
+  stand apart from it, where the type block sits. No journal name, no DOI prefix, no publisher
+  string, and a test asserts the field list. On 114 DEV papers over 64 unseen publishers, against
+  the publisher as a lower bound on what a template is: **AUC 0.9061**, and the nearest neighbour
+  shares the publisher **71 times in 82 — 0.866 against a chance rate of 0.0147**.
+
+  Two fixes the first measurement forced. An embedded font subset carries a random six-letter tag,
+  so `FVKCKB+ArnoPro-Regular` and `VEHTVM+ArnoPro-Regular` were one typeface counted as two;
+  stripping it moved AUC 0.892 → 0.906 and the nearest neighbour 0.805 → 0.866. And the exact key
+  repeated **not once** across 114 papers because it hashed the type block to the thousandth of a
+  page — Phase 7's "on a known fingerprint, reuse" will have to key on the distance, not the key.
+
+
 - **2026-09-21: thirteen invariants, priced, and twelve of them say nothing** — the reader now
   has a module that checks its own work and answers with a *place* rather than a share
   (`invariants.py`, I1-I13, each pass/fail/not-applicable with a node, a page and the text).

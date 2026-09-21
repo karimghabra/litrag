@@ -686,3 +686,35 @@ Each one wants a fixture or a test before its fix, as the spot-check does.
   them. The XML often does not carry subsection headings the PDF prints, and one supplement
   contributes 1,091 of the 1,507. Any rule priced against "the witness has no heading here"
   carries the `front:keywords` caveat.
+
+## Found by Phase 5 (2026-09-21)
+
+- **The reader has one mechanism for a heading's lane, wearing three hats** (measured) — the
+  vocabulary's regexes, the catalogue of canonical spellings and the embedder on the heading
+  disagree **zero times in 434 chances** on DEV. They are different code reading the same string,
+  and the table and the centroids are harvested from the same corpus of canonical spellings, so a
+  heading any of them knows is one they all know. Assertion by agreement therefore has nothing to
+  resolve, and Phase 3's route table (vocabulary 0.891, catalogue 0.956, embedder 0.988) was
+  measuring which route *got there first*, not which was right. A genuinely independent mechanism
+  has to read something other than the heading: the paragraphs (the block classifier, below), the
+  section's position in the order, the template's memory of what that class of heading was last
+  time, or a second reader.
+- **The block classifier is refused almost everywhere it speaks** (measured) — it reads a
+  section's paragraphs, which makes it the only mechanism independent of the heading, and its
+  margins run about **0.02** against a required **0.08**. So `lane_sections`'s note — "the heading
+  names methods, the paragraphs read as results; the heading stands" — almost never fires, and the
+  one opinion that could contradict a heading is silent before it can. Its threshold and margin
+  are being derived from DEV; `sweep_blocks.py`.
+- **`LITRAG_LANE_AGREEMENT` is built and off** — on a strong disagreement between a heading and
+  its paragraphs the reader abstains and keeps both opinions in `guess`/`reasons` rather than
+  letting the heading stand. It cannot be priced until the block classifier is allowed to speak,
+  and it is off until it is.
+- **Three of `lanes.sqlite`'s 125,739 rows in four are dead weight** — they were written under
+  thresholds no longer in force, when the threshold was still part of the cache key, and nothing
+  will ever read them again. A `--prune` that drops rows whose `rule` is not the current one, run
+  on the campaign copy first, would take the file down by most of its size. Not urgent; the file
+  is not large and deleting rows from a cache in someone's library is not a thing to do casually.
+- **`Fingerprint.key()` repeats rarely** — twice over 114 DEV papers, even after being coarsened
+  to page, columns, body and the faces that stand apart. Phase 7's "on a known fingerprint, reuse
+  and then verify" will have to be keyed on `distance` under a threshold rather than on the key,
+  and the threshold wants deriving the way the block classifier's is.
