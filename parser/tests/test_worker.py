@@ -69,3 +69,27 @@ def test_audit_op_over_a_raw_document(tmp_path):
     assert not [f for f in paper["findings"] if f["severity"] == "error"]
     assert by(events, "3")[0] == {"event": "audit", "id": "3", "papers": []}
 
+
+
+def test_a_pdf_that_prints_no_identifier_is_read_by_its_name(tmp_path):
+    """A paper printing neither a DOI nor a PMCID is filed under its content hash, and a hash
+    meets nothing — it never finds the same paper's JATS, so the witness pair is lost in
+    silence. 15 of the campaign corpus's 334 PDFs were like that, and every one was *named*
+    after its PMCID. The name is the file's own property, not a publisher's, so reading it
+    transfers; it is tried last, because what a paper prints about itself beats what someone
+    called the file."""
+    from litrag_parser.worker import sniff_ids
+
+    blank = tmp_path / "PMC13267673.pdf"
+    blank.write_bytes(b"not a pdf at all")  # pdfium reads nothing; the name is all there is
+    assert sniff_ids(blank) == (None, "PMC13267673")
+
+    doi_named = tmp_path / "10.1113_jp289183.pdf"
+    doi_named.write_bytes(b"not a pdf at all")
+    assert sniff_ids(doi_named) == ("10.1113/jp289183", None)
+
+    anonymous = tmp_path / "paper-final-v2.pdf"
+    anonymous.write_bytes(b"not a pdf at all")
+    assert sniff_ids(anonymous) == (None, None)  # nothing to read: the hash key is right
+
+    assert sniff_ids(tmp_path / "PMC1.xml") == (None, None)  # JATS is read by jats_ids, not here

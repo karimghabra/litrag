@@ -122,20 +122,32 @@ def pick_doi(text: str) -> str | None:
 
 
 def sniff_ids(path: Path) -> tuple[str | None, str | None]:
-    """The DOI and PMCID on a PDF's first pages, if printed there."""
+    """The DOI and PMCID on a PDF's first pages, if printed there — else in its own file name.
+
+    A paper that prints neither is filed under its content hash, and a hash meets nothing: it
+    never finds the same paper's JATS, so the pair that would have been its witness is lost with
+    nothing said. Measured on the campaign's corpus, 15 of 334 PDFs printed no identifier at all
+    on their first two pages — and every one of them was *named* `PMC…​.pdf`.
+
+    The file's name is a property of the file, not of a publisher, so reading it transfers. It is
+    tried last, because what a paper prints about itself beats what someone called the file."""
     if path.suffix.lower() != ".pdf":
         return None, None
     from .recover import open_pdf
 
+    text = ""
     try:
-        text = ""
         with open_pdf(path) as pdf:
             for i in range(min(2, len(pdf))):
                 text += pdf[i].get_textpage().get_text_range() + "\n"
-    except Exception:  # a PDF pdfium cannot open still gets a hash key
-        return None, None
-    pmc = _PMCID.search(text)
-    return pick_doi(text), (pmc.group(0) if pmc else None)
+    except Exception:  # a PDF pdfium cannot open still gets its name read below
+        pass
+    doi, pmc = pick_doi(text), _PMCID.search(text)
+    if doi or pmc:
+        return doi, (pmc.group(0) if pmc else None)
+    named = path.stem.replace("_", "/")  # a DOI saved as a file name has its slash swapped
+    pmc = _PMCID.search(path.stem)
+    return pick_doi(named), (pmc.group(0) if pmc else None)
 
 
 def guess_title(path: Path) -> str | None:

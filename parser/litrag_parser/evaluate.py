@@ -157,6 +157,9 @@ class Landing:
     pdf_lane: str | None  # None: no block of the reading holds it
     asserted: bool  # the reader named a lane for it
     correct: bool  # ... and that lane is the witness's
+    #: the witness paragraph this is about. Carried so an audit can find the text again and show
+    #: it — a disagreement without its quote and its page is a number nobody can check.
+    xml_node: str = ""
     #: where it went when no lane was asserted — "front matter", "caption", "heading", "table",
     #: "nowhere", or "silent" for prose the reader kept but declined to lane. Without this the
     #: largest error class the reader has would be invisible: body prose swallowed by a
@@ -199,6 +202,7 @@ def landings(pdf: Tree, xml: Tree, *, paper: str, prefix: str, split: str,
             paper=paper, prefix=prefix, split=split, familiar=familiar, paper_type=paper_type,
             words=sum(u.tokens.values()), xml_lane=u.role, pdf_lane=lane,
             asserted=asserted, correct=bool(asserted and lane == u.role), where=where,
+            xml_node=u.node_id,
         ))
     return out
 
