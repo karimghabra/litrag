@@ -4,7 +4,9 @@ in the repository as both; the synthetic pairs break one thing at a time."""
 import json
 from pathlib import Path
 
-from litrag_parser.pairs import compare, compare_headings, shingles, summary, words
+from collections import Counter
+
+from litrag_parser.pairs import _ranked, _top, compare, compare_headings, shingles, summary, words
 from litrag_parser.tree import build_tree
 
 from test_structure import _doc
@@ -143,3 +145,20 @@ def test_the_fixture_papers_pdf_reads_like_its_xml():
     assert r["captions"]["as_caption"] == 1.0 and r["references"]["ratio"] >= 0.9 and r["citations"]["ratio"] >= 0.95
     s = summary([{"key": key, **r}])
     assert s["pairs"] == 1 and s["titles_same"] == 1 and s["mean"]["faithful"] == round(r["faithful"], 3)
+
+
+def test_a_tie_is_broken_by_the_earliest_unit_not_by_insertion_order():
+    """`landed` is filled by iterating a frozenset of shingles, so its insertion order follows
+    PYTHONHASHSEED. Counter.most_common would break a tie by that order, and the tie decides
+    which paragraph a text is judged to lie in. Measured over the five pair sets: 15 of 21,139
+    XML prose units tie at the top, 8 of them between units that disagree on the lane."""
+    assert _top(Counter({7: 3, 2: 3, 9: 1})) == 2  # tied at 3: the earliest unit wins
+    assert _top(Counter({7: 3, 2: 3})) == _top(Counter({2: 3, 7: 3}))  # whatever the order
+    assert _top(Counter({5: 9, 1: 2})) == 5  # not a tie: most shingles still wins
+
+
+def test_reported_counters_do_not_depend_on_insertion_order():
+    a = Counter({"lane methods": 4, "lane results": 4, "nowhere": 9})
+    b = Counter({"lane results": 4, "nowhere": 9, "lane methods": 4})
+    assert _ranked(a) == _ranked(b) == [("nowhere", 9), ("lane methods", 4), ("lane results", 4)]
+    assert _ranked(a, 2) == [("nowhere", 9), ("lane methods", 4)]

@@ -115,6 +115,26 @@ def units_of(tree: Tree) -> list[Unit]:
     return out
 
 
+def _ranked(c: "Counter[str]", limit: int | None = None) -> list[tuple[str, int]]:
+    """A counter's entries, most first, ties by name. `most_common` breaks a tie by insertion
+    order, which follows a `frozenset`'s iteration order and so changes between runs; these
+    entries are reported, so the report would change without the reading changing."""
+    items = sorted(c.items(), key=lambda kv: (-kv[1], kv[0]))
+    return items[:limit] if limit is not None else items
+
+
+def _top(landed: Counter[int]) -> int:
+    """The unit a text mostly landed in, chosen the same way `_land` chooses among equals:
+    most shingles, then the earliest unit.
+
+    `Counter.most_common` breaks a tie by insertion order, and `landed` is filled by iterating
+    a `frozenset` of shingles, whose order changes with `PYTHONHASHSEED`. Measured over the five
+    pair sets: 15 of 21,139 XML prose units tie at the top and 8 of those tie between units that
+    disagree on the lane, so the verdict on 8 units moved between runs of the same code. That is
+    0.04 per cent — small against today's numbers and not small against a 99.9 per cent bar."""
+    return max(landed.items(), key=lambda kv: (kv[1], -kv[0]))[0]
+
+
 def _held(u: Unit, landed: Counter[int], others: list[Unit]) -> tuple[float, float]:
     """The share of a unit's words held by the units it landed in, and by the one it mostly
     landed in. A unit it shares one stray phrase with is not where it lies."""
@@ -122,7 +142,7 @@ def _held(u: Unit, landed: Counter[int], others: list[Unit]) -> tuple[float, flo
     if not landed or not n:
         return 0.0, 0.0
     total = sum(landed.values())
-    top = landed.most_common(1)[0][0]
+    top = _top(landed)
     where = [j for j, c in landed.items() if c >= 2 or c / total >= 0.2 or j == top]
     pool: Counter[str] = Counter()
     for j in where:
@@ -287,7 +307,7 @@ def compare(pdf: Tree, xml: Tree, xml_bytes: bytes | None = None) -> dict[str, A
                 confusion[f"{u.role} → {v.role}"] += c
         landed_in["nowhere"] += n - got
         if n >= 8:  # a paragraph long enough to say how it arrived
-            top = landed.most_common(1)[0][0] if landed else None
+            top = _top(landed) if landed else None
             if held < 0.5:
                 verdicts[i] = "missing"
                 missing_text.append(u.text[:90])
@@ -341,13 +361,13 @@ def compare(pdf: Tree, xml: Tree, xml_bytes: bytes | None = None) -> dict[str, A
         "exact": round(found / total, 4) if total else None,
         "faithful": round(t_faithful / t_total, 4) if t_total else None,
         "placed": round(t_placed / t_total, 4) if t_total else None,
-        "lane_only": {k: v for k, v in lane_only.most_common()},
+        "lane_only": dict(_ranked(lane_only)),
         "precision": round(p_found / p_total, 4) if p_total else None,
         "by_lane": {lane: {"words": c["words"], "recall": round(c["found"] / c["words"], 3), "faithful": round(c["faithful"] / c["words"], 3)} for lane, c in sorted(by_lane.items()) if c["words"]},
-        "landed": {k: round(v / total, 4) for k, v in landed_in.most_common()} if total else {},
-        "confusion": dict(confusion.most_common(6)),
+        "landed": {k: round(v / total, 4) for k, v in _ranked(landed_in)} if total else {},
+        "confusion": dict(_ranked(confusion, 6)),
         "paragraphs": {"judged": judged, **{k: round(state[k] / judged, 3) if judged else None for k in ("intact", "split", "merged", "missing")}},
-        "split_reasons": dict(split_reasons.most_common()),
+        "split_reasons": dict(_ranked(split_reasons)),
         "missing_text": missing_text[:6],
         "junk": junk[:6],
         "junk_units": len(junk),
