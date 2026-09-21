@@ -30,10 +30,21 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 from typing import Any
 
 from .meaning import Oracle, Verdict
+
+#: When the paragraphs of a section read clearly as another lane than its heading names, does
+#: the heading still stand? Today it does, and the disagreement is a note nobody acts on.
+#: `PLAN.md` Phase 5 asks for assertion by agreement, and this is the smallest thing that can
+#: mean: on a strong disagreement the reader abstains instead, keeping both opinions in the
+#: node's `guess` and `reasons` so the silence says what it nearly decided.
+#:
+#: Off until DEV and VAL say what it costs and buys. A switch whose default is set by argument
+#: rather than by measurement is how the reader accumulated the rules this campaign is about.
+AGREEMENT = os.environ.get("LITRAG_LANE_AGREEMENT", "off").lower() in ("on", "1", "true", "yes")
 
 LANES = ("introduction", "methods", "results", "results-discussion", "discussion", "references", "back")
 CANONICAL = {"introduction": "Introduction", "methods": "Materials and methods", "results": "Results", "results-discussion": "Results and discussion", "discussion": "Discussion", "references": "References", "back": "Back matter"}  # the catalogue's names (headings.CANON), the corpus's modal spellings
@@ -169,6 +180,33 @@ def build_headings(items: list[dict[str, Any]], front_end: int, title_ref: str |
     return out, front_end
 
 
+def _abstain(section: Any, *, said: str, read_as: Verdict, repairs: dict[str, int]) -> None:
+    """Two mechanisms disagree, so the reader names neither — and writes down both.
+
+    Only the nodes that took *this* section's lane are silenced. A subsection with a heading of
+    its own has its own evidence and is not covered by its parent's disagreement.
+
+    The lane goes to `other`, which is what costs coverage; `guess` keeps the heading's answer,
+    because it remains the better of the two and a silence with nothing in it is no use to the
+    review queue, to a later escalation, or to a person. `confidence` is the block classifier's
+    margin, which is how far apart the two readings were.
+    """
+    from .tree import _descendants  # noqa: PLC0415 — tree imports this module
+
+    reasons = {"heading": said, "paragraphs": read_as.name,
+               "cosine": read_as.score, "margin": read_as.margin}
+    touched = 0
+    for n in _descendants(section):
+        if n.role != said:
+            continue
+        n.role = "other"
+        n.guess = said
+        n.confidence = round(max(0.0, 1.0 - read_as.margin), 4)
+        n.reasons = reasons
+        touched += 1
+    repairs["lane_withheld"] = repairs.get("lane_withheld", 0) + touched
+
+
 def lane_sections(tree: Any, oracle: Oracle | None, repairs: dict[str, int]) -> None:
     """The post-pass: a top-level section whose heading names nothing takes the lane its
     paragraphs are clearly of, when that lane has a shape of its own; a section whose
@@ -217,7 +255,11 @@ def lane_sections(tree: Any, oracle: Oracle | None, repairs: dict[str, int]) -> 
                 tree.notes.append({"kind": "lane-suggested", "node_id": section.node_id, "page": section.page, "message": f"the paragraphs read as {v.name} (cosine {v.score}, margin {v.margin}); {why}"})
         elif v.sure and v.name in NOTE_LANES and v.name != section.role and not (v.name == "results-discussion" and section.role in ("results", "discussion")) and not (section.role == "results-discussion" and v.name in ("results", "discussion")):
             repairs["lane_disagreement"] = repairs.get("lane_disagreement", 0) + 1
-            tree.notes.append({"kind": "lane-disagreement", "node_id": section.node_id, "page": section.page, "message": f"the heading names {section.role}, the paragraphs read as {v.name} (cosine {v.score}, margin {v.margin}); the heading stands"})
+            stands = "the heading stands" if not AGREEMENT else "neither is asserted"
+            tree.notes.append({"kind": "lane-disagreement", "node_id": section.node_id, "page": section.page, "message": f"the heading names {section.role}, the paragraphs read as {v.name} (cosine {v.score}, margin {v.margin}); {stands}"})
+            if AGREEMENT:
+                _abstain(section, said=section.role, read_as=v, repairs=repairs)
+                changed = True
     if changed:
         roles: dict[str, int] = {}
         for n in tree.walk():

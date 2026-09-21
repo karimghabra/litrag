@@ -576,3 +576,69 @@ def test_a_lane_lost_is_a_named_section_in_the_harness():
     after = [{"key": "k", "format": "pdf", "title": "t", "title_ok": True, "has_methods": True, "errors": 0, "citations": 10, "error_kinds": {}, "lanes": [["2 Fabrication", "other"], ["3 Uses", "results"]]}]
     diff = compare(after, before)
     assert diff["lane_lost"] == ["k  '2 Fabrication': methods → other"] and diff["lane_gained"] == ["k  '3 Uses': other → results"]
+
+
+# ---- assertion by agreement: when the heading and the paragraphs disagree -------------------
+
+
+def _disagreeing_section():
+    """A section whose heading says methods and whose paragraphs read as results."""
+    from litrag_parser.tree import Node
+
+    kids = [Node(node_id=f"p{i}", parent="s", ordinal=i, depth=2, type="paragraph", label="text",
+                 level=None, role="methods", heading=None, ancestry=["Methods"],
+                 text=f"The modulus rose in every group tested, and group {i} rose most of all.",
+                 page=1, bbox=None, self_ref=None) for i in range(3)]
+    return Node(node_id="s", parent="root", ordinal=0, depth=1, type="section",
+                label="section_header", level=1, role="methods", heading="2 Methods",
+                ancestry=[], text="", page=1, bbox=None, self_ref=None, children=kids)
+
+
+def test_abstaining_keeps_both_opinions_on_the_nodes():
+    from litrag_parser.meaning import Verdict
+    from litrag_parser.structure import _abstain
+
+    section = _disagreeing_section()
+    repairs = {}
+    _abstain(section, said="methods", read_as=Verdict("results", 0.71, 0.09), repairs=repairs)
+
+    assert section.role == "other", "the lane is withheld: that is what costs coverage"
+    assert section.guess == "methods", "and the heading's answer survives, because it is still the better one"
+    assert section.reasons == {"heading": "methods", "paragraphs": "results",
+                               "cosine": 0.71, "margin": 0.09}
+    assert all(k.role == "other" and k.guess == "methods" for k in section.children)
+    assert repairs["lane_withheld"] == 4  # the section and its three paragraphs
+
+
+def test_a_subsection_with_its_own_lane_is_not_silenced_by_its_parent():
+    """A subsection that named its own lane has its own evidence, and is not covered by the
+    disagreement above it."""
+    from litrag_parser.meaning import Verdict
+    from litrag_parser.structure import _abstain
+    from litrag_parser.tree import Node
+
+    section = _disagreeing_section()
+    sub = Node(node_id="sub", parent="s", ordinal=9, depth=2, type="section",
+               label="section_header", level=2, role="results", heading="2.1 Findings",
+               ancestry=["Methods"], text="", page=1, bbox=None, self_ref=None)
+    section.children.append(sub)
+    _abstain(section, said="methods", read_as=Verdict("results", 0.71, 0.09), repairs={})
+    assert sub.role == "results" and sub.guess is None
+
+
+def test_the_switch_is_off_and_the_heading_still_stands(monkeypatch):
+    """Off until DEV and VAL say what it costs. A switch whose default is set by argument rather
+    than by measurement is how the reader accumulated the rules this campaign is about."""
+    import importlib
+
+    import litrag_parser.structure as structure
+
+    assert structure.AGREEMENT is False
+    monkeypatch.setenv("LITRAG_LANE_AGREEMENT", "on")
+    importlib.reload(structure)
+    try:
+        assert structure.AGREEMENT is True
+    finally:
+        monkeypatch.delenv("LITRAG_LANE_AGREEMENT", raising=False)
+        importlib.reload(structure)
+    assert structure.AGREEMENT is False
