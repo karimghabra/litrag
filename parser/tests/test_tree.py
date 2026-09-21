@@ -525,3 +525,60 @@ def test_a_subsection_whose_parent_was_never_read_still_stands_one_in():
     ghost = next(n for n in tree.walk() if "heading not detected" in (n.heading or ""))
     assert ghost.role == "other" and ghost.heading.startswith("3.")
     assert tree.repairs.get("renumbered_parent") is None
+
+
+# ---- asserting only where the heading is canonical ------------------------------------------
+
+
+def test_the_canonical_floor_reads_a_number_or_a_word(monkeypatch):
+    """`on` means the measured pick — two of the three routes — and a number overrides it. The
+    transfer gate chose two: requiring all three is more precise on DEV (0.9886 against 0.9788)
+    and transfers slightly worse (-0.0043 against -0.0019) at less coverage."""
+    import importlib
+
+    import litrag_parser.tree as t
+
+    assert t.CANONICAL_ONLY == 0  # off by default
+    for raw, want in (("on", 2), ("3", 3), ("1", 1), ("off", 0), ("", 0)):
+        monkeypatch.setenv("LITRAG_CANONICAL_ONLY", raw)
+        importlib.reload(t)
+        assert t.CANONICAL_ONLY == want, raw
+    monkeypatch.delenv("LITRAG_CANONICAL_ONLY", raising=False)
+    importlib.reload(t)
+    assert t.CANONICAL_ONLY == 0
+
+
+def test_a_heading_the_routes_do_not_know_keeps_its_lane_as_a_guess(monkeypatch):
+    """The lane is withheld, not forgotten: `other` is what costs coverage, and `guess` is what
+    makes the cost recoverable — by a review queue, by an escalation, or by a person."""
+    import importlib
+    import json as _json
+
+    import litrag_parser.tree as t
+
+    monkeypatch.setenv("LITRAG_CANONICAL_ONLY", "3")
+    importlib.reload(t)
+    try:
+        doc = _json.loads((FIXTURES / "PMC11278924.docling.json").read_text("utf-8"))
+        tree = t.build_tree(doc, "k")
+        withheld = [n for n in tree.walk() if n.guess]
+        assert withheld, "some heading should fail a floor of three with no embedder configured"
+        for n in withheld:
+            assert n.role == "other"
+            assert n.guess != "other"
+            assert 0.0 <= n.confidence <= 1.0
+            assert set(n.reasons) == {"recognised_by", "withheld"}
+        assert tree.repairs.get("lane_held_for_agreement") == len(withheld)
+    finally:
+        monkeypatch.delenv("LITRAG_CANONICAL_ONLY", raising=False)
+        importlib.reload(t)
+
+
+def test_the_floor_is_off_and_changes_nothing(monkeypatch):
+    import json as _json
+
+    from litrag_parser.tree import build_tree
+    doc = _json.loads((FIXTURES / "PMC11278924.docling.json").read_text("utf-8"))
+    tree = build_tree(doc, "k")
+    assert not any(n.guess for n in tree.walk())
+    assert "lane_held_for_agreement" not in tree.repairs

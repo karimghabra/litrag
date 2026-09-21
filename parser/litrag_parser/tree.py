@@ -1089,6 +1089,56 @@ def unrepeat(text: str) -> str:
 #: word, "7. References" in a preprint, still counts).
 _NOT_NUMBERED = frozenset({"abstract", "references", "back"})
 
+#: Assert a top-level lane only where the vocabulary, the catalogue and the embedder **all**
+#: recognise the heading.
+#:
+#: Not a resolution of disagreement: measured over 1,134 top-level sections of DEV, those three
+#: disagree **zero times in 434 chances**. They are different code reading the same string, with
+#: the catalogue and the centroids harvested from the same corpus of canonical spellings, so a
+#: heading any of them knows is one they all know. What varies is how many recognise it at all,
+#: and that is a measure of how canonical the heading is. Requiring all three took section
+#: precision from 0.9380 [0.9013, 0.9668] to 0.9886 [0.9759, 0.9974] and word precision from
+#: 0.9759 to 0.9972, at word coverage 0.981 → 0.811, on 66 publishers never seen.
+#:
+#: **How many** is set by the transfer gate rather than by the DEV number, which is what
+#: `PLAN.md` asks for: choose the policy whose precision on novel publishers stays closest to its
+#: precision on familiar ones, and only then by coverage. Requiring all three is more precise on
+#: DEV (0.9886 against 0.9788) and transfers slightly worse (gap −0.0043 against −0.0019) at
+#: less coverage (word coverage 0.811 against 0.847), so **two** is the measured pick. Today's
+#: precedence rule has a gap of +0.0324 — it is materially better on the publishers it was
+#: written on, which is the whole thing this campaign is about.
+#:
+#: `off`, or a number. A silence keeps the lane it withheld in `guess`, so the coverage it costs
+#: is recoverable and the reader can be asked again.
+def _canonical_floor() -> int:
+    raw = os.environ.get("LITRAG_CANONICAL_ONLY", "off").lower()
+    if raw in ("off", "0", "false", "no", ""):
+        return 0
+    return 2 if raw in ("on", "true", "yes") else int(raw)
+
+
+CANONICAL_ONLY = _canonical_floor()
+
+
+def _recognised_by(heading: str, role: str) -> tuple[set[str], str]:
+    """Which of the three heading mechanisms name this heading, and what they name it.
+
+    They never contradict each other — where two or more speak they say the same thing — so the
+    lane returned is whichever of them spoke, and the set is how many did.
+    """
+    known: set[str] = set()
+    said = role
+    if role_of(heading, meaning=False) != "other":
+        known.add("vocabulary")
+    if top_level_lane(heading) is not None:
+        known.add("catalogue")
+    from .lanes import by_meaning  # noqa: PLC0415 — lanes imports meaning, which imports nothing here
+
+    clean = normalise_heading(heading)
+    if clean and by_meaning(clean) != "other":
+        known.add("embedder")
+    return known, said
+
 
 def top_number(heading: str) -> str | None:
     """"3.2 Effect of…" → "3"; unnumbered → None."""
@@ -2147,6 +2197,12 @@ def build_tree(doc: dict[str, Any], key: str, title_hint: str | None = None, jud
                 role = by_rule or role_of(text)  # rules first: the vocabulary, then the catalogue ("Case presentation" is results, "Declaration of competing interest" is back), the embedder last
                 if by_rule is None and role in _NOT_NUMBERED and top_number(text) is not None:
                     role = "other"  # a heading that carries a body number is a body section: of 3,664 back-matter sections across three corpora, the only numbered one was a review's "8. Regulatory and Ethical Considerations", laned back by meaning — unassignable beats misassigned
+            held_back = None
+            if CANONICAL_ONLY and level == 1 and role != "other" and text and not item.get("_built"):
+                known, guess = _recognised_by(text, role)
+                if len(known) < CANONICAL_ONLY:
+                    role, held_back = "other", (guess, known)
+                    repairs["lane_held_for_agreement"] = repairs.get("lane_held_for_agreement", 0) + 1
             if as_part:
                 role = "abstract"  # a part of the structured abstract, whatever its name says
             if role == "abstract" and normalise_heading(text) != "abstract" and (body_started or top_number(text) is not None):
@@ -2157,6 +2213,13 @@ def build_tree(doc: dict[str, Any], key: str, title_hint: str | None = None, jud
                 role = item.get("_built_lane") if item.get("_built_lane") in CANONICAL else "other"
                 body_started = body_started or role != "other"
             node = make(parent, "section", item, "", role, heading=text or "(untitled section)", level=level)
+            if held_back:
+                # the lane is withheld, not forgotten: `other` is what costs coverage, and the
+                # near miss stays on the row so it can be asked for again
+                node.guess = held_back[0]
+                node.confidence = round(len(held_back[1]) / 3, 4)  # of the three routes, how many knew it
+                node.reasons = {"recognised_by": sorted(held_back[1]), "withheld": held_back[0]}
+                held_back = None
             if item.get("_built"):
                 node.label = "built"  # the reader's heading, not the author's: visible in the row
             if text:
