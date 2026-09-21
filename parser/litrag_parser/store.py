@@ -349,6 +349,16 @@ def save_judgment(conn: sqlite3.Connection, paper: str, pair: str, same: bool, m
         conn.execute("INSERT OR REPLACE INTO judgments(paper, pair, same, model, at) VALUES (?,?,?,?,?)", (paper, pair, 1 if same else 0, model, at))
 
 
+def node_count(conn: sqlite3.Connection, key: str) -> int:
+    """How many nodes a paper actually has.
+
+    `status` says what the reader last intended; this says what it produced. They came apart
+    when the worker died mid-run and left seventeen PDFs with a `papers` row and nothing under
+    it (BACKLOG.md), and nothing noticed, because every later ingest read the row and skipped
+    the file."""
+    return int(conn.execute("SELECT COUNT(*) FROM nodes WHERE paper = ?", (key,)).fetchone()[0])
+
+
 def list_papers(conn: sqlite3.Connection) -> list[dict[str, Any]]:
     rows = conn.execute(
         """SELECT p.*, (SELECT COUNT(*) FROM nodes n WHERE n.paper = p.key) AS nodes

@@ -75,3 +75,55 @@ copies are faithful by file count and `store.sqlite` size against the source
 it against Karim's root **read-only** before concluding anything about the code.
 
 **Reversibility.** Total.
+
+---
+
+## D4 — The layout child ships on by default
+
+*2026-09-21, Phase 1.*
+
+**The choice.** The house rule is that a new stage ships **off** until its gate
+passes (`PLAN.md` principle 6). The layout child is a new stage, so the rule
+points at `off`.
+
+**The default taken: on**, with `LITRAG_LAYOUT_CHILD=off` as the way back.
+
+The rule exists for stages that change *what is read* — a model's verdict, a new
+heuristic — where shipping on before the measurement is how a regression gets
+in. This stage changes nothing that is read: the same Docling, the same options,
+the same exported dict, written to the same path. What it changes is who dies
+when the native crash happens. Shipping it off would mean shipping the crash,
+and the crash is the reason the last corpus lost seventeen papers silently.
+
+**Its gate**, met before this was committed: over the same PDFs, the raw
+documents are byte-identical (pictures aside, see D5) and the node counts are
+identical, child and in-process; and the fault-injection tests are green.
+
+**Reversibility.** One environment variable, and the in-process path is still
+there and still tested.
+
+---
+
+## D5 — Docling's picture boxes are not reproducible, and the campaign accepts that
+
+*2026-09-21, Phase 1.*
+
+**What was found.** Six conversions of one PDF in one process gave **two
+distinct raw documents**. Stripping `pictures`, all six were identical; the
+`texts` were identical across all six. So Docling's picture bounding boxes wobble
+at about the fifth decimal of a point, roughly one run in six, and everything the
+reader actually reads — the prose, the tables — is bit-reproducible.
+(`doclingdet.py`.)
+
+**The default taken.** Accept it, and say so wherever reproducibility is claimed.
+A paper is parsed once and every later measurement runs on the saved document, so
+this cannot move a campaign number; it can only mean that *re-parsing* a corpus
+from the PDFs does not give byte-identical raw documents.
+
+**The residual risk, stated.** `tree._decorative_pictures` rounds a picture's box
+to 4 pt to spot one that recurs on three pages. A 1e-4 pt wobble crosses a 4 pt
+boundary only if a box sits exactly on one. Not observed; not impossible.
+
+**What Karim may want instead.** Pinning Docling's layout model to deterministic
+kernels, if its options allow it, or dropping `pictures` from what is stored.
+Both are larger than this week.

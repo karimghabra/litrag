@@ -39,10 +39,16 @@ from .harness import pdf_title
 from .judge import Judge, available as judge_available, default_model as judge_model
 from .recover import recover_from_pdf
 from .citations import summarize as summarize_citations
-from .store import (cited_by, cites_of, edges_of, file_paper, list_papers, log_event, node, open_store, paper_tree, refs_of, run_select, save_edges, save_refs, save_tree, section, set_confidence, set_record, set_status, set_type, sha256_of, siblings)
+from .store import (cited_by, cites_of, edges_of, file_paper, list_papers, log_event, node, node_count, open_store, paper_tree, refs_of, run_select, save_edges, save_refs, save_tree, section, set_confidence, set_record, set_status, set_type, sha256_of, siblings)
 from .tree import build_tree
 
 _out_lock = threading.Lock()
+
+
+def _has_a_tree(conn: Any, lib: Any, key: str) -> bool:
+    """Whether a paper really is read: it has nodes, and the raw document a rebuild would
+    derive them from again. Either missing and the row is a claim the store cannot honour."""
+    return node_count(conn, key) > 0 and (lib.parsed_dir / f"{safe_key(key)}.docling.json").exists()
 
 
 def emit(msg: dict[str, Any]) -> None:
@@ -119,14 +125,13 @@ def sniff_ids(path: Path) -> tuple[str | None, str | None]:
     """The DOI and PMCID on a PDF's first pages, if printed there."""
     if path.suffix.lower() != ".pdf":
         return None, None
-    try:
-        import pypdfium2 as pdfium
+    from .recover import open_pdf
 
-        pdf = pdfium.PdfDocument(str(path))
+    try:
         text = ""
-        for i in range(min(2, len(pdf))):
-            text += pdf[i].get_textpage().get_text_range() + "\n"
-        pdf.close()
+        with open_pdf(path) as pdf:
+            for i in range(min(2, len(pdf))):
+                text += pdf[i].get_textpage().get_text_range() + "\n"
     except Exception:  # a PDF pdfium cannot open still gets a hash key
         return None, None
     pmc = _PMCID.search(text)
@@ -141,29 +146,27 @@ def guess_title(path: Path) -> str | None:
     title = pdf_title(path)
     if title:
         return title
-    try:
-        import pypdfium2 as pdfium
+    from .recover import open_pdf
 
-        pdf = pdfium.PdfDocument(str(path))
-        if not len(pdf):
-            pdf.close()
-            return None
-        tp = pdf[0].get_textpage()
-        n = tp.count_chars()
-        text = tp.get_text_range(0, n)
+    try:
         rows: list[tuple[str, list[float]]] = []
-        start = 0
-        for raw in text.split("\r\n"):
-            end = start + len(raw)
-            heights = []
-            for j in range(start, min(end, n)):
-                if not text[j].isspace():
-                    l, b, r, t = tp.get_charbox(j)
-                    if t > b:
-                        heights.append(t - b)
-            start = end + 2
-            rows.append((raw, heights))
-        pdf.close()
+        with open_pdf(path) as pdf:
+            if not len(pdf):
+                return None
+            tp = pdf[0].get_textpage()
+            n = tp.count_chars()
+            text = tp.get_text_range(0, n)
+            start = 0
+            for raw in text.split("\r\n"):
+                end = start + len(raw)
+                heights = []
+                for j in range(start, min(end, n)):
+                    if not text[j].isspace():
+                        l, b, r, t = tp.get_charbox(j)
+                        if t > b:
+                            heights.append(t - b)
+                start = end + 2
+                rows.append((raw, heights))
     except Exception:
         return None
     best: tuple[float, str] | None = None
@@ -207,13 +210,11 @@ def lookup_by_title(title: str | None, timeout: float = 6.0) -> tuple[str | None
 def page_count(path: Path) -> int | None:
     if path.suffix.lower() != ".pdf":
         return None
-    try:
-        import pypdfium2 as pdfium
+    from .recover import open_pdf
 
-        pdf = pdfium.PdfDocument(str(path))
-        n = len(pdf)
-        pdf.close()
-        return n
+    try:
+        with open_pdf(path) as pdf:
+            return len(pdf)
     except Exception:
         return None
 
@@ -229,6 +230,8 @@ class Worker:
         self._scorer: Any = None
         self._scorer_tried = False
         self._reported_down = False
+        self._recovered: set[Path] = set()  # libraries whose interrupted papers have been closed
+        self._layout: Any = None  # the Docling child, spawned on the first paper and respawned when it dies
 
     @staticmethod
     def _meaning() -> dict[str, Any] | None:
@@ -321,7 +324,34 @@ class Worker:
         if lib is None:
             raise ValueError(f"No library {req.get('lib')!r} under {self.root}")
         lib.ensure_dirs()
+        self._close_interrupted(lib)
         return lib
+
+    def _close_interrupted(self, lib: Library) -> None:
+        """A paper left `parsing` by a worker that died is given its terminal state back.
+
+        `parsing` is set before the layout stage and cleared only by `save_tree`, so a native
+        crash or a `quit` mid-paper leaves it set for good: the card's progress bar never stops,
+        and nothing ever reports the paper as anything. Every file handed to `ingest` has to end
+        in a state with a reason, so an interrupted paper is `failed` — which the window already
+        shows with its error, and which `ingest` and `reparse` will both pick up again."""
+        if lib.dir in self._recovered:
+            return
+        self._recovered.add(lib.dir)
+        try:
+            conn = open_store(lib.store_path)
+        except Exception:  # a library with no store yet has nothing to recover
+            return
+        try:
+            stuck = [r["key"] for r in conn.execute("SELECT key FROM papers WHERE status = 'parsing'")]
+            for key in stuck:
+                set_status(conn, key, "failed", error="the worker stopped while reading this paper")
+                log_event(conn, key, now_iso(), "interrupted", "left parsing by a worker that did not finish")
+            if stuck:
+                emit({"event": "recovered", "lib": lib.id, "papers": stuck,
+                      "reason": "left parsing by a worker that did not finish"})
+        finally:
+            conn.close()
 
     def do_ingest(self, req: dict[str, Any]) -> None:
         lib = self._lib(req)
@@ -348,7 +378,17 @@ class Worker:
             row = conn.execute("SELECT status, file FROM papers WHERE key = ?", (result.key,)).fetchone()
             # A paper already read stays as it was read — the same DOI arriving as a second file
             # (a PDF after its JATS, say) is noted, not swapped in. `reread` is the way to replace it.
+            #
+            # "Already read" is a fact about the tree, not about the row that says one was meant.
+            # Keying it on `status` alone is what made the worker's native crash silent and
+            # permanent: seventeen PDFs kept a `parsed` row with no nodes under it, every later
+            # ingest read the row and skipped the file, and `rebuild` never visits a paper whose
+            # raw document is gone. A paper with no nodes, or whose raw Docling document has been
+            # lost, is not read, whatever the row says, and is parsed again.
             already = bool(result.existed and row and row["status"] == "parsed" and row["file"] and not req.get("reread"))
+            if already and not _has_a_tree(conn, lib, result.key):
+                already = False
+                log_event(conn, result.key, now_iso(), "unfiled", "filed as parsed with no tree: reading it again")
             if already:
                 dest = lib.papers_dir / row["file"]
             else:
@@ -420,6 +460,54 @@ class Worker:
         conn.close()
         emit({"event": "done", "id": req.get("id"), "op": req.get("op", "rebuild"), "rebuilt": rebuilt})
 
+    def layout(self, lib: Library, key: str, path: Path, raw_path: Path, req_id: Any, started: float, stage: Any) -> dict[str, Any]:
+        """The raw Docling document, from a child process the worker can lose.
+
+        A native crash inside Docling kills whatever process it happens in, so running it here
+        would cost the whole run — every paper still queued — rather than the one paper it lands
+        on. `LITRAG_LAYOUT_CHILD=off` converts in this process instead, which is what the tests
+        that have no Docling do, and is the way back if the child ever misbehaves."""
+        from .layout import LayoutChild, enabled as child_enabled
+
+        def beat() -> None:
+            emit({"event": "working", "id": req_id, "paper": key, "stage": "layout", "elapsed": round(time.time() - started, 1)})
+
+        if child_enabled():
+            if self._layout is None:
+                self._layout = LayoutChild(self.root, on_log=lambda line: emit(
+                    {"event": "log", "id": req_id, "paper": key, "logger": "layout", "level": "info", "message": line}))
+            stage("layout", "Reading the layout: headings, paragraphs, tables, figures")
+            self._layout.convert(
+                path, raw_path, heartbeat=beat,
+                on_retry=lambda why: stage("layout", f"{why}: reading it again in a fresh child"),
+            )
+            return json.loads(raw_path.read_text("utf-8"))
+
+        from .layout import _convert
+
+        converter = self.converter(req_id)
+        self.current = {"id": req_id, "paper": key}
+        stage("layout", "Reading the layout: headings, paragraphs, tables, figures")
+        box: dict[str, Any] = {}
+
+        def run() -> None:
+            try:
+                box["doc"] = _convert(converter, path)
+            except Exception as e:  # reported below on the main path
+                box["error"] = e
+
+        th = threading.Thread(target=run, daemon=True)
+        th.start()
+        while th.is_alive():
+            th.join(1.5)
+            if th.is_alive():
+                beat()
+        if "error" in box:
+            raise box["error"]
+        doc = box["doc"]
+        raw_path.write_text(json.dumps(doc, ensure_ascii=False), "utf-8")
+        return doc
+
     def parse_one(self, lib: Library, key: str, path: Path, req_id: Any, ask_judge: bool = False, ask_outline: bool = False) -> None:
         self.current = {"id": req_id, "paper": key}
         conn = open_store(lib.store_path)
@@ -432,35 +520,8 @@ class Worker:
         try:
             set_status(conn, key, "parsing")
             stage("opening", f"Opening {path.name}", pages=page_count(path))
-            converter = self.converter(req_id)
-            self.current = {"id": req_id, "paper": key}
-            stage("layout", "Reading the layout: headings, paragraphs, tables, figures")
-            result_box: dict[str, Any] = {}
-
-            def run() -> None:
-                try:
-                    source = jats_stream(path) if path.suffix.lower() == ".xml" else str(path)
-                    result_box["result"] = converter.convert(source, raises_on_error=True)
-                except Exception as e:  # reported below on the main path
-                    result_box["error"] = e
-
-            th = threading.Thread(target=run, daemon=True)
-            th.start()
-            while th.is_alive():
-                th.join(1.5)
-                if th.is_alive():
-                    emit({"event": "working", "id": req_id, "paper": key, "stage": "layout", "elapsed": round(time.time() - started, 1)})
-            if "error" in result_box:
-                raise result_box["error"]
-            result = result_box["result"]
-            status = getattr(result, "status", None)
-            if status is not None and str(status.value if hasattr(status, "value") else status) not in ("success", "partial_success"):
-                raise RuntimeError(f"Docling returned {status}")
-            doc = result.document.export_to_dict()
-            if not doc.get("texts") and not doc.get("tables"):
-                raise RuntimeError("Docling read nothing from the file: no text, no tables — the file is not a paper, or its XML defeats the backend")
             raw_path = lib.parsed_dir / f"{_safe(key)}.docling.json"
-            raw_path.write_text(json.dumps(doc, ensure_ascii=False), "utf-8")
+            doc = self.layout(lib, key, path, raw_path, req_id, started, stage)
             stage("tree", "Building the tree and assigning facets", texts=len(doc.get("texts", [])), tables=len(doc.get("tables", [])), pictures=len(doc.get("pictures", [])))
             ask = ask_judge or os.environ.get("LITRAG_JUDGE") == "1"
             scorer = self.scorer()
@@ -621,6 +682,8 @@ class Worker:
                 tree = build_tree(doc, str(req.get("key", "doc")))
                 emit({"event": "tree", "id": req_id, **tree.to_dict()})
             elif op == "quit":
+                if self._layout is not None:
+                    self._layout.stop()  # `os._exit` unwinds nothing, so the Docling child would outlive us
                 emit({"event": "bye", "id": req_id})
                 sys.stdout.flush()
                 os._exit(0)

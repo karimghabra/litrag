@@ -63,12 +63,11 @@ def title_ok(title: str, key: str) -> bool:
 
 def pdf_title(path: Path) -> str | None:
     """A PDF's own Title metadata, when it is a title and not a file name."""
-    try:
-        import pypdfium2 as pdfium
+    from .recover import open_pdf
 
-        pdf = pdfium.PdfDocument(str(path))
-        meta = pdf.get_metadata_dict() or {}
-        pdf.close()
+    try:
+        with open_pdf(path) as pdf:
+            meta = pdf.get_metadata_dict() or {}
     except Exception:
         return None
     t = re.sub(r"\s+", " ", str(meta.get("Title") or "")).strip()
@@ -87,13 +86,7 @@ def dropped_sentences(tree: Tree, path: Path) -> list[tuple[int, str]]:
     """Sentences on a PDF's pages (pdfium's text layer, lines of eight words or more) that no
     node holds — not figure text, not a running head, not the title, not a table's cells:
     prose the layout model dropped, or filed under a picture."""
-    try:
-        import pypdfium2 as pdfium
-
-        pdf = pdfium.PdfDocument(str(path))
-    except Exception:
-        return []
-    from collections import Counter
+    from .recover import open_pdf
 
     letters = lambda s: re.sub(r"[^a-z]", "", s.lower())  # noqa: E731  — "signi fi cantly" and "inte- grated" read whole
     blob: dict[int, str] = {}
@@ -108,7 +101,8 @@ def dropped_sentences(tree: Tree, path: Path) -> list[tuple[int, str]]:
     blob[1] = blob.get(1, "") + letters(tree.title or "")  # the title is the root's, not a node's
     out: list[tuple[int, str]] = []
     try:
-        pages_text = [pdf[i].get_textpage().get_text_range() for i in range(len(pdf))]
+        with open_pdf(path) as pdf:
+            pages_text = [pdf[i].get_textpage().get_text_range() for i in range(len(pdf))]
         # a line on three or more pages is a running head, whatever it says
         seen_on: dict[str, set[int]] = {}
         for i, text in enumerate(pages_text):
@@ -129,21 +123,17 @@ def dropped_sentences(tree: Tree, path: Path) -> list[tuple[int, str]]:
                 if len(key) < 24 or key[:24] in got or key[-24:] in got or key[len(key) // 2 - 12 : len(key) // 2 + 12] in got:
                     continue
                 out.append((i + 1, line))
-    finally:
-        pdf.close()
+    except Exception:
+        return []
     return out
 
 
 def page_coverage(tree: Tree, path: Path) -> list[tuple[int, float]]:
     """Per page of a PDF, the share of the page's words (pdfium's text layer) that reached a
     node on that page — where the layout model dropped a block, this is where it shows."""
-    try:
-        import pypdfium2 as pdfium
-
-        pdf = pdfium.PdfDocument(str(path))
-    except Exception:
-        return []
     from collections import Counter
+
+    from .recover import open_pdf
 
     have: dict[int, Counter[str]] = {}
     for n in tree.walk():
@@ -153,15 +143,16 @@ def page_coverage(tree: Tree, path: Path) -> list[tuple[int, float]]:
                 have.setdefault(page, Counter()).update(words)
     out: list[tuple[int, float]] = []
     try:
-        for i in range(len(pdf)):
-            words = Counter(_WORD.findall(pdf[i].get_textpage().get_text_range().lower()))
-            total = sum(words.values())
-            if total < 40:
-                continue  # a figure page, a blank
-            got = have.get(i + 1, Counter())
-            out.append((i + 1, round(sum(min(c, got.get(w, 0)) for w, c in words.items()) / total, 3)))
-    finally:
-        pdf.close()
+        with open_pdf(path) as pdf:
+            for i in range(len(pdf)):
+                words = Counter(_WORD.findall(pdf[i].get_textpage().get_text_range().lower()))
+                total = sum(words.values())
+                if total < 40:
+                    continue  # a figure page, a blank
+                got = have.get(i + 1, Counter())
+                out.append((i + 1, round(sum(min(c, got.get(w, 0)) for w, c in words.items()) / total, 3)))
+    except Exception:
+        return []
     return out
 
 
@@ -259,6 +250,39 @@ def read_paper(lib: Path, row: dict[str, Any]) -> tuple[Tree, dict[str, Any], by
     kind = decide_type(tree, jats_xml=xml, pub_types=row.get("pub_types"), oracle=lanes.active())
     tree.notes.extend(kind.get("notes", []))  # a label against another, or against the shape: the audit shows it
     return tree, kind, xml
+
+
+def unread_papers(lib: Path) -> dict[str, list[str]]:
+    """Papers a library has filed but not read, which `run_library` would otherwise pass over
+    in silence.
+
+    `parsed_papers` takes rows at `status='parsed'` whose raw Docling document is on disk, so a
+    paper the worker crashed on — a row with no nodes, a row left at `parsing`, a raw document
+    that was never written — simply does not appear, and the corpus line shrinks by one with
+    nothing said. That is how seventeen PDFs of held-out 4 went missing for a day (BACKLOG.md).
+    Counting them is the whole of T4: every file ends in a state someone can see."""
+    store = Path(lib) / "store.sqlite"
+    out: dict[str, list[str]] = {"no_nodes": [], "no_raw": [], "not_parsed": []}
+    if not store.exists():
+        return out
+    conn = sqlite3.connect(f"file:{store}?mode=ro", uri=True)
+    try:
+        rows = list(conn.execute(
+            """SELECT p.key, p.status, p.file, (SELECT COUNT(*) FROM nodes n WHERE n.paper = p.key) AS nodes
+               FROM papers p ORDER BY p.key"""))
+    except sqlite3.Error:
+        return out
+    finally:
+        conn.close()
+    for key, status, file, nodes in rows:
+        if status != "parsed":
+            out["not_parsed"].append(f"{key} [{status}]")
+            continue
+        if not nodes:
+            out["no_nodes"].append(key)
+        if file and not (Path(lib) / "parsed" / f"{safe_key(key)}.docling.json").exists():
+            out["no_raw"].append(key)
+    return out
 
 
 def run_library(lib: Path) -> list[dict[str, Any]]:
@@ -463,16 +487,32 @@ def main(argv: list[str] | None = None) -> int:
         ap.print_help()
         return 2
     records: list[dict[str, Any]] = []
+    unread: dict[str, dict[str, list[str]]] = {}
     for lib in libs:
         records.extend(run_library(lib))
+        found = unread_papers(lib)
+        if any(found.values()):
+            unread[lib.name] = found
     if args.show:
         print(show(records, args.show, libs))
         return 0
     print(report(records, n_worst=args.worst))
+    if unread:
+        print("\nfiled but not read — these papers are in no line above:")
+        for name, found in unread.items():
+            for kind, keys in found.items():
+                if keys:
+                    print(f"  {name}: {kind} ({len(keys)}): {', '.join(keys[:8])}{' …' if len(keys) > 8 else ''}")
+    else:
+        print("\nfiled but not read: none")
     if args.json:
         Path(args.json).write_text(json.dumps({"summary": corpus_summary(records), "papers": records}, ensure_ascii=False, indent=1), "utf-8")
         print(f"\nsaved {args.json}")
     code = 0
+    if args.gate and unread:
+        n = sum(len(v) for f in unread.values() for v in f.values())
+        print(f"\nGATE: {n} papers filed but not read")
+        code = 1
     if args.baseline:
         base = json.loads(Path(args.baseline).read_text("utf-8"))
         diff = compare(records, base["papers"] if isinstance(base, dict) else base)

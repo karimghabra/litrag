@@ -122,12 +122,12 @@ def _alnum(s: str) -> str:
 def styled_rows(path: Path) -> dict[int, list[Row]]:
     """pdfium's own lines of every page, in its reading order, each with its text, its box
     and its runs of one style. A glyph pdfium knows no font for takes its neighbour's."""
-    import pypdfium2 as pdfium
     import pypdfium2.raw as raw
 
-    pdf = pdfium.PdfDocument(str(path))
+    from .recover import open_pdf
+
     out: dict[int, list[Row]] = {}
-    try:
+    with open_pdf(path) as pdf:
         box = raw.FS_RECTF()
         for i in range(len(pdf)):
             tp = pdf[i].get_textpage()
@@ -190,8 +190,6 @@ def styled_rows(path: Path) -> dict[int, list[Row]]:
                         span_round[-1].append(heights_of[j])  # a round one overshoots the line by a few per cent: kept apart, and scaled by the paper's own overshoot
                 rows.append(Row(line, min(b[0] for b in boxes), min(b[1] for b in boxes), max(b[2] for b in boxes), max(b[3] for b in boxes), [(s, t) for s, t in spans], span_caps, span_round))
             out[i + 1] = rows
-    finally:
-        pdf.close()
     return out
 
 

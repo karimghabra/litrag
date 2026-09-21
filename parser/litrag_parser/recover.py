@@ -28,9 +28,10 @@ memory that the tree is built from, and `rebuild` derives them again.
 from __future__ import annotations
 
 import re
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 _WORD = re.compile(r"[A-Za-z]{2,}")
 _LETTERS = re.compile(r"[^a-z]")
@@ -40,6 +41,30 @@ _REBUILDABLE = {"text", "paragraph", "list_item", "footnote", "caption"}
 _RUNNING = re.compile(r"downloaded from|^\s*journal of\b|\bvol\.? ?\d|\bissue \d|©|\bcopyright\b|all rights reserved|wiley online library|creative commons|^\s*\d+\s*$|^[\d\s.]+$|^https?://|\bwww\.|doi:\s*10\.|^\s*page \d", re.I)
 _LIGATURE = re.compile(r"\b[a-z]{2,} (?:fi|fl|ff|ffi|ffl) [a-z]{2,}\b")
 _SUPERSCRIPT_RUN = re.compile(r"[\d+\u2212\u2013\-]{1,3}")
+
+
+
+@contextmanager
+def open_pdf(path: Path | str) -> Iterator[Any]:
+    """A pdfium document closed on the thread that opened it, on every path out.
+
+    pypdfium2 closes a handle it still holds through `weakref.finalize`, so a document leaked on
+    an exception path is closed whenever the collector next runs — which can be inside one of
+    Docling's own parser threads while that thread is itself inside pdfium. litrag's calls never
+    take Docling's `pypdfium2_lock`, so that is an unsynchronised native call, and it is the
+    shape of the intermittent access violation in BACKLOG.md. `close()` cascades to the pages and
+    text pages opened under it, so closing the document here closes all of them here too.
+
+    Every pdfium handle litrag opens goes through this, so there is one place that knows the rule
+    rather than a rule each call site has to remember.
+    """
+    import pypdfium2 as pdfium
+
+    pdf = pdfium.PdfDocument(str(path))
+    try:
+        yield pdf
+    finally:
+        pdf.close()
 
 
 @dataclass
@@ -80,11 +105,8 @@ def pdf_lines(path: Path) -> dict[int, list[Line]]:
     its character boxes. pdfium's own line breaks are one clue; a row also ends where the
     baseline moves, since pdfium runs the first lines of a paragraph together. A raised
     small number is a superscript and is marked "^7", never fused into "107"."""
-    import pypdfium2 as pdfium
-
-    pdf = pdfium.PdfDocument(str(path))
     out: dict[int, list[Line]] = {}
-    try:
+    with open_pdf(path) as pdf:
         for i in range(len(pdf)):
             tp = pdf[i].get_textpage()
             n = tp.count_chars()
@@ -107,8 +129,6 @@ def pdf_lines(path: Path) -> dict[int, list[Line]]:
                     else:
                         lines.append(line)
             out[i + 1] = lines
-    finally:
-        pdf.close()
     return out
 
 
