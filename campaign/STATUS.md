@@ -316,16 +316,50 @@ to genre boilerplate than to a house style, and it may already transfer. The
 per-rule table (`ruletable.py`) is what will say, rule by rule, rather than a
 guess — it prices each removal against the witness, split by familiarity.
 
+## The corpus, as built (Phase 2)
+
+Fetched and ingesting. **336 of 340 papers landed, covering 181 of 181 novel
+publishers** — the four lost had no XML. DEV 131, VAL 97, SEALED 108. EXAM (74
+papers, 31 publishers) is defined by the hash and **not fetched**; it is drawn in
+Phase 8.
+
+- XML side: 335 of 336 ingested in 342 s. One failure, with a reason Docling
+  gave (`doi:10.13081/kjmh.2026.35.253`) — a terminal state, which is what T4 asks
+  for.
+- PDF side: about 4.6 s a paper. **The native crash happened during it** — the
+  layout child exited `3221226356` (`0xC0000374`, heap corruption) on
+  `doi:10.1162/IMAG.a.1236`, was retried in a fresh child, and the run continued.
+  That is the Phase 1 design working on real data rather than on a stub.
+
+Libraries: `corpus-pdf` and `corpus-xml` under the campaign root. One pair holds
+every split; the manifest says which paper is in which, so a split is a filter at
+scoring time rather than a different shelf.
+
+## First T2 numbers (FITTED, the publishers the reader was built on)
+
+487 papers, 63 publishers, 21,139 witness paragraphs. Precision on asserted lanes
+**0.978 micro, 0.912 macro**, 95% CI [0.959, 0.989]; coverage 0.738. The
+micro-macro gap is the thing to watch — it says small publishers do much worse,
+which is what T3 is about.
+
+**That run also exposed a structural fault in the metric**, since fixed: a quarter
+of the witness's own paragraphs are laned `other`, and on those it was
+*impossible* to score correct, because asserting means naming a lane and being
+correct means matching `other`. 5,280 of 21,139 paragraphs read precision 0.0 for
+that reason alone. Precision is now reported twice — strict, and with the
+witness's silences set aside. The FITTED ledger line from 09:45 predates the fix
+and is superseded.
+
 ## Next three actions
 
-1. Finish `probe.py`, rebuild the manifest from papers known to have both formats,
-   fetch DEV/VAL/SEALED, and ingest them (the layout child makes that safe).
-2. Build the campaign harness proper: T1 accounting, the lane-precision metric
-   with coverage, clustered bootstrap intervals, macro beside micro — and the
-   **mutation tests** that prove each metric can fail, before any of it is
-   trusted.
-3. The per-rule precision table by familiarity, to test Phase 0's attribution
-   that the front-matter path owns most of the familiar-vs-novel gap.
+1. Score DEV on the new corpus (`python -m litrag_parser.campaign --split DEV`),
+   and re-score FITTED with the corrected metrics. Those two together are T3: the
+   familiar-versus-novel comparison the whole week rests on.
+2. Run `ruletable.py` on both, which prices every rule that takes a block out of
+   the body against the witness, by familiarity. That is what tests Phase 0's
+   attribution — that the front-matter path owns most of the gap — before Phase 3
+   acts on it.
+3. Write `campaign/reports/phase2.md` and close the phase gate.
 
 ## Open questions
 
