@@ -359,3 +359,24 @@ def test_sealed_is_redacted_and_reserve_is_not_scored_at_all():
     assert sealed["overall"] == {"precision": 0.99} and "aggregates only" in sealed["redacted"]
     with pytest.raises(SplitViolation):
         redact("RESERVE", report)
+
+
+def test_one_document_owning_the_weight_is_reported(tmp_path=None):
+    """A micro-average over paragraphs is a weighted average and one document can own the
+    weight. On DEV a conference-proceedings supplement is 15 per cent of every paragraph in the
+    split and moves coverage from 0.779 to 0.675 on its own. The number was not wrong; reporting
+    it without saying that was."""
+    def paper(name, prefix, n, right):
+        return [Landing(paper=name, prefix=prefix, split="DEV", familiar=False,
+                        paper_type="research", words=100, xml_lane="methods",
+                        pdf_lane="methods" if i < right else "results",
+                        asserted=True, correct=i < right, where="a lane")
+                for i in range(n)]
+
+    small = [r for i in range(9) for r in paper(f"p{i}", f"10.{i}", 10, 10)]
+    huge = paper("the-supplement", "10.big", 900, 0)
+    got = precision_and_coverage(small + huge)
+    assert got["largest_paper_share"] > 0.9  # one document is nearly the whole corpus
+    assert got["precision"] < 0.1  # the micro-average is that document
+    assert got["precision_median_paper"] == 1.0  # the typical paper is not
+    assert got["papers"] == 10

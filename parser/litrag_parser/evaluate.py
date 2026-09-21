@@ -207,6 +207,37 @@ def landings(pdf: Tree, xml: Tree, *, paper: str, prefix: str, split: str,
     return out
 
 
+def _per_paper(rows: Sequence[Landing]) -> dict[str, Any]:
+    """How much of a corpus one document is, and the typical paper behind the micro-average.
+
+    A micro-average over paragraphs is a weighted average, and one document can own the weight.
+    On DEV a single conference-proceedings supplement — every abstract in the volume its own
+    paper to the witness — is **15 per cent of every paragraph in the split**, and it alone moves
+    coverage from 0.779 to 0.675. Nothing was wrong with the number; what was wrong was reporting
+    it without saying that.
+
+    So: the share the largest document holds, and the median paper, beside the micro-average.
+    Neither replaces it. If they disagree, the disagreement is the finding."""
+    by_paper: dict[str, list[Landing]] = {}
+    for r in rows:
+        by_paper.setdefault(r.paper, []).append(r)
+    if not by_paper:
+        return {}
+    sizes = sorted((len(v) for v in by_paper.values()), reverse=True)
+    precisions, coverages = [], []
+    for group in by_paper.values():
+        a = [r for r in group if r.asserted]
+        coverages.append(len(a) / len(group))
+        if a:
+            precisions.append(sum(1 for r in a if r.correct) / len(a))
+    mid = lambda xs: round(sorted(xs)[len(xs) // 2], 5) if xs else None  # noqa: E731
+    return {
+        "largest_paper_share": round(sizes[0] / len(rows), 4),
+        "precision_median_paper": mid(precisions),
+        "coverage_median_paper": mid(coverages),
+    }
+
+
 def precision_and_coverage(rows: Sequence[Landing]) -> dict[str, Any]:
     """Micro over paragraphs, macro over publishers, and the counts both rest on.
 
@@ -256,6 +287,7 @@ def precision_and_coverage(rows: Sequence[Landing]) -> dict[str, Any]:
         "precision_on_named": round(len(named_correct) / len(named_asserted), 5) if named_asserted else None,
         "coverage_on_named": round(len(named_asserted) / len(named), 5) if named else None,
         "wrong_where_witness_said_other": sum(1 for r in asserted if r.xml_lane not in NAMED),
+        **_per_paper(rows),
         # what happened to everything that was not asserted. A reader can reach any precision by
         # asserting less, and this is where that would show: prose swallowed by front matter or
         # read as a caption is a loss, not the same thing as a lane honestly left unnamed.

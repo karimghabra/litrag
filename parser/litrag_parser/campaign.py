@@ -272,6 +272,9 @@ def main(argv: list[str] | None = None) -> int:
           f"{o['wrong_where_witness_said_other']} of them asserted")
     cc = shown["coverage_ci"]
     print(f"  coverage   {o['coverage']}  95% CI [{cc['lo']}, {cc['hi']}]")
+    print(f"  the median paper: precision {o.get('precision_median_paper')} "
+          f"coverage {o.get('coverage_median_paper')} · the largest document is "
+          f"{o.get('largest_paper_share', 0):.1%} of every paragraph in the split")
     print("  not asserted, by where it went instead: "
           + (", ".join(f"{k} {n}" for k, n in o["not_asserted"].items()) or "nothing"))
     c = shown["conservation"]
