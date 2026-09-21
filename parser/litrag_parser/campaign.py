@@ -37,7 +37,7 @@ from .evaluate import (
 )
 from .harness import read_paper
 from .library import library_root
-from .pairs import pairs_of
+from .pairs import pairs_of  # noqa: F401 — kept for the legacy comparison
 
 #: the campaign's own libraries: one pair, every split in them, the manifest saying which is which
 NEW = ("corpus-pdf", "corpus-xml")
@@ -68,6 +68,59 @@ def _prefix_of(key: str, doi: str | None) -> str:
     return m.group(1) if m else f"?{key}"
 
 
+def _identities(lib: Path) -> dict[str, str]:
+    """`{doi or pmcid, lowercased: key}` for one library's papers."""
+    import sqlite3
+
+    store = Path(lib) / "store.sqlite"
+    out: dict[str, str] = {}
+    if not store.exists():
+        return out
+    conn = sqlite3.connect(f"file:{store}?mode=ro", uri=True)
+    try:
+        for key, doi, pmcid in conn.execute("SELECT key, doi, pmcid FROM papers"):
+            for ident in (doi, pmcid):
+                if ident:
+                    out[str(ident).lower()] = key
+    finally:
+        conn.close()
+    return out
+
+
+def pairs_by_identity(pdf_lib: Path, xml_lib: Path) -> list[tuple[dict, dict]]:
+    """The pairs `pairs_of` finds by key, plus the ones only an identity can find.
+
+    `pairs_of` pairs on the library key, and a PDF with no DOI printed on its first pages is
+    filed by content hash — so it never meets the XML twin that *is* keyed by DOI, and the pair
+    is lost in silence. `NOTES.md` recorded five of them in held-out 4 and asked for exactly
+    this. The PMCID the worker sniffs from the PDF, or the DOI it could not use as a key, is
+    enough to find the partner.
+
+    This is additive and campaign-side on purpose: `pairs.py`'s own pairing is left alone, so
+    the legacy numbers it produced stay comparable with the ones it produces now."""
+    from .library import parsed_papers
+
+    xmls = {r["key"]: r for r in parsed_papers(xml_lib) if r["format"] == "jats"}
+    out = [(r, xmls[r["key"]]) for r in parsed_papers(pdf_lib) if r["format"] == "pdf" and r["key"] in xmls]
+    paired = {p["key"] for p, _ in out}
+
+    xml_by_ident = _identities(xml_lib)
+    pdf_idents = _identities(pdf_lib)
+    pdf_keys: dict[str, list[str]] = {}
+    for ident, key in pdf_idents.items():
+        pdf_keys.setdefault(key, []).append(ident)
+    for r in parsed_papers(pdf_lib):
+        if r["format"] != "pdf" or r["key"] in paired:
+            continue
+        for ident in pdf_keys.get(r["key"], ()):
+            twin = xml_by_ident.get(ident)
+            if twin and twin in xmls:
+                out.append((r, xmls[twin]))
+                paired.add(r["key"])
+                break
+    return out
+
+
 def collect(pdf_lib: Path, xml_lib: Path, want: dict[str, dict] | None, fitted: set[str],
             split: str) -> tuple[list[Landing], list[dict], list[str]]:
     """Every pair of the library, as landings, plus a conservation record per PDF."""
@@ -75,13 +128,18 @@ def collect(pdf_lib: Path, xml_lib: Path, want: dict[str, dict] | None, fitted: 
     per_paper: list[dict] = []
     skipped: list[str] = []
     wanted = set(want or ())
-    for p_row, x_row in pairs_of(pdf_lib, xml_lib):
+    for p_row, x_row in pairs_by_identity(pdf_lib, xml_lib):
         key = p_row["key"]
-        meta = (want or {}).get(key.replace("doi:", "").lower())
-        if want is not None and meta is None:
-            continue
-        if meta is not None:
-            wanted.discard(key.replace("doi:", "").lower())
+        meta, matched = None, None
+        if want is not None:
+            for ident in (key, str(x_row["key"])):  # a PDF filed by content hash carries no DOI
+                ident = ident.replace("doi:", "").lower()          # in its key; its twin does
+                if ident in want:
+                    meta, matched = want[ident], ident
+                    break
+            if meta is None:
+                continue
+            wanted.discard(matched)
         prefix = (meta or {}).get("prefix") or _prefix_of(key, None)
         pdf, kind, _ = read_paper(pdf_lib, p_row)
         xml, _, _ = read_paper(xml_lib, x_row)
