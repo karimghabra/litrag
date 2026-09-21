@@ -253,6 +253,34 @@ to be scraped. A witness needs both formats, so `probe.py` HEAD-checks every one
 of the 1,830 novel-prefix candidates *before* the manifest is fixed — finding this
 out afterwards would silently shrink whichever split the misses fell in.
 
+## What T1 actually says, and one claim to correct
+
+Measured on the pilot's twenty papers, after the line-break mend and the
+running-head records: **accounted 0.811** — 0.794 inside a node, 0.016 inside a
+dropped record. Before those two fixes it read 0.788. On the 487 legacy papers,
+before them, it read 0.959 with the alphabetic-only tokeniser; the number is not
+comparable across those changes and the ledger says which is which.
+
+So T1 is a long way from 0.999, and **where the other 19% goes is not yet known.**
+Two attributions were tried and neither survived:
+
+1. *"It is mostly text inside figures."* Stated in commit `e25db5d`'s message.
+   **Wrong** — measured, only 0.7% of unaccounted words lie inside a picture box.
+2. *"It is mostly text inside tables."* 54% of unaccounted words do lie inside a
+   table's box — but **46% of table nodes cover more than half their page**, so
+   that test catches the body text on the same page and says nothing.
+
+What *is* solid is the shape: **71% of unaccounted words are on lines of one or
+two words**, about 2,000 such lines a paper. That is the signature of figure and
+table interiors — axis ticks, panel letters, column heads — each its own visual
+row. Naming it properly needs a containment test that is not defeated by a
+page-sized table box, which is Phase 3/4 work, not Phase 2's.
+
+The lesson worth keeping: both wrong attributions were plausible and both took one
+measurement to refuse. The classifier's *shape* evidence was reliable; the
+*spatial* evidence was not, and the difference was not visible until it was
+checked.
+
 ## Where Phase 3 should aim, and why
 
 Phase 0 localised the publisher-keying: ~150 literal publisher tokens in eight
