@@ -159,7 +159,99 @@ and every precision above falls by ten points: `current` reads 0.8426 rather tha
 numbers are true; the second describes a corpus that is half one document. This is the fourth
 measurement in this campaign that document has turned over.
 
-## 5. Three bugs in my own measurement, each caught by its own output
+## 5. The one independent mechanism, and why it may not contradict a heading
+
+The block classifier reads a section's **paragraphs**, which makes it the only opinion in the
+reader not derived from the heading. It is also silent almost everywhere: its scores cluster
+around 0.70–0.76 against the best lane and about **0.02** behind against the second, where the
+kind requires a margin of **0.08**. So `lane_sections`'s note — "the heading names methods, the
+paragraphs read as results; the heading stands" — almost never fires, and the one opinion that
+could contradict a heading is refused before it can.
+
+`PLAN.md`'s first bullet for this phase is to derive thresholds from DEV rather than assume
+them, so its threshold and margin were swept over 907 witness-named sections:
+
+| threshold | margin | speaks | coverage | precision | agrees with the heading | and is right |
+|---|---|---|---|---|---|---|
+| 0.50 | 0.000 | 480 | 0.529 | 0.2604 | 120 | 119 |
+| 0.65 | 0.010 | 224 | 0.247 | 0.3438 | 75 | 74 |
+| 0.70 | 0.020 | 74 | 0.082 | 0.5135 | 39 | 38 |
+| 0.72 | 0.030 | 23 | 0.025 | 0.5652 | 14 | 13 |
+| 0.74 | 0.030 | 21 | 0.023 | **0.6190** | 13 | 13 |
+
+**No threshold makes it fit to contradict a heading.** Its best precision anywhere is 0.619 on
+21 sections, and at any usable coverage it is 0.26 to 0.46 — against heading routes that run
+0.94 to 0.99. A veto by a mechanism that is wrong half the time would silence mostly-correct
+headings, so `LITRAG_LANE_AGREEMENT` stays off, and now for a reason with a number on it rather
+than caution.
+
+**But as a confirmer it is near perfect.** In every row of that sweep, where it agrees with the
+heading the heading is right about 99 per cent of the time: 119 of 120, 74 of 75, 38 of 39, 13
+of 13. Joined with the heading routes on DEV's non-supplement sections:
+
+| | precision | 95% over publishers | word coverage |
+|---|---|---|---|
+| current (the reader) | 0.9380 | [0.9013, 0.9668] | 0.9809 |
+| all three routes recognise the heading | 0.9886 | [0.9759, 0.9974] | 0.8106 |
+| **the paragraphs agree with the heading** | **1.0000** | **[1.0, 1.0]** | 0.2342 |
+| both | 1.0000 | [1.0, 1.0] | 0.2246 |
+
+Perfect precision exists and costs three quarters of the coverage. It is not an operating point;
+it is a demonstration that the witness and the reader can be made to agree completely when the
+reader is allowed to pick its ground.
+
+## 6. The choice, made by the transfer gate
+
+`PLAN.md`: *"Choose by T3: the policy whose precision on novel publishers stays closest to its
+precision on familiar ones at the operating point, then by coverage."*
+
+| policy | DEV | FITTED | **gap** | word coverage | wrong |
+|---|---|---|---|---|---|
+| current (precedence) | 0.9380 | 0.9704 | **+0.0324** | 0.9809 | 31 |
+| **two of three recognise it** | 0.9788 | 0.9769 | **−0.0019** | 0.8471 | 8 |
+| three of three | 0.9886 | 0.9843 | −0.0043 | 0.8106 | 4 |
+
+**Two wins on both criteria** — the smaller gap and the larger coverage. Three is more precise
+on DEV, and that is precisely the reason not to choose it on DEV.
+
+The gap is the result worth keeping. Today's rule is 0.0324 better on the publishers it was
+written on than on publishers it has never seen; under either agreement policy that gap closes
+to nothing and slightly inverts. `LITRAG_CANONICAL_ONLY` takes that floor, `on` meaning two.
+
+### And then the end-to-end measurement refused it
+
+Every number above is per **section**, and T2 is per **paragraph**. Run through the campaign's
+own scorer on DEV, with the witness now provably unmoved (4,631 paragraphs and 914 `other` in
+all three columns):
+
+| | baseline | floor 2 | floor 3 |
+|---|---|---|---|
+| witness paragraphs | 4,631 | 4,631 | 4,631 |
+| asserted | 3,126 | 2,750 | 2,639 |
+| wrong | 309 | 264 | 253 |
+| precision | 0.90115 | 0.904 | 0.90413 |
+| **precision, witness-named** | **0.95073** | **0.95286** | 0.9525 |
+| **coverage, witness-named** | **0.79715** | **0.70191** | 0.67393 |
+
+**It withholds 376 assertions to remove 45 wrong ones.** The withheld set was right 0.8803 of
+the time, against 0.904 for the set it kept — barely a difference. Nine and a half points of
+coverage buys two-tenths of a point of precision. **It does not ship.**
+
+The two views are both correct and the gap between them is the lesson. Per section the floor
+removed 23 of the 31 wrong sections; per paragraph it removed 45 of 309 wrong paragraphs. So the
+wrong sections it caught were **small** — about two paragraphs each — and the wrong paragraphs
+that remain sit in **large sections whose headings are perfectly canonical**. Which is the real
+finding underneath:
+
+> The lane errors that are left are not heading-recognition errors. Something else puts prose in
+> the wrong lane — where a section starts and stops, the abstract boundary (0.637 precision on
+> novel publishers), the short forms — and no amount of being stricter about *headings* reaches
+> them.
+
+`LITRAG_CANONICAL_ONLY` stays in the tree, off, with this number beside it. It is the right
+mechanism aimed at the wrong error.
+
+## 7. Four bugs in my own measurement, each caught by its own output
 
 The first run of the mechanism table reported that the block classifier **speaks zero times out
 of 1,260**, which is not a finding about the reader but about the script. `structure.lane_sections`
@@ -175,3 +267,55 @@ base rates in Phase 4, and this. Every table in this phase reports the largest p
 
 The third: 126 sections have `other` as their witness lane, where nothing that names a lane can
 be right. They are set aside, as `precision_on_named` already does over paragraphs.
+
+The fourth is the worst, because it looked like success. The first end-to-end run of the
+canonical floor reported precision where the witness names a lane rising from 0.95073 to
+**0.97575** — and the witness's own `other` count rising from 914 paragraphs to **2,408**, and
+the split's witness paragraph count from 4,631 to 4,985. `harness.read_paper` builds both trees
+with the same `build_tree`, so the floor was filtering the **JATS twin** alongside the PDF
+reading. The precision rose because the questions with answers had been thrown away on both
+sides of the comparison.
+
+It was caught by a number that had no business moving: the witness cannot change when the reader
+does. The fix is not a measurement patch — `pages` is already `tree.py`'s discriminator for
+exactly this ("a PDF's layout model fuses lines; an XML's title is its title"), and a JATS file
+states its structure outright, so withholding a lane it declares would be wrong in the product
+quite apart from the measurement.
+
+**A rule for the rest of this campaign, and for whoever reads this next: after any reader change,
+check that the witness's own counts are unmoved before reading any number beside them.**
+
+## 8. What Phase 5 delivered, and what it refused
+
+**Shipped, default on:** nothing in the reader's behaviour. The reader reads DEV exactly as it
+did at the end of Phase 4 — 0.90115 precision, 0.95073 on witness-named lanes, 0.79715 coverage,
+0.96805 conservation.
+
+**Shipped, working:**
+
+- the oracle's cache split into `space()` and `rule()`, so a threshold sweep is a re-decision
+  over rows already held rather than a re-reading of the corpus, in both directions;
+- `guess`, `confidence` and `reasons` on `nodes`, so an abstention records what it nearly
+  decided;
+- `template.py`, a layout fingerprint with nothing of the publisher in it, priced at AUC 0.906
+  and nearest-neighbour 0.866 against a chance rate of 0.0147;
+- two switches, both off, both with their numbers: `LITRAG_LANE_AGREEMENT` and
+  `LITRAG_CANONICAL_ONLY`.
+
+**Refused, with the number:**
+
+- *assertion by agreement* in the sense `PLAN.md` means it — the mechanisms never disagree;
+- *the block classifier as a veto* — 0.26 to 0.62 precision, so it would silence mostly-correct
+  headings;
+- *the canonical floor* — 9.5 points of coverage for 0.2 of precision end to end.
+
+**Not done:** the VAL gate. `PLAN.md` puts it at the chosen operating point, and DEV declined
+the operating point before VAL was reached. Scoring VAL to confirm a rejection DEV already made
+would spend a split on a question that is answered. VAL and SEALED remain unscored; EXAM remains
+unfetched.
+
+**The finding to carry forward.** Every mechanism this phase examined reads the *heading*, and
+the heading is no longer where the errors are. On novel publishers `methods` reads 1.000 and
+`results` 0.990 — those headings are recognised. What is left is `abstract` at 0.637, the short
+forms, and prose that lands in a section it does not belong to. Phase 6's escalation and Phase
+7's template memory are both better aimed at that than anything in this phase was.
