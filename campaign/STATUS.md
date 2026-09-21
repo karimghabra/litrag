@@ -281,6 +281,48 @@ measurement to refuse. The classifier's *shape* evidence was reliable; the
 *spatial* evidence was not, and the difference was not visible until it was
 checked.
 
+## The per-rule table, and a third wrong claim caught
+
+`ruletable.py` prices every rule that takes a block out of the body: the claim
+each makes is *this block is not the paper's prose*, and the witness says whether
+that is true. On the 487 fitted papers:
+
+| rule | fires | right | body words lost |
+|---|---|---|---|
+| `dropped:running` | 1,986 | 0.971 | 647 |
+| `front:affiliations` | 479 | 0.950 | 955 |
+| `front:correspondence` | 417 | 0.959 | 659 |
+| `front:authors` | 393 | 0.995 | 21 |
+| `front:notice` | 332 | 0.967 | 866 |
+| **`front:keywords`** | 272 | **0.368** | 2,644 |
+| `front:dates` | 268 | 0.989 | 71 |
+| `dropped:label` | 181 | 0.961 | 140 |
+| **`front:other`** | 155 | **0.632** | 3,003 |
+| `dropped:furniture` | 69 | 1.000 | 0 |
+| `front:funding` | 25 | 0.960 | 62 |
+
+`front:keywords` at 0.368 looked like the worst rule the reader has. **It is not a
+reader error at all.** The examples it "loses" read `Keywords: Stem cell,
+Mesenchymal stromal cell, Rotator cuff…` — plainly keywords, correctly filed as
+front matter. What happens is that the *XML's own reading* leaves them in the body,
+so the witness holds them as prose and the test scores the removal wrong. Same for
+most of `front:affiliations`.
+
+That is the fourth claim of mine a measurement has refused, and the most
+instructive: the measure was pricing **the witness's habits, not the reader's**.
+The table now reports precision twice — against any prose the XML holds, and
+against prose the XML holds **in a named body lane** — and the gap between them is
+a first estimate of the witness's own noise on front matter.
+
+What survives as a real defect is `front:other` (3,003 words, and its examples are
+genuine body prose: `REVIEW that was used between the mid 1980s…`) and a minority
+of `front:affiliations` (`METHODS: This randomized controlled clinical trial
+involved 60 patients…` filed as an affiliation).
+
+**The novel column is empty** — every one of those 487 papers is from a fitted
+publisher. The contrast the week needs comes from running the same table on the
+new corpus's DEV split.
+
 ## Where Phase 3 should aim, and why
 
 Phase 0 localised the publisher-keying: ~150 literal publisher tokens in eight
