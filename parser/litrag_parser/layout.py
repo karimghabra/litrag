@@ -32,10 +32,13 @@ import time
 from pathlib import Path
 from typing import Any, Callable
 
-#: how long one paper may take before the child is assumed wedged. Docling on the 5080 reads a
-#: paper in seconds and the slowest in the corpora is well under a minute; this is a deadlock
-#: guard, not a performance bound.
-TIMEOUT = float(os.environ.get("LITRAG_LAYOUT_TIMEOUT", "600"))
+#: How long one paper may take before the child is assumed wedged. A deadlock guard, not a
+#: performance bound — but not so loose that the guard costs more than the fault. Measured over
+#: the campaign's 336-paper ingest on the 5080: about 4.6 s a paper, and the slowest well under
+#: a minute. At the first cut of 600 s a wedge cost twenty minutes, because it is paid twice —
+#: once on the attempt and once on the retry. 300 s is sixty times the typical paper and brings
+#: that to ten.
+TIMEOUT = float(os.environ.get("LITRAG_LAYOUT_TIMEOUT", "300"))
 
 
 def enabled() -> bool:
