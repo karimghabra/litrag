@@ -14,6 +14,7 @@ runs the same over a saved JSON as over a fresh conversion.
 
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass, field, asdict
 from typing import Any, Iterable
@@ -166,6 +167,75 @@ def _decorative_pictures(doc: dict[str, Any]) -> set[str]:
         if (w < 60 and h < 60) or len(at_spot[_box_key(prov)]) >= 3:
             out.add(ref)
     return out
+
+
+
+#: Off until its gate passes, as every new decision in this reader is. Its gate is in NOTES.md:
+#: 72 candidates over 610 papers of both columns, 72 of them right.
+ABSTRACT_ENDS = os.environ.get("LITRAG_ABSTRACT_ENDS", "on").lower() not in ("off", "0", "false", "no")
+
+
+def _abstract_ends_where_it_cites(tree: Tree, repairs: dict[str, int]) -> None:
+    """The abstract stops at the first paragraph that cites and is not its first.
+
+    Attributing every wrong lane on the campaign's novel publishers to the route that named it
+    found something unexpected: the vocabulary — the most confident route, and 89.5 per cent of
+    all assertions — is the *least* precise of the three at 0.8914, against the embedder's
+    0.9882. And its errors are almost all one shape. The heading reads "Abstract" and is read
+    right; what is wrong is where that section *ends*, so the introduction's first paragraphs are
+    filed under the abstract (63 on DEV) or the abstract's under the introduction (25).
+
+    An abstract does not cite. Measured: 5.4 per cent of the paragraphs a paper really puts in
+    its abstract carry a citation mark, against 49.2 per cent of the ones the reading wrongly
+    puts there. Position alone is no use (0.45 precision) and length alone is no use (0.55); it
+    is the conjunction that decides, and the first paragraph is exempt because a structured
+    abstract's lead can carry a trial registration or a reference to the work it comments on.
+
+    Priced before it was written, on the paragraphs the reading files under an abstract:
+
+        it cites                                     DEV 0.907   fitted 0.938
+        it cites and is under 150 words              DEV 0.947   fitted 1.000
+        it cites and is not the first paragraph      DEV 32/32   fitted 40/40
+
+    Nothing here reads a publisher: a citation mark is the paper's own, and so is the order of
+    its paragraphs."""
+    if not ABSTRACT_ENDS:
+        return
+    for section in [n for n in _descendants(tree.root) if n.type == "section" and n.role == "abstract"]:
+        prose = [c for c in section.children if c.type in ("paragraph", "list_item")]
+        if len(prose) < 2:
+            continue
+        cut = next((c for c in prose[1:] if _CITES.search(c.text or "")), None)
+        if cut is None:
+            continue
+        at = section.children.index(cut)
+        moved = section.children[at:]
+        if not moved:
+            continue
+        section.children = section.children[:at]
+        for node in moved:
+            _relane(node, "introduction")
+        # the paragraphs go back to the introduction the paper has, or to one built for them
+        intro = next((n for n in _descendants(tree.root)
+                      if n.type == "section" and n.role == "introduction"), None)
+        if intro is not None:
+            intro.children = moved + intro.children
+        else:
+            intro = Node(node_id=f"{section.node_id}#introduction", parent=section.parent,
+                         ordinal=section.ordinal + 1, depth=section.depth, type="section",
+                         label="section_header", level=1, role="introduction",
+                         heading="Introduction", ancestry=list(section.ancestry), text="",
+                         page=moved[0].page, bbox=None, self_ref=None, children=moved)
+            parent = next((n for n in _descendants(tree.root)
+                           if any(c is section for c in n.children)), tree.root)
+            parent.children.insert(parent.children.index(section) + 1, intro)
+        repairs["abstract_ended_at_a_citation"] = repairs.get("abstract_ended_at_a_citation", 0) + len(moved)
+
+
+def _relane(node: Node, role: str) -> None:
+    node.role = role
+    for child in node.children:
+        _relane(child, role)
 
 
 def _recurring_furniture(doc: dict[str, Any]) -> set[str]:
@@ -2235,5 +2305,6 @@ def build_tree(doc: dict[str, Any], key: str, title_hint: str | None = None, jud
         repairs=repairs,
         notes=notes,
     )
+    _abstract_ends_where_it_cites(tree, repairs)  # an abstract does not cite: the introduction begins where one does
     lane_sections(tree, _oracle(), repairs)  # a top-level section whose heading names nothing, read by its paragraphs
     return tree
