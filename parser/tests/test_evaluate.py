@@ -47,11 +47,25 @@ def test_the_fixture_paper_is_mostly_asserted_and_mostly_right():
     assert got["correct"] + got["wrong"] == got["asserted"]
 
 
+def test_where_the_unasserted_went_is_reported_not_just_counted():
+    """A reader can reach any precision by asserting less, so the report has to say what it did
+    instead — prose swallowed by front matter is a loss, not an honest silence."""
+    rows = _rows()
+    got = precision_and_coverage(rows)
+    assert isinstance(got["not_asserted"], dict)
+    assert sum(got["not_asserted"].values()) == got["paragraphs"] - got["asserted"]
+
+    lost = [Landing(**{**r.__dict__, "pdf_lane": None, "asserted": False, "correct": False,
+                       "where": "front matter"}) for r in rows]
+    assert precision_and_coverage(lost)["not_asserted"] == {"front matter": len(rows)}
+    assert precision_and_coverage(lost)["precision"] is None  # and it buys no precision at all
+
+
 def test_a_silence_is_not_an_error():
     """`other` is the reader declining to say. It must cost coverage and not precision."""
     rows = _rows()
-    silent = [Landing(**{**r.__dict__, "pdf_lane": "other", "asserted": False, "correct": False})
-              for r in rows]
+    silent = [Landing(**{**r.__dict__, "pdf_lane": "other", "asserted": False, "correct": False,
+                         "where": "silent"}) for r in rows]
     got = precision_and_coverage(silent)
     assert got["coverage"] == 0.0
     assert got["precision"] is None  # nothing asserted: there is no precision to report
@@ -265,6 +279,11 @@ def test_the_risk_coverage_curve_rises_as_the_bar_rises():
 def test_sealed_is_redacted_and_reserve_is_not_scored_at_all():
     report = {"precision": 0.99, "papers_detail": [{"key": "a"}], "worst": ["b"]}
     assert redact("DEV", report) == report
+    # FITTED is the old pair libraries, every publisher of which the reader was built on: it is
+    # the other half of T3 and nothing is held back from it. An hour of scoring was thrown away
+    # once because it was not on this list.
+    assert redact("FITTED", report) == report
+    assert redact("VAL", report) == report
     sealed = redact("SEALED", report)
     assert "papers_detail" not in sealed and "worst" not in sealed
     assert sealed["precision"] == 0.99 and "aggregates only" in sealed["redacted"]

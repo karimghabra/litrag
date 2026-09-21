@@ -41,7 +41,11 @@ ingest` cuts chunks into `lit.sqlite`, never a tree.
 2. **Laid out.** A JATS file is prepared first (`jats_prep.py`,
    `mathml.py`), then Docling reads the PDF or the XML. Its document is
    saved as `parsed/<key>.docling.json` and never edited. This is the only
-   step that runs Docling.
+   step that runs Docling, and the only one that can take the process down
+   with it, so it runs in a child the worker supervises (`layout.py`): the
+   child is long-lived because Docling takes seconds to build, a paper that
+   kills it is retried once in a fresh child, and a paper that kills two
+   fails with a reason instead of ending the run.
 3. **Recovered.** For a PDF, the text layer is read back for the lines the
    layout model missed (`recover.py`), and its type for the headings it
    missed: run-in, fused into a paragraph, dropped, or misspelt, and every
@@ -140,6 +144,7 @@ examples, threshold, margin or centroids makes it ask again once.
 | `LITRAG_EDGES_SIMILARITY` | off | `on` lets resemblance link a finding to a method where no pointer or mark does | opt-in |
 | `LITRAG_TYPE_PROFILE` | off | `on` lets the profile kind name a paper's type | opt-in; measured at 0.66 accuracy |
 | `LITRAG_VOCABULARY` | on | `off` names headings by the embedder alone | experiment, to measure what the vocabulary is worth |
+| `LITRAG_LAYOUT_CHILD`, `LITRAG_LAYOUT_TIMEOUT` | on, `600` | Docling's layout stage runs in a child process the worker supervises, so a native crash costs one paper and not the rest of the queue: a per-paper timeout, a respawn when the child dies, one retry in a fresh child, then the paper fails with a reason. `off` converts in the worker's own process, as before | current |
 | `LITRAG_PARSER` | the repository's `parser/` | the command the window starts as its worker | current |
 | `LITRAG_HEADLESS`, `LITRAG_E2E_PAPERS`, `LITRAG_E2E_MIN_METHODS`, `LITRAG_E2E_MIN_TITLES` | | the end-to-end suite | tests |
 | `LITRAG_PT` | `pt` | Protracker's command | the deprecated CLI only |

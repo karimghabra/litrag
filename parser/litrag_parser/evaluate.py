@@ -112,6 +112,12 @@ class Landing:
     pdf_lane: str | None  # None: no block of the reading holds it
     asserted: bool  # the reader named a lane for it
     correct: bool  # ... and that lane is the witness's
+    #: where it went when no lane was asserted — "front matter", "caption", "heading", "table",
+    #: "nowhere", or "silent" for prose the reader kept but declined to lane. Without this the
+    #: largest error class the reader has would be invisible: body prose swallowed by a
+    #: publisher's furniture is *not* a wrong lane, it is a paragraph that never reached one, and
+    #: counted as coverage alone it looks like honest abstention.
+    where: str = ""
 
     @property
     def wrong(self) -> bool:
@@ -134,14 +140,20 @@ def landings(pdf: Tree, xml: Tree, *, paper: str, prefix: str, split: str,
         landed = _land(u, index)
         held, _ = _held(u, landed, pu) if landed else (0.0, 0.0)
         lane: str | None = None
+        where = "nowhere"
         if landed and held >= 0.5:  # the same bar `pairs.py` uses before it calls a paragraph found
             top = pu[_top(landed)]
-            lane = top.role if top.prose else None
+            if top.prose:
+                lane, where = top.role, "silent" if top.role == "other" else "a lane"
+            elif top.front:
+                where = "front matter"
+            else:
+                where = top.kind  # caption, heading, table, meta, footnote, formula
         asserted = lane in NAMED
         out.append(Landing(
             paper=paper, prefix=prefix, split=split, familiar=familiar, paper_type=paper_type,
             words=sum(u.tokens.values()), xml_lane=u.role, pdf_lane=lane,
-            asserted=asserted, correct=bool(asserted and lane == u.role),
+            asserted=asserted, correct=bool(asserted and lane == u.role), where=where,
         ))
     return out
 
@@ -169,6 +181,11 @@ def precision_and_coverage(rows: Sequence[Landing]) -> dict[str, Any]:
         "precision": round(len(correct) / len(asserted), 5) if asserted else None,
         "coverage": round(len(asserted) / n, 5) if n else None,
         "precision_macro": round(sum(per_publisher) / len(per_publisher), 5) if per_publisher else None,
+        # what happened to everything that was not asserted. A reader can reach any precision by
+        # asserting less, and this is where that would show: prose swallowed by front matter or
+        # read as a caption is a loss, not the same thing as a lane honestly left unnamed.
+        "not_asserted": dict(sorted(Counter(r.where for r in rows if not r.asserted).items(),
+                                    key=lambda kv: (-kv[1], kv[0]))),
     }
 
 
@@ -262,8 +279,12 @@ class SplitViolation(RuntimeError):
     """A split was read in a way the protocol does not allow."""
 
 
-#: what may be looked at, per split (`PLAN.md` §3)
-VISIBLE = {"DEV": "anything", "VAL": "aggregates, per-publisher numbers, a logged inspection budget",
+#: what may be looked at, per split (`PLAN.md` §3). `FITTED` is not one of the campaign corpus's
+#: splits: it is the old pair libraries, every publisher of which the reader was built on. It is
+#: the *other* half of T3 — precision on a publisher already fitted — and nothing is held back
+#: from it, because there is nothing left to hold back.
+VISIBLE = {"DEV": "anything", "FITTED": "anything: these publishers are what the reader was built on",
+           "VAL": "aggregates, per-publisher numbers, a logged inspection budget",
            "SEALED": "aggregates only", "EXAM": "scored once, after the code is frozen",
            "RESERVE": "not scored: it replaces a VAL publisher spent by inspection"}
 
@@ -297,7 +318,7 @@ def redact(split: str, report: dict[str, Any]) -> dict[str, Any]:
     """What a split is allowed to show. SEALED gives aggregates and nothing per paper.
 
     The harness enforces this rather than the person running it remembering to."""
-    if split in ("DEV", "VAL"):
+    if split in ("DEV", "FITTED", "VAL"):
         return report
     if split in ("SEALED", "EXAM"):
         out = {k: v for k, v in report.items() if k not in ("papers_detail", "worst", "examples", "landings")}

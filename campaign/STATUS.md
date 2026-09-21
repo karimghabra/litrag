@@ -59,10 +59,25 @@ Ledger lines: `campaign/LEDGER.jsonl`, phase 0, names `checkall`,
 | Free disk | 254 GB at start; campaign root costs 3.5 GB |
 | Network | Europe PMC reachable (the previous rounds fetched from it) |
 
-**Caution:** Bash heredocs mangle backslashes and non-ASCII on this machine —
-write Python via `Write`/`Edit`, not heredocs. And **MSYS paths (`/c/...`) do not
-survive into Python**: a `--json /c/Users/...` argument silently writes to
-`C:\c\Users\...`. Always pass Windows paths (`C:/Users/...`) to Python.
+### Operational gotchas on this machine, each learned the hard way
+
+1. **Bash heredocs mangle backslashes and non-ASCII.** An escaped newline inside a
+   heredoc'd Python string became a real newline and broke a file mid-run; a
+   heredoc containing an em dash fails to parse at all. Write Python with
+   `Write`/`Edit`, or to a script file — not through a heredoc.
+2. **MSYS paths do not survive into Python.** `--json /c/Users/...` silently
+   writes to `C:\c\Users\...`. Always pass Windows paths (`C:/Users/...`).
+3. **`nohup ... &` from the Bash tool does not survive.** Three long jobs were
+   killed this way (a 25-PDF validation, a recon wave, a corpus fetch), each
+   leaving a half-finished result that looked like a finding. Use the Bash tool's
+   own `run_in_background: true`, which the harness tracks.
+4. **Never pipe a background job to `tail`.** Nothing is written until the job
+   ends, so it looks hung. Redirect to a file and tail the file.
+5. **`pkill -f <script>` is too blunt here** — it took out an unrelated job.
+
+Gotcha 3 cost a wrong conclusion once: a run that was *killed* looks exactly like
+a run that *crashed* — a paper left `parsing`, the rest `queued`. Any claim about
+the native crash has to rest on a tracked run.
 
 ---
 
@@ -237,6 +252,41 @@ candidates 404'd on the bulk zip, on the REST PDF route, and the publisher is no
 to be scraped. A witness needs both formats, so `probe.py` HEAD-checks every one
 of the 1,830 novel-prefix candidates *before* the manifest is fixed — finding this
 out afterwards would silently shrink whichever split the misses fell in.
+
+## Where Phase 3 should aim, and why
+
+Phase 0 localised the publisher-keying: ~150 literal publisher tokens in eight
+constants, **all in `tree.py`'s front-matter path**. Everything else the reader
+does is already keyed to the document. So the week's target is one decision, made
+in one place: *is this block the paper's prose, or the publisher's furniture?*
+
+The rules answer it today by recognising the publisher's strings — `sciencedirect`,
+`licensee`, `to cite this article`, `full list of author information`. That is
+right on a publisher already fitted and silent on the next one, which is exactly
+the measured 0.966 → 0.906.
+
+Four document-derived signals can answer the same question without naming anyone,
+and three of them the repo already computes:
+
+1. **Recurrence** — furniture repeats across pages. `_recurring_furniture` and
+   `_repeated_short` already do this.
+2. **Typography relative to the paper's own body** — furniture is set apart.
+   `typography.py` already measures every row against `body_style`.
+3. **The paper's own metadata record** — `record.py` already fetches title,
+   authors, journal and year from Europe PMC. A line that *matches the record* is
+   front matter by identity rather than by a publisher's string, and identity
+   transfers to every publisher. This is the biggest single replacement available:
+   most of `_FURNITURE`'s job is recognising the journal name, the citation line
+   and the author block, and all three are in the record. `_journal_name`
+   (`tree.py:1259`) already does a sliver of it.
+4. **Genre vocabulary** — `Keywords`, `Funding`, `Conflicts of interest`. Already
+   genre-keyed, and transfers.
+
+A caution worth stating before measuring: `_LICENCE` may not be publisher-keyed at
+all. Creative Commons wording is standardised across publishers, so it is closer
+to genre boilerplate than to a house style, and it may already transfer. The
+per-rule table (`ruletable.py`) is what will say, rule by rule, rather than a
+guess — it prices each removal against the witness, split by familiarity.
 
 ## Next three actions
 
