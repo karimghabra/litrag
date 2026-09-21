@@ -139,6 +139,37 @@ on fitted publishers and 11 on novel ones, and it is **right every time on both*
 because it keys on a box recurring at the same height on three pages and nothing
 else.
 
+## 4b. A confound that was real and did not matter
+
+The legacy PDF libraries carry a Europe PMC record for 94 to 98 per cent of their
+papers. The campaign corpus carried one for **none**, because it was ingested
+with `offline: true` — sensible for a bulk fetch and wrong for a measurement. The
+reader does read that record: `harness.read_paper` passes `record={"journal": …}`
+into `build_tree` and `pub_types` into `decide_type`, so `_journal_name` and the
+paper's type both had less to go on for DEV than for FITTED.
+
+It was backfilled (corpus-pdf 0% → 97%, against held-out 4's 98%) and both columns
+re-scored. **The DEV numbers did not move at all** — 0.8999 strict and 0.94939 on
+witness-named lanes, to the digit, with the same per-lane table.
+
+Which is the useful result: the record feeds *title selection* and *the paper's
+type*, and neither reaches the lane of a body paragraph. So the confound was real,
+is removed, and the T3 comparison above never depended on it. Reported because "I
+found a confound and fixed it" and "I found a confound and it changed nothing"
+are different claims, and only the second one is true here.
+
+Two defects of mine were found while chasing it, and they were worth more than the
+confound:
+
+- **`rebuild` read one paper and reported success.** Refactoring `do_rebuild` to
+  give each paper its own error guard swept the loop's `conn.close()` and its
+  `done` event into the per-paper step, so the first paper closed the database and
+  the run ended — emitting a `done` that said it had succeeded. The most-used
+  maintenance verb in the repo, and **no test touched it**. Two now do.
+- **`lookup_record` could not ask by PMCID**, so a paper filed under its PMCID —
+  which is exactly what a PDF printing no DOI now gets — had no route to a record
+  at all.
+
 ## 5. What the apparatus found about itself
 
 Four measurements of mine were refused by other measurements, each at the cost of
