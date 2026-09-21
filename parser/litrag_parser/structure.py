@@ -126,7 +126,7 @@ def build_headings(items: list[dict[str, Any]], front_end: int, title_ref: str |
     # is not the author's: the blocks before it still have no heading, and it stays where it is
     stop = next((i for i, it in enumerate(items) if it.get("_inferred")), len(items))
     # the title itself may carry the label `section_header` (Docling's usual word for a big first-page line)
-    if any(it.get("label") == "section_header" and (it.get("text") or "").strip() and not it.get("_inferred") and it.get("self_ref") != title_ref for it in items):
+    if any(it.get("label") == "section_header" and (it.get("text") or "").strip() and not it.get("_inferred") and not it.get("_furniture_head") and it.get("self_ref") != title_ref for it in items):
         return items, front_end
     after_title = next((i + 1 for i, it in enumerate(items) if title_ref is not None and it.get("self_ref") == title_ref), 0)
     abstract = next((i for i in range(after_title, stop) if items[i].get("label") in _PROSE_LABELS and _words(items[i].get("text") or "") >= 40), None)
@@ -172,12 +172,18 @@ def build_headings(items: list[dict[str, Any]], front_end: int, title_ref: str |
 def lane_sections(tree: Any, oracle: Oracle | None, repairs: dict[str, int]) -> None:
     """The post-pass: a top-level section whose heading names nothing takes the lane its
     paragraphs are clearly of, when that lane has a shape of its own; a section whose
-    heading did name a lane has a strong disagreement noted, not applied."""
+    heading did name a lane has a strong disagreement noted, not applied.
+
+    Only in a paper whose own headings name its methods or its results: there an unnamed section
+    between them is one of the two (BMC's "Neurophysiological measures"). A review names neither,
+    and its topical sections are `other` however much they read like results — which is what its
+    XML says of them, and what the lanes are for. The verdict is stored and noted either way."""
     if oracle is None:
         return
     from .tree import _descendants  # noqa: PLC0415 - tree imports this module
 
     kind = oracle.kinds["block"]
+    research_like = any(n.type == "section" and n.level == 1 and n.label != "built" and n.role in ("methods", "results", "results-discussion") for n in tree.root.children)
     changed = False
     order = [n for n in tree.walk() if n.type == "paragraph"]
     place = {id(n): i / max(len(order) - 1, 1) for i, n in enumerate(order)}  # where in the paper each paragraph sits
@@ -201,13 +207,14 @@ def lane_sections(tree: Any, oracle: Oracle | None, repairs: dict[str, int]) -> 
             v = Verdict(name if score >= kind.threshold and margin >= max(kind.margin, LANE_MARGIN.get(name, 0.0)) else "other", round(score, 4), round(margin, 4))
             oracle.remember("block", key, v)
         if section.role == "other":
-            if v.sure and v.name in CONTENT_LANES:
+            if v.sure and v.name in CONTENT_LANES and research_like:
                 for n in _descendants(section):
                     n.role = v.name
                 repairs["laned"] = repairs.get("laned", 0) + 1
                 changed = True
             elif v.sure:
-                tree.notes.append({"kind": "lane-suggested", "node_id": section.node_id, "page": section.page, "message": f"the paragraphs read as {v.name} (cosine {v.score}, margin {v.margin}); the heading names nothing, and only methods, results (with or without discussion) or references are taken from content"})
+                why = "the heading names nothing, and only methods, results (with or without discussion) or references are taken from content" if research_like else "the paper's own headings name neither methods nor results, so its sections are topical and stay `other`"
+                tree.notes.append({"kind": "lane-suggested", "node_id": section.node_id, "page": section.page, "message": f"the paragraphs read as {v.name} (cosine {v.score}, margin {v.margin}); {why}"})
         elif v.sure and v.name in NOTE_LANES and v.name != section.role and not (v.name == "results-discussion" and section.role in ("results", "discussion")) and not (section.role == "results-discussion" and v.name in ("results", "discussion")):
             repairs["lane_disagreement"] = repairs.get("lane_disagreement", 0) + 1
             tree.notes.append({"kind": "lane-disagreement", "node_id": section.node_id, "page": section.page, "message": f"the heading names {section.role}, the paragraphs read as {v.name} (cosine {v.score}, margin {v.margin}); the heading stands"})

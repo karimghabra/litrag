@@ -17,3 +17,20 @@ def test_what_is_not_a_symbol_error_is_left_alone():
     assert repair_glyphs("samples 1 - 10 were pooled") == "samples 1 - 10 were pooled"  # a range, not an exponent
     assert repair_glyphs("nothing to fix here.") == "nothing to fix here."
     assert glyph_residue("pH ¼ 7.4 and þ more") == 2 and glyph_residue("clean") == 0
+
+
+def test_a_ligature_the_font_drew_with_a_glyph_of_its_own_is_undone_where_it_makes_a_known_word():
+    from litrag_parser.glyphs import repair_glyphs
+
+    # Hindawi's STIX fonts: the "fi" read as its "f" alone
+    assert repair_glyphs("were identifed and classifed; the beneft was signifcant") == "were identified and classified; the benefit was significant"
+    assert repair_glyphs("prefltered samples were confrmed") == "prefiltered samples were confirmed"
+    # RSC: a private-use glyph for the ligature, inside a word or at its start
+    assert repair_glyphs("the identi\ue103cation of bene\ue103ts and \ue103nal results") == "the identification of benefits and final results"
+    # the presentation forms, always
+    assert repair_glyphs("a \ufb01ne \ufb02ow") == "a fine flow"
+    # Wiley's Advanced journals: the ligature kept with the left fragment
+    assert repair_glyphs("the specifi c capacity is briefl y summarized") == "the specific capacity is briefly summarized"
+    assert repair_glyphs("the staff took the cutoff off site") == "the staff took the cutoff off site"
+    # words that are words stay as they are
+    assert repair_glyphs("we fed the left side after soft deformation of the shelf") == "we fed the left side after soft deformation of the shelf"

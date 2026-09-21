@@ -98,8 +98,12 @@ def method_candidates(tree: Tree) -> list[tuple[Node, str]]:
         subs = [c for c in top.children if c.type == "section"]
         if subs:
             # in the paper's order; a paragraph before the first subsection is the section's preamble
-            # ("All reagents were from Sigma"), which every method shares and none owns
-            seen_sub = False
+            # ("All reagents were from Sigma"), which every method shares and none owns — unless the
+            # preamble is most of the section, a methods section with one late subheading: then its
+            # paragraphs are methods of their own
+            words_before = sum(len(c.text.split()) for c in top.children[: top.children.index(subs[0])] if c.type == "paragraph")
+            words_all = sum(len(x.text.split()) for x in _walk(top) if x.type == "paragraph" and x.text)
+            seen_sub = words_all > 0 and words_before >= 0.4 * words_all
             for c in top.children:
                 if c.type == "section":
                     seen_sub = True

@@ -5,6 +5,303 @@
 Meaning everywhere a list used to be, and a scorer for the one question
 meaning cannot answer.
 
+- **The publisher's furniture is never a chunk of the body.** Counted in chunks — a chunk
+  being a paragraph node, the unit retrieval hands back — the reading of 127 novel papers
+  produced 6,375 chunks for the 5,808 the papers have, and 219 of its own carried text no
+  paper holds: a licence sentence, a date line, an editor's name, an imprint, an abbreviation
+  list. MDPI sets these down the left of its first page and the layout model reads them
+  between the introduction's paragraphs, where the front-matter boundary — which only ever
+  looked *before* the body began — could not reach them. Six rules, each gated on the 199
+  pairs and the three corpora, take **junk chunks from 219 to 108** and the reading's own
+  chunk count from 6,375 to 6,268, with `faithful` on the 199 rising from 0.9726 to 0.9730 on
+  the strength of one paper and no paper worse anywhere:
+  - `tree._late_front`: a line whose *shape* is unmistakably the publisher's is front matter
+    wherever the layout read it, on the first two pages, even after the body has begun. The
+    embedder is not asked once the body is open — only the shape counts — and a block holding
+    a sentence that carries on in lowercase is never one.
+  - three of those shapes carry their own length rather than the 25-word cap: a licence
+    sentence and a publisher's citation line are the publisher's up to 120 words **and never
+    cite a reference**, which is what separates them from a paper whose subject is licensing;
+    an imprint (`_COPYRIGHT_LINE`: "© The Author(s) 2026. Published by Oxford University
+    Press…") opens a line and never a sentence of a paper.
+  - `_front_kind` learns the editor's line ("Academic Editors: Steven C. Cook and Simona
+    Sagona") and the bare date line ("Available online 6"), which `_late_front` already trusted
+    but no rule could name — the two halves of the pass have to know the same shapes or the
+    gate opens on a line the namer then calls `other`. Reading the ledger again after the first
+    pass closed three more: `_LICENCE` now matches the sentence *as the layout model cuts it*
+    ("International License, which permits any non-commercial use, sharing, …" — it spelled
+    `noncommercial` without the hyphen the journals print), an author list or an institution's
+    address joins the shapes the short-line cap admits, and Cureus's "Categories:" line is its
+    keywords under another name. Five more junk chunks, no paper moved on the 199, and
+    precision there up 0.97615 → 0.97630.
+  - `tree._back_ends`: an abbreviation list printed on the first page is furniture, not the
+    paper's back matter. Scientific Reports sets one beside the abstract and prints no
+    "Introduction", so eight introduction paragraphs — 600 words — were read as back matter.
+    Modelled on `_message_ends`: the list's entries are a few words each, the prose that
+    follows runs past forty and cites, and no methods, results or discussion section is open.
+    A real Abbreviations section at the end is untouched.
+  - `tree`'s invented parent is a last resort, not a first one: when "2.2" arrives while
+    "1 INTRODUCTION" is open, the reader now looks for a top-level section the author numbered
+    "2" and goes back to it, standing in `2. (heading not detected)` only when there is none. A
+    two-column page read right column first puts "2 METHODS" and "2.1" above "1 INTRODUCTION",
+    and every later subsection was filed `other` under an invented parent. The author numbered
+    both the section and its subsection, so this is the author's own word for where the prose
+    belongs, not a resemblance. On the 199 pairs it moved exactly one paper, upward by 0.113
+    (10.3389/fepid.2026.1813211, 0.865 → 0.979), taking faithful by words to 0.9730 and well
+    matched to 185; on the novel set it took one paper's wrong-laned chunks from 5 to 1.
+  - a heading that repeats the paper's own title is its banner, not a section; and a date line
+    heads no section **at any page** — of the front-matter shapes read as a heading past the
+    second page, the witness finds the date line among the paper's own headings 0 times in 9,
+    against an affiliation 21 times in 31 (MDPI's "Institutional Review Board Statement") and
+    an author line 2 in 6, so only the date line is taken.
+
+  Out of 5,808 chunks the novel set now arrives 5,195 (89.4%) as one chunk in the right lane
+  and 5,427 (93.4%) in the right lane at all, with 79 landing outside the prose (was 87) and
+  47 missing. Those two numbers are about *placement*; asked instead whether the paper's prose
+  reaches the tree at all — any node, any type — the reading holds **0.9995** of the novel
+  set's 721,848 prose words and 0.9997 of the 199 tuned pairs' 1,075,647. The 47 missing chunks
+  are about 360 words between them, and 43 of the 47 are in the PDF's own text layer: they are
+  run-in labels the XML holds as paragraphs and the reading reads as headings, not lost text.
+
+- `parser/litrag_parser/review.py` (new, `LITRAG_REVIEW=off` by default): the reader's own
+  log read back by a local model. It is shown the reading — every section with its lane and
+  where that lane came from, every paragraph with the lane it inherited — and answers with
+  repairs: `relabel`, `not_a_section`, `split`. By Karim's decision of 2026-09-19 a verdict
+  fills a silence and never overrules a rule, so only a `relabel` is applied, only where the
+  section's own heading names no lane and it holds none (`_silent`), only towards a content
+  lane, and only in a paper that reads as research — a review's sections are topical whatever
+  they read like. Every answer is a row in `reviews`, keyed by the log and the model but not by
+  the policy, so a policy is weighed again against answers already stored without asking a
+  model twice; a rebuild replays it and an XML is never judged.
+  **Measured on 54 novel papers, and it does not close the gap.** Under that policy one lane
+  was filled in 54 papers and the mean faithful moved −0.0009. Weighing the 335 repairs the
+  policy refused against the XML: 57 would have hurt (a review's topical sections laned by
+  their sense), 89 were no change, 22 name a section the XML does not have, and 7 would have
+  helped — every one of those in the class the invariant forbids, a rule that had already
+  spoken in a research paper, against 2 in the same class that would have hurt. Of its 74
+  "this is no heading" claims, 50 are wrong, including three real "Methods", "Results" and
+  "Introduction" headings: the log shows a section whose prose sits in its subsections as
+  having "no paragraphs of its own", and the model reads that as furniture. The pass ships off,
+  its rows accumulate evidence, and the prompt flaw is written down (BACKLOG).
+- `pairs.py`: three numbers that name the residue instead of totalling it.
+  **`placed`** is the share of the XML's prose words landing in the PDF
+  section that matches the XML's own section, so a lane that is right under
+  the wrong heading no longer counts as right (novel papers: placed 0.931
+  against faithful 0.960). **`lane_only`** splits the rest by direction — the
+  paper's own lane where the file gives none, against a lane in the file and
+  none of the paper's own — so a journal's convention is visibly not a
+  reading error (of the novel set's 16,812 such words: 52 per cent two
+  lanes, 25 the paper's own lane, 23 the file's). **`split_reasons`** says
+  what stands between the pieces of a paragraph that arrived cut: over both
+  corpora a caption read between the halves is 40 per cent of them, nothing
+  at all on one page a third, and a page break — the one case the boundary
+  scorer was built for — a tenth.
+- `tree.py`, `_refuse_front_furniture`: a line of the paper's furniture that
+  the layout model read as a section heading is refused even where prose
+  follows it, and the prose it would have swallowed is the body's. The
+  evidence is the line's own shape — `_front_kind` with the vocabulary
+  alone, never the embedder, whose wrong verdict would file a section's
+  prose under the section before — plus a page's folio ("7 of 9") anywhere,
+  and the journal's own name from the record (`_journal_name`, either side
+  abbreviated: "Chem Sci" for "Chemical Science"), with the short lines the
+  pages repeat standing in where a library holds no record. An affiliation
+  or correspondence line is refused wherever it was read, since RSC prints
+  its affiliations after the introduction's first lines; a notice or the
+  journal's name only before the body begins, which is now read from the
+  vocabulary and the author's numbering alone, never the embedder. One
+  refused heading no longer suppresses the built-heading pre-pass
+  (`structure.build_headings`), and `typography.restyle` keeps a page-one
+  heading the running heads repeat only when it reads like a title — four
+  words or more — so a three-word banner is furniture. Every refusal is a
+  note (`heading-refused`) and a notice node: no text is dropped. Two papers
+  of the novel set read better (0.777 → 0.944, 0.705 → 0.787), one 0.008
+  worse as a consequence of two correct refusals; the 199 tuned pairs are
+  unchanged to the digit.
+- `library.py`, `worker.py`, `harness.py`: `build_tree(record={"journal": …})`
+  — what the library knows of a paper reaches the reader, and every reader
+  passes it, `pairs` through `harness.read_paper` as much as the worker.
+- `tree.py`, `_reading_order`: a page read out of order in one column, put back.
+  MDPI sets its reference list at the foot of the page and the layout model
+  reads it before the text above it, so a conclusion filed under
+  "References". Only within one column of one page, only where a heading
+  stands in what was read early, and on a page of two columns only where
+  both runs stand in the same one; a box too small to hold its block's own
+  text (a rotated sidebar) is not trusted. Fifteen papers better, none
+  worse.
+- `tree.py`, `_recurring_furniture`: a running head is what recurs at the
+  same height on three pages; the same words at three different heights are
+  the paper's own, and only the occurrences that stand together are dropped.
+  Diabetes Care prints "RESULTS" in its visual abstract, again in its
+  structured abstract and over the section itself, and both body headings
+  had been dropped as furniture (that paper: faithful 0.245 → 0.830).
+- `tree.py`, `_mark_abstract_parts`: a structured abstract printed as
+  sections — "OBJECTIVE", "RESEARCH DESIGN AND METHODS", "RESULTS",
+  "CONCLUSIONS" — is the abstract, not the body: three or more of its part
+  names in a row on the first pages, each over short prose that cites
+  nothing, are laned `abstract` under the abstract itself (built where the
+  paper printed no heading over them), and the citing prose after them opens
+  the introduction.
+- `typography.py`: a line of capitals is a heading in a paper that sets its
+  headings in capitals in the body's own face, marked by nothing else
+  (ASTMH): three or more such headings found by the layout model, and a
+  block it read as text is relabelled whole — never cut in two.
+- `structure.py`, `lane_sections`: a content lane is applied only in a paper
+  whose own headings name its methods or its results. A review names
+  neither, and its topical sections stay `other`, as its XML keeps them; the
+  verdict is stored and noted either way. (An Advanced Science review:
+  0.697 → 0.983.)
+- Together, on the 199 pairs: faithful by words 0.964 → 0.973, mean 0.959 →
+  0.967, well matched 180 → 183, paragraphs intact 0.928 → 0.929, headings
+  found 0.882 → 0.884, precision unchanged; 19 papers better, none worse.
+- `typography.py`, `depth_by_type`: each heading's depth from its look —
+  top-level when set at least as prominently as the paper's core sections
+  in every way the page shows (a flat capital's height, capitals, weight,
+  an upright face, the same face), nested when set less prominently;
+  nothing said for a scan's one-face text layer, numbered subsections set
+  like the top level, another face of the same size, figure labels,
+  running heads, the reference list's region, back statements after the
+  body; unnumbered headings stay below a numbered top level; a number the
+  top level does not use, set below it, is a list's; a paper with no core
+  section whose headings are all set one way has one level (an editorial's
+  topical sections, `depth_by_type_one_level`). `infer_level` takes it
+  (`_typo_level`) over its own guess; a fused or merged heading's second
+  half is its first's subsection. On the 199 pairs: faithful by words 0.832
+  → 0.938 (the oracle for perfect depth: 0.935), well matched 126 → 158.
+- `typography.py`: a heading that is the journal's running head or a line of
+  furniture is filed as furniture ("Journal of Hand Surgery Global Online"),
+  never on the first page, where it is the title.
+- `tree.py`: a printed heading is never the child of a heading the reader
+  built; front matter ends at the paper's first printed heading after its
+  prose has begun; a front-matter box (keywords, highlights, article info,
+  a lay abstract, an author summary) does not keep the prose read after it,
+  which joins the introduction already read or opens one; a key-message box
+  (BMJ's "What is already known on this topic", BMJ Open's strengths and
+  limitations, Diabetes Care's article highlights) keeps its bullets, and
+  the prose that cites after them returns to the introduction — only while
+  no methods, results or discussion section is open; an abstract read
+  after the introduction's heading gives back the prose after it; a heading
+  that says "Abstract" is the abstract wherever it was read; citation
+  shapes "(1, 2)." and "(Author 2024)" open the introduction as "[1]" did.
+  Together with depth by type: faithful by words 0.832 → 0.964, well
+  matched 126 → 180 of 199, depth agreement 0.886 → 0.942; one paper reads
+  worse than before, its XML flat where the page nests.
+- `glyphs.py`: ligatures a font drew with a glyph of its own — presentation
+  forms, a private-use glyph (RSC's "identi\ue103cation"), a "fi" read as its
+  "f" (Hindawi's "identifed"), a ligature kept with its left fragment
+  (Wiley's "specifi c") — undone where the result is a known word.
+- `edges.py`: a methods section whose text mostly stands before its first
+  subheading keeps those paragraphs as methods of their own.
+- `parser/litrag_parser/typography.py` (new), run from `recover_from_pdf`
+  before the tree is built and again on `rebuild`: the page's type as a
+  witness for headings. Every line of the text layer with its runs of
+  font, weight and size (pdfium); the body's style; a line set apart from
+  it — bold, italic, larger, or on its own row under a deep numbering —
+  as a heading. A run-in heading is cut from the front of its paragraph
+  ("2.1. Non Surgical Approach. For small tears …" → a heading and a
+  paragraph), a heading fused into a paragraph is cut out after the
+  sentence before it, a heading no box holds comes back (bold, larger or
+  numbered only), a heading's split letters are spelt as the row prints
+  them ("I NTRODUCTION"). Nothing is cut before the body's first heading
+  (the abstract's labels and the keywords are set the same way), a
+  back-matter word inside the body is a table's note, a series of bold
+  names (an author list) is left alone, a reference entry is never cut.
+  Counted in repairs as `run_in_headings`, `unfused_headings`,
+  `recovered_headings`, `retexted_headings`. On the 64 pairs: the XML's
+  headings found 0.82 → 0.89, faithful 0.80 → 0.81, reference lists and
+  citation links up (with the change to `_entries_follow` below).
+- `tree.py`: a heading printed run in at a paragraph's front (`_runin`)
+  is a subsection of the section it stands in, whatever its name — PNAS's
+  "Ethics Statement." and "Statistics." under Materials and Methods had
+  become top-level sections by their names and taken the methods' text
+  with them.
+- `edges.py`: a methods section whose text mostly stands before its first
+  subheading — one late run-in subsection in a long methods section — keeps
+  those paragraphs as methods of their own, not a shared preamble that no
+  finding can link to.
+- `tree.py`: `_entries_follow` looks past a whole block of back-matter
+  statements, not eight items: MDPI sets "Funding" to "Conflicts of
+  Interest" between the reference entries, and once those were headings
+  the list broke at the first of them (reference lists 0.95 → 0.09 on
+  one paper) — now the block stays inside the list as Frontiers' single
+  statements already did.
+- `parser/litrag_parser/outline.py` (new), `outlines` table: the outline
+  judge — a local model through Ollama reads the whole PDF as the reader
+  built it (headings marked, paragraphs numbered, the reference list and
+  reference-shaped paragraphs left out, a window sized to the paper,
+  thinking off) and returns its outline as JSON. Taken from it: a lane for a
+  section the rules left unnamed and unnumbered — in a review, a section
+  the model puts outside the one the reader nested it under becomes a
+  topical section, `other`, whatever the model calls it; in a research
+  paper (the judge is told the type first) a subsection keeps its section's
+  lane and only a section the reader could not place takes the model's —
+  and a built heading where it says a section starts inside another, placed
+  beside the section its numbering matches or after the top-level section
+  it ends, laned as the reader lanes a heading, never by the model's word,
+  and never a heading the reader has; not taken: the depth, or any lane a
+  heading or a numbering settled (a note instead). Measured on the 64
+  PDF/XML pairs with six local models (NOTES.md: Qwen 3 14B 0.80 to 0.91,
+  lane agreement 0.88 to 0.96). Rows replayed by
+  `rebuild`; asked on `ingest`/`reparse` only with `LITRAG_OUTLINE=on` or
+  `outline: true`; `LITRAG_OUTLINE_MODEL` picks the model; an XML is never
+  judged. `python -m litrag_parser.outline --pdf-lib DIR --xml-lib DIR
+  --model M` scores a model on the PDF/XML pairs, faithful before and after.
+- `tree.py`: a back-matter statement the vocabulary knows ("Data
+  availability statement", "Funding") read between the entries of a
+  reference list stays inside it, as an unknown one already did, and the
+  entries after it are entries again: Frontiers sets those statements in
+  the left column under the start of the list, and one paper's 93 entries
+  had filed as acknowledgements (found when the outline judge was shown
+  them and took the paper for a bibliography).
+- `parser/litrag_parser/pairs.py` (new): two readings of one paper compared
+  — the tree read from a PDF against the tree read from the publisher's
+  JATS XML, from two libraries that hold the same DOIs. Text is located by
+  four-word shingles of letters and counted in words: recall, *faithful*
+  (present and in a paragraph of the same lane), precision, paragraphs
+  intact, split, merged or missing, headings found, spurious and at the
+  right depth, the reference list, the citation links, the captions, the
+  title. `--show KEY` says where a paper's text landed and which headings
+  went missing. 199 pairs over three corpora: recall 0.99, faithful 0.78 to
+  0.86, precision 0.96 to 0.98 — the text is there, the lane is what goes
+  wrong.
+- `parser/litrag_parser/confidence.py` (new), `papers.confidence`,
+  `confidence_detail`: how far a reading can be trusted, from the reading
+  alone. Eleven checks, each a plain measurement of the tree with a limit
+  read off the pairs (the share of the prose in the abstract, the back
+  matter, the reference list, the largest lane; missing lanes for the type;
+  repeated text; odd headings; cut paragraphs; an unsettled type), combined
+  as graded penalties with their reasons in words. Scored at every ingest
+  and rebuild, in the `tree` event, the harness report and the window.
+  `--calibrate` scores the score against saved pairs: at 0.9 or more, 105 of
+  129 readings matched their XML well; under 0.5, 25 of 30 were seriously
+  off. The reader's older self-measurements (coverage, dropped lines, glyph
+  residue, audit errors) predict none of it.
+- The window's paper list sorts (as added, format, type, title, year,
+  confidence lowest first) and narrows by chips to PDFs or XML, one type of
+  paper, or one band of confidence (`app/src/renderer/papers.ts`, tested
+  apart from the DOM and in the real window); each card shows its reading's
+  confidence, the reasons on hover and in the tree pane's summary.
+- `tree.py`, three repairs the pairs found on their first day: a block that
+  carries its paragraph twice — a copy cut short and then the whole, or the
+  whole and then its beginning again — says it once (`unrepeat`); a lane's
+  heading fused with the subheading under it ("Results and discussion
+  Contrasting glacier mass balance …") is two headings
+  (`split_fused_heading`); and an XML's own section depth stands
+  (`infer_level(stated=True)`): 453 headings in 145 of 513 XML papers had
+  been nested under whichever section stood open, and whole review bodies
+  read as `introduction`.
+- `harness.read_paper`: one paper read again from its saved Docling
+  document the way a rebuild reads it, shared by the harness and the pairs.
+- `worker.pick_doi`: a PDF is filed under its own DOI, not the one its
+  dataset or code carries at Zenodo, figshare, OSF, Dryad, Mendeley Data or
+  Dataverse, printed above it on the first page; a repository's DOI is used
+  only when it is all there is. (A paper already filed keeps its key.)
+- `headings.py`: "observation" is a spelling of Results (ASM's article
+  type calls its body that) and "author summary" of Highlights (PLOS's lay
+  summary), both found when the XML's stated depth brought them back to the
+  top level with no lane.
+- `pairs` and the harness say in capitals when the embedder did not answer:
+  every heading no rule names then reads `other`, and the numbers are those
+  of a reading without it.
 - `PIPELINE.md` (new): the pipeline on one page — what is current, opt-in,
   experimental or deprecated (the `lit` CLI in `src/`), a paper from filing
   to saved rows, reparse against rebuild, and every `LITRAG_*` switch with

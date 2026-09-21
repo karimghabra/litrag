@@ -47,7 +47,7 @@ how a paper moves through it, and every switch: `PIPELINE.md`.
 
 | Pane | What it shows |
 |---|---|
-| Papers | each paper with its key, what kind of paper it is and who said so, the authors, journal and year the file or the record states, its status and live stage — filed · models · layout · tree · saved — then a bar of its lanes, and a flag when no methods section was found |
+| Papers | each paper with its key, what kind of paper it is and who said so, the authors, journal and year the file or the record states, its status and live stage — filed · models · layout · tree · saved — how far its reading can be trusted (hover for why), then a bar of its lanes, and a flag when no methods section was found. Above the list: a sort (as added, format, type, title, year, confidence lowest first) and chips that narrow it to PDFs or XML, to one type of paper, or to one band of confidence |
 | Tree | the paper's sections nested as the paper meant them, every node coloured by lane, tables as `rows × cols`, chips to dim everything but one lane; the front matter as a few typed nodes — authors, affiliations, dates, correspondence, keywords |
 | Page | the page a node came from with its box, every other node on the page faint; the node's ancestry, role, Docling label and text; a table's cells as a grid |
 | Log | the worker's stages and Docling's own log lines, as they happen |
@@ -78,6 +78,49 @@ carried over a page break is read on both of its pages; a rotated
 "Downloaded from" sidebar glued to the pages after it is taken apart; a
 table's note glued to the paragraph before it is the table's footnote; a
 table Docling could not structure gets its rows from the layer.
+
+The layer also knows the type. pdfium gives every glyph its font and
+weight, so `typography.py` reads every line as runs of one style, names
+the body's style (the face and size that hold most of the paper's
+letters) and treats a line set apart from it — bold, italic, larger, or on
+its own row under a deep numbering — as the heading it is. Four things the
+layout model gets wrong come right that way, before the tree is built: a
+heading printed run in at the start of its paragraph ("2.1. Non Surgical
+Approach. For small tears …", "Materials. Human amniotic membranes …") is
+cut into a heading of its own; a heading run into the paragraph before or
+after it is cut out; a heading no box holds comes back (bold, larger or
+numbered — an italic line alone is emphasis or a species name); and a
+heading whose letters the layout model split ("T endon", "I NTRODUCTION")
+is spelt as the row prints it. The abstract's labels ("Background:",
+"Methods:") and the keywords, set the same way, are left alone: nothing is
+cut before the body's first heading, and a back-matter word inside the
+body ("Note:", "Abbreviations:" under a table) is a table's note, not the
+paper's. Measured on the 64 PDF/XML pairs, the XML's headings found went
+from 0.82 to 0.89 with no paper's text worse laned.
+
+The type also says how deep a heading lies, which was the reader's largest
+loss: a review's own sections read as the introduction's subsections, a
+third of a paper filed under the wrong lane. The paper's core sections by
+their own names (Introduction, Methods, Results, Discussion, Conclusions)
+show how its top level is set; a heading set at least as prominently in
+every way the page shows is top-level, one set less prominently is nested,
+and where the page cannot tell — a scan's single font, subsections set like
+the top level, another face of the same size — the reader's own rule
+stands; an editorial whose topical headings are all set one way has one
+level. A printed heading is never the child of one the reader built. With
+the fixes that came with it (a keywords or highlights box, or a key-message
+box's bullets, does not keep the introduction read after it; an abstract
+read after the introduction's heading gives the prose after it back; front
+matter ends at the paper's first heading after its prose; citations in
+ASM's and PNAS's shapes; the ligatures Hindawi and RSC fonts lose), and
+with the page's own order and words put first (a page the layout model read
+out of order in one column, put back; a running head as what recurs at the
+same height, so a section heading that also stands in a visual abstract is
+no furniture; a structured abstract printed as sections read as the
+abstract; a line of capitals as a heading where the paper sets its headings
+so; a lane from content only where the paper's headings name its methods or
+results), the PDFs' agreement with their XML went from 0.83 to 0.97 of the
+words, and papers well matched from 126 to 183 of 199.
 Deterministic, local, and derived again on every `rebuild`; the raw
 Docling document is untouched. On the pilot libraries: 61 equations
 filled, 655 blocks given their whole words, and the sentences in a text
@@ -288,6 +331,77 @@ Ethical Considerations" is a body section, lane or no lane); a heading that
 names nothing keeps no name. Built headings take the catalogue's names, which are the corpus's
 modal spellings. The window shows the name after the heading when the two
 differ.
+
+## How far a reading can be trusted
+
+A PDF only shows what its XML states, so a paper held in both formats can be
+read twice and the two trees compared (`pairs.py`): for every paragraph of
+the XML, is its text in the PDF's reading at all (*recall*), is it in a
+paragraph of the same lane (*faithful*), did it arrive in one piece; and the
+other way round, how much of the PDF's prose does the XML hold (*precision*).
+One DOI files once in a library, so the second format lives in a companion
+library — `held-out-pdf` beside `held-out-xml`, `looped-ligament-pairs`
+beside `looped-ligament`:
+
+```
+uv run --project parser python -m litrag_parser.pairs --pdf-lib <library> --xml-lib <library> --json <outside the repo>/pairs.json
+uv run --project parser python -m litrag_parser.pairs --pdf-lib <library> --xml-lib <library> --show doi:10.…
+uv run --project parser python -m litrag_parser.confidence --calibrate <outside the repo>/pairs.json …
+```
+
+On 199 such papers the text is nearly always all there (recall 0.99), and
+what goes wrong is where it is filed: a top-level heading the layout model
+dropped or fused with the next, so the results stay under the methods; a
+review's sections read as the introduction's children; a body that starts
+with no heading and stays in the abstract; methods printed after the
+reference list; and blocks that carry their paragraph twice. None of the
+reader's older measurements of itself — page coverage, dropped lines, glyph
+residue, audit errors — predicts any of it. So `confidence.py` measures the
+tree for exactly those failures (where the prose lies by lane, the lanes a
+paper of its type should have, text that repeats, headings that are not
+headings, paragraphs cut in two) and turns them into one number in (0, 1]
+with its reasons: `papers.confidence` and `confidence_detail`, on the paper
+card, a sort and a filter in the window. Every limit is read off the pairs,
+and the score is kept honest by them: at 0.9 or more, four readings in five
+matched their XML well (faithful and precision both at least 0.9) and one in
+twelve was seriously off; under 0.5, five in six were seriously off. It
+flags; it never changes a tree.
+
+## A model in the loop: the outline judge
+
+What a PDF loses is rarely text and mostly structure, so `outline.py` lets a
+local model read the whole paper — a median paper is 11,000 tokens, Qwen 3's
+window is 40,000 — and say where its sections are: for every section a
+title, a depth, a lane and the paragraph it starts at, as JSON. What is
+taken from the answer is measured against the XML pairs and bounded by the
+invariants: a lane, where the rules gave none (a section whose heading names
+no lane and whose place under the section above it the reader only
+inferred: in a review, one the model puts outside that section is a topical
+section, `other`, whatever the model calls it; in a research paper a
+subsection is part of its section, and only a section the reader could not
+place takes the model's lane); a boundary, where the reader had none
+(a built heading, labelled `built`, from the model's title, laned the way
+the reader lanes any heading — its own name at the top level, its section's
+above when nested — never by the model's word); never the depth, since
+meaning alone cannot tell a flat outline from a nested one, and never a lane
+a heading or a numbering already settled — there the model's word is a
+note. Every answer is a row in `outlines`, keyed by the paper as the model
+saw it and the model's name, so a rebuild replays it and never asks. It is
+off unless `LITRAG_OUTLINE=on` (or `outline: true` on an `ingest`, `reparse`
+or `judge` request); `LITRAG_OUTLINE_MODEL` picks the model.
+
+```
+LITRAG_OUTLINE=on npm run app
+uv run --project parser python -m litrag_parser.outline --pdf-lib <library> --xml-lib <library> --model qwen3:14b --json <outside the repo>/outline.json
+```
+
+The second line measures a model on papers held in both formats: the
+faithful score before and after the judge, paper by paper, the answers it
+could not read, the seconds a paper took. On the 64 pairs measured
+(NOTES.md, 2026-09-18) Qwen 3 14B takes the PDFs' agreement with their XML
+from 0.80 to 0.91 and the lanes their headings agree on from 0.88 to 0.96,
+eleven papers better and two worse, at twenty seconds a paper; Qwen 3 8B
+does nearly as much in thirteen and made no paper worse.
 
 ## From a finding to the method that produced it
 

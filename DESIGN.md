@@ -303,6 +303,212 @@ JSON: the hits, each with its lane, its paper's type, the methods it was
 their methods" is one query; "what was measured with this assay" is the same
 edges walked the other way. Same rows, same answer, on any machine.
 
+### R3.6 How far a reading can be trusted
+
+*Built 2026-09-17.* Karim: "we need to design some kind of confidence metric
+that we can use to screen well-matched papers … especially easily if we have
+both the XML and the PDF of a particular paper." The XML is the nearest thing
+to the truth about a PDF's tree, so the design has two halves. `pairs.py`
+reads a paper from both formats and measures the distance: text located by
+four-word shingles of letters, presence counted in words (a word hyphenated
+at a line's end cost four shingles and three to eight points of recall, all
+noise), *faithful* = present and in a paragraph of the same lane, precision
+the other way round, paragraphs intact, split, merged or missing, headings,
+references, citations, captions. `confidence.py` then has to predict that
+distance from the PDF's reading alone. The first measurement decided the
+shape of the second half: on 168 pairs none of the reader's existing
+self-measurements correlated with agreement (page coverage −0.02, dropped
+lines −0.12, glyph residue −0.06, audit errors −0.04), because what goes
+wrong is not what they watch — the text is there (recall 0.99) and is filed
+under the wrong lane. So the signals are aimed at the failures the pairs
+named, each a plain measurement with a limit read off the pairs, combined as
+graded penalties with the reasons kept in words; no model, nothing learned
+that cannot be read in `CHECKS`. Measured on 199 pairs (three corpora; the
+limits mostly read from one, the other two agreeing): the score ranks a
+well-matched paper above another 0.79 of the time and separates the
+seriously mismatched at 0.83; at 0.9 or more, 105 of 129 are well matched and
+11 seriously off; under 0.5, 25 of 30 are seriously off. What it does not
+see is a partial disagreement — a fifth of the text under a neighbouring
+lane — and that is the next iteration's work (NOTES.md).
+
+The comparison is also the sharpest test the reader has had: on its first
+day it found a block that carries its paragraph twice (repaired:
+`unrepeat`), a lane's heading fused with the subheading under it (repaired:
+`split_fused_heading`), and that the reader had been ignoring the depth an
+XML states — 453 headings in 145 of 513 XML papers nested under whichever
+section stood open, whole review bodies read as `introduction` (repaired:
+`infer_level(stated=True)`). The PDF side of that last defect — a review's
+unnumbered headings, whose depth only the typography says — is open
+(BACKLOG.md).
+
+### R3.7 A model in the loop: the outline judge
+
+*Built 2026-09-17.* Karim: "build a working prototype of the entire
+pipeline using an agent in the loop, and test different local models."
+The pairs (R3.6) had said where a PDF's reading goes wrong: structure, not
+text — a heading dropped or fused, a section nested under the one before
+it, a body that stays in the abstract. A language model reading the whole
+paper sees where a section begins the way a person does, and the whole
+paper fits: a median paper is 11,000 tokens, Qwen 3 14B's window 40,960,
+its KV cache at a 32,000-token window about 5 GB beside 9.3 GB of weights
+on a 16 GB card, one answer fifteen to forty seconds. So `outline.py` asks
+one question per paper — the outline as JSON: title, depth, lane, first
+paragraph — and takes from the answer only what the invariants allow and
+the pairs confirm: a lane where the rules gave none, a boundary where the
+reader had none (a built heading, labelled), never the depth, never a lane
+a heading or a numbering settled. What the runs against the pairs taught,
+each now a rule: a numbered subsection keeps the lane its numbering put it
+under (the model called a review's "1.1 Anatomy of the cornea" topical and
+sent a well-read paper from 0.97 to 0.15 against its XML); a research
+paper's subsection is part of its section whatever the model calls it (a
+methods subsection called topical), where a review's sections under
+"Introduction" are the reader's guess, and a section the model puts
+outside that guess is a topical section, `other`, whatever the model calls
+it — Qwen 3 14B calls a review's sections methods and results-discussion
+by their sense, and the review's XML lanes them `other` by their headings,
+which is what a lane is — so the judge is told the paper's type first; a
+built heading is laned the
+way the reader lanes any heading, by its own name at the top level and by
+the section above when nested, never by the model's word (given the model's
+lane, a Hindawi review's run-in "2.1. Non Surgical Approach" became methods
+and 0.996 fell to 0.594; given the reader's rule, building is neutral on
+the text's lanes and lifts headings found from 0.82 to 0.85), and stands
+beside the section its numbering matches or after the top-level section it
+ends, where that reorders no text; a heading the reader already has is
+never built again (the model's paragraph is off by one); and a paper whose
+reference list the reader had filed as prose looks to the model like a
+bibliography, which it then declines to outline (the entries are left out
+of what it sees, and the reader's own defect there — Frontiers lists cut
+by the statements printed in the left column — is fixed). It is a judge in
+the shape of the page-break judge: rows replayed by rebuild, the model
+asked only on ingest and only when switched on, the XML never judged. The
+measurement is `python -m litrag_parser.outline` over the pairs, model by
+model; NOTES.md has the table (Qwen 3 14B: 64 pairs 0.80 to 0.91, the
+lanes headings agree on 0.88 to 0.96, eleven papers better and two worse,
+nine reviews the reader had folded under one heading from under 0.3 to
+0.67–0.99; Qwen 3 8B 0.80 to 0.90 with none worse, in thirteen seconds a
+paper). The switch stays off by default: the gain is real, a paper costs
+twenty seconds of the card, and the harness has not yet measured it on the
+corpora that have no XML twin.
+
+### R3.8 Smaller questions, and the page's type first
+
+*Built 2026-09-18.* Karim: "we should make the questions we ask to the
+models smaller and more targeted. feeding it the entire paper is probably
+not sensible … which heading does this chunk belong to, or: which of these
+chunks look like headings … we need to get to nearly perfect ingestion."
+The whole-paper outline (R3.7) had shown where a model is reliable — the
+structure — and where it is not — the lane — and that its cost is in the
+answer, not the prompt: a one-word answer to a five-hundred-token
+question takes a fifth of a second on the 8B once loaded (structured
+output, a JSON schema with an enum, and even the 4B answers). So the
+heading question was measured first, on every candidate line of the 64
+PDF/XML pairs, before anything was wired: the reader's own headings,
+short blocks, paragraphs that open with a short sentence, paragraphs with
+a numbering in their middle — 3,226 questions, each with the XML's answer.
+What it said: the reader has 82 per cent of the XML's headings; 93 of the
+1,694 are never printed (the ceiling is 94.5); of the rest, what is missed
+is run-in headings (140, printed on the paragraph's first line), headings
+fused into a paragraph, headings dropped, and letters split. The 14B
+finds the run-ins with recall 0.80, the 8B copies a heading from the
+context instead of reading the line. And then the page answered the same
+question better: pdfium gives every glyph its font and weight, and a
+run-in heading is the paragraph's first span set apart from the body and
+closed by a full stop or a colon; a dropped or fused heading is a row set
+apart; a split heading is spelt on its row. So `typography.py` came before
+any model question — deterministic, run on ingest and rebuild alike — and
+took the XML's headings found from 0.82 to 0.89 on the pairs, with the
+reference lists and citation links up rather than down once
+`_entries_follow` learned to look past MDPI's block of statements. Five
+rounds of measurement against the pairs set its guards: nothing cut before
+the body's first heading (the abstract's labels), a back-matter word
+inside the body is a table's note, a series of bold names is an author
+list, a reference entry is never cut, a heading is shorter than its
+column unless numbered, begins with a capital, and is more than an
+acronym. The model's question stays as a measurement (`heading_q3.py`,
+scratch) for the residue the page cannot answer — a run-in set in the
+body's own face — and is the shape every further question takes: one
+chunk, one constrained answer, validated against the chunk itself, a row.
+
+### R3.9 A heading's depth from the page's type, and the first page in order
+
+*Built 2026-09-19.* Karim: "I'm less worried about retrieval and more
+concerned with getting clean ingestion." Which part of ingestion first was
+settled by an oracle rather than a guess: the 199 PDFs read again with each
+heading's depth copied from its XML twin lost 61 per cent fewer words
+(faithful by words 0.832 → 0.935). Depth, not detection, was the largest
+loss — a review's own sections nested under its introduction, a third of a
+paper filed in the wrong lane. The page answers it: `depth_by_type` takes
+the paper's core sections by their own names as anchors (a first-level
+number only where none is set apart), their commonest look as the top
+level's, and calls a heading the rules leave in doubt top-level when it is
+set at least as prominently in every way the page shows — a flat capital's
+height within a twentieth (round and pointed capitals scaled back by the
+paper's own overshoot; a Q's tail had made a Semibold subsection larger
+than a Bold section), capitals, weight, an upright face, the same face —
+and nested when it is set less prominently in some way. Where the page
+cannot tell, it says nothing and the reader's rule stands: a scan's text
+layer in one face, numbered subsections set like the top level, another
+face of the same size, figure labels, running heads, the reference list's
+region, a back statement after the body. A numbered top level keeps every
+unnumbered heading below it; a number the top level does not use, set
+below it, is a list's; a paper with no core section whose headings are all
+set one way has one level. The rules that came from the regressions
+measured each time on the pairs and on Karim's two libraries, which have
+no twins and caught what the pairs could not (a Liebert paper's
+subsections in another face, two scans, a consortium list after the
+references that broke superscript citations, 162 → 37). The first page
+was read in order next, because depth had exposed it: a printed heading is
+never the child of one the reader built; a front-matter box (keywords,
+highlights, article info, a lay abstract) or a key-message box (BMJ's
+three questions) keeps its few words and gives the prose after it back to
+the introduction — for a key-message box only prose that cites, and only
+before the methods; front matter ends at the first printed heading after
+forty words of prose; an abstract read after the introduction's heading
+gives the prose after it back; citation shapes "(1, 2)." and "(Author
+2024)" open an introduction as "[1]" did; and the ligatures three
+publishers' fonts lose are put back where the word is known. A rule that
+lifted a heading out of the abstract when its prose cited was tried and
+taken out: the one-level rule did its work from the page, and alone it
+cost a paper. Measured on the 199 pairs: faithful by words 0.832 → 0.964,
+well matched 126 → 180, depth agreement 0.886 → 0.942, reference lists and
+citation links unchanged; 71 papers better, one worse (Hip & Pelvis, whose
+XML keeps flat the methods subsections its page nests). What is left is in
+BACKLOG.md.
+
+### R3.10 The page's order and the page's own convention
+
+*Built 2026-09-19.* Karim, after depth by type: "Fix. We are getting close."
+The remaining loss was named before it was fixed: every word of the XML's
+prose the reading does not file in the same lane, counted by where it went
+instead (a section, the front matter, a caption, a reference list, nowhere).
+Five mechanisms held most of it, and each became a rule the page itself
+decides. **The page's order**: where the layout model jumps back up one
+column of a page — MDPI's reference list is set at the foot of the page and
+read before the text above it — the blocks above are read first, but only
+within one column, only where a heading stands in what was read early, and
+on a two-column page only where both runs stand in the same column, because
+there the column and not the height is the order. Columns come from the
+blocks that carry a paragraph, and a box too small to hold its block's own
+text (a rotated sidebar) is not trusted at all. **The page's furniture**: a
+running head is what recurs at the same height on three pages; the same
+words at three heights are the paper's own, which is how Diabetes Care can
+print "RESULTS" in a visual abstract, in a structured abstract and over the
+section itself. **The page's convention**: in a paper that sets its headings
+in capitals in the body's own face, a line of capitals the model read as
+text is a heading — and is relabelled whole, never cut. **The paper's
+front**: a structured abstract printed as sections, three or more part names
+in a row over short uncited prose, is the abstract and not the body.
+**The lanes**: a lane from content is applied only where the paper's own
+headings name its methods or its results; a review names neither, and its
+topical sections stay `other`, as its XML keeps them — the verdict is stored
+and noted, never applied. Measured on the 199 pairs: faithful by words
+0.964 → 0.973 (0.832 at the start of the day), well matched 180 → 183,
+reference lists 0.928 → 0.953 and citation links 0.811 → 0.834, precision
+unchanged; nineteen papers better, none worse. Two guards and two corrected
+test fixtures came from papers and tests that the first cut of a rule broke:
+the measurement decided every one of them.
+
 ### Order, and what each step is gated on
 
 | step | builds on | gate before it decides |
@@ -316,6 +522,42 @@ edges walked the other way. Same rows, same answer, on any machine.
 Cross-cutting, as in R2: every verdict a row; the harness extended with
 each step's table; two fresh-context reviews of the code; the corpus gate on
 all three corpora before anything ships; docs and NOTES.md with the numbers.
+
+### R3.11 What a rule has to be right about, before it is written
+
+*Settled 2026-09-20, by refusing more rules than were kept.* Every rule the
+reader gains is a claim about a shape, and the pairs can price that claim
+before a line of it is written: build the candidate set from the readings,
+label each candidate by the paper's own XML, and read the precision. Six
+rules passed that test in a day and six failed it, and the failures were the
+useful part — "a heading that reads as prose is not a heading" is right 0.21
+of the time, and widening the displaced-head join is right 0.46 at its best
+reach. Neither would have been visible in a mean.
+
+Three things the day settled about how to read that number.
+
+**The bar is set by what the rule would undo, not by taste.** Refusing a
+heading misfiles every paragraph under it, so a heading rule needs the
+witness to be unanimous or nearly so — the late date line was taken at 9 of
+9, the affiliation refused at 10 of 31 and the author line at 4 of 6. A rule
+that retypes a single block undoes one chunk, and a table note was still
+refused at 0.90, on the same bar as the correspondence shape refused the same
+day: about ten blocks over 230 papers does not buy a rule that is wrong one
+time in ten. And a *join* is stricter than either, because a cut leaves a
+mark in the tree and a merge does not.
+
+**A two-part rule whose halves know different shapes fails silently.** The
+front-matter pass asks `_late_front` whether to consider a line and
+`_front_kind` what the line is. A date line that passed the first and had no
+name in the second simply came back `other`: no error, no note, nothing to
+see — it just did not work. When a gate and a namer are separate functions,
+every shape has to be in both, and the ledger is what shows it.
+
+**Measure ingestion separately from placement.** "In the right lane" had been
+standing in for "in the store", and they are far apart: 93.4 per cent of
+chunks against 0.9995 of words. Conflating them made a 47-chunk residue look
+like lost text when it is 360 words of run-in labels read as headings, and
+sent a whole planned stage after a vision model that had nothing to recover.
 
 ---
 

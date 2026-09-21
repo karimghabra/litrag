@@ -240,6 +240,259 @@ Each one wants a fixture or a test before its fix, as the spot-check does.
   analyses" in a Nature Genetics paper) are laned `methods` by meaning;
   the type's shape rule reads such a paper by its order (the methods
   last) rather than by those lanes, but the lanes themselves are wrong.
+- **Heading depth, first** (2026-09-19, done the same day: `depth_by_type`,
+  faithful 0.832 → 0.938 against an oracle of 0.935; NOTES.md) — the oracle (`measurements/
+  2026-09-19/oracle_depth.py`: each PDF heading's depth taken from its XML
+  twin) is worth 61 per cent of all the remaining loss: faithful by words
+  0.832 → 0.935, well matched 126 → 152 of 199. The first probe of depth
+  from the type gets 0.81 of unknown unnumbered headings right (the reader
+  0.77); fix the probe's own faults (anchors only from exact top-level
+  names, skip a bullet span, capital heights unrounded, rows matched by
+  the heading's box), then wire it into `infer_level`, then a
+  headings-only model call (the heading list with each row's style and
+  first sentence, levels back) for the papers whose styles tie. Gate:
+  depth agreement and faithful on the pairs, the oracle as the ceiling.
+- **A PDF heading's depth from its typography** (2026-09-17, the pairs' first
+  finding) — the layout model calls every heading level 1, so the reader
+  nests any heading the vocabulary does not know under the section that
+  stands open. For an unnumbered review that is every topical section
+  under "Introduction": in 13 of the 199 pairs (three of the pilot's 31)
+  the introduction holds 60 % or more of the body, and 11 of the 13 are
+  seriously mismatched, where the XML says those sections are the paper's
+  top level. The XML side is fixed (its stated depth stands); the
+  PDF side needs the page. Measured the same day on the 958 unnumbered,
+  unknown PDF headings that have an XML twin (136 top-level, 822 deeper):
+  the box height does not tell them apart (both medians equal the height
+  of the paper's known top-level headings, so a size rule would raise
+  360 to 750 subsections to find 100 to 132 tops), nor does the left edge
+  (94 tops and 745 subsections share it). Capitals do, where a paper uses
+  them: with the known tops set in capitals, 7 of 7 unknown headings in
+  capitals were top-level and 89 of 89 others were deeper — precise, and
+  five in a hundred of the tops. The font itself is read now
+  (`typography.py`, 2026-09-18): every line's runs of font, weight and
+  size, the body's style, and the lines set apart from it — used for the
+  headings the layout model misses, not yet for depth. What is left is
+  the depth: cluster the styles of a paper's heading rows (size, weight,
+  face) and let `infer_level` raise a heading set in the style of the
+  paper's known top-level headings when the subsections' font differs.
+  Gate on `pairs` (depth agrees, faithful on the reviews) and the harness.
+  The confidence score flags these readings today ("the introduction
+  holds" as its reason).
+- **Author-manuscript XML for the pilot's own PDFs** (2026-09-17, Karim to
+  decide) — of looped-ligament's 43 PDFs, 28 are in PMC (23 as NIH author
+  manuscripts), but Europe PMC's REST service serves full text only for the
+  open-access subset and answers 500 for all of them. The same XML is
+  served by NCBI's PMC OAI service by PMCID (one more host than the
+  invariant allows: identifiers out, XML in, no paper text leaves), and by
+  Europe PMC's own bulk archives at EBI as 1 to 4 GB tarballs per PMCID
+  range (about 14 GB for these 23). Either would make the pilot's hardest
+  PDFs — Wiley, Elsevier, IOP — comparable with their XML. Until then the
+  pilot pairs are the 31 open-access papers whose PDFs EBI's bulk area
+  holds.
+- **The paragraph classifier** (2026-09-17, Karim's idea) — train a small
+  head on the embedder over the XML corpus's paragraphs, each labelled by
+  the lane of the section it sits in, and validate it on the PDF side of
+  the pairs, where every paragraph has an XML twin; the cheap, always-on
+  companion to the outline judge, and a better signal for the confidence
+  score than the nearest-centroid `block` kind that measured weak.
+- **The outline judge's depth** (2026-09-17) — the model nests a flat
+  review by sense where the journal's XML keeps it flat, so its depth is
+  not taken; the font route (above) is still the way to a PDF heading's
+  depth. And the judge's lane for a numbered subsection is a note only:
+  where the numbering and the model disagree, a person should look.
+- **Lanes by position in a research paper** (2026-09-19) — an unnamed
+  top-level section between "Methods" and "Results" (BMC's
+  "Neurophysiological measures") is `other` on both sides of the pairs,
+  so its paragraphs link to no finding; by the IMRaD order it is methods.
+  A rule for research papers only, applied to the XML and the PDF alike so
+  the pairs do not move, measured on the finding→method links.
+- **What the reading log would have to show** (2026-09-19, from `review.py`'s first run) —
+  the log prints a section's own paragraphs, so a section whose prose sits in its subsections
+  reads as empty and the model calls it no heading: 50 of its 74 structural claims are wrong
+  that way, "2 Methods" and "2 Results" among them. Before that pass is measured again the log
+  must show the subtree a section holds (its subsections' paragraph numbers, or a count), and
+  the ops it may answer should be the ones a policy can act on. Until then `LITRAG_REVIEW=notes`
+  is the only setting worth running, and its rows are evidence, not a reading.
+- **The displaced-head join cannot be widened** (measured 2026-09-20, `joinreach.py`) — a tail
+  that opens lowercase after a head that does not finish is the strongest join signal there is,
+  and labelling every candidate by the paper's own XML on 63 novel papers it is still only
+  0.457 right at the nearest unfinished head, 0.042 two heads back, 0.000 three back. A head
+  ending in ";" is right 0.200 of the time (a bulleted list, or a formula's "where" clause),
+  against 0.560 for the rest — the one tightening the numbers support, worth about 8 wrong
+  candidates over 63 papers, and not yet taken. Reaching further back, or across more than one
+  page, is refused at any threshold that keeps a silent merge rare.
+- **A heading that reads as prose is usually a heading** (measured 2026-09-20, `proseheads.py`)
+  — 161 of 214 such headings over three corpora are ones the XML has too. So RSC's author
+  biographies, set in the heading font and cut across three blocks, still open sections and
+  still swallow a review's introduction (1,182 words on 10.1039/d6ra02771g). The narrow shape
+  that might reach them — two consecutive headings that read as one continuing sentence — is
+  untested, and must be measured the same way before it is written.
+- **A held-out set drawn by publisher, not by topic** (2026-09-20, from the generalisation
+  measurement in NOTES) — every set so far was sampled by subject, and 92 per cent of the newest
+  one turns out to come from a publisher the rules were already written against (150 of 163
+  papers; 13 across 12 new prefixes). Since the rules key on layout conventions, that makes the
+  aggregate a measure of transfer to new papers rather than new layouts, and it hides the one
+  real weakness the split shows: **0.966 faithful on a fitted publisher against 0.906 on an
+  unfitted one for an ordinary paper, and 0.933 against 0.699 for an editorial or letter.** The
+  next set should be drawn the other way — pick thirty DOI prefixes none of the libraries hold,
+  weight them towards editorials, letters and comments, and take whatever subjects come with
+  them. `fetch_heldout4.py` needs only its query built from `PUBLISHER:`/prefix terms instead of
+  topics, and the prefix list can come from the stores the way the measurement did.
+- **The worker segfaults on the PDF path, and a paper can be filed with no tree** (found
+  2026-09-20 ingesting held-out 4) — `litrag-parser` exits `3221225477` (0xC0000005, an access
+  violation) part-way through a run of PDFs. On the first ingest of that set it emitted 315 of
+  the expected 332 trees and died, leaving **17 PDFs with a `papers` row and nothing under it**.
+  It is intermittent, not deterministic, and not a poison file: repairing those 17 by `reparse`
+  crashed after one paper, then after one more, then read the remaining fifteen straight through
+  and exited 0 — and each crash was on a different paper, every one of which parsed fine on a
+  later attempt. The JATS path has not crashed. Two things follow. **The bug**: something in the
+  Docling PDF pipeline does not reliably survive repeated documents in one process — worth a run
+  under `faulthandler` and with
+  `PYTHONFAULTHANDLER=1` to get the native frame, and worth checking whether `parse_one` differs
+  between the ingest and reparse paths (`worker.py` `do_reparse` reads the stored copy from
+  `papers_dir`, `do_ingest` the offered path). **The hole it leaves**: idempotency means a paper
+  filed with no tree is *skipped* by a later ingest, so the failure is silent and permanent
+  until someone counts nodes per paper. `library.py` or the harness should refuse to call a
+  paper filed when its tree is empty, and the harness should report `papers with no nodes` as
+  an error rather than leaving it to a hand-written query. The workaround that unblocked the
+  fourth set is `repair_heldout4.py` beside the libraries: reparse, one worker per paper, until
+  nothing is left empty.
+- **The 333 cut paragraphs are the asymmetry, not a defect** (measured 2026-09-20,
+  `cutkinds.py`) — classified by what opens the second half, the 135 cuts on the working half
+  are: 94 (70%) a new sentence after a full stop, 19 an abstract split where no label the rules
+  know opens the next half (and several of those are the reader being *right* — Frontiers prints
+  "Methods Eighty-eight patients…" with no colon, which `_ABSTRACT_PART_WIDE` wants), 19 a real
+  mid-sentence cut opening lowercase, and 3 where the reader is plainly right. The 94 are the
+  measured price of `INDENTS_ENOUGH`: in a paper that indents nothing, a full stop at a line's
+  end cannot be told from a paragraph's end, and trusting the full last line tripled silent
+  merges (0.015 → 0.054) when it was tried. Both halves stay in the right lane and the right
+  section, so a cut costs granularity, not placement. Before this number is attacked again the
+  thing to find is a *third* signal for the unindented case — the line's own leading, or the
+  first line's left edge against the block's, both of which `typography` can already see.
+- **A table note read as body prose: 0.90, and refused at that** (measured 2026-09-20,
+  `tablenotes.py`) — of the paragraphs the reading puts straight after a table on the same page,
+  the XML holds 180 as prose and 27 not. Only one shape separates them: a footnote's marker
+  opening the line ("*Statistical significance.", "†Category of care is assigned…"), right 10
+  times in 11. Every other shape is worthless — a paragraph that mentions a statistic is real
+  prose 50 times in 54, and a prose-shaped one 128 in 137. Three variants of the marker all
+  land between 0.900 and 0.917, and the late `correspondence` shape was refused at 0.909 the
+  same day, so this is refused for the same reason: about 10 blocks over 230 papers is not
+  worth a rule that is wrong one time in ten. Docling's own `footnote` label is still honoured
+  (`test_a_table_footnote_is_a_node_after_its_table`); this is only about the blocks it calls
+  `text`. If a cheap signal ever separates them — the block's own font size against the table's,
+  which `typography.look_of` already computes — that is where to look.
+- **The 47 missing chunks are 360 words, and OCR would reach six of them** (measured
+  2026-09-20, `missing_layer.py`, `ingested.py`) — the empty-text-layer hypothesis was wrong.
+  Of the 47 chunks the novel set's reading does not hold, 43 have their text in the PDF's own
+  text layer (pypdfium2) and only 4 do not; across the three tuned corpora, 14 against 8. What
+  they have in common is not a missing text layer but shortness: they are run-in labels the XML
+  holds as paragraphs and the reading reads as headings ("Body Weight Gain", "Filling Phase:"),
+  and one-sentence graphical-abstract blurbs the PDF carries only as an image ("Micro laser
+  powder bed fusion enables architected nickel shellular…"). All 47 together are about 360 of
+  the novel set's 721,848 prose words, and asked whether each XML paragraph reaches the tree at
+  all the reading holds 0.9995 of those words. So vision has no measured case left here: at
+  most six chunks, and the rest is a question of a node's *type*, not of lost text. Whether a
+  run-in label read as a heading should also be a paragraph is a real question for `units_of`
+  and for retrieval, and it is not an ingestion gap.
+- **Two deterministic joins the measurement refused** (2026-09-19) — (a) taking the gap a figure
+  opens as the figure's, so a full last line joins a paragraph across a caption: paragraphs cut
+  fell, but `intact` fell on all four corpora because a tail joined the next paragraph's head;
+  (b) trusting a full last line in a paper that indents nothing (`tree.INDENTS_ENOUGH = 0`):
+  silent merges rose three and a half times (0.015 → 0.054 of paragraphs on the novel set). Both
+  reverted, both recorded in the code where the threshold lives. A cut leaves a mark in the tree
+  and a merge does not, which is why the gate is asymmetric.
+- **Cut paragraphs are reading order, not boundaries** (measured 2026-09-19,
+  `pairs.split_reasons`) — of the paragraphs that arrive cut over several
+  chunks, 40 per cent have a caption read between the halves, a third have
+  nothing between them at all on one page, 11 per cent a heading, and only a
+  tenth are the page break the boundary scorer (`boundary.py`) was built
+  for. So the surplus chunks — 198 paragraphs into 445 on the novel set, 391
+  into 878 on the tuned ones — are mostly `_stitch_fragments` being too
+  cautious and captions read mid-paragraph, both deterministic. Do that
+  before calibrating the scorer, and gate it on `paragraphs.intact/merged`,
+  not on `faithful`: a cut chunk is already in the right lane.
+- **A wrapper section the XML keeps and the page does not** (2026-09-19) —
+  Cureus prints "Materials and methods", "Eligibility Criteria" and
+  "Outcomes" and its XML keeps the whole body under one "Review" heading, so
+  39 of one paper's chunks count as wrong-laned while the reading is the
+  better one; an editorial's "Main text" read as an abstract is the same
+  shape. `structure.dissolve_wrappers` (DESIGN R3.11, stage 2) is the rule,
+  and `lane_only` already tells the convention from the error.
+- **What is left after 2026-09-19** — 2.7 per cent of the abstract's and
+  body's words over the 199 pairs (1,027,592), by where they go
+  (`measurements/2026-09-19/scripts/residue2.py`): **1.04 per cent not held**
+  by the PDF's reading where their paragraph lies (0.47 not found as words
+  anywhere: formulas and superscripts written differently; the rest read in
+  another place); **0.97 filed under another section** — no paper holds more
+  than 971 words of it now, and each is its own first page or its own missed
+  heading (a Nature paper's introduction read into its abstract, a Wiley
+  paper whose "2 METHODS" the model never read, a Frontiers paper whose
+  methods heading is a ghost); **0.24 kept in the front matter** (NEJM's
+  structured abstract read as front-matter lines, an abstract Docling merged
+  into the citation line above it); **0.20 filed in a reference list or a
+  back statement** (a keywords block that runs on into the introduction,
+  Wiley's and Frontiers' first pages); **0.16 read into a caption**; the rest
+  in a heading, a table, a footnote. Beside the lanes: paragraphs split at
+  breaks (5.4 per cent of the XML's) and captions read as prose (4.9 per
+  cent). One paper reads worse than before depth by type: Hip & Pelvis's
+  numbered methods subsections, set small under "MATERIALS AND METHODS" and
+  nested so, which its XML keeps flat (0.979 → 0.916; the page is right).
+- **The next small questions** (2026-09-18, Karim's direction: "smaller
+  and more targeted … more than one agent call per paper") — the heading
+  question is measured (`heading_q3.py`, scratch; the 14B finds run-ins
+  at recall 0.80) and the page's type now answers most of it; what is left
+  for a model, each one chunk and one constrained answer validated
+  against the chunk and stored as a row: a run-in heading set in the
+  body's own face (the residue after `typography.py`); the abstract's
+  end — "at which paragraph does the body begin?" over the abstract
+  section's few paragraphs, for the papers whose body stays in the
+  abstract; a headings-only outline call (the heading list with each
+  row's style, ~1–2k tokens) for the depth of unnumbered headings where
+  the styles tie; "do these two paragraphs belong to one section?" where
+  the paragraph classifier's lane changes with no heading between. Each
+  is measured on the pairs before it is wired, as the heading question
+  was.
+- **The outline judge on by default** (2026-09-18) — it earned its keep on
+  the 64 pairs (NOTES.md: Qwen 3 14B 0.80 to 0.91, eleven better, two
+  worse; Qwen 3 8B 0.80 to 0.90, none worse) but stays opt-in: twenty
+  seconds of the card per paper, and the corpora without an XML twin are
+  unmeasured. The way in: rebuild one
+  library with `LITRAG_OUTLINE=on`, run the harness against its baseline,
+  read the built headings and the lanes it changed by hand (the notes name
+  them), then decide. Two known losses to watch: a review whose XML really
+  nests its topical sections under "Discussion" (the model's `other` is
+  taken, since a review's nesting is usually the reader's guess), and the
+  model's paragraph off by one at a section's start (a built heading holds
+  its predecessor's last paragraph; caught where the reader has the
+  heading, not where it printed it differently). And a review's disagreement
+  notes are many (seven a paper): the model calls a review's topical
+  sections results or methods; the notes are the model's habit, not
+  information, and could be folded into one per paper.
+- **What the confidence score does not see** (2026-09-17) — a partial
+  disagreement: a fifth of the text under a neighbouring lane because one
+  top-level heading was missed (11 of the 47 seriously mismatched pairs
+  score 0.9 or more, faithful 0.58 to 0.79). Candidates: run-in headings
+  ("Model architecture.") the PDF read as sentences; a lane far smaller
+  than its type's usual share; the record's abstract against the tree's
+  (Europe PMC returns `abstractText` with the record already fetched).
+  Every candidate is measured with `confidence --calibrate` before it is a
+  check.
+- **Text layers that say everything twice, interleaved** (2026-09-17) — the
+  fixture's own PDF (MDPI, pages 6 to 8) gives Docling blocks whose lines
+  alternate between two copies of the paragraph; `unrepeat` mends a copy
+  that follows another, not two woven together. Needs the lines' geometry
+  (recover.py), or a Docling backend that does not duplicate
+  (`claude/docling-bench` is measuring backends). The score's "text is
+  there twice" check flags it.
+- **A lane by meaning inside a review** (2026-09-17) — "Natural Materials" and
+  "Synthetic Materials" in a review of tendon scaffolds lie near "Materials
+  and methods" and take the methods lane; the type is known before the
+  lanes are read, so R3.2's type-conditioned lanes would refuse it.
+- **Docling dies in native code on some PDFs** (2026-09-17) — exit
+  3221226356 (heap corruption) while reading `doi:10.14814/phy2.70063`
+  mid-batch, and the same file read alone went through; with the PNAS
+  access violation (0xC0000005) that makes two. The worker should read
+  each PDF in a child it can lose, and requeue the rest.
 - **What the shape cannot read** (2026-09-14) — case reports, letters and a
   guideline written as full research papers (four, four and one of the
   286 labelled papers), MeSH's "historical article" and "video-audio

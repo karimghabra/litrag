@@ -230,7 +230,62 @@ def synthetic_pairs(libs: list[Path], n: int, seed: int = 7) -> dict[str, list[t
     return picked
 
 
-def calibrate(libs: list[Path], model: str | None = None, show: bool = False, synthetic: int = 0) -> int:
+class _Catch:
+    """A judge that answers nothing and remembers every pair it was asked about: the population the
+    scorer would be asked, which is what a calibration must be measured on."""
+
+    def __init__(self) -> None:
+        self.pairs: list[tuple[str, str]] = []
+
+    def __call__(self, a: str, b: str, ctx: dict[str, Any] | None = None) -> bool | None:
+        self.pairs.append((a, b))
+        return None
+
+
+def _holder(text: str, index: dict[str, list[int]]) -> int | None:
+    """Which unit of the other reading holds most of this text."""
+    from .pairs import shingles as _shingles
+    from .pairs import words as _words
+
+    hits: dict[int, int] = {}
+    for sh in _shingles(_words(text)):
+        for j in index.get(sh, ()):  # noqa: PERF401
+            hits[j] = hits.get(j, 0) + 1
+    return max(hits, key=lambda j: hits[j]) if hits else None
+
+
+def pair_labels(pdf_lib: Path, xml_lib: Path, keys: set[str] | None = None, limit: int | None = None) -> dict[str, list[tuple[str, str, bool]]]:
+    """Every undecided boundary of every pair, labelled by the XML: the two blocks are one paragraph
+    when one paragraph of the file holds both ends. The tail and the head are what the scorer reads,
+    so they are what is looked up."""
+    from .harness import read_paper
+    from .pairs import _index, pairs_of, units_of
+    from .recover import recover_from_pdf
+    from .tree import build_tree
+
+    out: dict[str, list[tuple[str, str, bool]]] = {}
+    for p_row, x_row in pairs_of(Path(pdf_lib), Path(xml_lib)):
+        if keys is not None and p_row["key"] not in keys:
+            continue
+        if limit is not None and len(out) >= limit:
+            break
+        catch = _Catch()
+        doc = json.loads(p_row["raw"].read_text("utf-8"))
+        recover_from_pdf(doc, p_row["source"])
+        build_tree(doc, p_row["key"], judge=catch, record={"journal": p_row.get("journal")})
+        if not catch.pairs:
+            continue
+        xml, _, _ = read_paper(Path(xml_lib), x_row)
+        index = _index([u for u in units_of(xml) if u.prose])
+        for a, b in catch.pairs:
+            ja, jb = _holder(a[-400:], index), _holder(b[:400], index)
+            if ja is None or jb is None:
+                continue
+            out.setdefault(p_row["key"], []).append((a, b, ja == jb))
+    return out
+
+
+def calibrate(libs: list[Path], model: str | None = None, show: bool = False, synthetic: int = 0, from_pairs: tuple[Path, Path] | None = None, keys: set[str] | None = None) -> int:
     from .recover import recover_from_pdf
     from .store import open_store
     from .tree import build_tree
@@ -241,7 +296,17 @@ def calibrate(libs: list[Path], model: str | None = None, show: bool = False, sy
         return 2
     by_paper: dict[str, list[tuple[float, bool]]] = {}
     t0 = time.time()
-    if synthetic:
+    if from_pairs is not None:
+        pairs = pair_labels(from_pairs[0], from_pairs[1], keys=keys)
+        for key, ps in pairs.items():
+            for a, b, same in ps:
+                sc = scorer.score(a, b)
+                if sc is not None:
+                    by_paper.setdefault(key, []).append((sc, same))
+                    if show:
+                        print(f"  {'JOIN' if same else 'keep'} {sc:>7.3f}  …{a[-60:]!r} || {b[:60]!r}…")
+        what = "undecided boundaries labelled by the XML"
+    elif synthetic:
         pairs = synthetic_pairs(libs, synthetic)
         for key, ps in pairs.items():
             for a, b, same in ps:
@@ -301,10 +366,14 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--calibrate", action="store_true", help="score every pair the judge ruled on and report")
     ap.add_argument("--model")
     ap.add_argument("--show", action="store_true", help="print every pair with its score")
+    ap.add_argument("--from-pairs", nargs=2, metavar=("PDF_LIB", "XML_LIB"), help="label the undecided boundaries with the papers' own XML")
+    ap.add_argument("--keys-file", help="only these papers, one key a line")
     ap.add_argument("--synthetic", type=int, default=0, metavar="N", help="score about N pairs cut from the corpus's own paragraphs, whose answer is known, instead of the judged pairs")
     args = ap.parse_args(argv)
     if args.calibrate:
-        return calibrate([Path(l).expanduser() for l in args.lib], args.model, args.show, args.synthetic)
+        keys = {ln.strip() for ln in Path(args.keys_file).read_text("utf-8").splitlines() if ln.strip()} if args.keys_file else None
+        from_pairs = (Path(args.from_pairs[0]).expanduser(), Path(args.from_pairs[1]).expanduser()) if args.from_pairs else None
+        return calibrate([Path(l).expanduser() for l in args.lib], args.model, args.show, args.synthetic, from_pairs=from_pairs, keys=keys)
     ap.print_help()
     return 2
 
