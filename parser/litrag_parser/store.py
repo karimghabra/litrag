@@ -70,7 +70,10 @@ CREATE TABLE IF NOT EXISTS nodes (
   bbox_l REAL, bbox_t REAL, bbox_r REAL, bbox_b REAL,
   self_ref TEXT,
   table_json TEXT,             -- {"rows","cols","cells"} for tables
-  canonical TEXT               -- the catalogue's name for a section (headings.py), NULL when it has none
+  canonical TEXT,              -- the catalogue's name for a section (headings.py), NULL when it has none
+  guess TEXT,                  -- the lane the reader would have named had it asserted; NULL when role is the guess
+  confidence REAL,             -- how far the lane is to be trusted, 0 to 1; NULL when nothing measured it
+  reasons TEXT                 -- JSON: what each mechanism said, so a silence says why
 );
 CREATE INDEX IF NOT EXISTS nodes_paper ON nodes(paper, ordinal);
 CREATE INDEX IF NOT EXISTS nodes_parent ON nodes(parent);
@@ -168,8 +171,17 @@ def open_store(path: Path) -> sqlite3.Connection:
     if "confidence" not in have:  # a store from before a reading was scored
         conn.execute("ALTER TABLE papers ADD COLUMN confidence REAL")
         conn.execute("ALTER TABLE papers ADD COLUMN confidence_detail TEXT")
-    if "canonical" not in {r[1] for r in conn.execute("PRAGMA table_info(nodes)")}:
+    node_cols = {r[1] for r in conn.execute("PRAGMA table_info(nodes)")}
+    if "canonical" not in node_cols:
         conn.execute("ALTER TABLE nodes ADD COLUMN canonical TEXT")  # a store from before headings had a canonical name
+    if "guess" not in node_cols:
+        # What the reader would have said had it been willing to say anything. `role` stays the
+        # asserted lane and `other` still means it declined, so nothing downstream changes; these
+        # three columns are the silence's own record, so that abstaining costs coverage without
+        # also throwing away what was nearly decided.
+        conn.execute("ALTER TABLE nodes ADD COLUMN guess TEXT")        # the best lane, named even when refused
+        conn.execute("ALTER TABLE nodes ADD COLUMN confidence REAL")   # how far it is to be trusted, 0 to 1
+        conn.execute("ALTER TABLE nodes ADD COLUMN reasons TEXT")      # JSON: what each mechanism said
     conn.commit()
     return conn
 
@@ -234,10 +246,11 @@ def save_tree(conn: sqlite3.Connection, key: str, tree: Tree, *, parser: str, pa
                 n.node_id, key, n.parent, n.ordinal, n.depth, n.type, n.label, n.level, n.role, n.heading,
                 json.dumps(n.ancestry, ensure_ascii=False), n.text, n.page, b[0], b[1], b[2], b[3], n.self_ref,
                 json.dumps(n.table, ensure_ascii=False) if n.table else None,
-                n.canonical,
+                n.canonical, n.guess, n.confidence,
+                json.dumps(n.reasons, ensure_ascii=False, sort_keys=True) if n.reasons else None,
             ))
         conn.executemany(
-            "INSERT INTO nodes(node_id, paper, parent, ordinal, depth, type, label, level, role, heading, ancestry, text, page, bbox_l, bbox_t, bbox_r, bbox_b, self_ref, table_json, canonical) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO nodes(node_id, paper, parent, ordinal, depth, type, label, level, role, heading, ancestry, text, page, bbox_l, bbox_t, bbox_r, bbox_b, self_ref, table_json, canonical, guess, confidence, reasons) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             rows,
         )
         conn.execute(
@@ -404,6 +417,12 @@ def _node_dict(r: sqlite3.Row) -> dict[str, Any]:
         "type": r["type"], "label": r["label"], "level": r["level"], "role": r["role"], "heading": r["heading"],
         "ancestry": json.loads(r["ancestry"]), "text": r["text"], "page": r["page"], "bbox": bbox,
         "self_ref": r["self_ref"], "table": json.loads(r["table_json"]) if r["table_json"] else None, "canonical": r["canonical"] if "canonical" in r.keys() else None, "children": [],
+        # a store written before the reader recorded its near misses has neither the columns
+        # nor the answers; an older row reads as "nothing was measured", never as "nothing was
+        # nearly decided"
+        "guess": r["guess"] if "guess" in r.keys() else None,
+        "confidence": r["confidence"] if "confidence" in r.keys() else None,
+        "reasons": json.loads(r["reasons"]) if "reasons" in r.keys() and r["reasons"] else None,
     }
 
 

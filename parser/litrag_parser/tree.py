@@ -57,6 +57,16 @@ class Node:
     pages: list[int] | None = None
     #: the catalogue's name for a section (headings.py): "Materials and methods" for "2. Experimental"; None when it has none
     canonical: str | None = None
+    #: What the reader would have named had it been willing to name anything. `role` stays the
+    #: asserted lane and `other` still means it declined, so nothing that reads `role` changes;
+    #: this is the silence's own record. Invariant 5 says unassignable beats misassigned — it
+    #: does not say the near miss has to be thrown away, and a reader that abstains without
+    #: saying what it nearly decided cannot be improved by anyone, including itself.
+    guess: str | None = None
+    #: how far the lane is to be trusted, 0 to 1; None where nothing measured it
+    confidence: float | None = None
+    #: what each mechanism said: {"vocabulary": "methods", "embedder": "results", ...}
+    reasons: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         d = asdict(self)
