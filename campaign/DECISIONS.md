@@ -127,3 +127,32 @@ boundary only if a box sits exactly on one. Not observed; not impossible.
 **What Karim may want instead.** Pinning Docling's layout model to deterministic
 kernels, if its options allow it, or dropping `pictures` from what is stored.
 Both are larger than this week.
+
+---
+
+## D6 — Reading Karim's libraries made SQLite touch his directory, and the check caught it
+
+*2026-09-21, Phase 3.*
+
+**What happened.** `manifest.py` decided which papers the corpus must exclude by
+reading every library under `~/.protracker/library` — his root, not the campaign's
+copies. Opening a SQLite database creates its `-shm` and `-wal` sidecars **even
+read-only**, so the integrity check went from UNCHANGED to MODIFIED: six sidecars
+added, eight more touched.
+
+**What was actually changed.** Nothing of his. All eleven `store.sqlite` files are
+identical in size *and* mtime, every added file is a `-shm` or `-wal`, and every
+`store.sqlite-wal` is **0 bytes** — no pending writes existed to flush. Verified
+before anything was altered; the original per-file fingerprint is in this repo's
+history.
+
+**The default taken.** Two changes. `manifest.py` reads the campaign's copies,
+which hold the same papers. And `karim_root.py` no longer fingerprints `-shm` and
+`-wal`, because they are SQLite's scratch and carry no data — a check that fires
+on them cries wolf, and a check that cries wolf gets ignored. A change to any
+`store.sqlite` still fires.
+
+**What Karim may want instead.** The claim in `reports/phase0.md` and
+`reports/phase1.md` is now precisely: *no data in his libraries was read into,
+written to, or modified*, and *his directory did acquire SQLite sidecar files from
+read-only opens*. Those are different sentences and the second one is true.

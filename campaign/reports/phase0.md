@@ -129,4 +129,4 @@ Phase 2 will adapt to sample by publisher), and the refusal probes
 ## 6. Karim's libraries were not written to
 
 Fingerprinted before any command ran: 3,354 files, size and mtime, in
-`campaign/karim-root-digest.json`. Re-checked at this gate: **unchanged**.
+`campaign/karim-root-digest.json`. Re-checked at this gate: every  **unchanged** in size and mtime. His directory did acquire SQLite / sidecars from read-only opens; see  D6 for what that was and was not.

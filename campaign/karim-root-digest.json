@@ -1,8 +1,8 @@
 {
  "(root)": {
-  "bytes": 34979073,
-  "files": 6,
-  "sha256": "53687df7997e7c8a06fbc2dc7797c61a"
+  "bytes": 30805673,
+  "files": 4,
+  "sha256": "67ba38059be4a9518794e100a09e7492"
  },
  ".git": {
   "bytes": 239250744,
@@ -10,14 +10,14 @@
   "sha256": "4089569bc1f97edd54ca1600f3cb50e3"
  },
  "held-out-2-pdf": {
-  "bytes": 588909882,
-  "files": 286,
-  "sha256": "222d583163164a507a4c11690ea8404c"
+  "bytes": 588877114,
+  "files": 284,
+  "sha256": "2298edb0041ab4d5ac708cc3fd084562"
  },
  "held-out-2-xml": {
-  "bytes": 152487931,
-  "files": 404,
-  "sha256": "423ade90e955e11ea5724d85c9cd1536"
+  "bytes": 152455163,
+  "files": 402,
+  "sha256": "f2ce6bcd6c5d21f971899fdcd2440539"
  },
  "held-out-3-pdf": {
   "bytes": 467661463,
@@ -30,9 +30,9 @@
   "sha256": "b78d8c7dd6982b581a85a7421d43e1d6"
  },
  "held-out-4-pdf": {
-  "bytes": 758990367,
-  "files": 336,
-  "sha256": "032503a5ad04f6fec2125ccd799f97cb"
+  "bytes": 758957599,
+  "files": 334,
+  "sha256": "52ecdd2d5af0af9b72c0c8ba2b3190d9"
  },
  "held-out-4-xml": {
   "bytes": 109976974,
@@ -40,24 +40,24 @@
   "sha256": "6eac95bae74626a5195e4e2fcf1becb9"
  },
  "held-out-pdf": {
-  "bytes": 207482205,
-  "files": 74,
-  "sha256": "8e22a6746f4dc127533a8b06d53f303b"
+  "bytes": 207449437,
+  "files": 72,
+  "sha256": "987c99eac6d80a13f590315505b47257"
  },
  "held-out-xml": {
-  "bytes": 214258846,
-  "files": 328,
-  "sha256": "8c85edaf04018c96c13ed77b37529ded"
+  "bytes": 214226078,
+  "files": 326,
+  "sha256": "4e90cce0c7f3024dfecedfb76c790178"
  },
  "looped-ligament": {
-  "bytes": 425222812,
-  "files": 212,
-  "sha256": "9a0cf67e60879e07b64c5dbe75c8ba98"
+  "bytes": 424646364,
+  "files": 208,
+  "sha256": "163cc3b924f12110b81a7aa1fa1c347a"
  },
  "looped-ligament-pairs": {
-  "bytes": 276656135,
-  "files": 68,
-  "sha256": "23547ee4814c890bf5ea55b77c96c9ca"
+  "bytes": 276623367,
+  "files": 66,
+  "sha256": "edbe4f200d313e39ff2345109856964e"
  },
  "measurements": {
   "bytes": 40152462,
@@ -65,8 +65,8 @@
   "sha256": "3e68ae586693de2443048464cb45cf71"
  },
  "succinylated-collagen": {
-  "bytes": 413738933,
-  "files": 315,
-  "sha256": "f49eb0b8ccb68636d2cedc41b2fafe4d"
+  "bytes": 413331405,
+  "files": 311,
+  "sha256": "d2ed7223826f02b6f1aa586b66604f7b"
  }
 }
