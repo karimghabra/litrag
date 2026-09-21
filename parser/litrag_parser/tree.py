@@ -80,6 +80,10 @@ class Tree:
     has_methods: bool
     #: items left out on purpose, by kind — a journal's logo filed as a picture on every page — so the omission is visible
     dropped: dict[str, int] = field(default_factory=dict)
+    #: the same omissions, one record each with its words: `{kind, page, text}`. The counts say
+    #: how much was left out and this says what, which is what an accounting of the text layer
+    #: needs — a count cannot tell a logo from a paragraph.
+    dropped_items: list[dict[str, Any]] = field(default_factory=list)
     #: items put back together, by kind — a paragraph split at a page break, a run cut loose — so the mending is visible
     repairs: dict[str, int] = field(default_factory=dict)
     #: what the reader noticed and did not act on — a section whose paragraphs read as another
@@ -93,6 +97,7 @@ class Tree:
             "roles": self.roles,
             "has_methods": self.has_methods,
             "dropped": self.dropped,
+            "dropped_items": self.dropped_items,
             "repairs": self.repairs,
             "notes": self.notes,
             "root": self.root.to_dict(),
@@ -104,6 +109,13 @@ class Tree:
             n = stack.pop()
             yield n
             stack.extend(reversed(n.children))
+
+
+
+def _drop(dropped: dict[str, int], items: list[dict[str, Any]], kind: str, text: str = "", page: Any = None) -> None:
+    """Count an omission and keep what it said, so the words can be accounted for later."""
+    dropped[kind] = dropped.get(kind, 0) + 1
+    items.append({"kind": kind, "page": page, "text": (text or "").strip()})
 
 
 def _bbox_top_left(prov: dict[str, Any], page: Page | None) -> list[float] | None:
@@ -1674,6 +1686,7 @@ def build_tree(doc: dict[str, Any], key: str, title_hint: str | None = None, jud
     decorative = _decorative_pictures(doc)
     furniture = _recurring_furniture(doc)
     dropped: dict[str, int] = {}
+    dropped_items: list[dict[str, Any]] = []
     repairs: dict[str, int] = {}
     notes: list[dict[str, Any]] = []
     journal = (record or {}).get("journal")
@@ -1736,7 +1749,7 @@ def build_tree(doc: dict[str, Any], key: str, title_hint: str | None = None, jud
     kept: list[dict[str, Any]] = []
     for it in items:
         if it.get("self_ref") in furniture or it.get("_sidebar"):
-            dropped["furniture"] = dropped.get("furniture", 0) + 1
+            _drop(dropped, dropped_items, "furniture", it.get("text") or "")
         elif it.get("label") not in _SKIP:  # a running head between two halves of a paragraph must not stand between them
             kept.append(it)
     if pages:
@@ -1863,7 +1876,7 @@ def build_tree(doc: dict[str, Any], key: str, title_hint: str | None = None, jud
             if before_title and len(text.split()) < 40:
                 if (related_content or re.search(r"you may also like|related content", text, re.I)) and label != "footnote":
                     related_content = True  # IOP's "You may also like": other papers' titles and authors, to the end of the page (a footnote is the paper's own)
-                    dropped["label"] = dropped.get("label", 0) + 1
+                    _drop(dropped, dropped_items, "label", text)
                     continue
                 if re.match(r"^\s*(?:edited by|reviewed by|handling editor|academic editor|editors?:)", text, re.I):
                     reviewers = True
@@ -1872,7 +1885,7 @@ def build_tree(doc: dict[str, Any], key: str, title_hint: str | None = None, jud
                     if fk in ("correspondence", "dates", "keywords", "funding") or _CITE_LINE.match(text) or re.match(r"^\s*(?:citation|copyright|©)", text, re.I):
                         reviewers = False  # the block ends where the paper's own lines resume
                     else:
-                        dropped["label"] = dropped.get("label", 0) + 1  # an editor's or a reviewer's name and institution
+                        _drop(dropped, dropped_items, "label", text)  # an editor's or a reviewer's name and institution
                         continue
                 if fk in ("authors", "affiliations", "dates", "correspondence", "keywords", "funding"):
                     kind = fk  # RSC's affiliations are footnotes on the first page, its dates a line above the title: what the rules can name stays
@@ -1883,7 +1896,7 @@ def build_tree(doc: dict[str, Any], key: str, title_hint: str | None = None, jud
                 elif label == "footnote" and not _FURNITURE.search(text):
                     kind = "other"  # a footnote above the title (RSC's ESI note, "Present address: …") is the paper's: kept, unnamed
                 else:
-                    dropped["label"] = dropped.get("label", 0) + 1  # the journal's name, "Contents lists available at …", "Cite this:"
+                    _drop(dropped, dropped_items, "label", text)  # the journal's name, "Contents lists available at …", "Cite this:"
                     continue
                 if grouped and grouped[-1][0] == kind:
                     grouped[-1][1].append(it)
@@ -1939,10 +1952,10 @@ def build_tree(doc: dict[str, Any], key: str, title_hint: str | None = None, jud
             continue  # filed under its table or picture when that was made, or taken as the title
         text = (item.get("text") or "").strip()
         if label in _PROSE | _LIST | _HEADER and text and not re.search(r"[A-Za-z0-9\u0370-\u03ff]", text):
-            dropped["junk"] = dropped.get("junk", 0) + 1  # ")", "|", a control character: nothing a reader would keep
+            _drop(dropped, dropped_items, "junk", text)  # ")", "|", a control character: nothing a reader would keep
             continue
         if label in _PROSE and len(text) <= 80 and re.match(r"^\s*(?:&|©|\(c\))\s*\d{4}\b", text):
-            dropped["furniture"] = dropped.get("furniture", 0) + 1  # "& 2012 Elsevier Ltd. All rights reserved."
+            _drop(dropped, dropped_items, "furniture", text)  # "& 2012 Elsevier Ltd. All rights reserved."
             continue
         if label not in _HEADER and text:
             prose_count += 1
@@ -2139,7 +2152,7 @@ def build_tree(doc: dict[str, Any], key: str, title_hint: str | None = None, jud
             continue
         if label in _PICTURE:
             if item.get("self_ref") in decorative:
-                dropped["picture"] = dropped.get("picture", 0) + 1
+                _drop(dropped, dropped_items, "picture", item.get("text") or "")
                 continue
             node = make(parent, "picture", item, text, role)
             attach(parent, node)
@@ -2154,7 +2167,7 @@ def build_tree(doc: dict[str, Any], key: str, title_hint: str | None = None, jud
             attach(parent, make(parent, "caption", item, text, role))
             continue
         if label in _LIST and not text:
-            dropped["junk"] = dropped.get("junk", 0) + 1  # a list item with no words: Wiley's XML gives one per item and the words apart
+            _drop(dropped, dropped_items, "junk", text)  # a list item with no words: Wiley's XML gives one per item and the words apart
             continue
         if label in _LIST:
             marker = (item.get("marker") or "").strip()
@@ -2204,7 +2217,7 @@ def build_tree(doc: dict[str, Any], key: str, title_hint: str | None = None, jud
         parent = next((n for n in _descendants(root) if any(c is section for c in n.children)), None)
         if parent is not None:
             parent.children.remove(section)
-            dropped["empty"] = dropped.get("empty", 0) + 1
+            _drop(dropped, dropped_items, "empty", section.heading or "")
     tree = Tree(
         title=title,
         pages=[pages[k] for k in sorted(pages)],
@@ -2212,6 +2225,7 @@ def build_tree(doc: dict[str, Any], key: str, title_hint: str | None = None, jud
         roles=dict(sorted(roles.items())),
         has_methods=roles.get("methods", 0) > 0,
         dropped=dropped,
+        dropped_items=dropped_items,
         repairs=repairs,
         notes=notes,
     )

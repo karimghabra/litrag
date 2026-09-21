@@ -1,0 +1,306 @@
+"""What a reading is worth, measured over publishers rather than over papers.
+
+`pairs.py` says how far one PDF's reading lies from its XML twin. This says what a *corpus* of
+such comparisons means, and it differs in three ways that decide whether the number is worth
+anything.
+
+**The unit of held-out-ness is the publisher, not the paper.** The reader's rules key on layout
+conventions, and a convention belongs to a publisher: measured on the fourth held-out set, a
+paper from a publisher the rules were already written on reads 0.966 faithful and one from a
+publisher never seen reads 0.906 (NOTES.md, 2026-09-20). A corpus drawn by topic lands on the
+same dozen publishers, so its aggregate measures transfer to new *papers* and is read as transfer
+to new *layouts*. Everything here is therefore reported by familiarity, and every interval is
+bootstrapped over publishers rather than over papers — resampling papers within one publisher
+would call a dozen readings of one layout a dozen independent observations.
+
+**What is asserted is separated from what is right.** A lane the reader declines to name is not
+an error, it is a silence, and the two have to be counted apart or abstaining looks like
+accuracy. So: *coverage* is the share of the witness's paragraphs that get a named lane at all,
+and *precision* is, among those, the share that match. A reader can have either at the other's
+expense, and only the pair of them says anything.
+
+**Ingestion is measured without a witness.** `faithful` needs an XML twin and most papers have
+none. Conservation does not: every word of the PDF's own text layer should be inside a node or
+inside a dropped record that says why it was left out. That is the one measure that can run on
+Karim's own libraries, which have no twins.
+
+Nothing here asks a model, and nothing here writes to a library.
+"""
+
+from __future__ import annotations
+
+import random
+from collections import Counter
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Callable, Iterable, Sequence
+
+from .pairs import LANES, Unit, _held, _index, _land, _top, units_of, words
+from .tree import Tree
+
+#: a lane the reader names. `other` is a silence — the reader declining to say — and every
+#: measure here keeps it apart from a lane it got wrong.
+NAMED = tuple(lane for lane in LANES if lane != "other")
+
+
+# ---- T1: conservation of the text layer, no witness needed ---------------------------------
+
+
+def accounting(tree: Tree, pdf_path: Path) -> dict[str, Any]:
+    """Of every word in the PDF's own text layer, what share is in a node or in a dropped record.
+
+    Counted as a multiset, so a word the layer has three times and the tree has twice is one word
+    short rather than "present". Headings, captions and a table's cells all count as held: the
+    question is whether the text is in the store at all, not whether it is in the right lane —
+    which is `precision_and_coverage`'s question and needs a witness.
+    """
+    from .recover import pdf_lines
+
+    try:
+        lines = pdf_lines(pdf_path)
+    except Exception as e:  # noqa: BLE001 — a PDF pdfium cannot read has no text layer to conserve
+        return {"layer_words": 0, "error": f"{type(e).__name__}: {e}"}
+
+    layer: Counter[str] = Counter()
+    for page in lines.values():
+        for line in page:
+            layer.update(words(getattr(line, "text", "") or ""))
+
+    held: Counter[str] = Counter()
+    for n in tree.walk():
+        held.update(words(n.text or ""))
+        held.update(words(n.heading or ""))
+        if n.table:
+            for row in n.table.get("cells", []):
+                for cell in row:
+                    held.update(words(str(cell)))
+    held.update(words(tree.title or ""))
+
+    dropped: Counter[str] = Counter()
+    for item in tree.dropped_items:
+        dropped.update(words(item.get("text") or ""))
+
+    total = sum(layer.values())
+    in_node = sum(min(c, held[w]) for w, c in layer.items())
+    # only the words a node did not already hold count as dropped, so the two never double-count
+    spare = Counter({w: c - min(c, held[w]) for w, c in layer.items()})
+    in_dropped = sum(min(c, dropped[w]) for w, c in spare.items() if c)
+    return {
+        "layer_words": total,
+        "in_a_node": in_node,
+        "in_a_dropped_record": in_dropped,
+        "unaccounted": total - in_node - in_dropped,
+        "accounted": round((in_node + in_dropped) / total, 5) if total else None,
+        "in_a_node_share": round(in_node / total, 5) if total else None,
+    }
+
+
+# ---- T2/T3: what the reader asserts, and whether it is right -------------------------------
+
+
+@dataclass
+class Landing:
+    """One paragraph of the witness, and what the PDF's reading did with it."""
+
+    paper: str
+    prefix: str  # the publisher: what the bootstrap clusters on
+    split: str
+    familiar: bool  # a publisher the rules were already written on
+    paper_type: str
+    words: int
+    xml_lane: str
+    pdf_lane: str | None  # None: no block of the reading holds it
+    asserted: bool  # the reader named a lane for it
+    correct: bool  # ... and that lane is the witness's
+
+    @property
+    def wrong(self) -> bool:
+        return self.asserted and not self.correct
+
+
+def landings(pdf: Tree, xml: Tree, *, paper: str, prefix: str, split: str,
+             familiar: bool, paper_type: str = "?") -> list[Landing]:
+    """Every prose paragraph of the XML, and the lane the PDF's reading put it under.
+
+    The paragraph is located by the same four-word shingles `pairs.py` uses, and the lane taken
+    is the one of the block it mostly landed in — `pairs._top`, which breaks a tie by the
+    earliest block rather than by hash order."""
+    pu, xu = units_of(pdf), units_of(xml)
+    index = _index(pu)
+    out: list[Landing] = []
+    for u in xu:
+        if not (u.prose and u.shingles):
+            continue
+        landed = _land(u, index)
+        held, _ = _held(u, landed, pu) if landed else (0.0, 0.0)
+        lane: str | None = None
+        if landed and held >= 0.5:  # the same bar `pairs.py` uses before it calls a paragraph found
+            top = pu[_top(landed)]
+            lane = top.role if top.prose else None
+        asserted = lane in NAMED
+        out.append(Landing(
+            paper=paper, prefix=prefix, split=split, familiar=familiar, paper_type=paper_type,
+            words=sum(u.tokens.values()), xml_lane=u.role, pdf_lane=lane,
+            asserted=asserted, correct=bool(asserted and lane == u.role),
+        ))
+    return out
+
+
+def precision_and_coverage(rows: Sequence[Landing]) -> dict[str, Any]:
+    """Micro over paragraphs, macro over publishers, and the counts both rest on."""
+    n = len(rows)
+    asserted = [r for r in rows if r.asserted]
+    correct = [r for r in asserted if r.correct]
+    by_prefix: dict[str, list[Landing]] = {}
+    for r in rows:
+        by_prefix.setdefault(r.prefix, []).append(r)
+    per_publisher = []
+    for pref, group in by_prefix.items():
+        a = [r for r in group if r.asserted]
+        if a:
+            per_publisher.append(sum(1 for r in a if r.correct) / len(a))
+    return {
+        "paragraphs": n,
+        "publishers": len(by_prefix),
+        "papers": len({r.paper for r in rows}),
+        "asserted": len(asserted),
+        "correct": len(correct),
+        "wrong": len(asserted) - len(correct),
+        "precision": round(len(correct) / len(asserted), 5) if asserted else None,
+        "coverage": round(len(asserted) / n, 5) if n else None,
+        "precision_macro": round(sum(per_publisher) / len(per_publisher), 5) if per_publisher else None,
+    }
+
+
+def by_lane(rows: Sequence[Landing]) -> dict[str, dict[str, Any]]:
+    """The same, per lane of the witness — so "methods keeps useful coverage" is checkable."""
+    out: dict[str, dict[str, Any]] = {}
+    for lane in LANES:
+        group = [r for r in rows if r.xml_lane == lane]
+        if group:
+            out[lane] = precision_and_coverage(group)
+    return out
+
+
+def confusion(rows: Sequence[Landing], limit: int = 12) -> list[tuple[str, int]]:
+    """Where the wrong assertions went, most first: `witness -> reading`."""
+    c: Counter[str] = Counter(f"{r.xml_lane} -> {r.pdf_lane}" for r in rows if r.wrong)
+    return sorted(c.items(), key=lambda kv: (-kv[1], kv[0]))[:limit]
+
+
+# ---- intervals, clustered on the publisher -------------------------------------------------
+
+
+def bootstrap(rows: Sequence[Landing], stat: Callable[[Sequence[Landing]], float | None],
+              *, draws: int = 2000, seed: int = 7, alpha: float = 0.05) -> dict[str, Any]:
+    """A percentile interval, resampling **publishers** with replacement, not paragraphs.
+
+    Papers from one publisher share a layout, so their readings fail together; resampling
+    paragraphs would treat a dozen readings of one template as a dozen independent observations
+    and give an interval far too narrow to mean anything."""
+    by_prefix: dict[str, list[Landing]] = {}
+    for r in rows:
+        by_prefix.setdefault(r.prefix, []).append(r)
+    prefixes = sorted(by_prefix)
+    point = stat(rows)
+    if not prefixes or point is None:
+        return {"point": point, "lo": None, "hi": None, "draws": 0, "publishers": len(prefixes)}
+    rng = random.Random(seed)
+    got: list[float] = []
+    for _ in range(draws):
+        pick: list[Landing] = []
+        for _ in prefixes:
+            pick.extend(by_prefix[prefixes[rng.randrange(len(prefixes))]])
+        value = stat(pick)
+        if value is not None:
+            got.append(value)
+    got.sort()
+    if not got:
+        return {"point": point, "lo": None, "hi": None, "draws": 0, "publishers": len(prefixes)}
+    lo = got[max(0, int(alpha / 2 * len(got)) - 1)]
+    hi = got[min(len(got) - 1, int((1 - alpha / 2) * len(got)))]
+    return {"point": round(point, 5), "lo": round(lo, 5), "hi": round(hi, 5),
+            "draws": len(got), "publishers": len(prefixes), "seed": seed}
+
+
+def precision_of(rows: Sequence[Landing]) -> float | None:
+    asserted = [r for r in rows if r.asserted]
+    return (sum(1 for r in asserted if r.correct) / len(asserted)) if asserted else None
+
+
+def coverage_of(rows: Sequence[Landing]) -> float | None:
+    return (sum(1 for r in rows if r.asserted) / len(rows)) if rows else None
+
+
+# ---- risk against coverage -----------------------------------------------------------------
+
+
+def risk_coverage(rows: Sequence[Landing], score: Callable[[Landing], float],
+                  steps: int = 20) -> list[dict[str, Any]]:
+    """Precision as the bar rises: the curve that says what abstention buys.
+
+    A target met only at trivial coverage is not met, and this is what shows it."""
+    asserted = [r for r in rows if r.asserted]
+    if not asserted:
+        return []
+    scored = sorted(asserted, key=score, reverse=True)
+    out = []
+    for i in range(1, steps + 1):
+        take = scored[: max(1, round(len(scored) * i / steps))]
+        out.append({
+            "coverage": round(len(take) / len(rows), 5),
+            "precision": round(sum(1 for r in take if r.correct) / len(take), 5),
+            "asserted": len(take),
+        })
+    return out
+
+
+# ---- the split rules, enforced rather than intended -----------------------------------------
+
+
+class SplitViolation(RuntimeError):
+    """A split was read in a way the protocol does not allow."""
+
+
+#: what may be looked at, per split (`PLAN.md` §3)
+VISIBLE = {"DEV": "anything", "VAL": "aggregates, per-publisher numbers, a logged inspection budget",
+           "SEALED": "aggregates only", "EXAM": "scored once, after the code is frozen",
+           "RESERVE": "not scored: it replaces a VAL publisher spent by inspection"}
+
+
+def check_no_leak(manifest: dict[str, Any]) -> list[str]:
+    """No publisher, DOI or PMCID in two splits, and no novel publisher that is really fitted.
+
+    Good intentions erode by day five, so this is a check rather than a habit."""
+    trouble: list[str] = []
+    fitted = set(manifest.get("fitted_prefixes") or [])
+    seen_prefix: dict[str, str] = {}
+    seen_id: dict[str, str] = {}
+    for r in manifest["papers"]:
+        pre, split = r["prefix"], r["split"]
+        if pre in fitted:
+            trouble.append(f"{pre} is in `fitted_prefixes` and also drawn into {split}")
+        if pre in seen_prefix and seen_prefix[pre] != split:
+            trouble.append(f"publisher {pre} is in both {seen_prefix[pre]} and {split}")
+        seen_prefix[pre] = split
+        for ident in (r.get("doi"), r.get("pmcid")):
+            if not ident:
+                continue
+            ident = str(ident).lower()
+            if ident in seen_id and seen_id[ident] != split:
+                trouble.append(f"{ident} is in both {seen_id[ident]} and {split}")
+            seen_id[ident] = split
+    return sorted(set(trouble))
+
+
+def redact(split: str, report: dict[str, Any]) -> dict[str, Any]:
+    """What a split is allowed to show. SEALED gives aggregates and nothing per paper.
+
+    The harness enforces this rather than the person running it remembering to."""
+    if split in ("DEV", "VAL"):
+        return report
+    if split in ("SEALED", "EXAM"):
+        out = {k: v for k, v in report.items() if k not in ("papers_detail", "worst", "examples", "landings")}
+        out["redacted"] = f"{split}: {VISIBLE[split]}"
+        return out
+    raise SplitViolation(f"{split} is not a split that is scored ({VISIBLE.get(split, 'unknown')})")

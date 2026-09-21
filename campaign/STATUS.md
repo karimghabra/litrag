@@ -3,7 +3,9 @@
 **Read order after any fresh start or compaction:** `campaign/PROMPT.md` (the
 brief), `campaign/PLAN.md` (what to build), then this file. Then carry on.
 
-- **Phase:** 0 (orientation and baseline) — **gate passed**, see below.
+- **Phase:** 2 (the measurement apparatus). Phase 0 **gate passed**; Phase 1
+  (reliability) landed except for its two-full-pass gate, which runs on the new
+  corpus. See `reports/phase0.md` and the Phase 1 section below.
 - **Branch:** `campaign/dynamic-reader`, cut from `8fae8aa`
   (`origin/claude/decisions-by-meaning`, the merge commit of PR #20). See
   `DECISIONS.md` D1.
@@ -168,28 +170,88 @@ regardless of outcome (`worker.py:373`), because the list is built before
 
 ---
 
-## In flight
+## Phase 1 (reliability) — what landed
 
-- `tieprobe.py` running over all five pair sets: counting how often
-  `landed.most_common(1)` has a tie at the top, which is the one place a
-  `frozenset` iteration order could reach a metric. Two-seed comparison on
-  held-out 1 (33 pairs) already showed **zero** differing cells.
+Commit `28db03f`. Three faults, each of which cost a whole run rather than one paper.
+
+1. **The layout runs in a child process the worker supervises** (`layout.py`):
+   per-paper timeout, respawn on death, one retry in a fresh child, then the
+   paper is raised with a reason. Long-lived, because Docling takes seconds to
+   build. `LITRAG_LAYOUT_CHILD=off` is the way back. Nine fault-injection tests
+   drive a stub child that fails on demand, including a **real** access violation
+   (a bad pointer — `ctypes.string_at(0)` raises a catchable `OSError` and would
+   have tested nothing).
+2. **Every pdfium handle goes through `recover.open_pdf`.** Five call sites leaked
+   a document on their exception path; pypdfium2 closes what it still holds at GC
+   time, which can be inside a Docling parser thread that is itself in pdfium, and
+   litrag never takes Docling's lock. The 199 tuned pairs differ in **no cell**
+   after the change.
+3. **"Already read" is now a fact about the tree**, not about the `papers` row:
+   nodes exist *and* the raw Docling document exists. A paper left `parsing` by a
+   dead worker is given `failed` and a reason when its library is next opened, and
+   `harness.unread_papers` names every paper it is passing over.
+
+**Still open from Phase 1:** the two-full-pass gate (runs on the new corpus, Phase
+2); and `quit` is `os._exit`, so a queued-but-unstarted paper is silently
+abandoned — it is *reported* by `unread_papers` and rescued by `reparse`, but the
+worker does not drain its queue. Noted for `BACKLOG.md`.
+
+**Measured on the way:** Docling's layout is **not** bit-reproducible — six
+conversions of one PDF gave two distinct documents — but the difference is
+confined to `pictures` bounding boxes at ~1e-4 pt; `texts` and `tables` are
+identical across all six, and node counts never moved. (`DECISIONS.md` D5.)
+
+---
+
+## Phase 2 (the measurement apparatus) — in flight
+
+**The corpus is the thing `BACKLOG.md` asked for and no previous set was**: drawn
+by publisher, not by topic.
+
+- `fitted.py` → `campaign/fitted-publishers.json`: **87 DOI registrant prefixes
+  over 1,371 papers** are what the reader was built on. Five of them are half of
+  it (10.3390 MDPI 278, 10.1038 136, 10.1016 120, 10.3389 115, 10.1002 109).
+  Novel = a prefix not in these 87.
+- `recon.py` → `corpus/pool.json`: 106 queries (96 ordinary subject terms across
+  the whole of biomedicine and its neighbours, plus 8 `PUB_TYPE` queries for the
+  kinds the reader reads worst), 3 pages of 100 each, metadata only.
+  **29,270 papers over 426 prefixes, 351 of them novel.**
+- `manifest.py` → `campaign/corpus-manifest.json`: split **by a hash of the
+  prefix** and a fixed salt — recomputable, order-free, cannot drift.
+
+| split | papers | publishers | weak kinds |
+|---|---|---|---|
+| DEV | 236 | 113 | 41% |
+| VAL | 155 | 80 | 32% |
+| SEALED | 174 | 76 | 33% |
+| EXAM | 125 | 56 | 37% |
+| RESERVE | 31 | 13 | 19% |
+
+`PLAN.md` gives DEV/VAL/SEALED as 40/30/30 but also wants EXAM drawn from
+publishers in none of them; those cannot both hold, so the shares are
+35/25/20/15/5 and EXAM is **defined now and not fetched until Phase 8**.
+
+**A real obstacle, being handled:** `HAS_PDF:y` in Europe PMC's index does **not**
+mean EBI's bulk open-access area holds a PDF. On a first sample five of eight
+candidates 404'd on the bulk zip, on the REST PDF route, and the publisher is not
+to be scraped. A witness needs both formats, so `probe.py` HEAD-checks every one
+of the 1,830 novel-prefix candidates *before* the manifest is fixed — finding this
+out afterwards would silently shrink whichever split the misses fell in.
 
 ## Next three actions
 
-1. Finish the determinism finding (tie probe), and write
-   `campaign/reports/phase0.md`.
-2. Commit Phase 0 (campaign scaffolding only — no code change yet) and open the
-   draft PR for it.
-3. Start Phase 1 (reliability) and, **in parallel**, begin the Phase 2 corpus
-   fetch — it is the long pole and `BACKLOG.md` already specifies it: thirty-plus
-   DOI prefixes none of the libraries hold, weighted to editorials and letters,
-   built by adapting `fetch_heldout4.py` to query by `PUBLISHER:`/prefix instead
-   of topic.
+1. Finish `probe.py`, rebuild the manifest from papers known to have both formats,
+   fetch DEV/VAL/SEALED, and ingest them (the layout child makes that safe).
+2. Build the campaign harness proper: T1 accounting, the lane-precision metric
+   with coverage, clustered bootstrap intervals, macro beside micro — and the
+   **mutation tests** that prove each metric can fail, before any of it is
+   trusted.
+3. The per-rule precision table by familiarity, to test Phase 0's attribution
+   that the front-matter path owns most of the familiar-vs-novel gap.
 
 ## Open questions
 
-- None blocking. `DECISIONS.md` holds the three reversible defaults taken so far.
+- None blocking. Five reversible defaults are in `DECISIONS.md`.
 
 ## Assets inherited from previous rounds (do not rebuild from scratch)
 
