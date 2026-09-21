@@ -130,8 +130,18 @@ one oracle, `meaning.py`: nomic-embed-text through Ollama on 127.0.0.1,
 each question a *kind* with its examples or centroids, a threshold and a
 margin. Rules answer first; the oracle answers only where they are silent,
 and below its threshold or margin its answer is `other`. Its verdicts are
-rows in `<root>/lanes.sqlite`, replayed by a rebuild, and editing a kind's
-examples, threshold, margin or centroids makes it ask again once.
+rows in `<root>/lanes.sqlite`, replayed by a rebuild.
+
+A row keeps the **ranking** — every group with its score — and not only the
+verdict, and the cache is keyed on what determines that ranking (the examples
+or centroids, the prefix, the prior, the embedder) and **not** on the
+threshold and margin, which only decide what to do with it. So editing a
+kind's examples or centroids makes it ask again once; editing a threshold or
+a margin makes it decide again for nothing, in either direction. A row
+written before rankings were stored is honest about it — a hit under the rule
+that wrote it and a miss under any other — and `LITRAG_LANES_REFRESH=on` asks
+again for such rows so they gain one. It is off by default because turning it
+on re-embeds a whole library the next time its papers are read.
 
 - `lanes.py` only configures the oracle and asks the heading question. Its
   name, and the name of `lanes.sqlite`, are history: a new question is a
@@ -150,6 +160,7 @@ examples, threshold, margin or centroids makes it ask again once.
 | `LITRAG_ROOT` | `$PROTRACKER_LIBRARY`, else `~/.protracker/library` | where the libraries and `lanes.sqlite` live | current |
 | `LITRAG_LANES` | on | `off` runs with no oracle: whatever the rules do not name is `other` | current; the tests turn it off |
 | `LITRAG_LANES_MODEL` | `nomic-embed-text` | the embedder | current |
+| `LITRAG_LANES_REFRESH` | off | ask the embedder again for a stored verdict that carries no ranking, so it gains one and a threshold can be tried against it. Re-embeds a whole library once | current; the campaign turns it on per corpus |
 | `LITRAG_OLLAMA_URL` | `http://127.0.0.1:11434` | where the embedder and the judge are asked; keep it local | current |
 | `LITRAG_JUDGE`, `LITRAG_JUDGE_MODEL` | off, `qwen3:14b` | `1` asks the judge on every ingest and reparse | opt-in |
 | `LITRAG_OUTLINE`, `LITRAG_OUTLINE_MODEL` | off, `qwen3:14b` | `on` asks the outline judge on every PDF ingest and reparse, and replays its rows on rebuild | opt-in; measured on the pairs (NOTES.md) |
