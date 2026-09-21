@@ -242,7 +242,14 @@ def lane_sections(tree: Any, oracle: Oracle | None, repairs: dict[str, int]) -> 
             ranked = sorted(mean.items(), key=lambda x: (-x[1], x[0]))
             name, score = ranked[0]
             margin = score - ranked[1][1]
-            v = Verdict(name if score >= kind.threshold and margin >= max(kind.margin, LANE_MARGIN.get(name, 0.0)) else "other", round(score, 4), round(margin, 4))
+            # the ranking goes with the verdict, not just the verdict. This kind builds its own
+            # `Verdict` rather than going through `Oracle._decide`, and so was the one kind whose
+            # rows carried no ranking at all — which is to say the one kind whose threshold could
+            # not be swept, and it is the kind most in need of sweeping: its margins run around
+            # 0.02 against a required 0.08, so it is refused almost everywhere it speaks
+            v = Verdict(name if score >= kind.threshold and margin >= max(kind.margin, LANE_MARGIN.get(name, 0.0)) else "other",
+                        round(score, 4), round(margin, 4),
+                        tuple((l, round(c, 4)) for l, c in ranked[:4]))
             oracle.remember("block", key, v)
         if section.role == "other":
             if v.sure and v.name in CONTENT_LANES and research_like:
