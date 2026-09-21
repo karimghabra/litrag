@@ -82,6 +82,100 @@ when it turns out durable. Mark inference as inference.
 
 ## Short-term memory
 
+- **2026-09-21: the reader measured on publishers it has never seen** — the corpus `BACKLOG`
+  asked for, drawn by publisher rather than by topic, and the first honest answer to "how far
+  does this generalise". 87 DOI registrant prefixes are what the reader was built on (1,371
+  papers; five prefixes are half of them). 336 papers over **181 novel publishers**, split by a
+  hash of each prefix so the assignment cannot drift when the corpus grows; DEV 131, VAL 97,
+  SEALED 108, EXAM 74 defined and not fetched. Two things priced before the split was fixed:
+  Europe PMC's `HAS_PDF:y` is its index and not EBI's holdings (**47 per cent** of candidates
+  have no PDF in the bulk area, and one format is no witness), and PMC author manuscripts share
+  one NIH layout so they would have counted as a publisher.
+
+  **T3, both columns at one commit.** Precision is of the lanes the reader asserts; the second
+  row sets aside the quarter of witness paragraphs the witness itself lanes `other`, where it is
+  *impossible* to be scored correct because asserting means naming a lane.
+
+  |                                   | fitted (63 publishers) | novel (66) |
+  |-----------------------------------|------------------------|------------|
+  | precision, strict                 | 0.9778                 | 0.9012     |
+  | precision, witness-named lanes    | 0.9855                 | 0.9507     |
+  | coverage, witness-named lanes     | 0.9767                 | 0.7974     |
+  | conservation of the text layer    | 0.9179                 | 0.9681     |
+
+  **The reader already fails in the right direction**: coverage falls far harder than precision
+  under shift, which is what `other`-by-default buys and what no new machinery had to provide.
+  And the per-lane table says where the loss is. On publishers never seen, methods reads
+  **1.000** over 827 paragraphs, results 0.990, discussion 0.990 — and abstract 0.637. The body
+  transfers; the front of the paper does not. Which is where all ~150 of the reader's literal
+  publisher tokens live (`_FURNITURE`, `_LICENCE`, `_FRONT_LABEL`, `_MESSAGE_BOX`,
+  `_ABSTRACT_PART_WIDE`, `_CITE_LINE`, `_EDITOR_LINE`, `_GENERIC_LABELS`), all of them in
+  `tree.py`'s front-matter path. Everything else the reader does is already document-relative.
+
+  **Which rules transfer.** Every rule that takes a block out of the body, priced against the
+  witness on both columns. The four that lose most are the four that match publisher strings:
+  `dropped:running` 0.972 → 0.853, `front:affiliations` 0.952 → 0.838, `dropped:label` 0.961 →
+  0.857, `front:notice` 0.973 → 0.910. The ones keyed to something the document supplies hold or
+  improve: `front:dates` 0.989 → 1.000, `front:authors` 0.998 → 0.989, `front:correspondence`
+  0.959 → 0.963. `dropped:furniture` — a box recurring at the same height on three pages, and
+  nothing else — is right **every time on both columns**, which is the whole principle in one
+  rule.
+
+  **Where the gap really is: the kind of paper, not the lane.** The share of badly-read papers
+  quadruples (under 0.80 precision: 4.9 per cent fitted, **19.0 per cent** novel), and it is
+  concentrated in the short forms. Editorials read 0.825 fitted and **0.419** novel; seven of
+  DEV's eleven are among its twenty worst papers. Research papers 0.989 → 0.930, reviews 0.952
+  → 0.928. This is the cell `NOTES` already named from 20 papers — "little text to anchor on
+  *and* no convention to key off" — now measured on 66 publishers.
+
+- **2026-09-21: the abstract stops where it starts citing** — the one reader change of the
+  round, and it was found by attributing every wrong assertion to the route that named its lane
+  rather than by guessing at a mechanism. The vocabulary — the reader's most confident route,
+  89.5 per cent of all assertions — is its **least** precise at 0.8914, against the catalogue's
+  0.9560 and the embedder's 0.9882. Its errors are almost all one shape: the heading reads
+  "Abstract" and is read right, and what is wrong is where the section *ends*.
+
+  An abstract does not cite: 5.4 per cent of the paragraphs a paper really puts in its abstract
+  carry a citation mark, against 49.2 per cent of the ones the reading wrongly puts there.
+  Priced on the candidate set before a line was written — `it cites` 0.907 DEV / 0.938 fitted;
+  `it cites and is under 150 words` 0.947 / 1.000; **`it cites and is not the first paragraph`
+  32/32 and 40/40**; position alone 0.757 / 0.451; length alone 0.836 / 0.553. The last two are
+  why it is a conjunction. The first paragraph is exempt because a structured abstract's lead
+  can carry a trial registration or name the paper it comments on.
+
+  Gate: 199 tuned pairs 0.97300 → 0.97335 faithful by words, well matched 185 → 186, **three
+  papers better and none worse**. `LITRAG_ABSTRACT_ENDS=off` turns it off.
+
+  **And it is worth four fixed assertions, not the thirty-two its price suggested** — ten
+  paragraphs moved on four papers, DEV precision 0.8999 → 0.9012. The reason is the lesson: the
+  candidate set was built from the *witness's* paragraphs landing under an abstract-laned block,
+  and the rule acts on the *reader's* paragraphs that are direct prose children of an abstract
+  section. Of 166 abstract sections in DEV only 51 have two or more. **Price the candidate set
+  from the side the rule acts on**, or the price is an upper bound nobody told you about.
+
+- **2026-09-21: eight claims, seven of them refused by the next measurement** — kept because the
+  pattern is the finding. (1) T1 is 0.959 — no, that tokeniser ignored every digit and scored
+  hyphenation as lost text, 63.6 per cent of the apparent loss; it is 0.918 fitted, 0.968 novel.
+  (2) T1's residue is figure text — 0.7 per cent of it is. (3) Then it is table text — the test
+  is worthless, 46 per cent of table boxes cover more than half their page. (4) `front:keywords`
+  is the worst rule the reader has at 0.368 — it is not a reader error at all: the lines read
+  `Keywords: Stem cell, …` and the *XML's own* reading leaves them in its body, so the measure
+  was pricing the witness. (5) The abstract lane collapses on novel publishers — one conference
+  supplement, 15 per cent of every paragraph in DEV, moving its coverage from 0.779 to 0.675 on
+  its own. (6) Short papers fail because the geometric furniture rule needs three pages and they
+  have two — true that it never fires on them (25 of 25), and the fix has **zero** candidates,
+  because Docling's own `page_header` labels already removed that text. (7) The corpus had no
+  Europe PMC record while the legacy libraries had one for 94-98 per cent of papers, so T3 was
+  confounded — real, removed, and it changed **nothing**: DEV identical to the digit. (8) The
+  vocabulary route is the least precise and its errors are one boundary — this one held.
+
+  The two that mattered most were not wrong arithmetic. They were numbers that were correct and
+  read as something else: a micro-average owned by one document, and a rule priced against the
+  witness's habits. A fresh-context reviewer found a third of the same kind — the clustered
+  bootstrap's test asserted the interval "reaches below 0.92", which an **unclustered** interval
+  also does (0.868), so the test could not have failed.
+
+
 - **2026-09-20: what "held out" is worth, measured** — Karim, on being told the reader is not a
   trained model: *"Well yes but the papers we have tested on iteratively inform the rules we
   make."* He is right, and it is the sharper frame: the rules are the parameters and the assistant

@@ -625,3 +625,31 @@ Each one wants a fixture or a test before its fix, as the spot-check does.
   graph database would be a second thing to keep true.
 - No prose from the tool. `query` returns passages with citations; the
   answer is the assistant's, or `lit ask`'s when that exists.
+
+## Found by the publisher-drawn corpus (2026-09-21)
+
+- **`quit` discards work that is only queued** — `quit` is `os._exit`, so an `ingest` or
+  `rebuild` sent in the same breath is killed before the ingest thread has run it. The paper
+  stays `queued` for good: `unread_papers` reports it and `reparse` rescues it, but the worker
+  does not drain its queue. It is also a live trap for anyone scripting the worker — a test that
+  fed both at once passed while measuring nothing. Drain the queue on `quit`, or refuse the op
+  while work is outstanding and say so.
+- **Short papers get no geometric furniture at all** (measured) — `_recurring_furniture` needs a
+  line on three pages and 25 of 25 DEV papers of three pages or fewer had it fire not once,
+  against 28.3 fires a paper at nine pages or more. Lowering it to two pages was priced and has
+  **zero** candidates: Docling's own `page_header`/`page_footer` labels have already taken that
+  text. So the gap on short papers is not this, and the next thing to try is not this either.
+- **Editorials on a publisher never seen read 0.419** against 0.825 on a fitted one — far the
+  largest gap of any kind, and seven of DEV's eleven are among its twenty worst papers. Letters
+  are 88 per cent of them three pages or fewer. `NOTES` named the mechanism before there was a
+  corpus: little text to anchor on and no convention to key off. Nothing in this round moved it.
+- **The DOI a PDF prints can be truncated where the line broke** — `10.1302/2633-1462` for
+  `10.1302/2633-1462.611.bjo-2025-0138.r1`, which then matches no record and no twin. `pick_doi`
+  takes the first DOI whose suffix carries a digit; it could also refuse one that ends where a
+  line does when the page continues with something a DOI may contain.
+- **12 of DEV's 135 papers still have no witness** after the content-hash repair, and are named
+  in every run rather than dropped. Worth a look before EXAM is drawn.
+- **The rule-pricing method is unreliable for short strings** — a running head reading
+  `Volker Kahlenberg et al. — K0.72Na1.71…` matches the XML's *contributor block*, so the removal
+  scores wrong when it was right. Judging against prose in a named body lane removes most of it,
+  not all. Rules over short strings carry that caveat.
