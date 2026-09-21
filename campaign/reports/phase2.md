@@ -105,6 +105,40 @@ lane and being correct means matching `other`, so the two cannot both hold. It i
 reported because those 914 paragraphs are a fifth of the corpus and the 163 the
 reader asserts on are real wrong assertions under the strict reading.)
 
+## 4a. Which rules transfer, and which do not
+
+Every rule that takes a block out of the body, priced against the witness, on both
+columns at the same commit. Precision here is the two-way `body` reading: a
+removal is wrong only if the witness holds the text as prose **in a named body
+lane**, which sets aside the front matter the witness's own reading leaves in its
+body.
+
+| rule | fitted (487 papers) | novel (123 papers) | change |
+|---|---|---|---|
+| `dropped:running` | 0.972 (1,986) | **0.853** (672) | **−11.9** |
+| `front:affiliations` | 0.952 (479) | **0.838** (148) | **−11.4** |
+| `dropped:label` | 0.961 (181) | **0.857** (35) | **−10.4** |
+| `front:notice` | 0.973 (332) | **0.910** (67) | **−6.3** |
+| `front:keywords` | 0.375 (272) | 0.305 (59) | −7.0 · witness noise, both columns |
+| `front:authors` | 0.998 (393) | 0.989 (89) | −0.9 |
+| `front:correspondence` | 0.959 (417) | 0.963 (81) | +0.4 |
+| `front:dates` | 0.989 (268) | 1.000 (46) | +1.1 |
+| `front:funding` | 0.960 (25) | 1.000 (7) | +4.0 |
+| `front:other` | 0.658 (155) | 0.786 (56) | +12.8 |
+| `dropped:furniture` | 1.000 (69) | 1.000 (11) | 0.0 |
+
+**The four rules that lose most on a publisher they have not seen are exactly the
+four that read a publisher's strings**: running heads and furniture
+(`_RUNNING`, `_FURNITURE`), affiliations, the label path, and the notice/licence
+path. The rules that key on something the document itself provides —
+`front:dates` (a date is a date), `front:authors`, `front:correspondence`,
+`dropped:furniture` (recurrence across pages, pure geometry) — hold or improve.
+
+`dropped:furniture` is the proof of the principle in miniature: it fires 69 times
+on fitted publishers and 11 on novel ones, and it is **right every time on both**,
+because it keys on a box recurring at the same height on three pages and nothing
+else.
+
 ## 5. What the apparatus found about itself
 
 Four measurements of mine were refused by other measurements, each at the cost of
