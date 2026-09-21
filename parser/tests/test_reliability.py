@@ -11,6 +11,7 @@ import json
 import sqlite3
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 from litrag_parser.harness import unread_papers
@@ -25,6 +26,41 @@ def _library(root: Path, name: str = "Test"):
     lib = create_library(root, name, None)
     lib.ensure_dirs()
     return lib
+
+
+def _talk_until_done(root: Path, request: dict, timeout: float = 600) -> list[dict]:
+    """Send one queued request and wait for its `done` before quitting.
+
+    `quit` is `os._exit`, so feeding it in the same breath as an `ingest` or a `rebuild` kills
+    the worker before its ingest thread has run anything — the request is merely *queued*. Any
+    test that fed both at once would pass while measuring nothing."""
+    proc = subprocess.Popen(
+        [sys.executable, "-m", "litrag_parser.worker", f"--root={root}"],
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        text=True, encoding="utf-8", cwd=Path(__file__).parent.parent, bufsize=1,
+    )
+    assert proc.stdin and proc.stdout
+    proc.stdin.write(json.dumps(request) + "\n")
+    proc.stdin.flush()
+    events: list[dict] = []
+    ends_at = time.time() + timeout
+    while time.time() < ends_at:
+        line = proc.stdout.readline()
+        if not line:
+            break
+        line = line.strip()
+        if not line.startswith("{"):
+            continue
+        events.append(json.loads(line))
+        if events[-1].get("event") in ("done", "error") and events[-1].get("id") == request["id"]:
+            break
+    proc.stdin.write(json.dumps({"id": "q", "op": "quit"}) + "\n")
+    proc.stdin.flush()
+    try:
+        proc.wait(timeout=60)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+    return events
 
 
 def _file_a_paper(lib, key: str, *, status: str, nodes: int, raw: bool) -> None:
@@ -133,3 +169,59 @@ def test_a_paper_left_parsing_is_given_a_terminal_state_when_the_worker_next_ope
         conn.close()
     assert status == "failed" and "stopped while reading" in (error or "")
     assert "interrupted" in stages  # and the history says why, not just that it failed
+
+
+def test_a_rebuild_reads_every_paper_not_just_the_first(tmp_path):
+    """`do_rebuild` opens one connection for the whole run. A refactor moved its `conn.close()`
+    inside the per-paper step, so the second paper met a closed database and the run ended after
+    one — with a `done` event that said it had succeeded. No test touched `rebuild` at all, which
+    is how it got through; this is that test."""
+    from litrag_parser.library import safe_key
+
+    lib = _library(tmp_path)
+    fixture = json.loads((FIXTURES / "PMC11278924.docling.json").read_text("utf-8"))
+    keys = ["doi:10.3390/one", "doi:10.3390/two", "doi:10.3390/three"]
+    conn = open_store(lib.store_path)
+    with conn:
+        for key in keys:
+            conn.execute(
+                "INSERT INTO papers(key, title, file, format, status, added_at) VALUES (?,?,?,?,?,?)",
+                (key, key, f"{safe_key(key)}.pdf", "pdf", "parsed", "2026-09-21T00:00:00Z"))
+    conn.close()
+    for key in keys:
+        (lib.parsed_dir / f"{safe_key(key)}.docling.json").write_text(
+            json.dumps(fixture), encoding="utf-8")
+
+    events = _talk_until_done(tmp_path, {"id": "1", "op": "rebuild", "lib": lib.id})
+    trees = [e for e in events if e.get("event") == "tree"]
+    done = [e for e in events if e.get("event") == "done" and e.get("op") == "rebuild"]
+    errors = [e for e in events if e.get("event") == "error"]
+    assert not errors, errors
+    assert len(trees) == 3, [e.get("paper") for e in trees]
+    assert len(done) == 1 and sorted(done[0]["rebuilt"]) == sorted(keys)
+    assert done[0]["refused"] == []
+
+
+def test_a_rebuild_refuses_one_bad_document_and_reads_the_rest(tmp_path):
+    """A truncated raw document must cost its own paper and no other: that is the same
+    "one paper costs the run" shape the layout child was built to remove."""
+    from litrag_parser.library import safe_key
+
+    lib = _library(tmp_path)
+    fixture = (FIXTURES / "PMC11278924.docling.json").read_text("utf-8")
+    keys = ["doi:10.3390/good1", "doi:10.3390/bad", "doi:10.3390/good2"]
+    conn = open_store(lib.store_path)
+    with conn:
+        for key in keys:
+            conn.execute(
+                "INSERT INTO papers(key, title, file, format, status, added_at) VALUES (?,?,?,?,?,?)",
+                (key, key, f"{safe_key(key)}.pdf", "pdf", "parsed", "2026-09-21T00:00:00Z"))
+    conn.close()
+    for key in keys:
+        text = fixture if "bad" not in key else fixture[: len(fixture) // 2]
+        (lib.parsed_dir / f"{safe_key(key)}.docling.json").write_text(text, encoding="utf-8")
+
+    events = _talk_until_done(tmp_path, {"id": "1", "op": "rebuild", "lib": lib.id})
+    done = [e for e in events if e.get("event") == "done" and e.get("op") == "rebuild"][0]
+    assert sorted(done["rebuilt"]) == ["doi:10.3390/good1", "doi:10.3390/good2"]
+    assert [r["paper"] for r in done["refused"]] == ["doi:10.3390/bad"]

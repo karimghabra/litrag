@@ -496,8 +496,6 @@ class Worker:
         sure = assess_confidence(tree, kind)
         set_confidence(conn, key, sure["confidence"], sure["reasons"], sure["penalties"])
         emit({"event": "tree", "id": req.get("id"), "paper": key, "title": tree.title, "type": kind, "confidence": {"confidence": sure["confidence"], "reasons": sure["reasons"]}, "roles": tree.roles, "has_methods": tree.has_methods, "nodes": n, "pages": len(tree.pages), "dropped": tree.dropped, "repairs": tree.repairs, "notes": len(tree.notes), "judged": judge.summary(), "meaning": self._meaning(), "edges": summarize_edges(tree, edges), **summarize_citations(refs, cites)})
-        conn.close()
-        emit({"event": "done", "id": req.get("id"), "op": req.get("op", "rebuild"), "rebuilt": rebuilt})
 
     def layout(self, lib: Library, key: str, path: Path, raw_path: Path, req_id: Any, started: float, stage: Any) -> dict[str, Any]:
         """The raw Docling document, from a child process the worker can lose.
