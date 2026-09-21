@@ -23,6 +23,12 @@
   <main id="panes">
     <section id="papers-pane" class="pane">
       <div class="pane-head"><h2>Papers</h2><span id="papers-count" class="muted"></span></div>
+      <div id="papers-tools" class="tools" hidden>
+        <label class="field"><span>Sort</span><select id="papers-sort" title="The order of the list"></select></label>
+        <div id="format-filter" class="chips" title="Show only PDFs, or only XML"></div>
+        <div id="type-filter" class="chips" title="Show only one type of paper"></div>
+        <div id="confidence-filter" class="chips" title="Show only the readings of one band of confidence"></div>
+      </div>
       <div id="papers" class="scroll"></div>
       <div id="drop-hint" class="hint">Drop PDFs or JATS XML anywhere to ingest them into this library.</div>
     </section>
