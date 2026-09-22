@@ -156,3 +156,37 @@ on them cries wolf, and a check that cries wolf gets ignored. A change to any
 `reports/phase1.md` is now precisely: *no data in his libraries was read into,
 written to, or modified*, and *his directory did acquire SQLite sidecar files from
 read-only opens*. Those are different sentences and the second one is true.
+
+## D7 — the code is frozen at `9d0dcd2`, before EXAM is fetched
+
+**The situation.** `PLAN.md` Phase 8: "Freeze the code. Draw EXAM from publishers in no split.
+Score once." The split protocol is only worth the paper it is written on if the freeze is real
+and comes first, so this entry is written before a single EXAM paper is on disk.
+
+**The freeze.** `9d0dcd2`, the tip of `campaign/phase5-agreement`. Every switch this campaign
+added is **off** at that commit, so the reader being examined is the reader as it stood at the
+end of Phase 3 plus one rule — the abstract ends where it starts citing. The others are in the
+tree with their numbers beside them and are not part of the exam:
+
+| switch | default | why it is off |
+|---|---|---|
+| `LITRAG_LAYOUT_CHILD` | **on** | Phase 1; it is the reliability fix, not a reader change, and the child reads what the process did |
+| `LITRAG_ABSTRACT_ENDS` | **on** | Phase 3; priced 72/72, three papers up and none down |
+| `LITRAG_LANE_AGREEMENT` | off | Phase 5; the block classifier is 0.26–0.62 precise and unfit to veto a heading |
+| `LITRAG_CANONICAL_ONLY` | off | Phase 5; 9.5 points of coverage for 0.2 of precision, end to end |
+| `LITRAG_LANES_REFRESH` | off | Phase 5; it re-embeds a library, and the campaign has already run it on its own copy |
+
+**What the freeze binds.** No change to `parser/litrag_parser/` that alters what the reader
+produces, from this commit until EXAM has been scored and the number written down. Measurement
+scripts outside the repository, reports, and this file are not the reader and may still be
+written.
+
+**What EXAM is.** 74 papers over **31 publishers, none of them fitted and none in DEV, VAL,
+SEALED or RESERVE** — the assignment fixed by a hash of each DOI registrant prefix against the
+salt in `campaign/corpus-manifest.json`, so it cannot drift as the corpus grows. It has never
+been fetched, looked at or scored.
+
+**The budget is one.** `campaign.py` counts EXAM scorings in the ledger and says so on every
+run. If the first run is spoiled by something mechanical — a crash, a wrong flag — the honest
+course is to say so in the report and score again, naming both runs, rather than to quietly
+re-run until a number looks right.
