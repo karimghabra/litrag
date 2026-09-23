@@ -33,6 +33,7 @@ import math
 import os
 import re
 import sqlite3
+import time
 import sys
 import urllib.error
 import urllib.parse
@@ -87,10 +88,20 @@ def pdf_base(base: str | None = None) -> str:
     return (base or os.environ.get("LITRAG_EPMC_PDF_URL") or BULK_PDF).rstrip("/")
 
 
-def _get(url: str, timeout: float) -> bytes:
+def _get(url: str, timeout: float, retries: int = 3) -> bytes:
+    """One GET; a busy service (429, 502, 503, 504) is asked again after a pause, since Europe
+    PMC answers 503 to a burst of requests — measured on 76 DOI lookups, 11 of them — and a
+    busy answer says nothing about the paper."""
     req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        return resp.read()
+    for attempt in range(retries + 1):
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                return resp.read()
+        except urllib.error.HTTPError as e:
+            if e.code not in (429, 502, 503, 504) or attempt == retries:
+                raise
+            time.sleep(1.5 * 2 ** attempt)
+    raise AssertionError("unreachable")
 
 
 # ---------------------------------------------------------------- search

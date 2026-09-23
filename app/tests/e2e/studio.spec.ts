@@ -63,6 +63,8 @@ test.beforeAll(async () => {
   await page.waitForLoadState('domcontentloaded');
   // a fresh window starts on the Projects tab: nothing is remembered from another run
   await page.evaluate(() => window.localStorage.clear());
+  await page.reload();
+  await page.waitForLoadState('domcontentloaded');
 });
 
 test.afterAll(async () => {
@@ -124,6 +126,8 @@ test('3. Fetch & read: the XML, then the open PDF; the closed paper is marked as
   await page.click('#search-fetch');
   await expect(page.locator('#activity')).toBeVisible({ timeout: 10_000 });
   await expect.poll(async () => (await candidates()).map((c) => c.status).sort().join(','), { timeout: 15 * 60 * 1000, intervals: [2000] }).toBe('ingested,ingested,needs-pdf');
+  // filed is "in library"; read is every paper parsed into its tree
+  await expect.poll(async () => (await papersOf()).filter((p) => p.status === 'parsed').length, { timeout: 15 * 60 * 1000, intervals: [2000] }).toBe(2);
   const byDoi = new Map((await candidates()).map((c) => [c.doi, c]));
   expect(byDoi.get('10.3390/mi15070851')!.paper_key).toBe('doi:10.3390/mi15070851');
   expect(byDoi.get('10.1016/j.actbio.2017.05.058')!.paper_key).toMatch(/actbio\.2017\.05\.058/i);
@@ -184,13 +188,14 @@ test('7. Query: passages embedded, a question answered with its context and its 
   test.setTimeout(10 * 60 * 1000);
   await tab('query');
   await expect(page.locator('#embed-status')).toContainText('passages embedded', { timeout: 20_000 });
-  await page.click('#embed');
+  // every paper's passages were embedded as it was read: nothing is left for the button to do
   await expect.poll(async () => {
     const r = await request<{ units: number; embedded: number }>(page, 'retrieval', { lib: LIB });
     return r.units > 0 && r.embedded === r.units;
   }, { timeout: 8 * 60 * 1000, intervals: [2000] }).toBe(true);
   const status = await request<{ units: number; embedded: number }>(page, 'retrieval', { lib: LIB });
   await expect(page.locator('#embed-status')).toContainText(`${status.embedded.toLocaleString()} of ${status.units.toLocaleString()}`, { timeout: 20_000 });
+  await expect(page.locator('#embed')).toBeDisabled();
   // embedding again asks nothing: every passage is already held
   const again = await request<Record<string, number>>(page, 'embed', { lib: LIB });
   expect(again['event']).toBe('queued');

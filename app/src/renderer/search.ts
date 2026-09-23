@@ -86,10 +86,28 @@ export function initSearch(): void {
       }
       renderHits();
       renderCandidates();
-    } else if (kind === 'done' && (ev['op'] === 'fetch' || ev['op'] === 'ingest')) {
-      if (ctx.view === 'search') void loadCandidates();
+    } else if ((kind === 'done' && (ev['op'] === 'fetch' || ev['op'] === 'ingest')) || kind === 'paper') {
+      // a paper filed is a candidate in the library: the list says so as it happens, not when the batch ends
+      if (ctx.view === 'search') soon();
     }
   });
+}
+
+let pending: ReturnType<typeof setTimeout> | null = null;
+function soon(): void {
+  if (pending) return;
+  pending = setTimeout(() => {
+    pending = null;
+    void loadCandidates().then(() => {
+      // the hits of the search on screen are the same candidates: their pills follow the list's
+      const by = new Map(state.candidates.map((c) => [c.cand_id, c]));
+      for (const h of state.hits) {
+        const c = by.get(h.cand_id);
+        if (c) Object.assign(h, { status: c.status, paper_key: c.paper_key, error: c.error });
+      }
+      renderHits();
+    });
+  }, 400);
 }
 
 const fetchable = (c: Candidate) => ['found', 'failed', 'dismissed', 'staged'].includes(c.status);

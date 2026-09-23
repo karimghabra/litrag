@@ -247,6 +247,7 @@ class Worker:
         self._recovered: set[Path] = set()  # libraries whose interrupted papers have been closed
         self._recover_lock = threading.Lock()
         self._layout: Any = None  # the Docling child, spawned on the first paper and respawned when it dies
+        self._embedder: Any = None  # retrieve.OllamaEmbedder, built on the first paper read
 
     @staticmethod
     def _meaning() -> dict[str, Any] | None:
@@ -275,6 +276,23 @@ class Worker:
                 s = boundary.BoundaryScorer()
                 self._scorer = s if s.available() else None
         return self._scorer
+
+    def embed_paper(self, conn: Any, key: str) -> dict[str, Any] | None:
+        """A paper's passages embedded as soon as its rows are saved (retrieve.py), so the Query
+        tab never waits on a library-wide pass: a rebuild replaces the nodes and their vectors go
+        with them. Off with the oracle (`LITRAG_LANES=off`, which the tests set) or with
+        `LITRAG_EMBED=off`; the embedder being down costs nothing but a note, and the Query tab's
+        Embed button catches up later."""
+        if os.environ.get("LITRAG_EMBED", "on") == "off" or os.environ.get("LITRAG_LANES", "on") == "off":
+            return None
+        from . import retrieve
+
+        if self._embedder is None:
+            self._embedder = retrieve.OllamaEmbedder()
+        try:
+            return retrieve.embed_library(conn, self._embedder, paper=key)
+        except Exception as e:  # noqa: BLE001 — a passage not embedded is a search that misses it, never a paper lost
+            return {"error": f"{type(e).__name__}: {e}"}
 
     # ---- the converter, built once on the ingest thread -------------------------------
 
@@ -498,6 +516,7 @@ class Worker:
         if outline_enabled() or req.get("outline"):
             judge_outline(tree, conn, key, ask_model=ask, pub_types=row["pub_types"])  # a rebuild replays the outline's row; only the judge op asks the model
         n = save_tree(conn, key, tree, parser=f"{'judge ' + judge.model if ask else 'rebuild'} {__version__}", parsed_at=now_iso(), seconds=0.0)
+        self.embed_paper(conn, key)
         xml = source.read_bytes() if row["format"] == "jats" and source and source.exists() else None
         if xml:
             journal, year = jats_journal(xml)
@@ -606,6 +625,9 @@ class Worker:
                     stage("outline", f"The outline judge gave no usable answer ({outlined.get('error') or 'the answer was not an outline'}): the reader's own structure stands")
             seconds = round(time.time() - started, 1)
             n = save_tree(conn, key, tree, parser=f"docling {self.docling_version} · litrag-parser {__version__}", parsed_at=now_iso(), seconds=seconds)
+            embedded = self.embed_paper(conn, key)
+            if embedded and embedded.get("embedded"):
+                stage("embedded", f"{embedded['embedded']} passages embedded for search")
             xml = path.read_bytes() if path.suffix.lower() == ".xml" else None
             if xml:
                 journal, year = jats_journal(xml)

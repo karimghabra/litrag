@@ -104,6 +104,7 @@ CREATE TABLE IF NOT EXISTS citations (
   PRIMARY KEY(paper, node_id, ref_no)
 );
 CREATE INDEX IF NOT EXISTS citations_ref ON citations(paper, ref_no);
+CREATE INDEX IF NOT EXISTS citations_node ON citations(node_id);  -- a passage's references, fetched for every hit a query hydrates
 
 CREATE TABLE IF NOT EXISTS outlines (
   paper TEXT NOT NULL REFERENCES papers(key) ON DELETE CASCADE,

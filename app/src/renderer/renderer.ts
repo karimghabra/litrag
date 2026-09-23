@@ -310,7 +310,7 @@ const STEPS: [string, string][] = [['queued', 'queued'], ['opening', 'opened'], 
 function steps(p: Paper): HTMLElement {
   const wrap = el('div');
   const bar = el('div', 'steps');
-  const stage = p.status === 'queued' && !p.stage ? 'queued' : p.stage === 'judge' || p.stage === 'outline' || p.stage === 'models' ? 'tree' : p.stage ?? 'queued';
+  const stage = p.status === 'queued' && !p.stage ? 'queued' : p.stage === 'judge' || p.stage === 'outline' || p.stage === 'models' || p.stage === 'embedded' ? 'tree' : p.stage ?? 'queued';
   const at = Math.max(0, STEPS.findIndex(([s]) => s === stage));
   STEPS.forEach(([, label], i) => {
     const s = el('span', i < at ? 'done' : i === at ? 'now' : '');
