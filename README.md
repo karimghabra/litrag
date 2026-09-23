@@ -26,7 +26,11 @@ npm --prefix app install            Electron, pdf.js
 npm run app                         the window
 ```
 
-In the window: **New library**, then **Add papers…** or drop PDFs (or
+In the window: **Projects → New project** (a name, and a few lines on what
+its literature is about), then **Search** Europe PMC and **Fetch & read**
+what it finds — the XML where it is open, an open PDF where there is one,
+and a list of the rest with their publisher's page, to download by hand and
+drop anywhere on the window. Or **Papers → Add papers…**, or drop PDFs (or
 Europe PMC JATS XML) anywhere. The first paper also downloads Docling's
 layout and table models (~0.5 GB, once). A paper takes about fifteen
 seconds on four CPU cores; a GPU is picked up automatically when torch
@@ -44,6 +48,18 @@ Which code is the current pipeline and which is the deprecated `lit` CLI,
 how a paper moves through it, and every switch: `PIPELINE.md`.
 
 ## What you see
+
+Five tabs over one project at a time, picked at the top:
+
+| Tab | What it is for |
+|---|---|
+| Projects | every project as a card: papers by format and type, how many are read, the searches run, the candidates waiting for a PDF, the passages embedded; **New project**; **Merge libraries…** files every paper of several projects once in a new one |
+| Search | a Europe PMC query (or one the local model drafts from the project's description); each hit with what can be had of it — open XML, an open PDF, nothing open — kept as a candidate; **Fetch & read** takes the XML first, the PDF second, and lists the rest with their links |
+| Papers | the three panes below; the tree pane's **Canonical** face re-hangs the paper under its type's structure, each section tagged with the mechanism that placed it |
+| Types | the kinds of paper the project holds, each kind's canonical structure (its slots in order, how often its papers have each), and any paper drawn onto it: a line from each printed section to its slot, coloured by the vocabulary, the catalogue, the embedder, a built heading or the outline judge; the slots it lacks drawn empty |
+| Query | a question, and the passages that answer it, each hydrated from its tree: the headings above it, the paragraphs either side, the methods a finding was measured by, the figures and references it cites; **Open in the tree** lands on it |
+
+The Papers tab:
 
 | Pane | What it shows |
 |---|---|

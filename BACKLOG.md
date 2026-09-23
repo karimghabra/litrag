@@ -20,11 +20,14 @@ wants as they are voiced.
   library; `src/sources/europepmc.ts` already does the calls, the worker
   should learn `search` and `fetch` ops (Python `httpx`) so the window has
   one wire.
-- **Wire the retrieval loop to the tree store** — paragraph nodes as
-  chunks with ancestry prefixed, embedded once, partitioned by role; the
-  miner and the model stage over `nodes`; the graph walk over the same rows;
-  then `lit query` reads `store.sqlite`. Port the CLI's verbs one at a time
-  and strike them from `src/`.
+- **Wire the retrieval loop to the tree store** — *search and hydration done
+  2026-09-23* (`retrieve.py`, the `query` op, the Query tab: paragraph nodes
+  embedded once with their headings, words and meaning fused, every hit
+  hydrated with its neighbours and its methods; on 14 proxy questions the
+  answer is in the top 3 for 14 with its context, against 8 for `lit query`).
+  Left: the graph walk (HippoRAG's personalised PageRank over `refs` and
+  `edges`), the miner and the model stage over `nodes`, and Karim's own bench
+  questions; then strike `src/chunk.ts`, `sections.ts`, `pdf.ts`.
 - **Node summaries** (PageIndex's idea) — one line per section from the
   model stage, stored on the node, so an assistant navigates a chosen paper
   by reading rows. `lit toc <paper>`.
