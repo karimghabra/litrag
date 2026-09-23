@@ -18,8 +18,9 @@ Where things are:
   `tree.py` turns a Docling document into the node tree; `store.py` is the
   SQLite schema and its reads; `worker.py` speaks JSON lines over stdio.
 - `app/` — Electron, TypeScript, built with esbuild. `src/main` spawns the
-  worker and relays its events; `src/renderer` is the window: papers,
-  tree, page with boxes, log.
+  worker and relays its events; `src/renderer` is the window: five tabs
+  over one project — Projects, Search, Papers (tree, page with boxes,
+  canonical face), Types, Query — and the log.
 - `src/`, `tests/` — the `lit` CLI (Node): Europe PMC, chunks, embeddings,
   hybrid retrieval. Not yet wired to the tree store, and deprecated: kept
   until its verbs are ported to it (`BACKLOG.md`).
@@ -62,6 +63,8 @@ Invariants:
 Verify before you push: `npm run check:all` — the CLI's typecheck and tests,
 the app's typecheck, tests and build, and the parser's pytest (fixtures are
 saved Docling documents; nothing touches the network or the models). A real
-run of the app is `npm run app`; a headless one is `app/tests/smoke.mjs`.
+run of the app is `npm run app`; a headless one is `app/tests/smoke.mjs`;
+the product end to end is `LITRAG_HEADLESS=1 npm run e2e:studio` (Docling's
+models, Ollama, and two PDFs from the archive beside the checkout).
 The libraries live outside the repository (`LITRAG_ROOT`, default
 `~/.protracker/library`) and never enter it.
