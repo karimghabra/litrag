@@ -579,6 +579,8 @@ def _continues(prev_text: str, text: str, prev_page: int | None, page: int | Non
         return False
     if a[-1] == "." and b[0] == "," and re.search(r"\b[A-Z][a-z]{0,6}\.$", a):
         return True  # "…Adv. Mater." || ", 2400084." — a journal's abbreviation, not a sentence's end
+    if b[0].islower() and re.search(r"\bet\s*al\.$", a):
+        return True  # "…transmission in livestock, Diaby et al." || "demonstrates that…": a citation's "al.", not a sentence's end (19 of 21 on the pairs)
     if a[-1] in ".!?" and (b[0].islower() or b[0] in ")],;"):
         return False  # a sentence that ended does not continue in lowercase: that tail belongs elsewhere
     if geometry is not None and a[-1] in ".!?":
@@ -636,12 +638,97 @@ def _judge_candidate(a: str, b: str) -> bool:
 
 
 def _merged(a: dict[str, Any], b: dict[str, Any], text: str) -> dict[str, Any]:
-    """`a` carrying `b`'s text, and the pages of both."""
+    """`a` carrying `b`'s text, and the pages of both — and `b`'s end: where the joined paragraph
+    now stops on the page and how full its last line is, which the next join is asked about. Read
+    from `a`, a paragraph joined across a column and then a page asked the first column whether it
+    ended, and the page before whether the next page followed it."""
     pages = list(a.get("_pages") or ([_page_of(a)] if _page_of(a) else []))
     pb = _page_of(b)
     if pb is not None and pb not in pages:
         pages.append(pb)
-    return {**a, "text": text, "children": [], "_pages": pages}
+    tail = a.get("_tail") if _is_fragment((b.get("text") or "").strip()) else (b.get("_tail") or _tail_of(b))
+    return {**a, "text": text, "children": [], "_pages": pages, "_tail": tail or _tail_of(a)}
+
+
+def _tail_of(item: dict[str, Any]) -> dict[str, Any]:
+    """What `_geometry_says` and `_continues` read of a block's end: its last box, its page, its last line."""
+    return {"prov": (item.get("prov") or [])[-1:], "_last_full": item.get("_last_full"), "_last_fill": item.get("_last_fill"), "_line_h": item.get("_line_h"), "_lead": item.get("_lead"), "_lines": item.get("_lines"), "label": item.get("label")}
+
+
+KEEP_APART = True  # `_stands_apart`
+
+
+def _stands_apart(end: dict[str, Any], it: dict[str, Any], between: list[dict[str, Any]], prev_text: str, text: str, geometry: bool | None, unit: float, repairs: dict[str, int]) -> bool:
+    """A join the rules would make that the page refuses: the next block stands right under the
+    last one in its column, nothing between. Where the layout model cut two blocks there and the
+    first ends a sentence, a flush first line is not a continuation — measured 2026-09-23, 0 of
+    26 such joins are one paragraph in the XML; and where the first stops mid-sentence on a short
+    line with a line's space or more before the next, 5 of 23 are."""
+    if between:
+        return False
+    pa, pb = (end.get("prov") or [None])[-1], (it.get("prov") or [None])[0]
+    if not pa or not pb or not pa.get("bbox") or not pb.get("bbox") or pa.get("page_no") != pb.get("page_no") or not _same_column(end, it):
+        return False
+    gap = _vertical_gap(pa["bbox"], pb["bbox"])
+    if gap <= -0.5 * unit:
+        return False  # the next block stands above: another column's top, not the line under
+    a = prev_text.rstrip()
+    apart = False
+    if geometry is True and a[-1:] in (".", "!", "?"):
+        apart = True
+    elif text.lstrip()[:1].islower() and (end.get("_last_fill") or 0.0) < RUNS_ON_FILL and end.get("_lead") and end.get("_line_h"):
+        apart = (gap + end["_line_h"]) / end["_lead"] > 1.3
+    if apart:
+        repairs["kept_apart"] = repairs.get("kept_apart", 0) + 1
+    return apart
+
+
+#: How far across its column a last line must reach before the page, not the words, says the
+#: paragraph goes on — at a column or a page break, or past a figure. Learned 2026-09-23 on the
+#: stitcher's decision points over five pair sets (18,396 labelled by the XML twin): a shallow tree,
+#: cross-validated by publisher, put its one confident leaf here (a last line reaching the column's
+#: edge, the next block's first line flush, the same type), and the rule is that leaf. `_last_full`
+#: (0.85) is a paragraph's end as often as not at a break; a line this full almost never is.
+RUNS_ON_FILL = 0.985
+RUNS_ON = True  # the join above; off, the reader is as it was before it
+ACROSS_HEADING = True  # `_across_heading`
+_LABEL_OPENS = re.compile(r"^\W{0,3}(?:[A-Z][A-Za-z/&\- ]{2,40}?)\s*[:.—]\s|^\W{0,3}(?:KEYWORDS?|Keywords?|Key words|Abbreviations|Trial registration|Clinical trial)\b")
+
+
+def _runs_on(end: dict[str, Any], it: dict[str, Any], between: list[dict[str, Any]], prev_text: str, text: str, indents: float | None, unit: float) -> bool:
+    """Whether the page itself carries a paragraph on where the words leave it open: the block
+    before ends on a line that reaches its column's edge, the next begins flush in the same type,
+    and the two do not stand one under the other in a column with nothing between — they meet
+    at a column break, a page break, or across a figure or a table (never a formula: the "where"
+    after an equation is the XML's next paragraph). Refused where a label opens the next block
+    ("Results:", "Keywords") and, in a paper that indents nothing, a full stop before a figure.
+    Measured on the five pair sets: 216 of the 222 pairs it adds are one paragraph in the XML
+    (0.973), and 90 of 93 on the publishers outside the six largest."""
+    fill = end.get("_last_fill")
+    if fill is None or fill < RUNS_ON_FILL:
+        return False
+    if any(x.get("label") == "formula" for x in between):
+        return False
+    b = text.lstrip()
+    if not b or _RUN_IN.match(b) or _LABEL_OPENS.match(b):
+        return False
+    indent = it.get("_first_indent")
+    if indent is not None and indent > 0.6 * unit:
+        return False
+    ha, hb = end.get("_line_h"), it.get("_line_h")
+    if ha and hb and hb / ha <= 0.926:
+        return False
+    a = prev_text.rstrip()
+    if a[-1:] in (".", "!", "?") and (b[0].islower() or (between and (indents or 0.0) < INDENTS_ENOUGH)):
+        return False
+    pa, pb = (end.get("prov") or [None])[-1], (it.get("prov") or [None])[0]
+    if not pa or not pb or not pa.get("bbox") or not pb.get("bbox") or "page_no" not in pa or "page_no" not in pb:
+        return False
+    if not 0 <= int(pb["page_no"]) - int(pa["page_no"]) <= (2 if between else 1):
+        return False  # a page of figures or tables may stand between the halves, nothing else may
+    if not between and pa["page_no"] == pb["page_no"] and _same_column(end, it) and _vertical_gap(pa["bbox"], pb["bbox"]) > -0.5 * unit:
+        return False  # one under the other in a column: the leading, not the last line, would have to say it
+    return True
 
 
 def _tail_like(text: str) -> bool:
@@ -775,6 +862,7 @@ def _stitch_fragments(items: list[dict[str, Any]], repairs: dict[str, int], judg
     """
     out: list[dict[str, Any]] = []
     anchor = -1  # where in `out` the last paragraph sits, while only bridgeable items have followed it
+    last_text = -1  # where the last paragraph sits, whatever has closed it since
     i = 0
     while i < len(items):
         it = items[i]
@@ -798,14 +886,20 @@ def _stitch_fragments(items: list[dict[str, Any]], repairs: dict[str, int], judg
             if _is_fragment(text) and (not adjacent or not prev_text or prev_text[-1] in ".!?") and _fragment_forward(it, items, i, out, repairs):
                 i += 1
                 continue
-            geometry = _geometry_says(prev, it, indents, unit)
-            if _continues(prev_text, text, _page_of(prev), _page_of(it), geometry, repairs):
+            end = prev.get("_tail") or prev  # a paragraph already joined is asked about where it now ends
+            geometry = _geometry_says(end, it, indents, unit)
+            if _continues(prev_text, text, _page_of(end), _page_of(it), geometry, repairs) and not (KEEP_APART and _stands_apart(end, it, out[anchor + 1 :], prev_text, text, geometry, unit, repairs)):
                 out[anchor] = _merged(prev, it, _join_inline([prev, it]))
                 repairs["joined"] = repairs.get("joined", 0) + 1
                 i += 1
                 continue
             if adjacent and len(text) > 10 and (re.sub(r"\W+", " ", text).strip().lower() == re.sub(r"\W+", " ", prev_text).strip().lower() or (len(text) >= 24 and re.sub(r"\W+", "", text).lower() in re.sub(r"\W+", "", prev_text).lower())):
                 repairs["deduplicated"] = repairs.get("deduplicated", 0) + 1  # the same paragraph twice, or the end of it again: a column read twice
+                i += 1
+                continue
+            if RUNS_ON and _runs_on(end, it, out[anchor + 1 :], prev_text, text, indents, unit):
+                out[anchor] = _merged(prev, it, _join_inline([prev, it]))
+                repairs["joined_full_line"] = repairs.get("joined_full_line", 0) + 1
                 i += 1
                 continue
             if judge is not None and geometry is None and _judge_candidate(prev_text, text) and judge(prev_text, text, {"prev_page": _page_of(prev), "page": _page_of(it)}):
@@ -830,13 +924,43 @@ def _stitch_fragments(items: list[dict[str, Any]], repairs: dict[str, int], judg
             repairs["deduplicated"] = repairs.get("deduplicated", 0) + 1  # the same definitions again, cut in front
             i += 1
             continue
+        if label in _TEXTLIKE and text and anchor < 0 and last_text >= 0 and ACROSS_HEADING and _across_heading(out[last_text], out[last_text + 1 :], it, text):
+            out[last_text] = _merged(out[last_text], it, _join_inline([out[last_text], it]))
+            repairs["rejoined_across_heading"] = repairs.get("rejoined_across_heading", 0) + 1
+            i += 1
+            continue
         out.append(it)
         if label in _TEXTLIKE and text:
             anchor = len(out) - 1
+            last_text = anchor
         elif label not in _BRIDGEABLE:
             anchor = -1  # a heading or a list item closes the paragraph before it
         i += 1
     return out
+
+
+def _across_heading(prev: dict[str, Any], between: list[dict[str, Any]], it: dict[str, Any], text: str) -> bool:
+    """A sentence's tail read after a heading the page sets in the next column or on the next page:
+    the paragraph before stops mid-sentence on a full last line, the block after the heading opens
+    lowercase, and the two do not stand one under the other in a column. The heading stays where
+    it is read; only the tail goes back. Measured 2026-09-23 on the five pair sets: 30 of 31 such
+    pairs are one paragraph in the XML, against 12 of 35 when the tail stands right under the head."""
+    if not between or any(x.get("label") not in _BRIDGEABLE | {"section_header", "list_item"} for x in between):
+        return False
+    prev_text = (prev.get("text") or "").rstrip()
+    core = _CITATION_TAIL.sub("", prev_text).rstrip()
+    if not core or core[-1] in _FINISHED or not (core[-1].isalnum() or core[-1] in ",-"):
+        return False
+    t = text.lstrip()
+    if not t[:1].islower() or len(t.split()) < 3 or not _head_like(prev_text):
+        return False
+    end = prev.get("_tail") or prev
+    if end.get("_last_full") is not True:
+        return False
+    pa, pb = _page_of(end), _page_of(it)
+    if pa is None or pb is None or pb not in (pa, pa + 1):
+        return False
+    return pa != pb or not _same_column(end, it)
 
 
 def _fragment_forward(it: dict[str, Any], items: list[dict[str, Any]], i: int, out: list[dict[str, Any]], repairs: dict[str, int]) -> bool:

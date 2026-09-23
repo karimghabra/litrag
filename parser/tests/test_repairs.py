@@ -139,7 +139,7 @@ def test_geometry_joins_at_a_column_break_but_has_no_word_for_blocks_far_apart_i
     assert len(paragraphs(tree)) == 2  # far below in the same column, and a label opens it
     d = item(2, "text", "The wall thickness of the grafts was measured and compared between the two prototypes on the same day.", 3, 54, 236, 290, 296, _first_indent=0.0, _lines=5)
     tree = build_tree(_pdf_doc([item(0, "section_header", "3 Results", 3, 54, 700, 200, 710), a, d]), "k")
-    assert len(paragraphs(tree)) == 1  # right under it, flush left in a paper that indents: one paragraph
+    assert len(paragraphs(tree)) == 2 and tree.repairs.get("kept_apart") == 1  # right under it, a full stop above: the layout model cut there, and the XML twins agree 26 times in 26
     e = item(2, "text", "Keywords Diverse intelligence · Basal cognition · Problem spaces · Search efficiency", 4, 54, 700, 290, 720, _first_indent=0.0, _lines=2)
     tree = build_tree(_pdf_doc([item(0, "section_header", "Abstract", 3, 54, 700, 200, 710), a, e]), "k")
     assert len(paragraphs(tree)) == 1  # a run-in label at the top of the next page is a new block — and keywords after the abstract are front matter
@@ -149,6 +149,41 @@ def test_geometry_joins_at_a_column_break_but_has_no_word_for_blocks_far_apart_i
 def test_a_lowercase_tail_never_continues_a_finished_sentence():
     assert _continues("The samples were imaged.", "degree is the search efficiency of the system.", 3, 3, True) is False
     assert _continues("The samples were imaged and the", "degree of alignment was measured.", 3, 3, None) is True
+    assert _continues("A cross-species transmission in livestock was reported by Diaby et al.", "demonstrates that host range boundaries can be breached.", 3, 3, None) is True  # "et al." ends a name, not a sentence
+
+
+def test_a_block_over_a_column_break_keeps_its_first_line_and_is_measured_in_its_last_column():
+    para = item(1, "text", "Additionally, we applied multi-scale analysis with a special focus on the changes in the thickness of the fibres during healing, and the properties of the repaired tendon.", 3, 54, 700, 290, 740)
+    para["prov"].append({"page_no": 3, "bbox": {"l": 300, "t": 760, "r": 540, "b": 720, "coord_origin": "BOTTOMLEFT"}})
+    doc = doc_of([item(0, "section_header", "2 Methods", 3, 54, 750, 200, 758), para])
+    left = lines([("Additionally, we applied multi-scale analysis with a", 66, 730, 290, 740), ("special focus on the changes in the thickness of the", 54, 718, 290, 728), ("fibres during healing, and the properties of the", 54, 706, 290, 716)])
+    right = lines([("repaired tendon, measured at three months after the", 300, 750, 540, 760), ("surgery in every animal of the two groups we compared.", 300, 738, 539, 748), ("That is all.", 300, 726, 360, 736)])
+    recover(doc, {3: left + right})
+    assert para["_first_indent"] == 12.0  # the first box's first line: indented, a paragraph's start
+    assert para["_last_full"] is False and para["_last_fill"] < 0.5  # the last line, against the width of the right column alone
+
+
+def test_a_line_that_reaches_its_column_edge_carries_the_paragraph_over_a_break():
+    a = item(1, "text", "The cell migration assay was modified from the earlier work and applied to every group of samples listed in Table 2", 3, 54, 300, 290, 360, _last_full=True, _last_fill=0.998, _line_h=7.8, _lines=5)
+    b = item(2, "text", "Sample sizes in treatment groups were uneven across the four arms, which the protocol allowed for.", 3, 300, 600, 540, 660, _first_indent=0.0, _line_h=7.8, _lines=5)
+    tree = build_tree(_pdf_doc([item(0, "section_header", "3 Results", 3, 54, 700, 200, 710), a, b]), "k")
+    assert len(paragraphs(tree)) == 1 and tree.repairs.get("joined_full_line") == 1  # the next column, a capital after an unfinished line: the page carries it on
+    short = {**a, "_last_fill": 0.9}
+    tree = build_tree(_pdf_doc([item(0, "section_header", "3 Results", 3, 54, 700, 200, 710), short, b]), "k")
+    assert len(paragraphs(tree)) == 2  # a line that stops short of the edge: the words alone do not join a capital
+    label = item(2, "text", "Conclusions: The protocol is given in full for each of the groups we compared here.", 3, 300, 600, 540, 660, _first_indent=0.0, _line_h=7.8, _lines=5)
+    tree = build_tree(_pdf_doc([item(0, "section_header", "3 Results", 3, 54, 700, 200, 710), a, label]), "k")
+    assert len(paragraphs(tree)) == 2  # a label opens the next block: never joined, however full the line
+
+
+def test_a_sentence_tail_read_after_a_heading_goes_back_to_its_head():
+    a = item(1, "text", "The cell migration assay was modified from the earlier work and applied to every group of samples in the", 3, 54, 100, 290, 160, _last_full=True, _lines=5)
+    h = item(2, "section_header", "4 Discussion", 3, 300, 700, 540, 710)
+    b = item(3, "text", "study, and the counts were read blind by two observers.", 3, 300, 600, 540, 660, _first_indent=0.0, _lines=2)
+    c = item(4, "text", "Our findings show that the assay separates the groups.", 3, 300, 500, 540, 560, _first_indent=0.0, _lines=2)
+    tree = build_tree(_pdf_doc([item(0, "section_header", "3 Results", 3, 54, 700, 200, 710), a, h, b, c]), "k")
+    assert tree.repairs.get("rejoined_across_heading") == 1
+    assert any(p.endswith("read blind by two observers.") and p.startswith("The cell migration") for p in paragraphs(tree))
 
 
 def test_the_end_of_a_paragraph_read_twice_is_dropped():

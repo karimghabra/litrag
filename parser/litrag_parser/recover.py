@@ -460,7 +460,11 @@ def recover(doc: dict[str, Any], lines_by_page: dict[int, list[Line]]) -> dict[s
 
     # the lines every text box holds, over all the pages it spans; its text and geometry first,
     # so that a line the box's text lacked is the box's, not a free line to recover
-    rows_of: dict[int, dict[int, list[Line]]] = {}
+    # A block the layout model carried over a column break has two boxes on one page: each box's
+    # rows are kept, in the order of the boxes — keyed by page alone, the second box's rows took
+    # the first's place, and the block's first line, its indent and its width were the second
+    # column's (measured 2026-09-23: the next paragraph's flush first line read as a continuation)
+    rows_of: dict[int, list[tuple[int, list[Line]]]] = {}
     item_of: dict[int, dict[str, Any]] = {}
     boxed_by_page: dict[int, list[tuple[dict[str, Any], dict[str, float], list[Line]]]] = {}
     for page_no, lines in lines_by_page.items():
@@ -470,15 +474,18 @@ def recover(doc: dict[str, Any], lines_by_page: dict[int, list[Line]]) -> dict[s
         boxed_by_page[page_no] = boxed
         for item, bb, inside in boxed:
             if item.get("label") in _TEXT_LABELS:
-                rows_of.setdefault(id(item), {})[page_no] = _rows(inside)
+                parts = rows_of.setdefault(id(item), [])
+                seen = {id(ln) for _, rs in parts for ln in rs}
+                parts.append((page_no, [ln for ln in _rows(inside) if id(ln) not in seen]))
                 item_of[id(item)] = item
-    for iid, by_page in rows_of.items():
+    for iid, parts in rows_of.items():
         item = item_of[iid]
-        pages = sorted(by_page)
-        all_rows = [ln for p in pages for ln in by_page[p]]
+        pages = sorted({p for p, _ in parts})
+        all_rows = [ln for _, rs in parts for ln in rs]
         if not all_rows:
             continue
-        _geometry(item, all_rows, by_page[pages[0]], by_page[pages[-1]], indents)
+        filled = [rs for _, rs in parts if rs]
+        _geometry(item, all_rows, filled[0], filled[-1], indents)
         furniture = [ln for p in pages for ln in lines_by_page.get(p, []) if _RUNNING.search(ln.text) or re.sub(r"\d+", "#", ln.text.lower()) in running]
         _strip_furniture(item, furniture, report)
         _retext(item, all_rows, report, running)
@@ -561,18 +568,32 @@ def recover(doc: dict[str, Any], lines_by_page: dict[int, list[Line]]) -> dict[s
 
 
 def _geometry(item: dict[str, Any], rows: list[Line], first_rows: list[Line], last_rows: list[Line], indents: list[float]) -> None:
-    """First-line indent from the block's first page, last-line width from its last."""
+    """First-line indent from the block's first box, last-line width from its last — against the
+    width of the column the last line stands in, not of every column the block crossed: a block
+    that runs from the right column of one page to the left of the next is two columns wide, and
+    its full last line read as short."""
     item["_lines"] = len(rows)
     if len(rows) < 2:
         return
-    left = min(ln.l for ln in rows)
-    width = max(ln.r for ln in rows) - left
+    tail = last_rows[-1] if last_rows else rows[-1]
+    column = last_rows if len(last_rows) >= 2 else [ln for ln in rows if min(ln.r, tail.r) - max(ln.l, tail.l) > 0]
+    if len(column) < 2:
+        column = first_rows if len(first_rows) >= 2 else rows  # a column as wide as the first box's
+    left = min(ln.l for ln in column)
+    width = max(ln.r for ln in column) - left
     if len(first_rows) >= 2:
         item["_first_indent"] = round(first_rows[0].l - min(ln.l for ln in first_rows[1:]), 1)
         if item.get("label") in ("text", "paragraph") and len(first_rows) >= 3:
             indents.append(item["_first_indent"])
     last = last_rows[-1] if last_rows else rows[-1]
     item["_last_full"] = width > 0 and (last.r - last.l) / width >= 0.85
+    if width > 0:
+        item["_last_fill"] = round((last.r - left) / width, 3)  # how far across its column the last line reaches
+    heights = sorted(ln.height for ln in rows)
+    item["_line_h"] = round(heights[len(heights) // 2], 2)  # the block's type, as its median glyph height
+    steps = sorted(a.b - b.b for a, b in zip(first_rows, first_rows[1:]) if 0 < a.b - b.b < 60)
+    if steps:
+        item["_lead"] = round(steps[len(steps) // 2], 2)  # its leading: baseline to baseline
 
 
 def _strip_furniture(item: dict[str, Any], furniture: list[Line], report: dict[str, int]) -> None:
