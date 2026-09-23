@@ -82,6 +82,32 @@ when it turns out durable. Mark inference as inference.
 
 ## Short-term memory
 
+- **2026-09-23: the studio, and the reader judged in the unit retrieval returns** — Karim asked
+  for an independent app (projects, searches, trees, types with their canonical structures, a
+  query that hydrates) and a harness that uses it end to end; branch `claude/studio`,
+  `app/tests/e2e/studio.spec.ts` 10 of 10 on real Docling and a real embedder. What was learned:
+  - **The measure.** `chunks.py`: an XML twin's prose paragraph arriving as *one node in the
+    right lane* is "ingested perfectly". Its first version counted an **echo** as a cut — a
+    chunk twelve units away sharing three of a paragraph's 217 shingles made it "cut" — so v2
+    ignores a far piece holding under 5%. Tuned sets (487 pairs) 89.9% on v1 were 92.1% on v2.
+  - **Cuts** (the columns/pages/headings patch, 6da3d3e): 92.1 → 93.3% on the tuned sets,
+    silent merges 476 → 315, 178 papers better and 12 worse; the reserved VAL 84.5 → 85.1%.
+    What is left of the cuts is mostly the XML being coarser than the page (structured
+    abstracts, keywords) and scattered real misses.
+  - **Unseen publishers lose to lanes, not cuts.** The campaign's DEV split is 72.7%, but one
+    conference supplement (doi:10.15167/2421-4248/jpmh2019.60.3s1, 691 paragraphs, 0.0) is 15% of
+    it; without it 85.5%, with *one chunk in the wrong lane* at 7.6% (1.8% on the tuned sets).
+  - **T1 is not lost text.** Counted as a multiset of words, 87.1% of Karim's 74 PDFs' text layer
+    is accounted for; counted by *line* (half a line's 3-word shingles in some node), only 2.1% of
+    the words sit in lines no node holds — 0.9% body (mostly reference-list fragments), 0.6%
+    table cells, 0.3% figure labels. The word count's gap is tokens (superscripts, "fi bronectin",
+    numbers), not paragraphs. Retrieval is not starved of text.
+  - **Retrieval.** 14 proxy questions (written by the assistant from passages it sampled, so
+    tilted towards the tree): the answer in the top 3 for 14 of 14 counting the hydrated context
+    (10 at rank 1), 10 by the passage alone, against 8 for `lit query` over `lit.sqlite`.
+  - **More XML exists for his PDFs, off-limits so far:** 31 of the 76 PDFs are author manuscripts
+    in PMC ("in PMC, not OA"); their XML is at NCBI, a host the invariant does not list.
+
 - **2026-09-21: the reader has one mechanism for a heading's lane, wearing three hats** — the
   vocabulary's anchored regexes, the catalogue of canonical spellings and the embedder on the
   heading disagree **zero times in 434 chances** across DEV's 1,134 scoreable top-level sections.
