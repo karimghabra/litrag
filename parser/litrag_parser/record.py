@@ -12,6 +12,7 @@ is read again on every rebuild and overrides the record's.
 from __future__ import annotations
 
 import json
+import os
 import re
 import urllib.parse
 import urllib.request
@@ -100,7 +101,8 @@ def lookup_record(doi: str | None = None, pmid: str | None = None, timeout: floa
     if not doi and not pmid and not pmcid:
         return None
     query = f'DOI:"{doi}"' if doi else f"EXT_ID:{pmid} AND SRC:MED" if pmid else f"PMCID:{pmcid}"
-    url = f"https://www.ebi.ac.uk/europepmc/webservices/rest/search?query={urllib.parse.quote(query)}&format=json&resultType=lite&pageSize=1"
+    base = (os.environ.get("LITRAG_EPMC_URL") or "https://www.ebi.ac.uk/europepmc/webservices/rest").rstrip("/")  # a fixture server in the end-to-end suite
+    url = f"{base}/search?query={urllib.parse.quote(query)}&format=json&resultType=lite&pageSize=1"
     try:
         with urllib.request.urlopen(url, timeout=timeout) as resp:
             data = json.loads(resp.read().decode("utf-8"))

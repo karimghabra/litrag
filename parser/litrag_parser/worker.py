@@ -27,7 +27,8 @@ import traceback
 from pathlib import Path
 from typing import Any
 
-from . import __version__, boundary, lanes
+from . import __version__, acquire, boundary, lanes
+from . import projects as project_rows
 from .library import Library, create_library, library_root, list_libraries, now_iso, open_library, parsed_papers, safe_key
 from .citations import link_citations
 from .edges import link_edges, summarize as summarize_edges
@@ -204,7 +205,8 @@ def lookup_by_title(title: str | None, timeout: float = 6.0) -> tuple[str | None
 
     norm = lambda s: re.sub(r"[^a-z0-9]+", " ", s.lower()).strip()  # noqa: E731
     query = urllib.parse.quote(f'TITLE:"{title}"')
-    url = f"https://www.ebi.ac.uk/europepmc/webservices/rest/search?query={query}&format=json&resultType=lite&pageSize=5"
+    base = (os.environ.get("LITRAG_EPMC_URL") or "https://www.ebi.ac.uk/europepmc/webservices/rest").rstrip("/")
+    url = f"{base}/search?query={query}&format=json&resultType=lite&pageSize=5"
     try:
         with urllib.request.urlopen(url, timeout=timeout) as resp:
             data = _json.loads(resp.read().decode("utf-8"))
@@ -327,6 +329,12 @@ class Worker:
                     self.do_rebuild(req)
                 elif op == "judge":
                     self.do_rebuild({**req, "judge": True})  # the rows again, with the local model reading the pairs the rules leave
+                elif op == "fetch":
+                    self.do_fetch(req)
+                elif op == "merge":
+                    self.do_merge(req)
+                elif op == "embed":
+                    self.do_embed(req)
             except Exception as e:  # never let one paper kill the worker
                 emit({"event": "error", "id": req.get("id"), "message": str(e), "trace": traceback.format_exc()})
             finally:
@@ -424,13 +432,19 @@ class Worker:
                 if record:
                     set_record(conn, result.key, **record)
             log_event(conn, result.key, now_iso(), "filed", f"{'seen before, kept' if already else 'seen before' if result.existed else 'new'}: {src.name}")
-            emit({"event": "paper", "id": req_id, "paper": result.key, "existed": result.existed, "kept": already, "doi": doi, "pmcid": pmcid, "file": dest.name, "status": "parsed" if already else "queued", "pages": page_count(dest)})
+            emit({"event": "paper", "id": req_id, "lib": lib.id, "paper": result.key, "existed": result.existed, "kept": already, "doi": doi, "pmcid": pmcid, "file": dest.name, "status": "parsed" if already else "queued", "pages": page_count(dest)})
             if not already:
                 filed.append((result.key, dest))
         conn.close()
-        for key, path in filed:
+        for i, (key, path) in enumerate(filed):
+            emit({"event": "progress", "id": req_id, "op": "ingest", "lib": lib.id, "done": i, "total": len(filed), "label": f"Reading paper {i + 1} of {len(filed)}"})
             self.parse_one(lib, key, path, req_id, ask_judge=bool(req.get("judge")), ask_outline=bool(req.get("outline")) or outline_enabled())
-        emit({"event": "done", "id": req_id, "op": "ingest", "parsed": [k for k, _ in filed]})
+        conn = open_store(lib.store_path)
+        try:
+            acquire.reconcile(conn)  # a candidate whose paper is now filed is `ingested`, whichever way the file came
+        finally:
+            conn.close()
+        emit({"event": "done", "id": req_id, "op": "ingest", "lib": lib.id, "parsed": [k for k, _ in filed]})
 
     def do_reparse(self, req: dict[str, Any]) -> None:
         lib = self._lib(req)
@@ -450,9 +464,12 @@ class Worker:
         rebuilt: list[str] = []
         refused: list[dict[str, str]] = []
         keys = set(req.get("keys") or [])
-        for row in parsed_papers(lib.dir, sorted(keys) or None):
+        rows = parsed_papers(lib.dir, sorted(keys) or None)
+        for i, row in enumerate(rows):
             key = row["key"]
             source = row["source"]
+            if i % 5 == 0 or i == len(rows) - 1:
+                emit({"event": "progress", "id": req.get("id"), "op": req.get("op", "rebuild"), "lib": lib.id, "done": i, "total": len(rows), "label": f"Deriving the rows again: {lib.id}"})
             try:
                 self._rebuild_one(conn, lib, req, row, key, source)
             except Exception as e:  # noqa: BLE001
@@ -467,7 +484,7 @@ class Worker:
                 continue
             rebuilt.append(key)
         conn.close()
-        emit({"event": "done", "id": req.get("id"), "op": req.get("op", "rebuild"),
+        emit({"event": "done", "id": req.get("id"), "op": req.get("op", "rebuild"), "lib": lib.id,
               "rebuilt": rebuilt, "refused": refused})
 
     def _rebuild_one(self, conn: Any, lib: Library, req: dict[str, Any], row: dict[str, Any],
@@ -495,7 +512,7 @@ class Worker:
         self._note_events(conn, key, tree)
         sure = assess_confidence(tree, kind)
         set_confidence(conn, key, sure["confidence"], sure["reasons"], sure["penalties"])
-        emit({"event": "tree", "id": req.get("id"), "paper": key, "title": tree.title, "type": kind, "confidence": {"confidence": sure["confidence"], "reasons": sure["reasons"]}, "roles": tree.roles, "has_methods": tree.has_methods, "nodes": n, "pages": len(tree.pages), "dropped": tree.dropped, "repairs": tree.repairs, "notes": len(tree.notes), "judged": judge.summary(), "meaning": self._meaning(), "edges": summarize_edges(tree, edges), **summarize_citations(refs, cites)})
+        emit({"event": "tree", "id": req.get("id"), "lib": lib.id, "paper": key, "title": tree.title, "type": kind, "confidence": {"confidence": sure["confidence"], "reasons": sure["reasons"]}, "roles": tree.roles, "has_methods": tree.has_methods, "nodes": n, "pages": len(tree.pages), "dropped": tree.dropped, "repairs": tree.repairs, "notes": len(tree.notes), "judged": judge.summary(), "meaning": self._meaning(), "edges": summarize_edges(tree, edges), **summarize_citations(refs, cites)})
 
     def layout(self, lib: Library, key: str, path: Path, raw_path: Path, req_id: Any, started: float, stage: Any) -> dict[str, Any]:
         """The raw Docling document, from a child process the worker can lose.
@@ -555,7 +572,7 @@ class Worker:
 
         def stage(name: str, message: str, **extra: Any) -> None:
             log_event(conn, key, now_iso(), name, message)
-            emit({"event": "stage", "id": req_id, "paper": key, "stage": name, "message": message, "elapsed": round(time.time() - started, 1), **extra})
+            emit({"event": "stage", "id": req_id, "lib": lib.id, "paper": key, "stage": name, "message": message, "elapsed": round(time.time() - started, 1), **extra})
 
         try:
             set_status(conn, key, "parsing")
@@ -612,13 +629,131 @@ class Worker:
             links = summarize_citations(refs, cites)
             judged = judge.summary()
             stage("saved", f"{n} nodes, {links['refs']} references, {links['citations']} citation links, {linked['linked']} of {linked['findings']} findings linked to a method, a {kind['type']} paper by its {kind['source']}, confidence {sure['confidence']}" + (f" ({sure['reasons'][0]})" if sure["reasons"] else "") + (f", outline by {outlined['model']}: {outlined.get('lanes', 0)} lanes, {outlined.get('built', 0)} headings built" if outlined.get("sections") is not None else "") + (f", {judged['joined']} of {judged['asked']} judged pairs joined" if judged["asked"] else "") + f" in {seconds}s", nodes=n, **links, judged=judged, edges=linked, type=kind)
-            emit({"event": "tree", "id": req_id, "paper": key, "title": tree.title, "type": kind, "confidence": {"confidence": sure["confidence"], "reasons": sure["reasons"]}, "roles": tree.roles, "has_methods": tree.has_methods, "nodes": n, "pages": len(tree.pages), "seconds": seconds, "raw": str(raw_path), "dropped": tree.dropped, "repairs": tree.repairs, "notes": len(tree.notes), "judged": judged, "meaning": self._meaning(), "edges": linked, **links})
+            emit({"event": "tree", "id": req_id, "lib": lib.id, "paper": key, "title": tree.title, "type": kind, "confidence": {"confidence": sure["confidence"], "reasons": sure["reasons"]}, "roles": tree.roles, "has_methods": tree.has_methods, "nodes": n, "pages": len(tree.pages), "seconds": seconds, "raw": str(raw_path), "dropped": tree.dropped, "repairs": tree.repairs, "notes": len(tree.notes), "judged": judged, "meaning": self._meaning(), "edges": linked, **links})
         except Exception as e:
             set_status(conn, key, "failed", error=str(e))
             log_event(conn, key, now_iso(), "failed", str(e))
-            emit({"event": "stage", "id": req_id, "paper": key, "stage": "failed", "message": str(e), "trace": traceback.format_exc(), "elapsed": round(time.time() - started, 1)})
+            emit({"event": "stage", "id": req_id, "lib": lib.id, "paper": key, "stage": "failed", "message": str(e), "trace": traceback.format_exc(), "elapsed": round(time.time() - started, 1)})
         finally:
             conn.close()
+
+    # ---- acquisition, projects, retrieval: the long ones, on the ingest thread ----------
+
+    def do_fetch(self, req: dict[str, Any]) -> None:
+        """Candidates into the inbox — the XML where it is open, else an open PDF, else marked
+        `needs-pdf` with its links (acquire.py) — then read like any dropped file."""
+        lib = self._lib(req)
+        req_id = req.get("id")
+        ids = [int(i) for i in req.get("ids") or []]
+        conn = open_store(lib.store_path)
+        try:
+            acquire.stage(conn, ids)
+            got: list[dict[str, Any]] = []
+            for i, cid in enumerate(ids):
+                emit({"event": "progress", "id": req_id, "op": "fetch", "lib": lib.id, "done": i, "total": len(ids), "label": f"Fetching {i + 1} of {len(ids)}"})
+                got.append(acquire.fetch_one(lib, conn, cid, on_progress=lambda e: emit({**e, "id": req_id, "lib": lib.id})))
+        finally:
+            conn.close()
+        paths = [g["path"] for g in got if g.get("path")]
+        counts: dict[str, int] = {}
+        for g in got:
+            counts[str(g.get("status"))] = counts.get(str(g.get("status")), 0) + 1
+        emit({"event": "stage", "id": req_id, "lib": lib.id, "stage": "fetched", "message": ", ".join(f"{n} {s}" for s, n in sorted(counts.items())) or "nothing to fetch"})
+        if paths:
+            self.do_ingest({"id": req_id, "op": "ingest", "lib": lib.id, "paths": paths})
+        conn = open_store(lib.store_path)
+        try:
+            acquire.reconcile(conn)
+            for g in got:
+                row = conn.execute("SELECT status, paper_key, error FROM candidates WHERE cand_id = ?", (g["cand_id"],)).fetchone()
+                if row:
+                    emit({"event": "candidate", "id": req_id, "lib": lib.id, "cand_id": g["cand_id"], "status": row["status"], "paper_key": row["paper_key"], "error": row["error"]})
+        finally:
+            conn.close()
+        emit({"event": "done", "id": req_id, "op": "fetch", "lib": lib.id, "fetched": got})
+
+    def do_merge(self, req: dict[str, Any]) -> None:
+        """Several projects' libraries into one (projects.merge), then its rows derived again from
+        the saved readings — Docling only for a paper that came without one."""
+        req_id = req.get("id")
+        emit({"event": "progress", "id": req_id, "op": "merge", "done": 0, "total": 0, "label": "Merging libraries"})
+        out = project_rows.merge(self.root, [str(s) for s in req.get("sources") or []], str(req.get("name") or ""), into=req.get("into"))
+        target = out["target"]["id"]
+        emit({"event": "stage", "id": req_id, "lib": target, "stage": "merged", "message": f"{out['filed']} papers filed, {out['duplicates']} already held, {len(out['keys_to_rebuild'])} to derive again, {len(out['keys_to_parse'])} to read again"})
+        rebuilt: list[str] = []
+        if out["keys_to_rebuild"]:
+            self.do_rebuild({"id": f"{req_id}-rebuild", "op": "rebuild", "lib": target, "keys": out["keys_to_rebuild"]})
+            rebuilt = out["keys_to_rebuild"]
+        if out["keys_to_parse"]:
+            self.do_reparse({"id": f"{req_id}-reparse", "op": "reparse", "lib": target, "keys": out["keys_to_parse"]})
+        emit({"event": "done", "id": req_id, "op": "merge", "lib": target, "target": target, "filed": out["filed"], "duplicates": out["duplicates"], "skipped": out["skipped"], "rebuilt": rebuilt, "reparsed": out["keys_to_parse"], "candidates_merged": out["candidates_merged"]})
+
+    def do_embed(self, req: dict[str, Any]) -> None:
+        """Every passage of a library embedded once, locally (retrieve.py); a passage already
+        embedded under the same recipe is not asked again."""
+        from . import retrieve
+
+        lib = self._lib(req)
+        req_id = req.get("id")
+        conn = open_store(lib.store_path)
+        try:
+            out = retrieve.embed_library(conn, retrieve.OllamaEmbedder(), on_progress=lambda done, total: emit(
+                {"event": "progress", "id": req_id, "op": "embed", "lib": lib.id, "done": done, "total": total, "label": f"Embedding passages: {lib.id}"}))
+        finally:
+            conn.close()
+        emit({"event": "done", "id": req_id, "op": "embed", "lib": lib.id, **out})
+
+    def answer_async(self, req: dict[str, Any]) -> None:
+        """A read that waits on something slow — Europe PMC, the local model, the embedder — on
+        its own thread, so the window can go on browsing trees meanwhile."""
+
+        def run() -> None:
+            op = req.get("op")
+            req_id = req.get("id")
+            try:
+                if op == "search":
+                    lib = self._lib(req)
+                    query = str(req.get("query") or "").strip()
+                    if not query:
+                        raise ValueError("an empty query")
+                    got = acquire.search(query, page_size=int(req.get("size") or 25), cursor=str(req.get("cursor") or "*"))
+                    conn = open_store(lib.store_path)
+                    try:
+                        rec = acquire.record_search(lib, conn, query, got["hits"], total=got["total"])
+                        acquire.reconcile(conn)
+                        by_id = {c["cand_id"]: c for c in acquire.candidates(conn)}
+                        hits = []
+                        for cid, hit in zip(rec["cand_ids"], got["hits"]):
+                            row = by_id.get(cid, {})
+                            hits.append({**hit, **row, "cand_id": cid})
+                    finally:
+                        conn.close()
+                    emit({"event": "search", "id": req_id, "lib": lib.id, "query": query, "hits": hits, "total": got["total"], "next_cursor": got["next_cursor"], "added": rec["added"]})
+                elif op == "suggest":
+                    from .suggest import suggest_queries
+
+                    lib = self._lib(req)
+                    m = project_rows.summary(lib)
+                    out = suggest_queries(m.get("description") or "", [q.get("query", "") for q in m.get("queries") or []])
+                    emit({"event": "suggestions", "id": req_id, "lib": lib.id, **out})
+                elif op == "query":
+                    from . import retrieve
+
+                    lib = self._lib(req)
+                    conn = open_store(lib.store_path)
+                    try:
+                        t = time.time()
+                        out = retrieve.query(conn, str(req.get("question") or ""), retrieve.OllamaEmbedder(), k=int(req.get("k") or 8))
+                        out["seconds"] = round(time.time() - t, 3)
+                    finally:
+                        conn.close()
+                    emit({"event": "query", "id": req_id, "lib": lib.id, **out})
+                else:
+                    raise ValueError(f"Unknown op {op!r}")
+            except Exception as e:  # noqa: BLE001 — the answer to a failed read is the reason
+                emit({"event": "error", "id": req_id, "op": op, "message": str(e)})
+
+        threading.Thread(target=run, daemon=True, name=f"read-{req.get('op')}").start()
 
     # ---- reads, answered at once -------------------------------------------------------
 
@@ -632,8 +767,61 @@ class Worker:
                 emit({"event": "libraries", "id": req_id, "root": str(self.root), "libraries": [l.to_dict() for l in list_libraries(self.root)]})
             elif op == "init":
                 lib = create_library(self.root, str(req["name"]), req.get("projectId"))
-                open_store(lib.store_path).close()
+                conn = open_store(lib.store_path)
+                acquire.ensure_schema(conn)
+                conn.close()
+                if req.get("description"):
+                    project_rows.describe(lib, description=str(req["description"]))
                 emit({"event": "library", "id": req_id, "library": lib.to_dict()})
+            elif op == "projects":
+                emit({"event": "projects", "id": req_id, "root": str(self.root), "projects": [project_rows.summary(l) for l in list_libraries(self.root)]})
+            elif op == "describe":
+                lib = self._lib(req)
+                emit({"event": "project", "id": req_id, "project": project_rows.describe(lib, name=req.get("name"), description=req.get("description"))})
+            elif op in ("search", "suggest", "query"):
+                self.answer_async(req)
+            elif op in ("candidates", "wanted", "dismiss", "stage"):
+                lib = self._lib(req)
+                conn = open_store(lib.store_path)
+                try:
+                    acquire.reconcile(conn)
+                    if op == "candidates":
+                        emit({"event": "candidates", "id": req_id, "lib": lib.id, "candidates": acquire.candidates(conn, status=req.get("status"), query=req.get("query"))})
+                    elif op == "wanted":
+                        emit({"event": "wanted", "id": req_id, "lib": lib.id, "candidates": acquire.wanted(conn)})
+                    else:
+                        fn = acquire.dismiss if op == "dismiss" else acquire.stage
+                        emit({"event": "dismissed", "id": req_id, "lib": lib.id, "op": op, **fn(conn, [int(i) for i in req.get("ids") or []])})
+                finally:
+                    conn.close()
+            elif op in ("types", "mapping"):
+                from . import canonical
+
+                lib = self._lib(req)
+                conn = open_store(lib.store_path)
+                try:
+                    if op == "types":
+                        papers_of = [{"key": r["key"], "title": r["title"], "type": r["type"]} for r in conn.execute("SELECT key, title, type FROM papers WHERE status = 'parsed' ORDER BY title")]
+                        emit({"event": "types", "id": req_id, "lib": lib.id, "overview": canonical.types_overview(conn), "skeletons": canonical.skeletons(conn), "papers": papers_of})
+                    else:
+                        key = str(req["key"])
+                        emit({"event": "mapping", "id": req_id, "lib": lib.id, "mapping": canonical.mapping(conn, key), "canonical": canonical.canonical_tree(conn, key)})
+                finally:
+                    conn.close()
+            elif op == "retrieval":
+                from . import retrieve
+
+                lib = self._lib(req)
+                conn = open_store(lib.store_path)
+                try:
+                    emit({"event": "retrieval", "id": req_id, "lib": lib.id, **retrieve.status(conn, retrieve.OllamaEmbedder())})
+                finally:
+                    conn.close()
+            elif op in ("fetch", "merge", "embed"):
+                if op != "merge":
+                    self._lib(req)  # fail fast on a bad library
+                self.ingest_queue.put(req)
+                emit({"event": "queued", "id": req_id, "op": op, "ahead": self.ingest_queue.qsize() - 1})
             elif op in ("ingest", "reparse", "rebuild", "judge"):
                 self._lib(req)  # fail fast on a bad library
                 self.ingest_queue.put(req)

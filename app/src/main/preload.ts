@@ -13,6 +13,8 @@ export interface LitragApi {
   pathsOf(files: File[]): string[];
   readFile(path: string): Promise<ArrayBuffer>;
   info(): Promise<{ root: string; command: string; version: string }>;
+  /** A paper's page at its publisher or at Europe PMC, in the system's browser: http(s) only. */
+  openExternal(url: string): Promise<void>;
 }
 
 const api: LitragApi = {
@@ -26,6 +28,7 @@ const api: LitragApi = {
   pathsOf: (files) => files.map((f) => webUtils.getPathForFile(f)),
   readFile: (path) => ipcRenderer.invoke('file:read', path),
   info: () => ipcRenderer.invoke('app:info'),
+  openExternal: (url) => ipcRenderer.invoke('shell:open', url),
 };
 
 contextBridge.exposeInMainWorld('litrag', api);

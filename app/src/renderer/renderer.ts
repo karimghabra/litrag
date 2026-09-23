@@ -1,20 +1,20 @@
 /**
- * The window: papers on the left as they are ingested, the tree of the chosen
- * paper in the middle, and on the right the page the chosen node came from
- * with its box drawn on it. Everything shown here is a row the worker
- * returned; the renderer holds no state of its own beyond the selection.
+ * The window. Five tabs over one project at a time: Projects, Search, Papers, Types, Query.
+ * This module is the Papers tab — papers on the left as they are ingested, the tree of the
+ * chosen paper in the middle (as printed, or re-hung under its type's canonical structure), and
+ * on the right the page the chosen node came from with its box drawn on it — and the wiring of
+ * the rest. Everything shown is a row the worker returned; the renderer holds no state of its
+ * own beyond the selection.
  */
 
 import * as pdfjs from 'pdfjs-dist';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
-import type { LitragApi } from '../main/preload.ts';
 import { BANDS, SORT_KEYS, bandOf, countBy, filterPapers, sortPapers, validFilters, type SortKey } from './papers.ts';
-
-declare global {
-  interface Window {
-    litrag: LitragApi;
-  }
-}
+import { initProjects, renderProjects } from './projects.ts';
+import { initQuery } from './query.ts';
+import { initSearch, loadCandidates } from './search.ts';
+import { $, ROLES, activity, ctx, dispatch, el, escapeHtml, hooks, log, onProjectChange, onViewShown, rememberedProject, request, roleColor, setProject, setStatus, showView, type ProjectSummary } from './shared.ts';
+import { initTypes, renderCanonicalTree, type CanonicalTree, type Mapping } from './types.ts';
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL('./pdf.worker.min.mjs', import.meta.url).href;
 
@@ -110,14 +110,9 @@ interface Tree {
   root: Node;
 }
 
-const ROLES = ['abstract', 'introduction', 'methods', 'results', 'results-discussion', 'discussion', 'other', 'references', 'back'];
-const roleColor = (role: string) => `var(--${ROLES.includes(role) ? role : 'other'})`;
-
 // ---- state ------------------------------------------------------------------------------
 
 const state = {
-  libraries: [] as { id: string; name: string }[],
-  lib: null as string | null,
   papers: new Map<string, Paper>(),
   selectedPaper: null as string | null,
   tree: null as Tree | null,
@@ -134,36 +129,12 @@ const state = {
   pdfKey: null as string | null,
   page: 1,
   collapsed: new Set<string>(),
+  /** the tree pane's face: the paper as printed, or re-hung under its type's canonical structure */
+  treeMode: 'printed' as 'printed' | 'canonical',
+  mapping: null as Mapping | null,
 };
 
-const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
-const el = (tag: string, cls?: string, text?: string) => {
-  const e = document.createElement(tag);
-  if (cls) e.className = cls;
-  if (text !== undefined) e.textContent = text;
-  return e;
-};
-
-// ---- worker status & log --------------------------------------------------------------
-
-function setStatus(kind: 'ok' | 'busy' | 'bad' | '', text: string) {
-  const s = $('worker-status');
-  s.className = `status ${kind}`;
-  s.querySelector('.text')!.textContent = text;
-}
-
-function log(kind: string, text: string, paper?: string) {
-  const line = el('div', `log-line ${kind}`);
-  line.append(el('span', 't', new Date().toLocaleTimeString()));
-  if (paper) line.append(el('span', 'paper', paper));
-  line.append(el('span', 'm', text));
-  const box = $('log');
-  box.append(line);
-  while (box.childElementCount > 400) box.firstElementChild?.remove();
-  box.scrollTop = box.scrollHeight;
-}
-
-// ---- libraries --------------------------------------------------------------------------
+// ---- projects ---------------------------------------------------------------------------
 
 let librariesLoading: Promise<void> | null = null;
 async function loadLibraries(): Promise<void> {
@@ -172,53 +143,48 @@ async function loadLibraries(): Promise<void> {
   return librariesLoading;
 }
 
+/** Every project with what it holds (the `projects` op), into the header's picker and the Projects tab. */
 async function loadLibrariesOnce() {
-  let r: { libraries: { id: string; name: string }[]; root: string };
+  let r: { projects: ProjectSummary[]; root: string };
   try {
-    r = (await window.litrag.request('libraries')) as unknown as typeof r;
+    r = await request<typeof r>('projects');
   } catch (e) {
-    log('error', `libraries: ${(e as Error).message}`);
+    log('error', `projects: ${(e as Error).message}`);
     return;
   }
-  state.libraries = r.libraries;
+  ctx.projects = r.projects;
   const sel = $<HTMLSelectElement>('library');
   sel.innerHTML = '';
-  for (const l of r.libraries) {
+  for (const l of r.projects) {
     const o = el('option', undefined, l.name) as HTMLOptionElement;
     o.value = l.id;
     sel.append(o);
   }
-  if (!r.libraries.length) {
-    const o = el('option', undefined, 'No libraries yet') as HTMLOptionElement;
+  renderProjects();
+  if (!r.projects.length) {
+    const o = el('option', undefined, 'No projects yet') as HTMLOptionElement;
     o.value = '';
     sel.append(o);
-    state.lib = null;
+    setProject(null);
     renderPapers();
     return;
   }
-  if (!state.lib || !r.libraries.some((l) => l.id === state.lib)) state.lib = r.libraries[0]!.id;
-  sel.value = state.lib;
-  await loadPapers();
-}
-
-async function newLibrary() {
-  const name = window.prompt('Name of the new library (one per project):');
-  if (!name?.trim()) return;
-  try {
-    const r = (await window.litrag.request('init', { name: name.trim() })) as unknown as { library: { id: string } };
-    state.lib = r.library.id;
-    log('stage', `Created library ${r.library.id}`);
-    await loadLibraries();
-  } catch (e) {
-    log('error', String((e as Error).message));
+  const want = ctx.lib ?? rememberedProject();
+  const id = want && r.projects.some((l) => l.id === want) ? want : r.projects[0]!.id;
+  if (id === ctx.lib) {
+    sel.value = id;
+    return;
   }
+  setProject(id);
 }
 
 // ---- papers -----------------------------------------------------------------------------
 
 async function loadPapers() {
-  if (!state.lib) return;
-  const r = (await window.litrag.request('papers', { lib: state.lib })) as unknown as { papers: Paper[] };
+  const lib = ctx.lib;
+  if (!lib) return;
+  const r = (await window.litrag.request('papers', { lib })) as unknown as { papers: Paper[] };
+  if (ctx.lib !== lib) return; // another project was chosen while this list was on its way
   const live = state.papers;
   state.papers = new Map();
   for (const p of r.papers) {
@@ -304,7 +270,7 @@ function renderPapers() {
   const papers = sortPapers(filterPapers(all, valid), state.sort);
   $('papers-count').textContent = all.length ? (papers.length === all.length ? `${all.length}` : `${papers.length} of ${all.length}`) : '';
   renderListTools(all);
-  if (!state.lib) {
+  if (!ctx.lib) {
     box.append(el('div', 'empty', 'Create a library to start.'));
     return;
   }
@@ -331,12 +297,28 @@ function renderPapers() {
     }
     else if (p.status === 'failed') stage.append(el('span', 'muted', p.error ?? p.message ?? ''));
     card.append(stage);
-    if (p.status === 'parsing') card.append(el('div', 'progress'));
+    if (p.status === 'parsing' || p.status === 'queued') card.append(steps(p));
     if (p.status === 'parsed' && p.roles) card.append(roleBar(p.roles));
     if (p.status === 'parsed' && p.has_methods === 0) card.append(el('div', 'flag', 'No methods section detected'));
     card.addEventListener('click', () => void selectPaper(p.key));
     box.append(card);
   }
+}
+
+/** The stages a paper goes through, as steps: the one it is in pulses, the ones behind it are filled. */
+const STEPS: [string, string][] = [['queued', 'queued'], ['opening', 'opened'], ['layout', 'layout (Docling)'], ['recover', 'text layer recovered'], ['tree', 'tree built, lanes assigned'], ['saved', 'saved']];
+function steps(p: Paper): HTMLElement {
+  const wrap = el('div');
+  const bar = el('div', 'steps');
+  const stage = p.status === 'queued' && !p.stage ? 'queued' : p.stage === 'judge' || p.stage === 'outline' || p.stage === 'models' ? 'tree' : p.stage ?? 'queued';
+  const at = Math.max(0, STEPS.findIndex(([s]) => s === stage));
+  STEPS.forEach(([, label], i) => {
+    const s = el('span', i < at ? 'done' : i === at ? 'now' : '');
+    s.title = label;
+    bar.append(s);
+  });
+  wrap.append(bar, el('div', 'steps-label', `${STEPS[at]![1]}${p.elapsed !== undefined ? ` · ${p.elapsed.toFixed(0)} s` : ''}`));
+  return wrap;
 }
 
 // ---- tree -------------------------------------------------------------------------------
@@ -368,7 +350,7 @@ async function loadTreeOnce(key: string) {
     return;
   }
   try {
-    const r = (await window.litrag.request('tree', { lib: state.lib, key })) as unknown as Tree;
+    const r = (await window.litrag.request('tree', { lib: ctx.lib, key })) as unknown as Tree;
     state.tree = r;
     state.nodesById = new Map();
     const walk = (n: Node) => {
@@ -379,7 +361,7 @@ async function loadTreeOnce(key: string) {
     // the reference list arrives after the tree; the old one is kept until the new one is here, and a
     // node selected in the meantime has its detail drawn again once the links can be drawn
     try {
-      const rr = (await window.litrag.request('refs', { lib: state.lib, key })) as unknown as { refs: Ref[] };
+      const rr = (await window.litrag.request('refs', { lib: ctx.lib, key })) as unknown as { refs: Ref[] };
       const refs = new Map<number, Ref>();
       for (const ref of rr.refs) refs.set(ref.ref_no, ref);
       state.refs = refs;
@@ -393,13 +375,58 @@ async function loadTreeOnce(key: string) {
     }
     // start with references and back matter folded: they are long and rarely the point
     for (const c of r.root.children) if (c.role === 'references' || c.role === 'back') state.collapsed.add(c.node_id);
+    state.mapping = null;
     renderTree();
+    if (state.treeMode === 'canonical') void loadCanonical(key);
     await openPdf(key);
-    const first = r.root.children.find((c) => c.type === 'section');
-    if (first?.page) await showPage(first.page);
+    // the first page anything is on: a section row of an older reading carries no page of its own
+    const firstPage = (n: Node): number | null => n.page ?? n.children.reduce<number | null>((got, c) => got ?? firstPage(c), null);
+    const first = firstPage(r.root);
+    if (first) await showPage(first);
   } catch (e) {
     log('error', String((e as Error).message), key);
   }
+}
+
+/** The tree pane's second face: the paper's sections under its type's canonical slots (canonical.py). */
+async function loadCanonical(key: string): Promise<void> {
+  const box = $('canonical');
+  try {
+    const r = await request<{ mapping: Mapping; canonical: CanonicalTree }>('mapping', { lib: ctx.lib, key });
+    if (state.selectedPaper !== key) return;
+    state.mapping = r.mapping;
+    renderCanonicalTree(box, r.canonical, (id) => void selectNode(id));
+  } catch (e) {
+    box.innerHTML = '';
+    box.append(el('div', 'empty', `No canonical structure: ${(e as Error).message}`));
+  }
+}
+
+function setTreeMode(mode: 'printed' | 'canonical'): void {
+  state.treeMode = mode;
+  for (const b of document.querySelectorAll<HTMLButtonElement>('#tree-mode button')) b.classList.toggle('on', b.dataset['mode'] === mode);
+  $('tree').hidden = mode !== 'printed';
+  $('canonical').hidden = mode !== 'canonical';
+  if (mode === 'canonical' && state.selectedPaper && state.tree && !state.mapping) void loadCanonical(state.selectedPaper);
+}
+
+/** Open a paper of the current project in this tab, and a node of it when one is named — from a query's hit, a mapping's section. */
+async function openPaper(key: string, nodeId?: string): Promise<void> {
+  showView('papers');
+  if (!state.papers.has(key)) await loadPapers();
+  if (state.selectedPaper !== key || !state.tree) {
+    state.selectedPaper = key;
+    state.selectedNode = nodeId ?? null;
+    state.roleFilter = null;
+    state.collapsed = new Set();
+    renderPapers();
+    await loadTree(key);
+  }
+  if (nodeId) {
+    if (state.treeMode !== 'printed') setTreeMode('printed');
+    await selectNode(nodeId);
+  }
+  document.querySelector<HTMLElement>(`#papers .paper[data-key="${CSS.escape(key)}"]`)?.scrollIntoView({ block: 'nearest' });
 }
 
 function renderTree() {
@@ -670,11 +697,11 @@ function renderDetail(n: Node) {
  *  the findings measured under a method, the figures a paragraph cites and the paragraphs citing a figure. */
 let edgesSeq = 0;
 async function loadEdges(n: Node, into: HTMLElement) {
-  if (!state.lib) return;
+  if (!ctx.lib) return;
   const seq = ++edgesSeq;
   let r: { out: EdgeRow[]; in: EdgeRow[]; candidates: number };
   try {
-    r = (await window.litrag.request('edges', { lib: state.lib, node_id: n.node_id })) as unknown as { out: EdgeRow[]; in: EdgeRow[]; candidates: number };
+    r = (await window.litrag.request('edges', { lib: ctx.lib, node_id: n.node_id })) as unknown as { out: EdgeRow[]; in: EdgeRow[]; candidates: number };
   } catch {
     return;
   }
@@ -716,10 +743,6 @@ async function loadEdges(n: Node, into: HTMLElement) {
   }
 }
 
-function escapeHtml(s: string): string {
-  return s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
-}
-
 let pdfOpening: { key: string; promise: Promise<void> } | null = null;
 async function openPdf(key: string): Promise<void> {
   if (state.pdfKey === key && state.pdf) return;
@@ -752,7 +775,7 @@ async function openPdfOnce(key: string) {
   $('page-reading').hidden = true;
   $('page-stage').hidden = false;
   try {
-    const f = (await window.litrag.request('file', { lib: state.lib, key })) as unknown as { path: string };
+    const f = (await window.litrag.request('file', { lib: ctx.lib, key })) as unknown as { path: string };
     const bytes = await window.litrag.readFile(f.path);
     state.pdf = await pdfjs.getDocument({ data: new Uint8Array(bytes) }).promise;
   } catch (e) {
@@ -830,15 +853,18 @@ function drawBoxes() {
 // ---- ingest -------------------------------------------------------------------------------
 
 async function ingest(paths: string[]) {
-  if (!state.lib) {
-    log('error', 'Create a library first.');
+  if (!ctx.lib) {
+    log('error', 'Choose or make a project first.');
+    window.alert('Choose or make a project first.');
     return;
   }
   if (!paths.length) return;
   log('stage', `Ingesting ${paths.length} file${paths.length === 1 ? '' : 's'}`);
+  activity.show(`Reading ${paths.length} paper${paths.length === 1 ? '' : 's'}`, 0, paths.length);
   try {
-    await window.litrag.request('ingest', { lib: state.lib, paths });
+    await window.litrag.request('ingest', { lib: ctx.lib, paths });
   } catch (e) {
+    activity.hide();
     log('error', String((e as Error).message));
   }
 }
@@ -848,12 +874,21 @@ async function ingest(paths: string[]) {
 function onEvent(ev: Record<string, unknown>) {
   const kind = String(ev['event']);
   const paper = typeof ev['paper'] === 'string' ? ev['paper'] : undefined;
+  // an event about another project's library (a merge's rebuild, a fetch still running) is not this list's
+  const foreign = typeof ev['lib'] === 'string' && ctx.lib !== null && ev['lib'] !== ctx.lib;
   switch (kind) {
     case 'ready':
       setStatus('ok', `worker ready · ${ev['root']}`);
       void loadLibraries();
       break;
+    case 'progress': {
+      const done = Number(ev['done'] ?? 0);
+      const total = Number(ev['total'] ?? 0);
+      activity.show(String(ev['label'] ?? ev['op'] ?? 'working'), done, total);
+      break;
+    }
     case 'paper': {
+      if (foreign) break;
       const key = paper!;
       const prev = state.papers.get(key);
       state.papers.set(key, {
@@ -876,7 +911,7 @@ function onEvent(ev: Record<string, unknown>) {
     }
     case 'stage': {
       const stage = String(ev['stage']);
-      if (paper) {
+      if (paper && !foreign) {
         const p = state.papers.get(paper);
         if (p) {
           p.stage = stage;
@@ -894,7 +929,7 @@ function onEvent(ev: Record<string, unknown>) {
       break;
     }
     case 'working': {
-      if (paper) {
+      if (paper && !foreign) {
         const p = state.papers.get(paper);
         if (p) {
           p.elapsed = Number(ev['elapsed'] ?? 0);
@@ -904,7 +939,7 @@ function onEvent(ev: Record<string, unknown>) {
       break;
     }
     case 'tree': {
-      if (!paper) break; // an answer to a read, not a paper landing
+      if (!paper || foreign) break; // an answer to a read, not a paper landing
       const p = state.papers.get(paper);
       if (p) {
         p.status = 'parsed';
@@ -918,12 +953,14 @@ function onEvent(ev: Record<string, unknown>) {
       renderPapers();
       log('stage', `tree saved: ${JSON.stringify(ev['roles'])}`, paper);
       if (state.selectedPaper === paper) void loadTree(paper);
-      else if (!state.selectedPaper) void selectPaper(paper);
+      else if (!state.selectedPaper && ctx.view === 'papers') void selectPaper(paper);
       break;
     }
     case 'done':
       setStatus('ok', 'idle');
-      void loadPapers();
+      activity.hide();
+      if (!foreign) void loadPapers();
+      void loadLibraries();
       break;
     case 'log':
       log('log', `${ev['logger']}: ${ev['message']}`, paper);
@@ -962,7 +999,32 @@ function wire() {
     } catch (e) {
       log('error', `event ${String(ev['event'])}: ${(e as Error).message}`);
     }
+    dispatch(ev);
   });
+  hooks.openPaper = (key, node) => void openPaper(key, node);
+  initProjects(loadLibraries);
+  initSearch();
+  initTypes();
+  initQuery();
+  onProjectChange(() => {
+    state.selectedPaper = null;
+    state.tree = null;
+    state.mapping = null;
+    state.papers = new Map();
+    state.formatFilter = null;
+    state.typeFilter = null;
+    state.bandFilter = null;
+    renderTree();
+    renderPapers();
+    renderProjects();
+    void loadPapers();
+  });
+  onViewShown((v) => {
+    if (v === 'projects') void loadLibraries();
+    if (v === 'papers' && state.pdf) void showPage(state.page);
+  });
+  for (const b of document.querySelectorAll<HTMLButtonElement>('#nav button')) b.addEventListener('click', () => showView(b.dataset['view']!));
+  for (const b of document.querySelectorAll<HTMLButtonElement>('#tree-mode button')) b.addEventListener('click', () => setTreeMode(b.dataset['mode'] as 'printed' | 'canonical'));
   const sortSelect = $<HTMLSelectElement>('papers-sort');
   for (const { key, label } of SORT_KEYS) {
     const o = document.createElement('option');
@@ -970,11 +1032,14 @@ function wire() {
     o.textContent = label;
     sortSelect.append(o);
   }
+  let startView = 'projects';
   try {
     const kept = window.localStorage.getItem('litrag.papers.sort');
     if (kept && SORT_KEYS.some((k) => k.key === kept)) state.sort = kept as SortKey;
+    const view = window.localStorage.getItem('litrag.view');
+    if (view && ['projects', 'search', 'papers', 'types', 'query'].includes(view)) startView = view;
   } catch {
-    // no storage: the list starts in the order the papers were added
+    // no storage: the list starts in the order the papers were added, on the Projects tab
   }
   sortSelect.value = state.sort;
   sortSelect.addEventListener('change', () => {
@@ -986,27 +1051,22 @@ function wire() {
     }
     renderPapers();
   });
-  $<HTMLSelectElement>('library').addEventListener('change', (e) => {
-    state.lib = (e.target as HTMLSelectElement).value || null;
-    state.formatFilter = null;
-    state.typeFilter = null;
-    state.bandFilter = null;
-    state.selectedPaper = null;
-    state.tree = null;
-    renderTree();
-    void loadPapers();
-  });
-  $('new-library').addEventListener('click', () => void newLibrary());
+  $<HTMLSelectElement>('library').addEventListener('change', (e) => setProject((e.target as HTMLSelectElement).value || null));
   $('add').addEventListener('click', async () => ingest(await window.litrag.choosePdfs()));
   $('reparse').addEventListener('click', async () => {
-    if (!state.lib || !state.papers.size) return;
+    if (!ctx.lib || !state.papers.size) return;
     if (!window.confirm(`Read all ${state.papers.size} papers again with Docling?`)) return;
-    await window.litrag.request('reparse', { lib: state.lib });
+    await window.litrag.request('reparse', { lib: ctx.lib });
   });
   $('prev-page').addEventListener('click', () => void showPage(state.page - 1));
   $('next-page').addEventListener('click', () => void showPage(state.page + 1));
   $('clear-log').addEventListener('click', () => ($('log').innerHTML = ''));
-  window.addEventListener('resize', () => void (state.pdf && showPage(state.page)));
+  $('toggle-log').addEventListener('click', () => {
+    const pane = $('log-pane');
+    pane.classList.toggle('collapsed');
+    $('toggle-log').textContent = pane.classList.contains('collapsed') ? 'Show' : 'Hide';
+  });
+  window.addEventListener('resize', () => void (state.pdf && ctx.view === 'papers' && showPage(state.page)));
 
   const overlay = $('drop-overlay');
   window.addEventListener('dragover', (e) => {
@@ -1021,9 +1081,10 @@ function wire() {
     overlay.hidden = true;
     const files = [...(e.dataTransfer?.files ?? [])];
     const paths = window.litrag.pathsOf(files).filter((p) => /\.(pdf|xml)$/i.test(p));
-    void ingest(paths);
+    void ingest(paths).then(() => void loadCandidates());
   });
 
+  showView(startView);
   void window.litrag.info().then((i) => log('log', `worker: ${i.command} · root: ${i.root}`));
   // If the worker was already up before this page loaded, `ready` is gone; ask anyway.
   window.litrag.request('hello').then(() => {

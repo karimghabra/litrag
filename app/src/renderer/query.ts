@@ -1,0 +1,223 @@
+/**
+ * The Query tab: a question, the passages that answer it, and each passage hydrated from the
+ * tree it came from — where it sits (the headings above it), the paragraphs either side, and,
+ * for a finding, the methods it was measured by and the figures it cites. A passage is a
+ * paragraph node; its context is the rows around it, not a wider chunk.
+ */
+
+import { $, activity, ctx, el, escapeHtml, hooks, log, onProjectChange, onViewShown, onWorkerEvent, projectName, request, roleColor } from './shared.ts';
+
+interface QNode {
+  node_id: string;
+  text: string;
+  role: string;
+  type?: string;
+  heading?: string | null;
+  ancestry?: string[];
+  page?: number | null;
+}
+
+interface QMethod {
+  node_id: string;
+  heading?: string | null;
+  ancestry?: string[];
+  text: string;
+  evidence?: string;
+  detail?: string | null;
+  score?: number | null;
+}
+
+export interface QHit {
+  rank: number;
+  score: number;
+  ranks?: Record<string, number>;
+  hit: QNode;
+  paper: { key: string; title: string; year?: string | null; journal?: string | null; doi?: string | null; type?: string | null };
+  section?: { node_id: string; heading: string | null; role: string; canonical?: string | null } | null;
+  before?: QNode[];
+  after?: QNode[];
+  methods?: QMethod[];
+  figures?: { node_id: string; text: string; caption?: string }[];
+  cites?: { ref_no: number; first_author?: string | null; year?: string | null; title?: string | null; doi?: string | null; text?: string }[];
+  also?: string[];
+}
+
+interface QAnswer {
+  question: string;
+  hits: QHit[];
+  embedder?: { model?: string; down?: boolean; error?: string | null };
+  counts?: Record<string, number>;
+  seconds?: number;
+  note?: string;
+}
+
+export function initQuery(): void {
+  $<HTMLFormElement>('query-form').addEventListener('submit', (e) => {
+    e.preventDefault();
+    void ask();
+  });
+  $<HTMLTextAreaElement>('query-q').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      void ask();
+    }
+  });
+  $('embed').addEventListener('click', () => void embed());
+  onProjectChange(() => {
+    $('query-results').innerHTML = '';
+    $('query-meta').innerHTML = '';
+    if (ctx.view === 'query') void loadStatus();
+  });
+  onViewShown((v) => {
+    if (v === 'query') void loadStatus();
+  });
+  onWorkerEvent((ev) => {
+    if (ev['event'] === 'done' && ev['op'] === 'embed') {
+      activity.hide();
+      log('stage', `Embedded ${ev['embedded'] ?? 0} passages${ev['error'] ? ` — ${ev['error']}` : ''}`);
+      void loadStatus();
+    }
+  });
+}
+
+async function loadStatus(): Promise<void> {
+  $('query-project').textContent = projectName();
+  if (!ctx.lib) return;
+  try {
+    const r = await request<{ units: number; embedded: number; model: string; down?: boolean; error?: string | null }>('retrieval', { lib: ctx.lib });
+    const s = $('embed-status');
+    s.textContent = `${r.embedded.toLocaleString()} of ${r.units.toLocaleString()} passages embedded · ${r.model}${r.down ? ' · the embedder is not answering' : ''}`;
+    s.dataset['embedded'] = String(r.embedded);
+    s.dataset['units'] = String(r.units);
+    $<HTMLButtonElement>('embed').disabled = r.units > 0 && r.embedded >= r.units;
+  } catch (e) {
+    $('embed-status').textContent = `retrieval: ${(e as Error).message}`;
+  }
+}
+
+async function embed(): Promise<void> {
+  if (!ctx.lib) return;
+  try {
+    activity.show('Embedding passages');
+    await request('embed', { lib: ctx.lib });
+  } catch (e) {
+    activity.hide();
+    log('error', `embed: ${(e as Error).message}`);
+  }
+}
+
+async function ask(): Promise<void> {
+  if (!ctx.lib) {
+    window.alert('Choose a project first.');
+    return;
+  }
+  const question = $<HTMLTextAreaElement>('query-q').value.trim();
+  if (!question) return;
+  const k = Math.max(1, Math.min(30, Number($<HTMLInputElement>('query-k').value) || 8));
+  const box = $('query-results');
+  box.innerHTML = '';
+  box.append(el('div', 'empty', 'Retrieving and hydrating…'));
+  const t = performance.now();
+  try {
+    const r = await request<QAnswer>('query', { lib: ctx.lib, question, k });
+    renderAnswer(r, (performance.now() - t) / 1000);
+  } catch (e) {
+    box.innerHTML = '';
+    box.append(el('div', 'empty', `The query failed: ${(e as Error).message}`));
+  }
+}
+
+const STOP = new Set('a an and are as at be by for from has have in is it its of on or that the this to was were which with what how does do did at when why who whom whose between into than then'.split(' '));
+
+function highlight(text: string, question: string): string {
+  const terms = [...new Set(question.toLowerCase().match(/[a-z0-9°]{3,}/g) ?? [])].filter((w) => !STOP.has(w));
+  let html = escapeHtml(text);
+  for (const term of terms) {
+    const re = new RegExp(`\\b(${term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\w*)`, 'gi');
+    html = html.replace(re, '<mark>$1</mark>');
+  }
+  return html;
+}
+
+function renderAnswer(r: QAnswer, seconds: number): void {
+  const meta = $('query-meta');
+  meta.innerHTML = '';
+  meta.append(el('span', undefined, `${r.hits.length} passage${r.hits.length === 1 ? '' : 's'} in ${seconds.toFixed(2)} s`));
+  if (r.embedder?.model) meta.append(el('span', undefined, `meaning by ${r.embedder.model}`));
+  if (r.embedder?.down) meta.append(el('span', 'conf low', 'the embedder is not answering: words only'));
+  if (r.note) meta.append(el('span', undefined, r.note));
+  const box = $('query-results');
+  box.innerHTML = '';
+  if (!r.hits.length) box.append(el('div', 'empty', 'Nothing in this project answers that.'));
+  for (const h of r.hits) box.append(hitCard(h, r.question));
+}
+
+function hitCard(h: QHit, question: string): HTMLElement {
+  const card = el('div', 'qhit');
+  card.dataset['node'] = h.hit.node_id;
+  const head = el('div', 'qhit-head');
+  head.append(el('span', 'rank', `${h.rank}`), el('span', 'ptitle', h.paper.title));
+  head.append(el('span', 'pmeta', [h.paper.journal ?? '', h.paper.year ?? '', h.paper.doi ? `doi:${h.paper.doi}` : ''].filter(Boolean).join(' · ')));
+  const ranks = el('span', 'ranks', Object.entries(h.ranks ?? {}).map(([k, v]) => `${k} #${v}`).join(' · '));
+  ranks.title = 'where the passage ranked by each list before they were fused';
+  head.append(ranks);
+  card.append(head);
+
+  const body = el('div', 'qhit-body');
+  const main = el('div', 'qhit-main');
+  const crumb = el('div', 'crumb');
+  const trail = [...(h.hit.ancestry ?? [])];
+  crumb.innerHTML = trail.map((s) => `<b>${escapeHtml(s)}</b>`).join(' › ') + ` <span style="color:${roleColor(h.hit.role)}">· ${escapeHtml(h.hit.role)}</span>${h.hit.page ? ` · p.${h.hit.page}` : ''}`;
+  main.append(crumb);
+  for (const b of h.before ?? []) main.append(el('div', 'ctx before', b.text));
+  const p = el('div', 'hitp');
+  p.innerHTML = highlight(h.hit.text, question);
+  main.append(p);
+  for (const a of h.after ?? []) main.append(el('div', 'ctx after', a.text));
+  if (h.also?.length) main.append(el('div', 'muted', `also matched: ${h.also.length} neighbouring passage${h.also.length === 1 ? '' : 's'}, shown in the context`));
+  body.append(main);
+
+  const side = el('div', 'qhit-side');
+  if (h.methods?.length) {
+    side.append(el('div', 'side-h', `Measured by (${h.methods.length})`));
+    for (const m of h.methods) {
+      const item = el('div', 'side-item methods');
+      item.dataset['node'] = m.node_id;
+      item.append(el('div', 'h', m.heading ?? (m.ancestry ?? []).slice(-1)[0] ?? 'Methods'));
+      item.append(el('div', undefined, m.text.length > 700 ? `${m.text.slice(0, 700)}…` : m.text));
+      item.append(el('div', 'ev', [m.evidence, m.detail].filter(Boolean).join(': ')));
+      item.style.cursor = 'pointer';
+      item.addEventListener('click', () => hooks.openPaper(h.paper.key, m.node_id));
+      side.append(item);
+    }
+  } else if (['results', 'results-discussion', 'discussion'].includes(h.hit.role)) {
+    side.append(el('div', 'side-h', 'Measured by'));
+    side.append(el('div', 'muted', 'No method is linked to this passage in the tree.'));
+  }
+  if (h.figures?.length) {
+    side.append(el('div', 'side-h', `Figures cited (${h.figures.length})`));
+    for (const f of h.figures) {
+      const item = el('div', 'side-item', f.caption ?? f.text);
+      item.addEventListener('click', () => hooks.openPaper(h.paper.key, f.node_id));
+      item.style.cursor = 'pointer';
+      side.append(item);
+    }
+  }
+  if (h.cites?.length) {
+    side.append(el('div', 'side-h', `Cites (${h.cites.length})`));
+    for (const c of h.cites.slice(0, 6)) side.append(el('div', 'side-item', `[${c.ref_no}] ${[c.first_author, c.year].filter(Boolean).join(' ')} — ${c.title ?? c.text ?? ''}${c.doi ? ` · doi:${c.doi}` : ''}`));
+  }
+  if (h.section) {
+    side.append(el('div', 'side-h', 'Section'));
+    side.append(el('div', 'side-item', `${h.section.heading ?? '(untitled)'} · ${h.section.role}${h.section.canonical ? ` · ${h.section.canonical}` : ''}`));
+  }
+  body.append(side);
+  card.append(body);
+
+  const foot = el('div', 'qhit-foot');
+  const open = el('button', 'ghost small', 'Open in the tree');
+  open.addEventListener('click', () => hooks.openPaper(h.paper.key, h.hit.node_id));
+  foot.append(open);
+  card.append(foot);
+  return card;
+}

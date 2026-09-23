@@ -92,12 +92,13 @@ test('the window opens and the worker answers', async () => {
 });
 
 test('a library is made through the button', async () => {
-  await page.evaluate(() => {
-    window.prompt = () => 'E2E Library';
-  });
+  await page.locator('#nav button[data-view="projects"]').click();
   await page.click('#new-library');
+  await page.fill('#np-name', 'E2E Library');
+  await page.click('#new-project button[type="submit"]');
   await expect(page.locator('#library')).toHaveValue('e2e-library', { timeout: 20_000 });
   lib = await page.locator('#library').inputValue();
+  await page.locator('#nav button[data-view="papers"]').click(); // the rest of this suite is the Papers tab
 });
 
 test(`every paper is ingested and parsed (${papers.length})`, async () => {
