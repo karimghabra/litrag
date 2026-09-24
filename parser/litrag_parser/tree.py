@@ -652,7 +652,7 @@ def _merged(a: dict[str, Any], b: dict[str, Any], text: str) -> dict[str, Any]:
 
 def _tail_of(item: dict[str, Any]) -> dict[str, Any]:
     """What `_geometry_says` and `_continues` read of a block's end: its last box, its page, its last line."""
-    return {"prov": (item.get("prov") or [])[-1:], "_last_full": item.get("_last_full"), "_last_fill": item.get("_last_fill"), "_line_h": item.get("_line_h"), "_lead": item.get("_lead"), "_lines": item.get("_lines"), "label": item.get("label")}
+    return {"prov": (item.get("prov") or [])[-1:], "_last_full": item.get("_last_full"), "_last_fill": item.get("_last_fill"), "_line_h": item.get("_line_h"), "_lead": item.get("_lead"), "_lines": item.get("_lines"), "_type_h": item.get("_type_h"), "label": item.get("label")}
 
 
 KEEP_APART = True  # `_stands_apart`
@@ -724,8 +724,9 @@ def _runs_on(end: dict[str, Any], it: dict[str, Any], between: list[dict[str, An
     pa, pb = (end.get("prov") or [None])[-1], (it.get("prov") or [None])[0]
     if not pa or not pb or not pa.get("bbox") or not pb.get("bbox") or "page_no" not in pa or "page_no" not in pb:
         return False
-    if not 0 <= int(pb["page_no"]) - int(pa["page_no"]) <= (2 if between else 1):
-        return False  # a page of figures or tables may stand between the halves, nothing else may
+    last_float = _float_pages(end, between) if FLOAT_PAGES and between else None
+    if not 0 <= int(pb["page_no"]) - int(pa["page_no"]) <= (2 if between else 1) and not (last_float is not None and 0 <= int(pb["page_no"]) - last_float <= 1):
+        return False  # a page of figures or tables may stand between the halves, nothing else may — or several, when they fill the pages between
     if not between and pa["page_no"] == pb["page_no"] and _same_column(end, it) and _vertical_gap(pa["bbox"], pb["bbox"]) > -0.5 * unit:
         return False  # one under the other in a column: the leading, not the last line, would have to say it
     return True
@@ -786,7 +787,7 @@ def _displaced_head(out: list[dict[str, Any]], anchor: int, it: dict[str, Any], 
     for k in range(len(out) - 1, -1, -1):  # (RSC's affiliation footnotes under the introduction's first lines) do not close the window
         if len(out) - 1 - k > 20 or counted >= 11:
             break
-        if k == anchor or out[k].get("label") not in _TEXTLIKE:
+        if k == anchor or out[k].get("label") not in _TEXTLIKE or out[k].get("_note"):
             continue
         cand = out[k]
         cand_text = (cand.get("text") or "").rstrip()
@@ -888,7 +889,13 @@ def _stitch_fragments(items: list[dict[str, Any]], repairs: dict[str, int], judg
                 continue
             end = prev.get("_tail") or prev  # a paragraph already joined is asked about where it now ends
             geometry = _geometry_says(end, it, indents, unit)
-            if _continues(prev_text, text, _page_of(end), _page_of(it), geometry, repairs) and not (KEEP_APART and _stands_apart(end, it, out[anchor + 1 :], prev_text, text, geometry, unit, repairs)):
+            if _continues(prev_text, text, _float_pages(end, out[anchor + 1 :]) if FLOAT_PAGES else _page_of(end), _page_of(it), geometry, repairs) and not (KEEP_APART and _stands_apart(end, it, out[anchor + 1 :], prev_text, text, geometry, unit, repairs)):
+                if NOTES_APART and _set_smaller(end, it, text, unit) and (NOTES_ANYWHERE or out[anchor + 1 :] or _page_of(it) != _page_of(end)):
+                    it = {**it, "_note": True}
+                    out.append(it)  # a note in smaller type: bridged like a footnote, and the paragraph stays open for its tail
+                    repairs["note_apart"] = repairs.get("note_apart", 0) + 1
+                    i += 1
+                    continue
                 out[anchor] = _merged(prev, it, _join_inline([prev, it]))
                 repairs["joined"] = repairs.get("joined", 0) + 1
                 i += 1
@@ -929,6 +936,12 @@ def _stitch_fragments(items: list[dict[str, Any]], repairs: dict[str, int], judg
             repairs["rejoined_across_heading"] = repairs.get("rejoined_across_heading", 0) + 1
             i += 1
             continue
+        if LIST_TAILS and label in _TEXTLIKE and text and anchor < 0 and _list_tail(out, it, text):
+            k = max(k for k in range(len(out)) if out[k].get("label") in _LIST)
+            out[k] = _merged(out[k], it, _join_inline([out[k], it]))
+            repairs["list_tail"] = repairs.get("list_tail", 0) + 1
+            i += 1
+            continue
         out.append(it)
         if label in _TEXTLIKE and text:
             anchor = len(out) - 1
@@ -957,6 +970,78 @@ def _across_heading(prev: dict[str, Any], between: list[dict[str, Any]], it: dic
     end = prev.get("_tail") or prev
     if end.get("_last_full") is not True:
         return False
+    pa, pb = _page_of(end), _page_of(it)
+    if pa is None or pb is None or pb not in (pa, pa + 1):
+        return False
+    return pa != pb or not _same_column(end, it)
+
+
+FLOAT_PAGES = os.environ.get("LITRAG_FLOAT_PAGES", "on").lower() not in ("off", "0", "false", "no")
+
+
+def _float_pages(end: dict[str, Any], between: list[dict[str, Any]]) -> int | None:
+    """The page a paragraph's tail may be read from next, counting from the last page the figures,
+    tables and notes between its halves fill: a paragraph stopped mid-sentence on page 6, two pages
+    of tables, and its rest on page 9 is carried on from page 8, not refused as three pages away."""
+    page = _page_of(end)
+    if page is None:
+        return None
+    for x in between:
+        for p in x.get("prov") or []:
+            if "page_no" in p and x.get("label") in _BRIDGEABLE | _TEXTLIKE:
+                page = max(page, int(p["page_no"]))
+    return page
+
+
+#: `_set_smaller`: how much smaller than the paragraph's type a block must be set before it is a note
+NOTE_TYPE = 0.9
+BODY_TYPE = 0.08  # how far from the paper's body line (`_unit`) the paragraph's own type may stand
+NOTES_APART = os.environ.get("LITRAG_NOTES_APART", "on").lower() not in ("off", "0", "false", "no")
+NOTES_ANYWHERE = os.environ.get("LITRAG_NOTES_ANYWHERE", "on").lower() not in ("off", "0", "false", "no")
+
+
+def _set_smaller(end: dict[str, Any], it: dict[str, Any], text: str, unit: float = 10.0) -> bool:
+    """A block set in smaller type than the paragraph it would finish, opening with a capital, a
+    digit or a symbol: a table's note, a figure's legend, a licence or a disclaimer at the foot of
+    the page ("Values are presented as median…", "Dependent variable=…", "The opinions expressed
+    by authors…"), which the words alone take for the rest of an unfinished sentence. It stands
+    between the paragraph's halves the way a footnote does; the paragraph's lowercase tail after it
+    still finds its head. Measured 2026-09-23 on the stitcher's joins over DEV and the tuned sets,
+    labelled by the XML twin: 15 of the 18 joins onto such a block at 0.9 of the type or less were
+    wrong (all 12 at 0.85), against a tenth of the joins overall."""
+    ha, hb = end.get("_line_h") or end.get("_type_h"), it.get("_type_max")
+    if not ha or not hb or hb > NOTE_TYPE * ha or hb > NOTE_TYPE * unit or abs(ha / unit - 1) > BODY_TYPE:
+        return False  # the paragraph in the paper's body type, the block smaller on every line than both
+    t = text.lstrip()
+    if not t or t[0].islower() or _EDITOR_LINE.match(t) or _COPYRIGHT_LINE.match(t) or (_DATE_LINE.search(t) and len(t.split()) <= 30):
+        return False  # a sidebar's editor, dates or copyright: the front matter's rules have them
+    return True
+
+
+#: `_list_tail`
+LIST_TAILS = os.environ.get("LITRAG_LIST_TAILS", "on").lower() not in ("off", "0", "false", "no")
+
+
+def _list_tail(out: list[dict[str, Any]], it: dict[str, Any], text: str) -> bool:
+    """A list item's sentence carried on past a column or a page break: the item stops
+    mid-sentence ("…with a context window of 8,192 tokens, which"), and the block after it, with
+    only a figure or a table between, opens lowercase ("ensures that each chunk…"). A list item
+    closes the paragraph before it, so nothing else would take the tail; it stood alone as a
+    paragraph, and the item was cut. Not where the two stand one under the other in a column:
+    there a lowercase block is the list's own next line, or a paragraph the list introduced."""
+    k = len(out) - 1
+    while k >= 0 and out[k].get("label") in _BRIDGEABLE:
+        k -= 1
+    if k < 0 or out[k].get("label") not in _LIST:
+        return False
+    item_text = (out[k].get("text") or "").rstrip()
+    t = text.lstrip()
+    if not item_text or not t[:1].islower() or len(t.split()) < 3 or len(item_text.split()) < 8:
+        return False
+    core = _CITATION_TAIL.sub("", item_text).rstrip()
+    if not core or core[-1] in _FINISHED or not (core[-1].isalnum() or core[-1] in ",-"):
+        return False
+    end = out[k].get("_tail") or out[k]
     pa, pb = _page_of(end), _page_of(it)
     if pa is None or pb is None or pb not in (pa, pa + 1):
         return False
@@ -1938,6 +2023,82 @@ def _built_over(intro_items: list[dict[str, Any]], abstract_items: list[dict[str
     return [header, *intro_items]
 
 
+#: A JATS abstract's parts, one paragraph each. Docling's JATS backend reads `<abstract><sec><title>
+#: Methods</title><p>…</p></sec>…` as one text, "Methods: … Results: …", so the XML's reading had
+#: one paragraph where the file has one per part and the PDF of the same paper prints one per
+#: label (measured 2026-09-23: 27 of DEV's 165 cut paragraphs, 44 of the tuned sets'). The text
+#: says where Docling joined them: a label of a few words and a colon at its start, and again
+#: after a sentence's end. Only a text that opens with a label is split, and only where two parts
+#: or more are found; each part keeps its label, as the page prints it.
+ABSTRACT_PARTS = os.environ.get("LITRAG_ABSTRACT_PARTS", "on").lower() not in ("off", "0", "false", "no")
+_PART_LABEL = re.compile(r"[\[(]?[A-Z][^:.!?;\n\[\]()]{0,60}?[\])]?\s?::?\s+(?=\S)")
+_PART_AFTER = re.compile(r"(?<=[.!?)\]”\"'%0-9])\s+(?=[\[(]?[A-Z])")
+
+
+def _part_label(text: str, at: int) -> int | None:
+    """Where the label that opens `text[at:]` ends, when one does: at most six words."""
+    m = _PART_LABEL.match(text, at)
+    if not m or len(m.group(0).split()) > 6:
+        return None
+    return m.end()
+
+
+def _abstract_parts_of_jats(items: list[dict[str, Any]], repairs: dict[str, int]) -> list[dict[str, Any]]:
+    """The paragraphs under a JATS file's abstract heading, one per part (`ABSTRACT_PARTS`)."""
+    out: list[dict[str, Any]] = []
+    under_abstract = False
+    for it in items:
+        label = it.get("label")
+        if label in _HEADER:
+            under_abstract = role_of(it.get("text") or "", meaning=False) == "abstract"
+            out.append(it)
+            continue
+        text = it.get("text") or ""
+        if not under_abstract or label not in _TEXTLIKE or _part_label(text, 0) is None:
+            out.append(it)
+            continue
+        starts = [0]
+        for m in _PART_AFTER.finditer(text):
+            end = _part_label(text, m.end())
+            if end is not None and len(text[end:].split()) >= 3:
+                starts.append(m.end())
+        if len(starts) < 2:
+            out.append(it)
+            continue
+        for k, (a, b) in enumerate(zip(starts, starts[1:] + [len(text)])):
+            part = text[a:b].strip()
+            out.append({**it, "text": part, "orig": part, "self_ref": f"{it.get('self_ref', '')}~part{k + 1}"})
+        repairs["abstract_parts"] = repairs.get("abstract_parts", 0) + len(starts)
+    return out
+
+
+#: A JATS paragraph that is one short run of bold — `<p><bold>Study population</bold></p>` — is a
+#: heading the publisher set without a `<sec>`: the PDF of the same paper prints it as one, and read
+#: as prose it was a paragraph of three words in the XML's reading. It becomes a subheading of the
+#: section it stands in, so its lane is that section's.
+BOLD_HEADINGS = os.environ.get("LITRAG_BOLD_HEADINGS", "on").lower() not in ("off", "0", "false", "no")
+
+
+def _bold_headings_of_jats(items: list[dict[str, Any]], repairs: dict[str, int]) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    level = 1
+    for k, it in enumerate(items):
+        label = it.get("label")
+        if label in _HEADER:
+            level = int(it.get("level") or 1)
+            out.append(it)
+            continue
+        text = (it.get("text") or "").strip()
+        nxt = next((x for x in items[k + 1 :] if (x.get("text") or "").strip()), None)
+        if (label in _TEXTLIKE and (it.get("formatting") or {}).get("bold") and text and len(text.split()) <= 12 and text[-1] not in ".;,"
+                and nxt is not None and nxt.get("label") in _TEXTLIKE | _LIST and not (nxt.get("formatting") or {}).get("bold")):
+            out.append({**it, "label": "section_header", "level": level + 1, "_bold_heading": True})
+            repairs["bold_headings"] = repairs.get("bold_headings", 0) + 1
+            continue
+        out.append(it)
+    return out
+
+
 def build_tree(doc: dict[str, Any], key: str, title_hint: str | None = None, judge: Any = None, record: dict[str, Any] | None = None) -> Tree:
     """The node tree for one document, given Docling's exported dict.
 
@@ -2022,6 +2183,10 @@ def build_tree(doc: dict[str, Any], key: str, title_hint: str | None = None, jud
     for item in _body_items(doc):
         rescued = rescue_merged_heading(item)
         items.extend(rescued if rescued else [item])
+    if not pages and ABSTRACT_PARTS:
+        items = _abstract_parts_of_jats(items, repairs)
+    if not pages and BOLD_HEADINGS:
+        items = _bold_headings_of_jats(items, repairs)
     kept: list[dict[str, Any]] = []
     for it in items:
         if it.get("self_ref") in furniture or it.get("_sidebar"):

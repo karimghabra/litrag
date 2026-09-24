@@ -573,6 +573,12 @@ def _geometry(item: dict[str, Any], rows: list[Line], first_rows: list[Line], la
     that runs from the right column of one page to the left of the next is two columns wide, and
     its full last line read as short."""
     item["_lines"] = len(rows)
+    if rows:
+        # the block's type, read even from one line: its median and its largest row. A note set in
+        # smaller type is small on every line; a block the layout model glued from a sidebar's
+        # lines and the body's is not (tree._set_smaller)
+        sizes = sorted(ln.height for ln in rows)
+        item["_type_h"], item["_type_max"] = round(sizes[len(sizes) // 2], 2), round(sizes[-1], 2)
     if len(rows) < 2:
         return
     tail = last_rows[-1] if last_rows else rows[-1]

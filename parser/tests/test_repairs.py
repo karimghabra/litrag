@@ -304,3 +304,60 @@ def test_fragments_beside_figures_and_equations_read_as_text():
 def test_a_reference_entry_split_after_its_journal_abbreviation_is_one_entry():
     assert _continues("X. Sun, Y. Mao, Z. Yu, P. Yang, F. Jiang, Adv. Mater.", ", 2400084.", 36, 36) is True
     assert _continues("The samples were imaged.", ", and counted.", 3, 3) is False
+
+
+# ---- notes, lists and pages of floats between a paragraph's halves ----
+
+
+def _table(i, page, l, b, r, t):
+    return {"self_ref": f"#/tables/{i}", "parent": {"$ref": "#/body"}, "children": [], "label": "table", "captions": [], "data": {"grid": [[{"text": "Markers"}, {"text": "0.642"}]]},
+            "prov": [{"page_no": page, "bbox": {"l": l, "t": t, "r": r, "b": b, "coord_origin": "BOTTOMLEFT"}}]}
+
+
+def test_a_note_in_smaller_type_is_bridged_and_the_paragraphs_tail_finds_its_head():
+    head = item(1, "text", "Correlations were considered moderate between 0.40 and 0.69. The correlations between biochemical measures (tricel-", 3, 54, 100, 290, 160, _line_h=9.5, _type_h=9.5, _type_max=9.9, _lines=5)
+    note = item(2, "text", "Dependent variable=MOCI Total. Standardized Beta coefficients are reported. R2 = 0.281.", 4, 305, 600, 534, 640, _line_h=7.2, _type_h=7.2, _type_max=7.4, _lines=3)
+    tail = item(3, "text", "lulin, MarvelD3, TNF-alpha) and MOCI total scores in the OCD group are presented in Fig. 1.", 4, 305, 540, 534, 580, _line_h=9.5, _type_h=9.5, _type_max=9.8, _lines=2)
+    doc = _pdf_doc([item(0, "section_header", "3 Results", 3, 54, 700, 200, 710), head, note, tail], indents=0.0)
+    doc["tables"] = [_table(0, 4, 54, 650, 534, 760)]
+    doc["body"]["children"] = [{"$ref": "#/texts/0"}, {"$ref": "#/texts/1"}, {"$ref": "#/tables/0"}, {"$ref": "#/texts/2"}, {"$ref": "#/texts/3"}]
+    tree = build_tree(doc, "k")
+    assert tree.repairs.get("note_apart") == 1
+    assert paragraphs(tree)[0].startswith("Correlations were") and paragraphs(tree)[0].endswith("presented in Fig. 1.")  # the tail went back past the note
+    assert paragraphs(tree)[1].startswith("Dependent variable")  # the note stands on its own, not inside the paragraph
+    same_type = {**note, "_type_max": 9.4, "_line_h": 9.2, "_type_h": 9.2}
+    doc["texts"][2] = same_type
+    tree = build_tree(doc, "k")
+    assert tree.repairs.get("note_apart") is None  # the body's own type: the words decide, as before
+
+
+def test_a_list_items_sentence_carried_into_the_next_column_stays_in_the_item():
+    li = item(1, "list_item", "Text data representation using LLM embeddings: each article is cut into chunks for a model with a context window of 8,192 tokens, which", 3, 72, 60, 303, 160)
+    rest = item(2, "text", "ensures that each chunk does not exceed this limit. Shorter texts are padded.", 3, 336, 700, 555, 740)
+    tree = build_tree(_pdf_doc([item(0, "section_header", "2 Methods", 3, 54, 750, 200, 760), li, rest]), "k")
+    assert tree.repairs.get("list_tail") == 1
+    items = [n.text for n in tree.walk() if n.type == "list_item"]
+    assert len(items) == 1 and items[0].endswith("Shorter texts are padded.") and not paragraphs(tree)
+    under = item(2, "text", "ensures that each chunk does not exceed this limit. Shorter texts are padded.", 3, 72, 20, 303, 55)
+    tree = build_tree(_pdf_doc([item(0, "section_header", "2 Methods", 3, 54, 750, 200, 760), li, under]), "k")
+    assert tree.repairs.get("list_tail") is None  # right under the item in its column: the list's own business, not a break
+
+
+def test_a_paragraph_carries_on_after_two_pages_of_tables():
+    head = item(1, "text", "Participants with normal levels reported lower alcohol consumption compared to the deficiency group (all P < 0.001),", 3, 54, 100, 290, 160, _lines=5)
+    tail = item(2, "text", "while the BMI and obesity rates did not differ significantly between the groups.", 6, 54, 700, 290, 740, _lines=2)
+    doc = doc_of([item(0, "section_header", "3 Results", 3, 54, 700, 200, 710), head, tail], tables=[_table(0, 4, 54, 100, 540, 700), _table(1, 5, 54, 100, 540, 700)], pages=(3, 4, 5, 6))
+    doc["body"]["children"] = [{"$ref": "#/texts/0"}, {"$ref": "#/texts/1"}, {"$ref": "#/tables/0"}, {"$ref": "#/tables/1"}, {"$ref": "#/texts/2"}]
+    tree = build_tree(doc, "k")
+    assert paragraphs(tree) == ["Participants with normal levels reported lower alcohol consumption compared to the deficiency group (all P < 0.001), while the BMI and obesity rates did not differ significantly between the groups."]
+    doc["tables"] = doc["tables"][:1]
+    doc["body"]["children"] = [{"$ref": "#/texts/0"}, {"$ref": "#/texts/1"}, {"$ref": "#/tables/0"}, {"$ref": "#/texts/2"}]
+    tree = build_tree(doc, "k")
+    assert len(paragraphs(tree)) == 2  # a page with nothing between it and the tail is still a page too far
+
+
+def test_every_block_learns_its_type_even_from_one_line():
+    para = item(1, "text", "Values are presented as median [IQR].", 3, 54, 500, 290, 510)
+    doc = doc_of([item(0, "section_header", "3 Results", 3, 54, 700, 200, 710), para])
+    recover(doc, {3: lines([("Values are presented as median [IQR].", 54, 502, 230, 509)])})
+    assert para["_type_h"] == para["_type_max"] == 7 and "_line_h" not in para  # the one-line block's size; `_line_h` stays what it was
