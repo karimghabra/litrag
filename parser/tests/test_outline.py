@@ -92,24 +92,14 @@ def test_a_lane_goes_where_the_rules_gave_none_and_a_named_heading_keeps_its_own
     _, paragraphs = prompt_text(built)
     done = apply(built, [{"title": "Introduction", "printed": False, "level": 1, "lane": "results-discussion", "first_paragraph": 1}], paragraphs, {}, "fake")
     assert done["lanes"] == 0 and done["disagreements"] == 1 and "the built heading names introduction" in built.notes[0]["message"] and intro.role == "introduction"
-    # under the abstract nothing of the body belongs: the sections the reader left there leave it — in a research
-    # paper with the model's lane, in a review as topical sections
+    # under the abstract nothing of the body belongs, and the reader itself takes it out (tree.py: an abstract's only
+    # subsections are its parts): the sections stand as topical sections of their own, and the abstract is one heading
+    # and one paragraph, before any outline is asked
     from test_structure import ABSTRACT
 
-    def _under_abstract():
-        return build_tree(_doc([("title", "A paper", 1), ("section_header", "Abstract", 1), ("text", ABSTRACT, 1), ("section_header", "Tendon biology", 1), ("text", METHODS, 1), ("section_header", "Scaffolds in the clinic", 1), ("text", RESULTS_2, 1)]), "k")
-
-    left = [{"title": "Abstract", "printed": True, "level": 1, "lane": "abstract", "first_paragraph": 1}, {"title": "Tendon biology", "printed": True, "level": 1, "lane": "methods", "first_paragraph": 2}, {"title": "Scaffolds in the clinic", "printed": True, "level": 1, "lane": "results", "first_paragraph": 3}]
-    flat = _under_abstract()
-    _, paragraphs = prompt_text(flat)
-    assert {n.role for n in flat.walk() if n.type == "section" and n.heading in ("Tendon biology", "Scaffolds in the clinic")} == {"abstract"}
-    done = apply(flat, left, paragraphs, {}, "fake", paper_type="research")
-    assert done["lanes"] == 2 and next(n.role for n in flat.walk() if n.text == METHODS) == "methods" and next(n.role for n in flat.walk() if n.text == RESULTS_2) == "results"
-    assert flat.roles["results"] == 2 and flat.roles["abstract"] == 2  # the abstract is one heading and one paragraph again
-    review = _under_abstract()
-    _, paragraphs = prompt_text(review)
-    done = apply(review, left, paragraphs, {}, "fake", paper_type="review")
-    assert done["lanes"] == 2 and {n.role for n in review.walk() if n.text in (METHODS, RESULTS_2)} == {"other"} and review.roles["abstract"] == 2
+    flat = build_tree(_doc([("title", "A paper", 1), ("section_header", "Abstract", 1), ("text", ABSTRACT, 1), ("section_header", "Tendon biology", 1), ("text", METHODS, 1), ("section_header", "Scaffolds in the clinic", 1), ("text", RESULTS_2, 1)]), "k")
+    assert {n.role for n in flat.walk() if n.type == "section" and n.heading in ("Tendon biology", "Scaffolds in the clinic")} == {"other"}
+    assert flat.roles["abstract"] == 2 and flat.repairs["abstract_child_raised"] == 1  # the first; the next is its sibling or child, never the abstract's
     # a heading that names its lane keeps it, the disagreement is a note
     named = build_tree(_doc([("title", "A paper", 1), ("section_header", "Introduction", 1), ("text", INTRO, 1), ("section_header", "Methods", 1), ("text", METHODS, 1)]), "k")
     _, paragraphs = prompt_text(named)

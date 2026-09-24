@@ -217,11 +217,30 @@ def repair_ligature_glyphs(text: str, vocabulary: dict[str, set[str]] | None = N
     return out
 
 
+_SOFT_AFTER_HYPHEN = re.compile("-\u00ad\\s*")
+_SOFT_IN_WORD = re.compile("(?<=\\w)\u00ad\\s*(?=\\w)")
+_SOFT_LEFT = re.compile("\\s*\u00ad\\s*")
+
+
+def unsoft(text: str) -> str:
+    """A soft hyphen is where a word may break, never a letter of it. Docling keeps the
+    typesetter's U+00AD at a line's end with the line break after it read as a space:
+    "compro\u00ad mises" is two words to a search, and "cell-\u00ad derived" a hyphen, a soft
+    hyphen and a space. Measured over the five pair sets: 7,052 words broken this way and
+    9,192 hyphens followed by one, in 71 of 487 PDFs (OUP, BMJ, ASM, Diabetes Care); the XML
+    of the same paper has neither."""
+    if "\u00ad" not in text:
+        return text
+    text = _SOFT_AFTER_HYPHEN.sub("-", text)
+    text = _SOFT_IN_WORD.sub("", text)
+    return _SOFT_LEFT.sub(" ", text)
+
+
 def repair_glyphs(text: str, vocabulary: dict[str, set[str]] | None = None) -> str:
     """The text with the known font-mapping errors undone; unchanged when it has none."""
     if not text:
         return text
-    out = text
+    out = unsoft(text)
     for pattern, repl, _ in RULES:
         out = pattern.sub(repl, out)
     return repair_ligature_glyphs(repair_ligatures(out, vocabulary), vocabulary)

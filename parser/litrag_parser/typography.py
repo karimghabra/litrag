@@ -59,7 +59,7 @@ from __future__ import annotations
 import ctypes
 import re
 from collections import Counter
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -772,6 +772,15 @@ def depth_by_type(doc: dict[str, Any], rows_by_page: dict[int, list[Row]], repor
     if not anchors:
         _one_level(heads, looks, report)
         return
+    capital = sum(1 for a in anchors if a.caps)
+    if 0 < capital <= len(anchors) - capital and all(same_look(replace(a, caps=False), replace(anchors[0], caps=False)) for a in anchors):
+        # the core sections themselves are set both in capitals and not ("INTRODUCTION", then
+        # "Conclusions", the same face and size): capitals do not tell this paper's levels apart, so
+        # they are left out of every comparison — else its topical sections, set like "Conclusions",
+        # read as the introduction's children
+        looks = {k: (replace(v, caps=False) if v is not None else None) for k, v in looks.items()}
+        anchors = [replace(a, caps=False) for a in anchors]
+        report["depth_by_type_caps_ignored"] = report.get("depth_by_type_caps_ignored", 0) + 1
     tops_numbered = any(numbering_depth(h.get("text") or "") == 1 for h in named) if named else len(numbered) >= 2
     groups: list[list[Look]] = []
     for lk in anchors:
@@ -782,6 +791,13 @@ def depth_by_type(doc: dict[str, Any], rows_by_page: dict[int, list[Row]], repor
         else:
             groups.append([lk])
     top = max(groups, key=lambda g: (len(g), -g[0].size))[0]  # the commonest look of the core sections; between two as common, the plainer (Nature sets its methods larger than the main text's sections)
+    intro = next((looks[id(h)] for h in named if _name(h.get("text") or "") in ("introduction", "background")), None)
+    if intro is not None and not same_look(intro, top) and prominence(intro, top) > 0:
+        # …unless the introduction is set more prominently than that: the introduction is always the
+        # top level, and a paper of several experiments sets a "Results" and a "Discussion" inside each
+        # (Open Mind's "EXPERIMENT 1: …", then "Results", "Discussion" under it, four times over)
+        top = intro
+        report["depth_by_type_intro_top"] = report.get("depth_by_type_intro_top", 0) + 1
     deeper = [looks[id(h)] for h in heads if looks.get(id(h)) is not None and (numbering_depth(h.get("text") or "") or 0) >= 2]
     if len(deeper) >= 2 and sum(1 for lk in deeper if prominence(lk, top) >= 0) >= 0.5 * len(deeper):
         report["depth_by_type_unsure"] = report.get("depth_by_type_unsure", 0) + 1

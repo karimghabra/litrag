@@ -1312,7 +1312,8 @@ def infer_level(heading: str, docling_level: int, open_top: bool, stated: bool =
 _MERGED = re.compile(r"^(?P<head>(?:\d+\.\s+)?[A-Za-z][^.]{2,60}?)\s+(?P<num>\d+)\.(?P<sub>\d+)\.?\s+(?P<rest>\S.*)$")
 
 
-_FUSED = re.compile(r"^(?P<lane>Introduction|Background|Methods|Materials and [Mm]ethods|Results|Results and [Dd]iscussion|Discussion|Conclusions?)\s+(?P<rest>[A-Z][a-z]\S*(?:\s+\S+)+)$")
+_FUSED = re.compile(r"^(?P<lane>Introduction|Background|Methods|Materials and [Mm]ethods|Results|Results and [Dd]iscussion|Discussion|Conclusions?"
+                    r"|INTRODUCTION|BACKGROUND|METHODS|MATERIALS AND METHODS|RESULTS|RESULTS AND DISCUSSION|DISCUSSION|CONCLUSIONS?)\s+(?P<rest>[A-Z][a-z]\S*(?:\s+\S+)+)$")  # OUP's National Science Review sets its lanes in capitals, the first subheading run on: "RESULTS AND DISCUSSION Global patterns of …"
 _NOT_A_SECOND_HEADING = {"And", "Of", "For", "In", "To", "On", "With", "From", "Section", "Summary", "Overview"}
 
 
@@ -1837,6 +1838,7 @@ _CITES = re.compile(
     r"\[\d{1,3}[\]\u2013,-]|\(\d{4}[a-z]?\)|et al\.|(?<=[A-Za-z)\]])\.\s?\d{1,3}(?:\s?[-\u2013,]\s?\d{1,3})*\s+[A-Z][a-z]|[.,;]\^\d{1,3}\b|[A-Za-z]{3,}\^\d{1,3}\b(?![.,]?\d)"
     r"|(?<=[a-z]) \(\d{1,3}(?:\s?[,\u2013-]\s?\d{1,3})*\)(?=[.,;:])"  # ASM's and PNAS's "control (1, 2)." — a number in brackets closed by punctuation, not an enumeration's "(1) the"
     r"|\([A-Z][A-Za-z&'\u2019. -]{1,60}?,? (?:19|20)\d{2}[a-z]?(?:[;,][^)]{0,80})?\)"  # "(Plastics Europe 2024)", "(Smith and Lee, 2019; Wu 2020)"
+    r"|(?<=[a-z)]) \d{1,3}(?:\s?[,–-]\s?\d{1,3})* (?=[.,;:](?:\s|$))"  # Nature's superscript as Docling reads it, set apart on both sides: "sources and sinks 4 .", "729 ppb 2,3 ." (prose never puts a space between a number and its full stop)
 )  # "[12]", "(2019)", "et al.", or a superscript after the full stop: "(PL). 1 - 3 These"
 
 
@@ -1891,6 +1893,25 @@ def _front_kind(text: str, has_abstract_heading: bool, repairs: dict[str, int] |
     if t.lower().strip(" .:") in _GENERIC_LABELS or (len(words) <= 3 and t.isupper()):
         return "notice"
     return (_front_by_meaning(t, repairs) if meaning else None) or "other"
+
+
+_SALUTATION = re.compile(r"^\s*(?:dear\s+(?:editors?|sirs?|madam|colleagues)\b|to\s+the\s+editors?\b|sir\s*,|we\s+(?:sincerely\s+|would\s+like\s+to\s+|wish\s+to\s+)?thank\s+(?:dr|prof|the\s+authors?|[A-Z]))", re.I)
+_STRUCTURED_LEAD = re.compile(r"^\s*(?:background|objectives?|aims?|purpose|introduction|context|importance|methods?|design|setting|results?|findings|conclusions?|interpretation)\s*[:.—-]", re.I)
+
+
+def _no_abstract(abstract_items: list[dict[str, Any]], imrad: bool = False) -> bool:
+    """The long blocks before the first heading, taken for an unheaded abstract, are the body:
+    a letter's salutation ("Dear Editor", "To the Editor", "We thank Dr. Kim for…"), or three
+    paragraphs or more that are no structured abstract's parts — an abstract printed without
+    its heading is one paragraph, or two with a teaser (Nature), and an editorial, a
+    commentary or a Special Issue's preface has none. The XML of the same papers says so: no
+    <abstract>, the prose under "Main text"."""
+    texts = [(it.get("text") or "").strip() for it in abstract_items]
+    if texts and _SALUTATION.match(texts[0]):
+        return True
+    # A paper that prints a methods or results heading has an abstract: the layout may have cut
+    # it in three, or Nature's unheaded introduction follows it (`_abstract_ends_where_it_cites`)
+    return not imrad and len(texts) >= 3 and not any(_STRUCTURED_LEAD.match(t) for t in texts)
 
 
 def _built_over(intro_items: list[dict[str, Any]], abstract_items: list[dict[str, Any]], repairs: dict[str, int]) -> list[dict[str, Any]]:
@@ -1995,6 +2016,7 @@ def build_tree(doc: dict[str, Any], key: str, title_hint: str | None = None, jud
     prose_count = 0
     body_started = False  # the paper proper has begun: an introduction, methods, a numbered heading
     last_heading: str | None = None
+    restarted_under: Node | None = None  # the numbered section a "1." inside it was read under (a numbered list set as headings)
     prose_since_heading = False
     items: list[dict[str, Any]] = []
     for item in _body_items(doc):
@@ -2191,6 +2213,10 @@ def build_tree(doc: dict[str, Any], key: str, title_hint: str | None = None, jud
                 node = make(front, "meta", {**group[0], "label": kind}, joined, "other")
                 node.label = kind
                 attach(front, node)
+        imrad = any(it.get("label") == "section_header" and (role_of(it.get("text") or "", meaning=False) in ("methods", "results", "results-discussion") or top_level_lane(it.get("text") or "") in ("methods", "results", "results-discussion")) for it in items)
+        if pages and abstract_items and not has_abstract_heading and _no_abstract(abstract_items, imrad):
+            intro_items, abstract_items = abstract_items + intro_items, []  # an editorial's or a letter's opening, not an abstract
+            repairs["no_abstract"] = repairs.get("no_abstract", 0) + 1
         if intro_items:
             body_items[0:0] = _built_over(intro_items, abstract_items, repairs)
         if abstract_items:
@@ -2262,8 +2288,44 @@ def build_tree(doc: dict[str, Any], key: str, title_hint: str | None = None, jud
             else:
                 open_top_node = next((n for lvl, n in stack if lvl == 1), None)
                 level = infer_level(text, level, open_top_node is not None and open_top_node.label != "built", stated=not pages, typo_level=item.get("_typo_level"), list_number=bool(item.get("_list_number")), open_top_role=open_top_node.role if open_top_node is not None else None)
+                if (pages and level == 1 and role_of(text, meaning=False) == "abstract" and (_page_of(item) or 1) > 2 and open_top_node is not None
+                        and open_top_node.role in ("methods", "results", "results-discussion", "discussion") and any(c.type == "section" and c.role == "introduction" for c in root.children)):
+                    # "Abstract" on page six, inside "RESULTS AND DISCUSSION", after the introduction and
+                    # the methods: a paper about writing papers, showing what goes under a title — a
+                    # heading of its body, not its abstract (einstein's AI review)
+                    level = 2
+                    repairs["abstract_in_body"] = repairs.get("abstract_in_body", 0) + 1
+                stated_level = int(item.get("level") or 1)
+                if (not pages and level == 1 and stated_level > 1 and numbering_depth(text) == 1 and open_top_node is not None
+                        and open_top_node.role in ("methods", "results", "results-discussion", "discussion") and role_of(text, meaning=False) == "other" and top_level_lane(text) is None):
+                    # a JATS file says "1. Weaknesses of Men's Awareness" lies three <sec> deep, inside
+                    # "RESULTS": the file's nesting is its word, and a theme numbered from one inside the
+                    # results is the results' — the PDF of the same paper sets it so
+                    level, item = stated_level, {**item, "_list_number": True}  # its own numbering, not the parent's: no ghost parent for it
+                    repairs["stated_depth_over_number"] = repairs.get("stated_depth_over_number", 0) + 1
                 if level > 1 and open_top_node is not None and open_top_node.label == "built" and numbering_depth(text) is None:
                     level = 1  # a printed heading is never the child of one the reader built: the built "Introduction" covers the prose before the first printed heading, no more
+                if (pages and level > 1 and open_top_node is not None and open_top_node.role == "abstract" and numbering_depth(text) is None and not item.get("_abstract_part")
+                        and not _ABSTRACT_PART_WIDE.match(normalise_heading(text))
+                        and (canonical_of(text)[0] == "Highlights" or (canonical_of(text)[0] is None and item.get("_typo_level") != 2))
+                        and not _journal_name(text, journal) and _norm_letters(text)[:30] != _norm_letters(title or "")[:30]):  # never the journal's banner or the title read again as a heading
+                    # an abstract's only subsections are its parts: "Author summary" set under PLOS's
+                    # abstract, a Microbe Profile's "TAXONOMY", "GENOME" after its summary paragraph,
+                    # BMJ's "WHAT IS ALREADY KNOWN" box are sections of their own — the XML of the same
+                    # papers puts each at the top level — and nesting them filed the body as abstract
+                    level = 1
+                    repairs["abstract_child_raised"] = repairs.get("abstract_child_raised", 0) + 1
+                restart = (pages and level == 1 and numbering_depth(text) == 1 and open_top_node is not None and open_top_node.label != "built"
+                           and (top_number(text) or "").isdigit() and (top_number(open_top_node.heading or "") or "").isdigit()
+                           and role_of(text, meaning=False) == "other" and top_level_lane(text) is None)
+                if restart and int(top_number(open_top_node.heading or "")) >= 3 and (int(top_number(text)) == 1 or (restarted_under is open_top_node and int(top_number(text)) < int(top_number(open_top_node.heading or "")))):
+                    # "1. Mastering the negative electrode interface" under "4. Outlook": the numbers
+                    # start again inside a numbered section, which is a list the paper set as headings,
+                    # not a new top level — in the XML of the same paper those are the section's own
+                    # paragraphs. They stay inside the section, and so in its lane
+                    level, restarted_under = 2, open_top_node
+                    item = {**item, "_list_number": True}
+                    repairs["numbering_restarted"] = repairs.get("numbering_restarted", 0) + 1
                 if level == 1 and role_of(text, meaning=False) in ("other", "back") and pages and next((n.role for lvl, n in stack if lvl == 1), None) == "references" and _entries_follow(items, index):
                     level = 2  # a statement the layout model read between the entries — named by the catalogue, by meaning, or by the vocabulary itself ("Data availability statement", "Funding": Frontiers sets them in the left column under the start of the list, and 93 entries had filed as acknowledgements) — stays inside the list, since the list goes on after it
             as_part = bool(pages and item.get("_abstract_part") and not body_started and level == 1)
@@ -2335,7 +2397,11 @@ def build_tree(doc: dict[str, Any], key: str, title_hint: str | None = None, jud
                     repairs["lane_held_for_agreement"] = repairs.get("lane_held_for_agreement", 0) + 1
             if as_part:
                 role = "abstract"  # a part of the structured abstract, whatever its name says
-            if role == "abstract" and normalise_heading(text) != "abstract" and (body_started or top_number(text) is not None):
+            opening_summary = bool(pages) and top_number(text) is None and (_page_of(item) or 1) <= 2 and not any(c.type == "section" and c.role == "abstract" for c in root.children)
+            if role == "abstract" and normalise_heading(text) != "abstract" and (body_started or top_number(text) is not None) and not opening_summary:
+                # …but an unnumbered "Summary" on the first two pages, before any abstract, is the
+                # abstract: Cell Press sets it on the second page under a highlights box (which, being
+                # back matter, starts the body), Elsevier's two columns read it after "1. Introduction"
                 role = "discussion"  # "6 Summary", a closing section: the abstract came first (a heading that says "Abstract" is the abstract, wherever the layout read it)
             if level == 1 and (role not in ("abstract", "other") or top_number(text) is not None):
                 body_started = True
