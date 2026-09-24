@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+## 0.3.1 — 2026-09-24
+
+The reader's third round on publishers it never saw, and the XML read as its file has it.
+
+- **Notes kept apart.** A block set smaller on every line than the body, opening with a capital,
+  is a note (a table note, a legend, a licence): the paragraph it interrupted stays open for its
+  lowercase tail. List items continue over a column or page break; pages of tables between two
+  halves of a paragraph no longer keep them apart.
+- **A JATS abstract in its parts, a bold paragraph as a heading.** Docling's JATS backend
+  flattens a structured abstract into "Label: …" runs; they are split back at the labels. A short
+  bold-only `<p>` is the subheading it is typeset as.
+- One chunk in the right lane: tuned pairs 93.9% → 94.5% (157 papers better, none worse); DEV
+  without its abstract book 89.2% → 90.3%; the reserved VAL 86.4% → 87.2% — all of VAL's gain
+  from the XML side: the reader's new rules leave VAL where it was.
+
 ## 0.3.0 — 2026-09-23
 
 **The studio.** The window becomes an app over projects, not one library's papers: five tabs
