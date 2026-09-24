@@ -82,6 +82,13 @@ CREATE TABLE IF NOT EXISTS vectors (
   vec BLOB NOT NULL,                -- float32, little-endian, as the embedder gave it (not normalised)
   PRIMARY KEY (node, model)
 );
+-- how many times the vectors changed: the search's cached matrix is reloaded when this moves.
+-- A count and the highest rowid are not enough, since SQLite hands a deleted rowid out again:
+-- the last paper's vectors dropped by a rebuild and embedded again look unchanged by them.
+CREATE TABLE IF NOT EXISTS vectors_gen (n INTEGER NOT NULL);
+INSERT INTO vectors_gen (n) SELECT 0 WHERE NOT EXISTS (SELECT 1 FROM vectors_gen);
+CREATE TRIGGER IF NOT EXISTS vectors_gen_ai AFTER INSERT ON vectors BEGIN UPDATE vectors_gen SET n = n + 1; END;
+CREATE TRIGGER IF NOT EXISTS vectors_gen_ad AFTER DELETE ON vectors BEGIN UPDATE vectors_gen SET n = n + 1; END;
 """
 
 
@@ -355,7 +362,8 @@ def _matrix(conn: sqlite3.Connection, key: str) -> dict[str, Any] | None:
     (same count, new rows) is noticed."""
     if not _has_vectors(conn):
         return None
-    sig = tuple(conn.execute("SELECT COUNT(*), MAX(rowid) FROM vectors WHERE model = ?", (key,)).fetchone())
+    gen = conn.execute("SELECT n FROM vectors_gen").fetchone() if conn.execute("SELECT 1 FROM sqlite_master WHERE name = 'vectors_gen'").fetchone() else None
+    sig = (*conn.execute("SELECT COUNT(*), MAX(rowid) FROM vectors WHERE model = ?", (key,)).fetchone(), gen[0] if gen else None)
     if not sig[0]:
         return None
     ck = (_db_path(conn), key)
@@ -363,10 +371,15 @@ def _matrix(conn: sqlite3.Connection, key: str) -> dict[str, Any] | None:
         hit = _cache.get(ck)
         if hit is not None and hit["sig"] == sig:
             return hit
+    _prepare(conn)
+    # only units: a vector written for a node the unit rule now refuses (a reference entry, known
+    # as one only once the reference list was linked) is never a hit
     rows = conn.execute(
-        "SELECT v.node, v.dims, v.vec, n.role, n.paper FROM vectors v JOIN nodes n ON n.node_id = v.node WHERE v.model = ? ORDER BY v.rowid",
+        f"SELECT v.node, v.dims, v.vec, n.role, n.paper FROM vectors v JOIN nodes n ON n.node_id = v.node WHERE v.model = ? AND {_UNIT_WHERE} ORDER BY v.rowid",
         (key,),
     ).fetchall()
+    if not rows:
+        return None
     dims = rows[0]["dims"]
     rows = [r for r in rows if r["dims"] == dims]
     m = np.frombuffer(b"".join(bytes(r["vec"]) for r in rows), dtype="<f4").reshape(len(rows), dims).astype(np.float32)

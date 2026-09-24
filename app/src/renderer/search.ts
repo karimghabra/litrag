@@ -75,6 +75,7 @@ export function initSearch(): void {
   onWorkerEvent((ev) => {
     const kind = ev['event'];
     if (kind === 'candidate') {
+      if (ev['lib'] !== ctx.lib) return; // a candidate number is a row of one project's store, not of this one
       const id = Number(ev['cand_id']);
       for (const list of [state.hits, state.candidates]) {
         const c = list.find((x) => x.cand_id === id);
@@ -139,8 +140,10 @@ async function runSearch(query: string, more: boolean): Promise<void> {
   }
   if (!query) return;
   $('search-total').textContent = 'searching…';
+  const lib = ctx.lib;
   try {
-    const r = await request<{ hits: Candidate[]; total: number; next_cursor: string | null; added: number }>('search', { lib: ctx.lib, query, cursor: more ? state.next : '*' });
+    const r = await request<{ hits: Candidate[]; total: number; next_cursor: string | null; added: number }>('search', { lib, query, cursor: more ? state.next : '*' });
+    if (ctx.lib !== lib) return; // another project was chosen while Europe PMC answered: these candidates are not its
     state.query = query;
     state.hits = more ? [...state.hits, ...r.hits] : r.hits;
     state.total = r.total;
@@ -260,8 +263,10 @@ export async function loadCandidates(): Promise<void> {
     renderCandidates();
     return;
   }
+  const lib = ctx.lib;
   try {
-    const r = await request<{ candidates: Candidate[] }>('candidates', { lib: ctx.lib });
+    const r = await request<{ candidates: Candidate[] }>('candidates', { lib });
+    if (ctx.lib !== lib) return;
     state.candidates = r.candidates;
   } catch (e) {
     log('error', `candidates: ${(e as Error).message}`);
@@ -318,8 +323,10 @@ async function suggest(): Promise<void> {
   box.innerHTML = '';
   box.dataset['kind'] = 'suggested';
   box.append(el('span', 'muted', 'Asking the local model for queries from the project’s description…'));
+  const lib = ctx.lib;
   try {
-    const r = await request<{ queries: string[]; model?: string; error?: string }>('suggest', { lib: ctx.lib });
+    const r = await request<{ queries: string[]; model?: string; error?: string }>('suggest', { lib });
+    if (ctx.lib !== lib) return;
     box.innerHTML = '';
     if (r.error) box.append(el('span', 'muted', r.error));
     for (const q of r.queries ?? []) {

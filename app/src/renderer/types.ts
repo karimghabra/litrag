@@ -85,9 +85,11 @@ export function initTypes(): void {
 
 async function loadTypes(): Promise<void> {
   $('types-project').textContent = projectName();
-  if (!ctx.lib) return;
+  const lib = ctx.lib;
+  if (!lib) return;
   try {
-    const r = await request<{ overview: typeof state.overview; skeletons: Skeleton[] | Record<string, Skeleton>; papers?: typeof state.papers }>('types', { lib: ctx.lib });
+    const r = await request<{ overview: typeof state.overview; skeletons: Skeleton[] | Record<string, Skeleton>; papers?: typeof state.papers }>('types', { lib });
+    if (ctx.lib !== lib) return;
     state.overview = r.overview ?? [];
     state.skeletons = new Map();
     const list = Array.isArray(r.skeletons) ? r.skeletons : Object.values(r.skeletons ?? {});
@@ -181,8 +183,11 @@ async function loadMapping(): Promise<void> {
   const box = $('mapping');
   box.innerHTML = '';
   if (!ctx.lib || !state.paper) return;
+  const lib = ctx.lib;
+  const key = state.paper;
   try {
-    const r = await request<{ mapping: Mapping }>('mapping', { lib: ctx.lib, key: state.paper });
+    const r = await request<{ mapping: Mapping }>('mapping', { lib, key });
+    if (ctx.lib !== lib || state.paper !== key) return;
     renderMapping(box, r.mapping);
   } catch (e) {
     box.append(el('div', 'empty', `No mapping: ${(e as Error).message}`));

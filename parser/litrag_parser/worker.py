@@ -354,7 +354,7 @@ class Worker:
                 elif op == "embed":
                     self.do_embed(req)
             except Exception as e:  # never let one paper kill the worker
-                emit({"event": "error", "id": req.get("id"), "message": str(e), "trace": traceback.format_exc()})
+                emit({"event": "error", "id": req.get("id"), "op": req.get("op"), "lib": req.get("lib"), "message": str(e), "trace": traceback.format_exc()})
             finally:
                 self.current = {}
 
@@ -399,11 +399,16 @@ class Worker:
         finally:
             conn.close()
 
-    def do_ingest(self, req: dict[str, Any]) -> None:
+    def do_ingest(self, req: dict[str, Any]) -> dict[str, str]:
+        """File and read the given files; returns `{path: key}` for every file filed. `known`
+        (path → {doi, pmid, pmcid}) is what the caller already knows of a file — a fetch knows the
+        candidate it came for — and fills whatever the file does not say of itself."""
         lib = self._lib(req)
         req_id = req.get("id")
         conn = open_store(lib.store_path)
         filed: list[tuple[str, Path]] = []
+        keys: dict[str, str] = {}
+        known_all: dict[str, dict[str, Any]] = req.get("known") or {}
         for raw in req.get("paths", []):
             src = Path(raw)
             if not src.exists() or src.suffix.lower() not in (".pdf", ".xml"):
@@ -416,11 +421,16 @@ class Worker:
                 doi, pmcid, pmid = jats_ids(src)
             else:
                 doi, pmcid = sniff_ids(src)
+                known = known_all.get(str(raw)) or {}
+                if not doi and not pmcid and (known.get("doi") or known.get("pmcid")):
+                    doi, pmcid, pmid = known.get("doi"), known.get("pmcid"), known.get("pmid")  # the candidate this file was fetched for
                 if not doi and not pmcid and not req.get("offline"):
                     doi, pmid = lookup_by_title(guess_title(src))  # Europe PMC, by the paper's own title; nothing when offline or unsure
                     if doi or pmid:
                         emit({"event": "identified", "id": req_id, "path": str(src), "doi": doi, "pmid": pmid})
-            result = file_paper(conn, title=src.stem, file="", sha256=sha, fmt=fmt, doi=doi, pmid=pmid, pmcid=pmcid, now=now_iso())
+            known = known_all.get(str(raw)) or {}
+            result = file_paper(conn, title=src.stem, file="", sha256=sha, fmt=fmt, doi=doi, pmid=pmid or known.get("pmid"), pmcid=pmcid or known.get("pmcid"), now=now_iso())
+            keys[str(raw)] = result.key
             row = conn.execute("SELECT status, file FROM papers WHERE key = ?", (result.key,)).fetchone()
             # A paper already read stays as it was read — the same DOI arriving as a second file
             # (a PDF after its JATS, say) is noted, not swapped in. `reread` is the way to replace it.
@@ -463,6 +473,7 @@ class Worker:
         finally:
             conn.close()
         emit({"event": "done", "id": req_id, "op": "ingest", "lib": lib.id, "parsed": [k for k, _ in filed]})
+        return keys
 
     def do_reparse(self, req: dict[str, Any]) -> None:
         lib = self._lib(req)
@@ -497,7 +508,7 @@ class Worker:
                 # "one paper costs the run" shape the layout child was built to remove.
                 refused.append({"paper": key, "reason": f"{type(e).__name__}: {e}"})
                 log_event(conn, key, now_iso(), "rebuild-refused", str(e)[:400])
-                emit({"event": "stage", "id": req.get("id"), "paper": key, "stage": "failed",
+                emit({"event": "stage", "id": req.get("id"), "lib": lib.id, "paper": key, "stage": "failed",
                       "message": f"rebuild: {e}", "trace": traceback.format_exc()})
                 continue
             rebuilt.append(key)
@@ -516,13 +527,13 @@ class Worker:
         if outline_enabled() or req.get("outline"):
             judge_outline(tree, conn, key, ask_model=ask, pub_types=row["pub_types"])  # a rebuild replays the outline's row; only the judge op asks the model
         n = save_tree(conn, key, tree, parser=f"{'judge ' + judge.model if ask else 'rebuild'} {__version__}", parsed_at=now_iso(), seconds=0.0)
-        self.embed_paper(conn, key)
         xml = source.read_bytes() if row["format"] == "jats" and source and source.exists() else None
         if xml:
             journal, year = jats_journal(xml)
             set_record(conn, key, authors=jats_authors(xml), journal=journal, year=year, overwrite=True)  # the file's own word on who wrote it, where and when
         refs, cites = link_citations(tree, xml)
         save_refs(conn, key, refs, cites)
+        self.embed_paper(conn, key)  # after the reference list is linked: its entries are no passages
         edges = link_edges(tree, key, lanes.active())
         save_edges(conn, key, edges)
         kind = decide_type(tree, jats_xml=xml, pub_types=row["pub_types"], oracle=lanes.active())
@@ -625,15 +636,15 @@ class Worker:
                     stage("outline", f"The outline judge gave no usable answer ({outlined.get('error') or 'the answer was not an outline'}): the reader's own structure stands")
             seconds = round(time.time() - started, 1)
             n = save_tree(conn, key, tree, parser=f"docling {self.docling_version} · litrag-parser {__version__}", parsed_at=now_iso(), seconds=seconds)
-            embedded = self.embed_paper(conn, key)
-            if embedded and embedded.get("embedded"):
-                stage("embedded", f"{embedded['embedded']} passages embedded for search")
             xml = path.read_bytes() if path.suffix.lower() == ".xml" else None
             if xml:
                 journal, year = jats_journal(xml)
                 set_record(conn, key, authors=jats_authors(xml), journal=journal, year=year, overwrite=True)  # the file's own word on who wrote it, where and when
             refs, cites = link_citations(tree, xml)
             save_refs(conn, key, refs, cites)
+            embedded = self.embed_paper(conn, key)  # after the reference list is linked: its entries are no passages
+            if embedded and embedded.get("embedded"):
+                stage("embedded", f"{embedded['embedded']} passages embedded for search")
             edges = link_edges(tree, key, lanes.active())
             save_edges(conn, key, edges)
             linked = summarize_edges(tree, edges)
@@ -677,14 +688,25 @@ class Worker:
         finally:
             conn.close()
         paths = [g["path"] for g in got if g.get("path")]
+        conn = open_store(lib.store_path)
+        try:
+            ids = {g["cand_id"]: dict(conn.execute("SELECT doi, pmid, pmcid FROM candidates WHERE cand_id = ?", (g["cand_id"],)).fetchone() or {}) for g in got if g.get("path")}
+        finally:
+            conn.close()
+        known = {g["path"]: ids.get(g["cand_id"], {}) for g in got if g.get("path")}
         counts: dict[str, int] = {}
         for g in got:
             counts[str(g.get("status"))] = counts.get(str(g.get("status")), 0) + 1
         emit({"event": "stage", "id": req_id, "lib": lib.id, "stage": "fetched", "message": ", ".join(f"{n} {s}" for s, n in sorted(counts.items())) or "nothing to fetch"})
-        if paths:
-            self.do_ingest({"id": req_id, "op": "ingest", "lib": lib.id, "paths": paths})
+        filed = self.do_ingest({"id": req_id, "op": "ingest", "lib": lib.id, "paths": paths, "known": known}) if paths else {}
         conn = open_store(lib.store_path)
         try:
+            # a file filed is its candidate's paper, whatever identifiers it printed of itself
+            for g in got:
+                key = filed.get(g.get("path") or "")
+                if key:
+                    conn.execute("UPDATE candidates SET status = 'ingested', paper_key = ?, error = NULL, updated_at = ? WHERE cand_id = ?", (key, now_iso(), g["cand_id"]))
+            conn.commit()
             acquire.reconcile(conn)
             for g in got:
                 row = conn.execute("SELECT status, paper_key, error FROM candidates WHERE cand_id = ?", (g["cand_id"],)).fetchone()

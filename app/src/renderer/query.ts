@@ -82,9 +82,11 @@ export function initQuery(): void {
 
 async function loadStatus(): Promise<void> {
   $('query-project').textContent = projectName();
-  if (!ctx.lib) return;
+  const lib = ctx.lib;
+  if (!lib) return;
   try {
-    const r = await request<{ units: number; embedded: number; model: string; down?: boolean; error?: string | null }>('retrieval', { lib: ctx.lib });
+    const r = await request<{ units: number; embedded: number; model: string; down?: boolean; error?: string | null }>('retrieval', { lib });
+    if (ctx.lib !== lib) return;
     const s = $('embed-status');
     s.textContent = `${r.embedded.toLocaleString()} of ${r.units.toLocaleString()} passages embedded · ${r.model}${r.down ? ' · the embedder is not answering' : ''}`;
     s.dataset['embedded'] = String(r.embedded);
@@ -118,8 +120,10 @@ async function ask(): Promise<void> {
   box.innerHTML = '';
   box.append(el('div', 'empty', 'Retrieving and hydrating…'));
   const t = performance.now();
+  const lib = ctx.lib;
   try {
-    const r = await request<QAnswer>('query', { lib: ctx.lib, question, k });
+    const r = await request<QAnswer>('query', { lib, question, k });
+    if (ctx.lib !== lib) return;
     renderAnswer(r, (performance.now() - t) / 1000);
   } catch (e) {
     box.innerHTML = '';
@@ -130,13 +134,18 @@ async function ask(): Promise<void> {
 const STOP = new Set('a an and are as at be by for from has have in is it its of on or that the this to was were which with what how does do did at when why who whom whose between into than then'.split(' '));
 
 function highlight(text: string, question: string): string {
+  // the words are found in the raw text and each piece escaped on its own, so a query word can
+  // never match inside an entity ("&amp;") or the <mark> this inserts
   const terms = [...new Set(question.toLowerCase().match(/[a-z0-9°]{3,}/g) ?? [])].filter((w) => !STOP.has(w));
-  let html = escapeHtml(text);
-  for (const term of terms) {
-    const re = new RegExp(`\\b(${term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\w*)`, 'gi');
-    html = html.replace(re, '<mark>$1</mark>');
+  if (!terms.length) return escapeHtml(text);
+  const re = new RegExp(`\\b(?:${terms.map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})\\w*`, 'gi');
+  let out = '';
+  let last = 0;
+  for (const m of text.matchAll(re)) {
+    out += escapeHtml(text.slice(last, m.index)) + `<mark>${escapeHtml(m[0])}</mark>`;
+    last = m.index! + m[0].length;
   }
-  return html;
+  return out + escapeHtml(text.slice(last));
 }
 
 function renderAnswer(r: QAnswer, seconds: number): void {

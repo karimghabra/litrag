@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from . import acquire
-from .library import Library, create_library, now_iso, open_library, safe_key
+from .library import Library, create_library, list_libraries, now_iso, open_library, queries_of, safe_key, update_manifest
 from .store import file_paper, log_event, open_store, sha256_of
 
 
@@ -41,10 +41,7 @@ def _manifest(lib: Library) -> dict[str, Any]:
 
 
 def _write_manifest(lib: Library, manifest: dict[str, Any]) -> None:
-    tmp = lib.manifest_path.with_suffix(".json.part")
-    tmp.write_text(json.dumps(dict(sorted(manifest.items())), indent=2) + "\n", "utf-8")
-    os.replace(tmp, lib.manifest_path)
-    lib.manifest = manifest
+    update_manifest(lib, lambda m: (m.clear(), m.update(manifest)))
 
 
 def summary(lib: Library) -> dict[str, Any]:
@@ -92,15 +89,21 @@ def summary(lib: Library) -> dict[str, Any]:
 def describe(lib: Library, name: str | None = None, description: str | None = None) -> dict[str, Any]:
     """Rename a project, or write its description (its research context). The id — its folder —
     never changes. Returns the summary."""
-    m = _manifest(lib)
     if name is not None:
         if not name.strip():
             raise ValueError("a project's name cannot be empty")
-        m["name"] = name.strip()
-    if description is not None:
-        m["description"] = description.strip()
-    m["updatedAt"] = now_iso()
-    _write_manifest(lib, m)
+        for other in list_libraries(lib.root):
+            if other.id != lib.id and name.strip().lower() in (other.id, str(other.manifest.get("name", "")).lower()):
+                raise ValueError(f"another project is already called {name.strip()!r}")
+
+    def change(m: dict[str, Any]) -> None:
+        if name is not None:
+            m["name"] = name.strip()
+        if description is not None:
+            m["description"] = description.strip()
+        m["updatedAt"] = now_iso()
+
+    update_manifest(lib, change)
     return summary(lib)
 
 
@@ -197,19 +200,21 @@ def merge(root: Path, source_ids: list[str], target_name: str, into: str | None 
     finally:
         tconn.close()
 
-    m = _manifest(target)
-    have = {(q.get("query"), q.get("at")) for q in m.get("queries") or []}
-    new_queries = []
-    for q in queries:
-        k = (q.get("query"), q.get("at"))
-        if k not in have:
-            have.add(k)
-            new_queries.append(q)
-    merged_from = sorted(set(m.get("mergedFrom") or []) | {s.id for s in sources})
-    if new_queries or merged_from != (m.get("mergedFrom") or []):
-        m["queries"] = sorted([*(m.get("queries") or []), *new_queries], key=lambda q: str(q.get("at") or ""))
-        m["mergedFrom"] = merged_from
-        _write_manifest(target, m)
+    new_queries: list[dict[str, Any]] = []
+
+    def change(m: dict[str, Any]) -> None:
+        # a library from before the studio kept its searches as bare strings
+        held = queries_of(m)
+        have = {(q.get("query"), q.get("at")) for q in held}
+        for q in (q if isinstance(q, dict) else {"query": str(q)} for q in queries):
+            k = (q.get("query"), q.get("at"))
+            if k not in have:
+                have.add(k)
+                new_queries.append(q)
+        m["queries"] = sorted([*held, *new_queries], key=lambda q: str(q.get("at") or ""))
+        m["mergedFrom"] = sorted(set(m.get("mergedFrom") or []) | {s.id for s in sources})
+
+    update_manifest(target, change)
 
     return {
         "target": target.to_dict(),
@@ -258,7 +263,10 @@ def _merge_paper(src: Library, sconn: sqlite3.Connection, s_tables: set[str], ta
         raw_came = True
     sets = {"title": row.get("title") or tkey, "file": dest_name, "format": row.get("format"), "sha256": sha,
             "pages": row.get("pages"), "has_methods": row.get("has_methods"),
-            "status": "parsed" if raw_came else "queued", "error": None}
+            # parsed only when the source had read it: a paper that failed after its raw document was
+            # saved keeps its failure's reason and is read again, never passed off as read
+            "status": "parsed" if raw_came and row.get("status") == "parsed" else "queued",
+            "error": None if raw_came and row.get("status") == "parsed" else row.get("error")}
     for col in _RECORD:
         if col in row:
             sets[col] = row[col]

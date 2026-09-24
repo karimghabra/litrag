@@ -969,6 +969,8 @@ function onEvent(ev: Record<string, unknown>) {
       log('failed', `skipped ${ev['path']}: ${ev['reason']}`);
       break;
     case 'error':
+      // a queued op that fails (a merge into a name taken) closes nothing: the bar must not stay up
+      activity.hide();
       log('error', String(ev['message']));
       break;
     case 'worker-error':

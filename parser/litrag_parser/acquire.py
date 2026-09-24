@@ -254,16 +254,9 @@ def upsert_candidate(conn: sqlite3.Connection, hit: dict[str, Any], *, query: st
 
 def _write_manifest(lib: Library, update: Callable[[dict[str, Any]], None]) -> dict[str, Any]:
     """Read library.json fresh, change it, write it the way `create_library` does."""
-    try:
-        manifest = json.loads(lib.manifest_path.read_text("utf-8"))
-    except (OSError, json.JSONDecodeError):
-        manifest = dict(lib.manifest)
-    update(manifest)
-    tmp = lib.manifest_path.with_suffix(".json.part")
-    tmp.write_text(json.dumps(dict(sorted(manifest.items())), indent=2) + "\n", "utf-8")
-    os.replace(tmp, lib.manifest_path)
-    lib.manifest = manifest
-    return manifest
+    from .library import update_manifest
+
+    return update_manifest(lib, update)  # one writer at a time: a search, a description and a merge share it
 
 
 def record_search(lib: Library, conn: sqlite3.Connection, query: str, hits: Iterable[dict[str, Any]], total: int | None = None) -> dict[str, Any]:
