@@ -2,6 +2,44 @@
 
 ## Unreleased
 
+## 0.3.0 — 2026-09-23
+
+**The studio.** The window becomes an app over projects, not one library's papers: five tabs
+over one project at a time, and retrieval that answers from the trees.
+
+- **Projects** — every project (one library each) as a card with what it holds; a new project
+  with a description of what its literature is about; several merged into one, a paper held
+  twice filed once and its rows derived again from the saved readings (`projects.py`).
+- **Search** — Europe PMC from the worker (`acquire.py`): every hit kept as a candidate, the
+  JATS full text fetched first, the bulk area's open PDF second, the rest listed with their
+  publisher's page to download by hand and drop on the window, where the PDF is filed against
+  its candidate. Queries drafted from the project's description by the local model
+  (`suggest.py`) — suggestions only.
+- **Types** — each kind of paper's canonical structure and any paper drawn onto it, a line from
+  each printed section to its slot coloured by the mechanism that placed it (`canonical.py`);
+  the Papers tab gains the same as a **Canonical** face beside the printed tree.
+- **Query** — chunkless retrieval (`retrieve.py`): paragraph nodes embedded once with their
+  headings (`search_document:`), words from `nodes_fts` and meaning from the new `vectors`
+  table fused by RRF, and every hit hydrated from its tree — the headings above it, the
+  paragraphs either side, the methods a finding was measured by, the figures and references it
+  cites. A paper's passages are embedded as it is saved. On 14 proxy questions the answer is in
+  the top three for 14 with its context, against 8 for `lit query` (`bench.py`).
+- **The reader, judged in chunks** (`chunks.py`): an XML twin's paragraph arriving as one node
+  in the right lane. Paragraphs across columns, pages and headings (a column break measured on
+  the wrong column in `recover.py`, among others), where the abstract ends and how deep a
+  heading sits, soft hyphens, and a JATS file's own nesting: one chunk in the right lane on the
+  487 tuned pairs 92.1% → 93.9%, on the campaign's DEV split 85.5% → 89.2% (its abstract book
+  left out), on the reserved VAL 84.5% → 86.4%.
+- **The harness** — `npm run e2e:studio` drives the real window through every tab with Europe
+  PMC stood in on 127.0.0.1, two real PDFs through Docling and the real embedder; 10 of 10, and
+  the older suite 9 of 9. An independent review's ten defects are fixed and pinned
+  (`test_review_fixes.py`).
+
+The campaign's measurements and its EXAM score (ledger line 37) ship with this release; the
+notes below, written before it, are the reader work it also contains.
+
+### Before the studio
+
 Meaning everywhere a list used to be, and a scorer for the one question
 meaning cannot answer.
 

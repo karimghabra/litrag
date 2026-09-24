@@ -1,6 +1,6 @@
 {
   "name": "litrag-app",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "description": "litrag's desktop: watch papers being ingested and their trees being built.",
   "main": "dist/main.cjs",
