@@ -105,6 +105,13 @@ when it turns out durable. Mark inference as inference.
   - **Retrieval.** 14 proxy questions (written by the assistant from passages it sampled, so
     tilted towards the tree): the answer in the top 3 for 14 of 14 counting the hydrated context
     (10 at rank 1), 10 by the passage alone, against 8 for `lit query` over `lit.sqlite`.
+  - **Rounds two and three, and what transfers.** Lanes (abstract ends, depth, soft hyphens, a
+    JATS file's own nesting) then notes, list tails and float pages, with the XML side reading a
+    structured abstract in its parts and a bold-only `<p>` as a subheading. Tuned sets 93.3 →
+    94.5%, DEV without the abstract book 85.5 → 90.3%, VAL 85.1 → 87.2%. Measured by patch: the
+    round-three *reader* rules left VAL exactly where it was (2,761 chunks right either way) —
+    they are real on the corpora they were written from and do not reach new publishers; VAL's
+    gain that round is all the XML side's. A rule built on DEV is not proven until VAL moves.
   - **More XML exists for his PDFs, off-limits so far:** 31 of the 76 PDFs are author manuscripts
     in PMC ("in PMC, not OA"); their XML is at NCBI, a host the invariant does not list.
 
