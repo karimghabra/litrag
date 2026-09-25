@@ -112,3 +112,12 @@ def test_manifest_writes_from_three_threads_all_land(tmp_path):
         t.join()
     got = json.loads(lib.manifest_path.read_text("utf-8"))["queries"]
     assert len(got) == 45 and not list(lib.dir.glob("*.part"))
+
+
+def test_an_older_librarys_bare_string_searches_read_as_searches(tmp_path):
+    """Found by Karim asking for suggestions on a library from before the studio: its manifest
+    keeps each search as a bare string, and the suggest op read each as a dict."""
+    lib = create_library(tmp_path, "Old")
+    update_manifest(lib, lambda m: m.update(queries=["collagen AND tendon", {"query": "AUTH:\"Akkus O\"", "at": "t"}], description="Tendon repair."))
+    s = projects.summary(lib)
+    assert [q["query"] for q in s["queries"]] == ["collagen AND tendon", 'AUTH:"Akkus O"']

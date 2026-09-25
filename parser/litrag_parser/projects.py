@@ -81,7 +81,7 @@ def summary(lib: Library) -> dict[str, Any]:
         "projectId": m.get("projectId"),
         "dir": str(lib.dir),
         "mergedFrom": m.get("mergedFrom", []),
-        "queries": m.get("queries", []),
+        "queries": queries_of(m),  # a library from before the studio kept each search as its bare query string
         "counts": counts,
     }
 

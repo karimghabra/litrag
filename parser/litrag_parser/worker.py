@@ -778,7 +778,7 @@ class Worker:
 
                     lib = self._lib(req)
                     m = project_rows.summary(lib)
-                    out = suggest_queries(m.get("description") or "", [q.get("query", "") for q in m.get("queries") or []])
+                    out = suggest_queries(m.get("description") or "", [str(q.get("query") or "") for q in m.get("queries") or []])  # summary() hands every search back as a dict
                     emit({"event": "suggestions", "id": req_id, "lib": lib.id, **out})
                 elif op == "query":
                     from . import retrieve
