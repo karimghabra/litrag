@@ -127,7 +127,8 @@ test('titles are titles, methods are found, front matter is a few typed nodes', 
     expect((JSON.parse(p.authors ?? '[]') as { name: string; affiliations: string[] }[]).filter((a) => a.name && a.affiliations.length).length, 'authors with affiliations from the contributor group').toBeGreaterThanOrEqual(3);
     expect(`${p.journal} ${p.year}`).toBe('Micromachines 2024');
     await expect(cards.first().locator('.byline')).toContainText('Micromachines · 2024');
-    await expect(cards.first().locator('.key')).toContainText('research (by default)');
+    await expect(cards.first().locator('.kind-row .type-pill')).toHaveText('research'); // every card says what kind of paper it is
+    await expect(cards.first().locator('.kind-row .type-by')).toHaveText('by default');
   }
   for (const p of rows) {
     const tree = (await request(page, 'tree', { lib, key: p.key })) as { root: NodeRow };

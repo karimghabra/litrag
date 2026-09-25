@@ -7,6 +7,7 @@
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { runCollect, type CollectJob } from './collect.ts';
 import { ParserWorker } from './worker.ts';
 import type { Event } from './protocol.ts';
 
@@ -83,6 +84,8 @@ ipcMain.handle('file:read', async (_e, path: string) => {
   const buf = await readFile(path);
   return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
 });
+
+ipcMain.handle('collect:run', async (_e, job: CollectJob) => runCollect(job, (event) => forward(event)));
 
 ipcMain.handle('shell:open', async (_e, url: string) => {
   // only a web page, and only when a person clicked a link: nothing else leaves the machine this way

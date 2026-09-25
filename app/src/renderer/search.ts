@@ -51,6 +51,7 @@ export function initSearch(): void {
   });
   $('search-fetch').addEventListener('click', () => void fetchSelected());
   $('search-suggest').addEventListener('click', () => void suggest());
+  $('collect').addEventListener('click', () => void collect());
   onProjectChange(() => {
     state.hits = [];
     state.total = 0;
@@ -74,6 +75,10 @@ export function initSearch(): void {
   });
   onWorkerEvent((ev) => {
     const kind = ev['event'];
+    if (kind === 'collect') {
+      onCollect(ev);
+      return;
+    }
     if (kind === 'candidate') {
       if (ev['lib'] !== ctx.lib) return; // a candidate number is a row of one project's store, not of this one
       const id = Number(ev['cand_id']);
@@ -90,6 +95,14 @@ export function initSearch(): void {
     } else if ((kind === 'done' && (ev['op'] === 'fetch' || ev['op'] === 'ingest')) || kind === 'paper') {
       // a paper filed is a candidate in the library: the list says so as it happens, not when the batch ends
       if (ctx.view === 'search') soon();
+      // a fetch that left papers with no open copy goes straight on to the collect window for them
+      if (kind === 'done' && ev['op'] === 'fetch' && ev['lib'] === ctx.lib && !collecting) {
+        const wanting = ((ev['fetched'] as { status?: string }[] | undefined) ?? []).filter((f) => f.status === 'needs-pdf').length;
+        if (wanting) {
+          log('stage', `${wanting} paper${wanting === 1 ? '' : 's'} with no open copy: opening the collect window`);
+          void loadCandidates().then(() => collect());
+        }
+      }
     }
   });
 }
@@ -276,6 +289,10 @@ export async function loadCandidates(): Promise<void> {
 }
 
 function renderCandidates(): void {
+  const wanting = state.candidates.filter((c) => c.status === 'needs-pdf').length;
+  const button = $<HTMLButtonElement>('collect');
+  button.disabled = !wanting || collecting;
+  button.textContent = collecting ? 'Collecting…' : wanting ? `Collect PDFs (${wanting})` : 'Collect PDFs';
   const chips = $('cand-filter');
   chips.innerHTML = '';
   const counts = new Map<string, number>();
@@ -314,6 +331,75 @@ function renderCandidates(): void {
     }
     row.append(flags);
     box.append(row);
+  }
+}
+
+// ---- the collect window ----------------------------------------------------------------------
+
+let collecting = false;
+
+/** One browser window through every candidate that needs a PDF (app/src/main/collect.ts): the
+ *  person clicks each paper's PDF, the download is caught into the inbox under the paper's key,
+ *  and each caught file is read here as a dropped one is — with the candidate's identifiers, so it
+ *  files under the paper it was caught for. */
+async function collect(): Promise<void> {
+  const lib = ctx.lib;
+  if (!lib || collecting) return;
+  const project = ctx.projects.find((p) => p.id === lib) as ({ dir?: string } & (typeof ctx.projects)[number]) | undefined;
+  if (!project?.dir) {
+    log('error', 'collect: the project has no folder on disk');
+    return;
+  }
+  let wanted: Candidate[];
+  try {
+    wanted = (await request<{ candidates: Candidate[] }>('wanted', { lib })).candidates;
+  } catch (e) {
+    log('error', `collect: ${(e as Error).message}`);
+    return;
+  }
+  if (!wanted.length) return;
+  collecting = true;
+  renderCandidates();
+  const box = $('collect-status');
+  box.hidden = false;
+  box.textContent = `Opening the collect window for ${wanted.length} paper${wanted.length === 1 ? '' : 's'}…`;
+  const inboxDir = `${project.dir.replace(/[\\/]+$/, '')}/inbox`;
+  const papers = wanted.map((c) => ({ cand_id: c.cand_id, title: c.title ?? null, doi: c.doi ?? null, pmid: c.pmid ?? null, pmcid: c.pmcid ?? null }));
+  try {
+    const r = await window.litrag.collect({ lib, inboxDir, papers });
+    if (r['ok'] === false) log('error', `collect: ${String(r['message'])}`);
+  } catch (e) {
+    log('error', `collect: ${(e as Error).message}`);
+  } finally {
+    collecting = false;
+    renderCandidates();
+  }
+}
+
+function onCollect(ev: Record<string, unknown>): void {
+  const lib = String(ev['lib'] ?? '');
+  const stage = String(ev['stage'] ?? '');
+  const box = $('collect-status');
+  if (lib === ctx.lib) {
+    box.hidden = false;
+    box.innerHTML = '';
+    const total = Number(ev['total'] ?? 0);
+    const at = Math.min(Number(ev['index'] ?? 0) + 1, total);
+    const now = el('span', 'now', stage === 'finished' ? 'Collect window closed' : `Paper ${at} of ${total}`);
+    box.append(now, el('span', undefined, `${ev['caught'] ?? 0} caught · ${ev['skipped'] ?? 0} skipped${ev['unlinked'] ? ` · ${ev['unlinked']} with no page to open` : ''}`));
+    if (ev['title'] && stage !== 'finished') box.append(el('span', 'muted', String(ev['title'])));
+    if (stage === 'not-a-paper' || stage === 'download-failed') box.append(el('span', 'conf low', String(ev['reason'] ?? 'the download failed')));
+  }
+  if (stage === 'caught' && ev['path']) {
+    // read at once, as a dropped file is, under the identifiers of the candidate it was caught for
+    const path = String(ev['path']);
+    log('stage', `caught ${path.split(/[\\/]/).pop()}: reading it`);
+    void request('ingest', { lib, paths: [path], known: { [path]: ev['known'] ?? {} } }).catch((e: Error) => log('error', `ingest: ${e.message}`));
+  } else if (stage === 'not-a-paper' || stage === 'download-failed') {
+    log('failed', `collect: ${ev['title'] ?? ''} — ${ev['reason'] ?? stage}`);
+  } else if (stage === 'finished') {
+    log('stage', `collect: ${ev['caught']} caught, ${ev['skipped']} skipped of ${ev['papers'] ?? ev['total']}`);
+    if (lib === ctx.lib) void loadCandidates();
   }
 }
 

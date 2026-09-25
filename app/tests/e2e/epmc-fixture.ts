@@ -28,11 +28,13 @@ export interface FixturePaper {
   inEPMC: boolean;
   xml?: string; // a path: served as fullTextXML
   pdf?: string; // a path: served as the bulk area's zip (the raw PDF, which the fetch accepts)
+  download?: string; // a path: the PDF its publisher's page (/doi/<doi>) links to, for the collect window
 }
 
 export interface Fixture {
   url: string;
   pdfUrl: string;
+  doiUrl: string;
   requests: string[];
   close(): Promise<void>;
 }
@@ -81,6 +83,24 @@ export async function startFixture(papers: FixturePaper[]): Promise<Fixture> {
       else send(404, 'not found', 'text/plain');
       return;
     }
+    // a publisher's page for a paper, by DOI (LITRAG_DOI_RESOLVER points the collect window here),
+    // with a link to its PDF — which, served as an attachment, is what a person's click downloads
+    const landing = /^\/doi\/(.+)$/.exec(url.pathname);
+    if (landing) {
+      const doi = decodeURIComponent(landing[1]!);
+      const p = papers.find((x) => x.doi.toLowerCase() === doi.toLowerCase());
+      if (!p) return send(404, 'no such DOI', 'text/plain');
+      const pdfLink = p.download ? `<a id="pdf" href="/files/${encodeURIComponent(p.doi)}.pdf">Download PDF</a>` : '<p>Sign in to read this article.</p>';
+      return send(200, `<!doctype html><html><head><title>${p.title}</title></head><body><h1>${p.title}</h1>${pdfLink}</body></html>`, 'text/html');
+    }
+    const file = /^\/files\/(.+)\.pdf$/.exec(url.pathname);
+    if (file) {
+      const p = papers.find((x) => x.doi.toLowerCase() === decodeURIComponent(file[1]!).toLowerCase() && x.download);
+      if (!p) return send(404, 'not found', 'text/plain');
+      res.writeHead(200, { 'Content-Type': 'application/pdf', 'Content-Disposition': 'attachment; filename="article.pdf"' });
+      res.end(readFileSync(p.download!));
+      return;
+    }
     send(404, 'not found', 'text/plain');
   });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -88,6 +108,7 @@ export async function startFixture(papers: FixturePaper[]): Promise<Fixture> {
   return {
     url: `http://127.0.0.1:${port}/rest`,
     pdfUrl: `http://127.0.0.1:${port}/pdf`,
+    doiUrl: `http://127.0.0.1:${port}/doi/`,
     requests,
     close: () => new Promise<void>((resolve) => server.close(() => resolve())),
   };

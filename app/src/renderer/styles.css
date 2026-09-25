@@ -101,6 +101,10 @@ h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: v
 .pill.st-failed { color: #fff; background: var(--failed); border-color: var(--failed); }
 .pill.st-fetching, .pill.st-staged { color: #fff; background: var(--accent); border-color: var(--accent); }
 
+.collect-status { padding: 8px 12px; border-bottom: 1px solid var(--line); background: var(--soft); font-size: 12px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.collect-status[hidden] { display: none; }
+.collect-status .now { font-weight: 600; }
+
 /* papers: the three panes */
 #panes { flex: 1; display: grid; grid-template-columns: 320px 1fr 460px; gap: 1px; background: var(--line); min-height: 0; }
 .pane { background: var(--panel); display: flex; flex-direction: column; min-height: 0; min-width: 0; }
@@ -119,6 +123,21 @@ h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: v
 .paper.selected { background: var(--soft); box-shadow: inset 3px 0 0 var(--accent); }
 .paper .title { font-weight: 600; line-height: 1.3; }
 .paper .key { color: var(--muted); font-size: 11px; margin-top: 2px; word-break: break-all; }
+.paper .kind-row { display: flex; align-items: center; gap: 6px; margin-top: 5px; flex-wrap: wrap; }
+.type-pill { font-size: 11px; font-weight: 600; padding: 1px 8px; border-radius: 10px; color: #fff; background: var(--other); text-transform: lowercase; }
+.type-pill.t-research { background: var(--methods); }
+.type-pill.t-review { background: var(--abstract); }
+.type-pill.t-letter { background: var(--results); }
+.type-pill.t-editorial { background: var(--discussion); }
+.type-pill.t-case-report { background: var(--results-discussion); }
+.type-pill.t-protocol { background: var(--accent); }
+.type-pill.t-data { background: var(--introduction); }
+.type-pill.t-correction { background: var(--back); color: var(--ink); }
+.type-pill.t-untyped { background: transparent; color: var(--muted); border: 1px dashed var(--line); font-weight: 500; }
+.type-by { font-size: 11px; color: var(--muted); }
+.fmt { font-size: 10px; letter-spacing: .05em; padding: 0 5px; border-radius: 3px; border: 1px solid var(--line); color: var(--muted); }
+.fmt.fmt-jats { color: var(--ok); border-color: var(--ok); }
+.fmt.fmt-pdf { color: var(--accent); border-color: var(--accent); }
 .paper .byline { color: var(--muted); font-size: 11px; margin-top: 2px; }
 .paper .stage { margin-top: 6px; display: flex; align-items: center; gap: 8px; font-size: 12px; flex-wrap: wrap; }
 .badge { display: inline-block; font-size: 10px; text-transform: uppercase; letter-spacing: .05em; padding: 1px 6px; border-radius: 10px; border: 1px solid var(--line); color: var(--muted); }

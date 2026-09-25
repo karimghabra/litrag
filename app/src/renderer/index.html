@@ -84,9 +84,12 @@
             <div class="col-head">
               <h2>This project's candidates</h2>
               <div id="cand-filter" class="chips"></div>
+              <div class="spacer"></div>
+              <button id="collect" class="primary small" disabled title="Open a browser window through every paper that needs a PDF: sign in once, click each PDF, and each is caught and read">Collect PDFs</button>
             </div>
+            <div id="collect-status" class="collect-status" hidden></div>
             <div id="candidates" class="scroll list"></div>
-            <div class="col-foot hint" id="wanted-hint">Papers marked <b>needs PDF</b> have no open full text: open their page, download the PDF, and drop it anywhere on this window.</div>
+            <div class="col-foot hint" id="wanted-hint">Papers marked <b>needs PDF</b> have no open full text. <b>Collect PDFs</b> walks them one by one in a browser window that keeps your institutional sign-in: click each paper's PDF and it is caught, filed under that paper and read, and the window moves on (Ctrl+→ skips, Ctrl+W finishes). Or download one yourself and drop it anywhere on this window.</div>
           </div>
         </div>
       </section>

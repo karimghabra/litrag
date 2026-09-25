@@ -282,7 +282,16 @@ function renderPapers() {
     const card = el('div', `paper${p.key === state.selectedPaper ? ' selected' : ''}`);
     card.dataset['key'] = p.key;
     card.append(el('div', 'title', p.title || p.file || p.key));
-    card.append(el('div', 'key', [p.key, p.pages ? `${p.pages} pp` : '', p.format ?? '', p.type && p.type !== 'other' ? `${p.type}${p.subtype ? '/' + p.subtype : ''} (by ${p.type_source ?? '?'})` : ''].filter(Boolean).join(' · ')));
+    // what kind of paper it is, always said: a paper not read yet, or one no source typed, says so
+    const kind = el('div', 'kind-row');
+    const typed = p.type ?? null;
+    const pill = el('span', `type-pill t-${typed ?? 'untyped'}`, typed ? `${typed}${p.subtype ? ` · ${p.subtype}` : ''}` : p.status === 'parsed' ? 'untyped' : 'type when read');
+    pill.title = typed ? `${typed}${p.subtype ? ` (${p.subtype})` : ''}, by ${p.type_source ?? '?'}` : 'no source has typed this paper yet';
+    kind.append(pill);
+    if (typed && p.type_source) kind.append(el('span', 'type-by', `by ${p.type_source}`));
+    if (p.format) kind.append(el('span', `fmt fmt-${p.format}`, p.format === 'jats' ? 'XML' : p.format.toUpperCase()));
+    card.append(kind);
+    card.append(el('div', 'key', [p.key, p.pages ? `${p.pages} pp` : ''].filter(Boolean).join(' · ')));
     const by = byline(p, 3);
     if (by) card.append(el('div', 'byline', by));
     const stage = el('div', 'stage');

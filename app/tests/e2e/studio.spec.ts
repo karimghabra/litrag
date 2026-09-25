@@ -7,7 +7,8 @@
  *   1. a project is made from the Projects tab, with a description;
  *   2. a literature search from the Search tab finds three papers: XML, PDF only, nothing open;
  *   3. "Fetch & read" takes the XML, then the open PDF, and marks the third as needing a PDF;
- *   4. the third is downloaded by hand and dropped in: its candidate turns to "in library";
+ *   4. Collect PDFs opens a window on the third paper's page; a click on its PDF link is caught,
+ *      filed under that paper and read, and its candidate turns to "in library";
  *   5. the Papers tab: every paper read, a tree, the page with its boxes, the canonical face;
  *   6. the Types tab: the kinds of paper, a canonical structure, a paper's mapping onto it;
  *   7. the Query tab: passages embedded, a question answered with passages hydrated from the
@@ -43,6 +44,7 @@ let app: ElectronApplication;
 let page: Page;
 let root: string;
 let fixture: Fixture;
+let collectOpened: Promise<Page> | null = null;
 const LIB = 'e2e-studio';
 
 test.describe.configure({ mode: 'serial' });
@@ -52,12 +54,12 @@ test.beforeAll(async () => {
   fixture = await startFixture([
     { pmcid: 'PMC11278924', pmid: '39064362', doi: '10.3390/mi15070851', title: 'Computational and Experimental Characterization of Aligned Collagen across Varied Crosslinking Degrees', authors: 'Nijhawan A, Akkus O, et al.', journal: 'Micromachines', year: '2024', abstract: 'Collagen threads aligned electrochemically and crosslinked with genipin at varied degrees, characterised mechanically and computationally.', open: true, inEPMC: true, xml: XML },
     { pmcid: 'PMC9000001', doi: '10.1016/j.actbio.2017.05.058', title: 'Effects of substrate stiffness on the tenoinduction of human mesenchymal stem cells', authors: 'Islam A, Younesi M, Mbimba T, Akkus O', journal: 'Acta Biomaterialia', year: '2017', abstract: 'Substrate stiffness and the tenogenic differentiation of stem cells on collagen threads.', open: true, inEPMC: false, pdf: PDF_OPEN },
-    { pmid: '18499248', doi: '10.1016/j.biomaterials.2008.04.028', title: 'An electrochemical fabrication process for the assembly of anisotropically oriented collagen bundles', authors: 'Cheng X, Gurkan UA, Dehen CJ, Tate MP, Hillhouse HW, Simpson GJ, Akkus O', journal: 'Biomaterials', year: '2008', abstract: 'Electrochemical alignment of collagen into dense, oriented bundles.', open: false, inEPMC: false },
+    { pmid: '18499248', doi: '10.1016/j.biomaterials.2008.04.028', title: 'An electrochemical fabrication process for the assembly of anisotropically oriented collagen bundles', authors: 'Cheng X, Gurkan UA, Dehen CJ, Tate MP, Hillhouse HW, Simpson GJ, Akkus O', journal: 'Biomaterials', year: '2008', abstract: 'Electrochemical alignment of collagen into dense, oriented bundles.', open: false, inEPMC: false, download: PDF_CLOSED },
   ]);
   root = mkdtempSync(join(tmpdir(), 'litrag-studio-'));
   app = await electron.launch({
     args: [APP_DIR, '--no-sandbox'],
-    env: { ...process.env, LITRAG_ROOT: root, LITRAG_EPMC_URL: fixture.url, LITRAG_EPMC_PDF_URL: fixture.pdfUrl },
+    env: { ...process.env, LITRAG_ROOT: root, LITRAG_EPMC_URL: fixture.url, LITRAG_EPMC_PDF_URL: fixture.pdfUrl, LITRAG_DOI_RESOLVER: fixture.doiUrl },
   });
   page = await app.firstWindow();
   await page.waitForLoadState('domcontentloaded');
@@ -123,6 +125,7 @@ test('3. Fetch & read: the XML, then the open PDF; the closed paper is marked as
   test.setTimeout(20 * 60 * 1000);
   await page.check('#search-all');
   await expect(page.locator('#search-fetch')).toHaveText('Fetch & read 3');
+  collectOpened = app.waitForEvent('window', { timeout: 15 * 60 * 1000 }); // a fetch that leaves a paper with no open copy opens the collect window on it
   await page.click('#search-fetch');
   await expect(page.locator('#activity')).toBeVisible({ timeout: 10_000 });
   await expect.poll(async () => (await candidates()).map((c) => c.status).sort().join(','), { timeout: 15 * 60 * 1000, intervals: [2000] }).toBe('ingested,ingested,needs-pdf');
@@ -139,17 +142,31 @@ test('3. Fetch & read: the XML, then the open PDF; the closed paper is marked as
   await expect(page.locator('#candidates .hit', { has: page.locator('.pill.st-needs-pdf') }).locator('a', { hasText: 'publisher' })).toHaveCount(1);
 });
 
-test('4. the closed paper, downloaded by hand and dropped in, is filed against its candidate', async () => {
+test('4. Collect PDFs: the window walks the closed paper, a click on its PDF is caught, filed under it and read', async () => {
   test.setTimeout(10 * 60 * 1000);
-  await request(page, 'ingest', { lib: LIB, paths: [PDF_CLOSED] });
+  // opened by the fetch itself, on the one paper that wants a PDF; the button says a walk is on
+  const collect = await collectOpened!;
+  await expect(page.locator('#collect')).toHaveText('Collecting…', { timeout: 20_000 });
+  await collect.waitForLoadState('domcontentloaded');
+  await expect(collect.locator('h1')).toContainText('anisotropically oriented collagen bundles'); // the paper's own page, by its DOI
+  await expect(page.locator('#collect-status')).toContainText('Paper 1 of 1');
+  await collect.click('#pdf'); // what a person does: click the publisher's PDF link
   await expect.poll(async () => (await candidates()).filter((c) => c.status === 'ingested').length, { timeout: 8 * 60 * 1000, intervals: [2000] }).toBe(3);
   await expect.poll(async () => (await papersOf()).filter((p) => p.status === 'parsed').length, { timeout: 8 * 60 * 1000, intervals: [2000] }).toBe(3);
+  const caught = (await papersOf()).find((p) => /biomaterials\.2008\.04\.028/i.test(p.key));
+  expect(caught, 'filed under the DOI of the candidate it was caught for').toBeTruthy();
+  await expect(page.locator('#collect-status')).toContainText('1 caught', { timeout: 30_000 });
+  await expect(page.locator('#collect')).toHaveText('Collect PDFs', { timeout: 30_000 }); // nothing left waiting
+  // the same PDF dropped in by hand afterwards is the same paper: filed once
+  await request(page, 'ingest', { lib: LIB, paths: [PDF_CLOSED] });
+  await expect.poll(async () => (await papersOf()).length, { timeout: 60_000 }).toBe(3);
 });
 
 test('5. Papers: every paper read into a tree, the page drawn, the canonical face', async () => {
   await tab('papers');
   await expect(page.locator('#papers .paper')).toHaveCount(3, { timeout: 30_000 });
   await expect(page.locator('#papers .paper .badge.parsed')).toHaveCount(3);
+  await expect(page.locator('#papers .paper .kind-row .type-pill')).toHaveText(['research', 'research', 'research']); // every card says what kind of paper it is
   const rows = await papersOf();
   expect(rows.map((p) => `${p.key}: ${p.status} ${p.error ?? ''}`).filter((s) => !s.includes('parsed'))).toEqual([]);
   expect(rows.every((p) => p.nodes > 20), 'every paper has a tree of some size').toBe(true);
