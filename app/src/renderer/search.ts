@@ -35,6 +35,8 @@ const state = {
   next: null as string | null,
   candidates: [] as Candidate[],
   filter: null as string | null,
+  /** the candidates panel: this search's hits only (once a search has run), or every search's */
+  scope: 'search' as 'search' | 'all',
   selected: new Set<number>(),
 };
 
@@ -161,7 +163,11 @@ async function runSearch(query: string, more: boolean): Promise<void> {
     state.hits = more ? [...state.hits, ...r.hits] : r.hits;
     state.total = r.total;
     state.next = r.next_cursor && r.hits.length ? r.next_cursor : null;
-    if (!more) state.selected = new Set();
+    if (!more) {
+      state.selected = new Set();
+      state.scope = 'search';
+      state.filter = null;
+    }
     log('stage', `Europe PMC: ${r.total.toLocaleString()} for ${query} · ${r.added} new candidates`);
     renderHits();
     void loadCandidates();
@@ -187,8 +193,40 @@ function statusPill(c: Candidate): HTMLElement {
   return p;
 }
 
-function meta(c: Candidate): string {
-  return [c.authors ? String(c.authors).split(',').slice(0, 3).join(',') + (String(c.authors).split(',').length > 3 ? ' et al.' : '') : '', c.journal ?? '', c.year ?? '', c.doi ? `doi:${c.doi}` : c.pmcid ?? (c.pmid ? `pmid:${c.pmid}` : '')].filter(Boolean).join(' · ');
+/** The surnames a query asks for by author — AUTH:"Cauwenberghs G", AUTH:Cauwenberghs — lowercased. */
+function queryAuthors(query: string): string[] {
+  const out: string[] = [];
+  for (const m of query.matchAll(/AUTH(?:OR)?\s*:\s*(?:"([^"]+)"|\(([^)]+)\)|(\S+))/gi)) {
+    const name = (m[1] ?? m[2] ?? m[3] ?? '').trim();
+    const surname = name.split(/\s+/)[0];
+    if (surname) out.push(surname.toLowerCase());
+  }
+  return out;
+}
+
+/** A paper's byline: its first author, every author the search named, and its last author (the PI,
+ *  in these fields), the gaps marked — so an author a search asked for is never hidden behind
+ *  "et al.". The full list is the element's title. */
+function byline(c: Candidate, query: string): HTMLElement {
+  const box = el('div', 'm');
+  const authors = String(c.authors ?? '').split(',').map((a) => a.trim()).filter(Boolean);
+  const wanted = queryAuthors(query);
+  // a bare word of the query that is an author's surname counts too: "gert cauwenberghs" names him
+  const words = new Set((query.toLowerCase().match(/[\p{L}'-]{3,}/gu) ?? []));
+  const named = (a: string) => wanted.some((w) => a.toLowerCase().startsWith(w)) || words.has(a.split(/\s+/)[0]!.toLowerCase());
+  const keep = new Set<number>([0, 1, 2, authors.length - 1]);
+  authors.forEach((a, i) => named(a) && keep.add(i));
+  let last = -1;
+  authors.forEach((a, i) => {
+    if (!keep.has(i)) return;
+    if (last >= 0) box.append(document.createTextNode(i === last + 1 ? ', ' : ', … '));
+    box.append(named(a) ? el('b', 'named', a) : document.createTextNode(a));
+    last = i;
+  });
+  const rest = [c.journal ?? '', c.year ?? '', c.doi ? `doi:${c.doi}` : c.pmcid ?? (c.pmid ? `pmid:${c.pmid}` : '')].filter(Boolean).join(' · ');
+  if (rest) box.append(document.createTextNode(`${authors.length ? ' · ' : ''}${rest}`));
+  if (authors.length) box.title = `${authors.length} authors: ${authors.join(', ')}`;
+  return box;
 }
 
 function linkRow(c: Candidate): HTMLElement | null {
@@ -216,7 +254,7 @@ function renderHits(): void {
   $('search-total').textContent = state.total ? `${state.hits.length} of ${state.total.toLocaleString()}` : '';
   $('search-more').hidden = !state.next;
   if (!state.hits.length) {
-    box.append(el('div', 'empty', ctx.lib ? 'Search Europe PMC: its query syntax works (AND, OR, quotes, TITLE:, ABSTRACT:). Every hit is kept as a candidate of this project.' : 'Choose a project first.'));
+    box.append(el('div', 'empty', ctx.lib ? 'Search Europe PMC with its own syntax: AND, OR, NOT, "quoted phrases", and fields — AUTH:"Surname I" for an author (a bare name matches anywhere in the text), TITLE:, ABSTRACT:, JOURNAL:, PUB_YEAR:[2020 TO 2026]. Every hit is kept as a candidate of this project.' : 'Choose a project first.'));
   }
   for (const c of state.hits) {
     const row = el('div', 'hit');
@@ -231,7 +269,7 @@ function renderHits(): void {
       updateFetchButton();
     });
     row.append(cb, el('div', 't', c.title ?? '(untitled)'));
-    row.append(el('div', 'm', meta(c)));
+    row.append(byline(c, state.query));
     if (c.abstract) {
       const ab = el('div', 'ab', c.abstract);
       ab.title = c.abstract;
@@ -295,8 +333,26 @@ function renderCandidates(): void {
   button.textContent = collecting ? 'Collecting…' : wanting ? `Collect PDFs (${wanting})` : 'Collect PDFs';
   const chips = $('cand-filter');
   chips.innerHTML = '';
+  // a project's candidates are every hit of every search it has run; after a search the panel
+  // shows that search's, so an earlier, broader query's papers do not read as this one's
+  const ids = new Set(state.hits.map((h) => h.cand_id));
+  const scoped = state.scope === 'search' && ids.size > 0;
+  const pool = scoped ? state.candidates.filter((c) => ids.has(c.cand_id)) : state.candidates;
+  if (ids.size) {
+    for (const [scope, label, n] of [['search', 'this search', state.candidates.filter((c) => ids.has(c.cand_id)).length], ['all', 'every search', state.candidates.length]] as const) {
+      const chip = el('span', `chip scope${state.scope === scope ? ' on' : ''}`, `${label} ${n}`);
+      chip.dataset['scope'] = scope;
+      chip.title = scope === 'search' ? 'Only the papers the search on the left found' : 'Every paper any search of this project has found';
+      chip.addEventListener('click', () => {
+        state.scope = scope;
+        renderCandidates();
+      });
+      chips.append(chip);
+    }
+    chips.append(el('span', 'sep'));
+  }
   const counts = new Map<string, number>();
-  for (const c of state.candidates) counts.set(c.status, (counts.get(c.status) ?? 0) + 1);
+  for (const c of pool) counts.set(c.status, (counts.get(c.status) ?? 0) + 1);
   for (const [status, n] of [...counts.entries()].sort((a, b) => b[1] - a[1])) {
     const chip = el('span', `chip accent${state.filter === status ? ' on' : ''}`, `${status} ${n}`);
     chip.dataset['status'] = status;
@@ -308,13 +364,13 @@ function renderCandidates(): void {
   }
   const box = $('candidates');
   box.innerHTML = '';
-  const shown = state.candidates.filter((c) => !state.filter || c.status === state.filter);
-  if (!shown.length) box.append(el('div', 'empty', 'No candidates yet: every hit of a search lands here.'));
+  const shown = pool.filter((c) => !state.filter || c.status === state.filter);
+  if (!shown.length) box.append(el('div', 'empty', scoped ? 'None of this search’s papers match that filter.' : 'No candidates yet: every hit of a search lands here.'));
   for (const c of shown) {
     const row = el('div', 'hit');
     row.dataset['cand'] = String(c.cand_id);
     row.append(el('span'), el('div', 't', c.title ?? '(untitled)'));
-    row.append(el('div', 'm', meta(c)));
+    row.append(byline(c, state.query));
     const flags = el('div', 'flags');
     flags.append(statusPill(c), ...availability(c));
     if (c.status === 'needs-pdf' || c.status === 'failed') {

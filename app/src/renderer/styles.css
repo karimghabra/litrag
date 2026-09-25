@@ -89,6 +89,7 @@ h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: v
 .list .hit { display: grid; grid-template-columns: 22px 1fr; gap: 4px 8px; padding: 9px 12px; border-bottom: 1px solid var(--line); }
 .hit .t { font-weight: 600; line-height: 1.3; }
 .hit .m { color: var(--muted); font-size: 11px; grid-column: 2; }
+.hit .m b.named { color: var(--ink); background: #fbe7a5; padding: 0 2px; border-radius: 2px; }
 .hit .ab { color: var(--muted); font-size: 12px; grid-column: 2; line-height: 1.4; max-height: 4.2em; overflow: hidden; }
 .hit .flags { grid-column: 2; display: flex; gap: 4px; flex-wrap: wrap; align-items: center; }
 .hit a { color: var(--accent); font-size: 12px; }
@@ -101,6 +102,8 @@ h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: v
 .pill.st-failed { color: #fff; background: var(--failed); border-color: var(--failed); }
 .pill.st-fetching, .pill.st-staged { color: #fff; background: var(--accent); border-color: var(--accent); }
 
+.chip.scope.on { background: var(--ink); color: #fff; border-color: var(--ink); }
+.chips .sep { width: 1px; background: var(--line); margin: 0 4px; }
 .collect-status { padding: 8px 12px; border-bottom: 1px solid var(--line); background: var(--soft); font-size: 12px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 .collect-status[hidden] { display: none; }
 .collect-status .now { font-weight: 600; }
