@@ -1,24 +1,30 @@
 /**
  * The parsing worker as a child process.
  *
- * Spawned once, kept for the life of the window: `uv run litrag-parser` in the
- * repository's `parser/` folder by default, or whatever `LITRAG_PARSER` names.
- * Requests get an id; the promise resolves on the event that closes it, and
- * every event — closing or not — is handed to `onEvent` so the renderer can
- * show stages as they happen.
+ * Spawned once, kept for the life of the window. Which program it is — the installed
+ * environment's `litrag-parser`, `uv run` in a checkout's `parser/`, or whatever `LITRAG_PARSER`
+ * names — is `resolveCommand`'s answer (launch.ts). When there is nothing to run, nothing is
+ * spawned: the reason is `problem`, it goes out as a `worker-error`, and every request rejects
+ * with it. Requests get an id; the promise resolves on the event that closes it, and every event
+ * — closing or not — is handed to `onEvent` so the renderer can show stages as they happen.
  */
 
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { homedir } from 'node:os';
+import { displayCommand, resolveCommand, type Command, type Launch } from './launch.ts';
 import { closesRequest, LineSplitter, nextId, parseEvent, type Event, type Request } from './protocol.ts';
 
 export interface WorkerOptions {
   /** Where the libraries live; passed through as --root. */
-  root?: string;
-  /** Override the command: e.g. "uv run --project /x/parser litrag-parser". */
-  command?: string;
+  root?: string | undefined;
+  /** Override the command, in any form `LITRAG_PARSER` takes (launch.ts); wins over the variable. */
+  command?: string | undefined;
   appDir: string;
+  /** Electron's `app.isPackaged`: an installed app runs its environment's console script, never uv. */
+  isPackaged?: boolean | undefined;
+  /** The environment the command is resolved in and the worker runs in; `process.env` by default. */
+  env?: NodeJS.ProcessEnv | undefined;
   onEvent: (event: Event) => void;
   onExit: (code: number | null, stderrTail: string) => void;
 }
@@ -29,36 +35,43 @@ interface Pending {
   reject: (err: Error) => void;
 }
 
-export function defaultCommand(appDir: string, env: NodeJS.ProcessEnv = process.env): { cmd: string; args: string[] } {
-  if (env['LITRAG_PARSER']) {
-    const parts = env['LITRAG_PARSER'].split(/\s+/).filter(Boolean);
-    return { cmd: parts[0] ?? 'uv', args: parts.slice(1) };
-  }
-  const parserDir = resolve(appDir, '..', 'parser');
-  if (existsSync(join(parserDir, 'pyproject.toml'))) {
-    return { cmd: 'uv', args: ['run', '--project', parserDir, 'litrag-parser'] };
-  }
-  return { cmd: 'litrag-parser', args: [] };
+/** The worker's command on this machine: `resolveCommand` over the real file system. */
+export function defaultCommand(appDir: string, env: NodeJS.ProcessEnv = process.env, more: { isPackaged?: boolean | undefined; command?: string | undefined } = {}): Launch {
+  return resolveCommand({ existsSync, env, platform: process.platform, homedir: homedir(), appDir, isPackaged: more.isPackaged ?? false, command: more.command });
 }
 
 export class ParserWorker {
   private child: ChildProcessWithoutNullStreams | null = null;
   private pending = new Map<string, Pending>();
   private stderrTail: string[] = [];
-  readonly command: { cmd: string; args: string[] };
+  private readonly env: NodeJS.ProcessEnv;
+  /** What runs as the worker; null when there is nothing to run, and `problem` says why. */
+  readonly command: Command | null;
+  /** Why the worker is not running, in words for the window: nothing to run, it would not start, or it exited. */
+  problem: string | null = null;
 
   constructor(private readonly options: WorkerOptions) {
-    this.command = defaultCommand(options.appDir);
-    if (options.command) {
-      const parts = options.command.split(/\s+/).filter(Boolean);
-      this.command = { cmd: parts[0] ?? 'uv', args: parts.slice(1) };
+    this.env = options.env ?? process.env;
+    const launch = defaultCommand(options.appDir, this.env, options);
+    if ('error' in launch) {
+      this.command = null;
+      this.problem = launch.error;
+    } else {
+      this.command = launch;
     }
   }
 
   start(): void {
-    const args = [...this.command.args];
+    const command = this.command;
+    if (!command) {
+      this.options.onEvent({ event: 'worker-error', message: this.problem });
+      return;
+    }
+    this.problem = null;
+    const args = [...command.args];
     if (this.options.root) args.push(`--root=${this.options.root}`);
-    const child = spawn(this.command.cmd, args, { stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, PYTHONUNBUFFERED: '1', PYTHONUTF8: '1' } });
+    // windowsHide: an installed app has no console, and Windows would open one for the worker
+    const child = spawn(command.cmd, args, { stdio: ['pipe', 'pipe', 'pipe'], env: { ...this.env, PYTHONUNBUFFERED: '1', PYTHONUTF8: '1' }, windowsHide: true });
     this.child = child;
     const lines = new LineSplitter();
     child.stdout.setEncoding('utf8');
@@ -75,15 +88,30 @@ export class ParserWorker {
         this.options.onEvent({ event: 'stderr', message: t });
       }
     });
+    // a write to a worker that has just died: its exit says what happened, not this
+    child.stdin.on('error', () => undefined);
     child.on('error', (err) => {
-      this.options.onEvent({ event: 'worker-error', message: `${this.command.cmd}: ${err.message}` });
+      const message = `The worker would not start (${displayCommand(command)}): ${err.message}`;
+      if (child.pid === undefined) {
+        // never ran, so no exit follows: whatever waits on it is answered here
+        this.problem = message;
+        this.child = null;
+        this.rejectAll(message);
+      }
+      this.options.onEvent({ event: 'worker-error', message });
     });
     child.on('exit', (code) => {
-      for (const p of this.pending.values()) p.reject(new Error(`worker exited (${code})`));
-      this.pending.clear();
+      const tail = this.stderrTail.slice(-20).join('\n');
+      this.problem = `The worker exited (${code})${tail ? `; its last lines:\n${tail}` : ''}`;
+      this.rejectAll(`worker exited (${code})`);
       this.child = null;
-      this.options.onExit(code, this.stderrTail.slice(-20).join('\n'));
+      this.options.onExit(code, tail);
     });
+  }
+
+  private rejectAll(message: string): void {
+    for (const p of this.pending.values()) p.reject(new Error(message));
+    this.pending.clear();
   }
 
   private handle(line: string): void {
@@ -105,7 +133,7 @@ export class ParserWorker {
 
   request(op: string, params: Record<string, unknown> = {}): Promise<Event> {
     const child = this.child;
-    if (!child) return Promise.reject(new Error('worker is not running'));
+    if (!child) return Promise.reject(new Error(this.problem ?? 'worker is not running'));
     const id = nextId();
     const req: Request = { id, op, ...params };
     return new Promise((resolve, reject) => {
