@@ -64,6 +64,13 @@ when it turns out durable. Mark inference as inference.
 
 ### Standing decisions
 
+- **2026-09-30** — NCBI is allowed (Karim: "yes, access ncbi"): E-utilities'
+  `efetch` by PMCID, for the author manuscripts Europe PMC will not serve.
+  An identifier out, the article in; no paper text leaves. `CLAUDE.md`
+  invariant 1 names it. Publishers' own text-mining APIs (Elsevier, Wiley,
+  SAGE) were checked and listed in `BACKLOG.md`, and are *not* allowed by
+  this: they sit behind the institution's licence and are his call.
+
 - **2026-09-11** — Karim is "not at all attached to the current
   implementation". More than one language is fine. What he wants first is
   an app with a GUI to *see* papers being ingested and trees being built:
@@ -142,6 +149,34 @@ when it turns out durable. Mark inference as inference.
   (its prose is front-matter `meta`, and only paragraphs, list items, captions and footnotes are
   read for markers); and the editorial rule's 3,000-word ceiling counts paragraphs only, so it
   does not see such a paper's length at all.
+
+- **2026-09-30: 0.3.x on `main`, NCBI, and a first run in a cloud box** — PR #23 merged
+  (`a362248`): `main` had sat at 0.2.0 while v0.3.0 and v0.3.1 were released from
+  `claude/studio`. Drafts #21 and #22 closed as landed. What was found and done:
+  - **NCBI, measured live.** For an NIH author manuscript (PMC5653421) Europe PMC's
+    `fullTextXML` answers 500; NCBI's OAI service and `efetch` both give the whole JATS (46
+    paragraphs, 15 sections). OAI wraps it in the JATS 1.4 namespace, `efetch` in a bare
+    `<pmc-articleset>` shaped like Europe PMC's, so `efetch` it is. A publisher's closed
+    deposit (PMC9469745) came back 400 in the morning and 200 with front matter only an hour
+    later: an article must carry a `<body>` to count. On `"electrochemically aligned
+    collagen" AND genipin` 14 of 22 hits are author manuscripts; 19 of 22 now have XML.
+  - **The real window, end to end** (Xvfb, live Europe PMC and NCBI, Docling on the CPU,
+    Ollama's `nomic-embed-text`): a project made, that search run, four fetched — one from
+    Europe PMC, two from NCBI, one `needs-pdf` — and an open PDF (doi:10.1002/jbm.b.35116)
+    added; all four read, typed research, methods found, confidence 1.00; 174 passages
+    embedded; "How was the degree of genipin crosslinking measured?" answered with the TNBS
+    passage and the methods it was measured by. 3.5 minutes, no errors in the log. Collect
+    PDFs opened on the closed paper and could not reach the publisher from the box.
+  - **Stranded work (inference checked by `git cherry`).** `collect-mode` holds 20 CLI
+    commits that never reached `main`, including the fixes for #12 and #13 and the work nine
+    closed issues were closed on (#3, #5, #9–#11, #15–#18); `claude/ingestion-generalization`
+    holds citation styles and paper-type shape rules `main` never got (its `citations.py`
+    and `paper_type.py` are the fork point's). Both kept; `BACKLOG.md` lists them for Karim.
+    The six branches `main` now contains were not deleted: the session could not delete
+    remote branches. Later the same day #24 brought `collect-mode`'s fixes for #12 and #13
+    and the µm/°C repair to `main`, and #25 the citation and type rules (the entry above);
+    the NCBI route reached `main` after both. What is left on the two branches is in
+    `BACKLOG.md`.
 
 - **2026-09-23: the studio, and the reader judged in the unit retrieval returns** — Karim asked
   for an independent app (projects, searches, trees, types with their canonical structures, a

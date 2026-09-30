@@ -6,10 +6,10 @@ wants as they are voiced.
 ## Named priorities
 
 - **Measure the port from `claude/ingestion-generalization`** (2026-09-30) — citations
-  (e55e3d9), the type (b97151c, 80ec4d0) and `_tight` (a6c7353) are on
-  `claude/relaxed-pascal-mtp4qm` with tests but no corpus numbers: the corpora were not where
-  the port was done. NOTES.md (2026-09-30) says what each commit can move and which command
-  reads it; the before is a362248. Merge on the numbers, not on the branch's.
+  (e55e3d9), the type (b97151c, 80ec4d0) and `_tight` (a6c7353) are on `main` since PR #25,
+  with tests but no corpus numbers: the corpora were not where the port was done, and it was
+  merged before they were taken. NOTES.md (2026-09-30) says what each commit can move and which
+  command reads it; the before is a362248. Release on the numbers, not on the branch's.
 - **R3: the type of a paper, a vector per node, edges from a finding to its
   method** (Karim, 2026-09-13) — the plan is DESIGN.md § R3, in the order
   each step earns the next: type from the file, the record, the page, then
@@ -52,7 +52,9 @@ wants as they are voiced.
   Reprofiling must be an explicit user action, with the affected papers shown
   before it starts. Preserve profile data and completion markers across
   migrations; keep profiling status distinct from extraction and embedding.
-- **Collect mode** (Karim, 2026-09-03) — the one step of the loop that
+- ~~**Collect mode**~~ (Karim, 2026-09-03) — *built: the studio's Collect
+  PDFs window (`app/src/main/collect.ts`, e2e test 4), walking `wanted`
+  most-cited first; #1 closed 2026-09-30.* The one step of the loop that
   needs a screen: an in-app browser (in Protracker's Research tab, or a
   small window of litrag's own) that walks the `lit wanted` list, opens
   each DOI through the institution's proxy, lets the user sign in once and
@@ -298,17 +300,45 @@ Each one wants a fixture or a test before its fix, as the spot-check does.
   Gate on `pairs` (depth agrees, faithful on the reviews) and the harness.
   The confidence score flags these readings today ("the introduction
   holds" as its reason).
-- **Author-manuscript XML for the pilot's own PDFs** (2026-09-17, Karim to
-  decide) — of looped-ligament's 43 PDFs, 28 are in PMC (23 as NIH author
-  manuscripts), but Europe PMC's REST service serves full text only for the
-  open-access subset and answers 500 for all of them. The same XML is
-  served by NCBI's PMC OAI service by PMCID (one more host than the
-  invariant allows: identifiers out, XML in, no paper text leaves), and by
-  Europe PMC's own bulk archives at EBI as 1 to 4 GB tarballs per PMCID
-  range (about 14 GB for these 23). Either would make the pilot's hardest
-  PDFs — Wiley, Elsevier, IOP — comparable with their XML. Until then the
-  pilot pairs are the 31 open-access papers whose PDFs EBI's bulk area
-  holds.
+- **Author-manuscript XML for the pilot's own PDFs** (2026-09-17; *the host
+  decided and the fetch built 2026-09-30*: Karim allowed NCBI, and `fetch`
+  asks E-utilities' `efetch` by PMCID when Europe PMC's XML is not there) —
+  of looped-ligament's 43 PDFs, 28 are in PMC (23 as NIH author
+  manuscripts), and Europe PMC's REST service answers 500 for all of them.
+  Left: fetch the 23 on Karim's machine and pair them with the PDFs he holds
+  (`pairs.py`), which makes the pilot's hardest PDFs — Wiley, Elsevier,
+  IOP — comparable with their XML. The five publisher deposits stay closed:
+  NCBI will not give them out either.
+- **More XML to fetch** (2026-09-30, asked by Karim; checked live on the
+  pilot's DOIs):
+  - *bioRxiv and medRxiv* — their API (`api.biorxiv.org/details/<server>/<doi>`)
+    names a `jatsxml` for every preprint, open and without a login: the one
+    open route not yet taken, for the preprints Europe PMC indexes without
+    full text.
+  - *The publishers' text-mining routes, behind the institution's licence* —
+    Crossref names them per DOI (`link`, `intended-application:
+    text-mining`): Elsevier's Article Retrieval API gives `text/xml` for
+    Acta Biomaterialia and Biomaterials, most of the ELAC canon; Wiley and
+    SAGE (Mary Ann Liebert) give `full-xml`. Each needs Karim's API key or
+    TDM token and his institution's entitlement, and "no automated
+    downloading behind a login" says no today: licensed text mining is the
+    publishers' own sanctioned route, so it is his call, not a default.
+  - Not worth a route: IOP (HTML and PDF only), ACS (no text-mining link),
+    Unpaywall, CORE and Semantic Scholar (PDFs or plain text, no JATS).
+- **Work stranded on unmerged branches** (found 2026-09-30; *the live fixes
+  ported the same day*) — `collect-mode` (PR #2, closed unmerged on
+  2026-09-11) held 20 commits to the `lit` CLI that never reached `main`; PR
+  #24 ported the four that fixed live bugs (#12, #13, the µm/°C repair and
+  its spacing guard). The 16 left are the work issues #3, #5, #9, #10, #11,
+  #15, #16, #17 and #18 were closed on — `lit collect`, notes, profiles,
+  sync, a format-aware inbox, reviews left out of queries — CLI verbs the
+  studio has partly replaced; `reader-graph-verbs` (PR #7) holds one more.
+  From `claude/ingestion-generalization` PR #25 ported the citation styles,
+  the type's shape rules and `_tight` (measure them: the entry at the top);
+  left there are the `_BIB_TAIL` carry (held back: it misfiled a discussion),
+  `changes.py` (a page-by-page record of every change the reader makes) and
+  its report pages. Karim to decide which of what is left to port and which
+  to let go.
 - **The paragraph classifier** (2026-09-17, Karim's idea) — train a small
   head on the embedder over the XML corpus's paragraphs, each labelled by
   the lane of the section it sits in, and validate it on the PDF side of

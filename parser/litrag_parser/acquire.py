@@ -7,16 +7,21 @@ PMID and by PMCID, so a search run twice adds nothing twice, and a candidate alr
 its status (invariant 4).
 
 Fetching goes the way the pairs taught: the JATS full text from the REST service first, because
-it is the paper's own structure; else the publisher's PDF from EBI's bulk open-access area
+it is the paper's own structure; else PMC's own XML from NCBI, by PMCID, which serves what the
+REST service will not — an NIH author manuscript is in PMC but not in the open-access subset,
+and `fullTextXML` answers 500 for it (2026-09-30: 23 of the pilot's 28 PDFs in PMC are these);
+else the publisher's PDF from EBI's bulk open-access area
 (`ftp.ebi.ac.uk/pub/databases/pmc/pdf/OA/PMCxxxx<block>/<PMCID>.zip`, the same place the corpus
 scripts fetch from — the website's `?pdf=render` links sit behind a bot check and are left
 alone); else the candidate `needs-pdf`, with the links a person can follow to get it by hand
 and drop it into the app. What is fetched lands in the library's inbox; the worker's `ingest`
 files it (DOI, then PMID, then hash) and `reconcile` marks the candidate `ingested`.
 
-The only hosts asked are Europe PMC's (EBI's). Both bases can be pointed elsewhere, for tests
+The only hosts asked are Europe PMC's (EBI's) and NCBI's E-utilities, and NCBI is only ever
+sent a PMCID: an identifier out, the article in. Every base can be pointed elsewhere, for tests
 and the end-to-end harness: `LITRAG_EPMC_URL` for the REST base, `LITRAG_EPMC_PDF_URL` for the
-bulk PDF base.
+bulk PDF base, `LITRAG_NCBI_URL` for E-utilities (`LITRAG_NCBI_EMAIL` and `LITRAG_NCBI_API_KEY`,
+when set, go with each NCBI request as its usage policy asks; neither is ever filled in for you).
 
     python -m litrag_parser.acquire --lib DIR --search "hydrogel cartilage" [--size 25]
     python -m litrag_parser.acquire --lib DIR --fetch 1 2 3
@@ -46,7 +51,9 @@ from .library import Library, now_iso, safe_key
 
 REST = "https://www.ebi.ac.uk/europepmc/webservices/rest"
 BULK_PDF = "https://ftp.ebi.ac.uk/pub/databases/pmc/pdf/OA"
+NCBI = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
 USER_AGENT = "litrag (local research tool; one request at a time)"
+NCBI_GAP = 0.34  # E-utilities ask for at most three requests a second without an API key
 
 STATUSES = ("found", "staged", "fetching", "fetched", "needs-pdf", "ingested", "failed", "dismissed")
 
@@ -88,6 +95,10 @@ def pdf_base(base: str | None = None) -> str:
     return (base or os.environ.get("LITRAG_EPMC_PDF_URL") or BULK_PDF).rstrip("/")
 
 
+def ncbi_base(base: str | None = None) -> str:
+    return (base or os.environ.get("LITRAG_NCBI_URL") or NCBI).rstrip("/")
+
+
 def _get(url: str, timeout: float, retries: int = 3) -> bytes:
     """One GET; a busy service (429, 502, 503, 504) is asked again after a pause, since Europe
     PMC answers 503 to a burst of requests — measured on 76 DOI lookups, 11 of them — and a
@@ -127,7 +138,8 @@ def normalise_hit(h: dict[str, Any]) -> dict[str, Any]:
     """One `core` result as a candidate: identifiers normalised (DOI lowercased, PMCID upper),
     the journal from `journalInfo.journal.title` (a `core` result carries no `journalTitle`; a
     `lite` one does), the publication types from `pubTypeList`. `has_xml` is the practical test
-    for `fullTextXML`: a PMCID, in Europe PMC and open access. `has_pdf` is Europe PMC's own
+    for an XML full text anyone may fetch: a PMCID, and either in Europe PMC and open access
+    (`fullTextXML`) or an author manuscript (NCBI's `efetch`). `has_pdf` is Europe PMC's own
     flag — it means a rendered PDF exists, not that the bulk area holds one."""
     pmcid = str(h.get("pmcid") or "").strip().upper() or None
     doi = str(h.get("doi") or "").strip().lower() or None
@@ -140,6 +152,7 @@ def normalise_hit(h: dict[str, Any]) -> dict[str, Any]:
         types = [p.strip() for p in str(h.get("pubType") or "").split(";") if p.strip()]
     title = plain_text(h.get("title"))
     oa, in_epmc = _flag(h.get("isOpenAccess")), _flag(h.get("inEPMC"))
+    author_ms = _flag(h.get("authMan")) or _flag(h.get("nihAuthMan"))
     try:
         cited = int(h.get("citedByCount") or 0)
     except (TypeError, ValueError):
@@ -160,7 +173,7 @@ def normalise_hit(h: dict[str, Any]) -> dict[str, Any]:
         "in_pmc": _flag(h.get("inPMC")),
         "in_epmc": in_epmc,
         "has_pdf": _flag(h.get("hasPDF")),
-        "has_xml": bool(pmcid and in_epmc and oa),
+        "has_xml": bool(pmcid and ((in_epmc and oa) or author_ms)),
         "cited_by": cited,
         "pub_types": list(types),
     }
@@ -336,8 +349,9 @@ def candidates(conn: sqlite3.Connection, status: str | None = None, query: str |
 
 
 def wanted(conn: sqlite3.Connection) -> list[dict[str, Any]]:
-    """The candidates that want a PDF from a person: nothing open was there to fetch."""
-    return candidates(conn, status="needs-pdf")
+    """The candidates that want a PDF from a person: nothing open was there to fetch. Most-cited
+    first, as `lit wanted` lists them, since the collect window walks them in this order."""
+    return sorted(candidates(conn, status="needs-pdf"), key=lambda c: (-(c.get("cited_by") or 0), c["cand_id"]))
 
 
 def _set_status(conn: sqlite3.Connection, ids: Iterable[int], status: str, allowed_from: tuple[str, ...]) -> dict[str, Any]:
@@ -378,6 +392,49 @@ def pdf_url(pmcid: str, base: str | None = None) -> str:
     return f"{pdf_base(base)}/PMCxxxx{block}/{pmcid.upper()}.zip"
 
 
+def ncbi_url(pmcid: str, base: str | None = None) -> str:
+    """PMC's own XML for one PMCID, from E-utilities. Only the identifier goes out; the contact
+    fields NCBI asks for are sent only when the person has set them."""
+    params = {"db": "pmc", "id": pmcid.upper().removeprefix("PMC"), "tool": "litrag"}
+    for env, key in (("LITRAG_NCBI_EMAIL", "email"), ("LITRAG_NCBI_API_KEY", "api_key")):
+        if os.environ.get(env):
+            params[key] = os.environ[env]
+    return f"{ncbi_base(base)}/efetch.fcgi?{urllib.parse.urlencode(params)}"
+
+
+_ncbi_last = 0.0
+
+
+def _ncbi_get(url: str, timeout: float) -> bytes:
+    """One E-utilities GET, never closer than `NCBI_GAP` to the last."""
+    global _ncbi_last
+    wait = _ncbi_last + NCBI_GAP - time.monotonic()
+    if wait > 0:
+        time.sleep(wait)
+    try:
+        return _get(url, timeout)
+    finally:
+        _ncbi_last = time.monotonic()
+
+
+_ARTICLE = re.compile(rb"<article[\s>]")
+_BODY = re.compile(rb"<body[\s>]")
+
+
+def _article_from(data: bytes) -> bytes | None:
+    """The article out of `efetch`'s `<pmc-articleset>`, as Europe PMC serves one (a declaration,
+    then `<article>`, its bytes as NCBI sent them), when it carries a body. An article NCBI may
+    not give out comes back as an error, or as its front matter alone: neither is full text."""
+    start = _ARTICLE.search(data)
+    end = data.rfind(b"</article>")
+    if start is None or end < start.start():
+        return None
+    article = data[start.start():end + len(b"</article>")]
+    if not _BODY.search(article):
+        return None
+    return b'<?xml version="1.0" encoding="UTF-8"?>\n' + article
+
+
 def _pdf_from(data: bytes, pmcid: str) -> bytes | None:
     """The PDF itself: the bytes when they are one, the paper's own PDF from a zip (the one named
     for it, else the largest), else None."""
@@ -412,9 +469,10 @@ def _update(conn: sqlite3.Connection, cid: int, **cols: Any) -> None:
 
 
 def fetch_one(lib: Library, conn: sqlite3.Connection, cand_id: int, *, timeout: float = 90, base: str | None = None,
-              pdf: str | None = None, on_progress: Callable[[dict[str, Any]], None] | None = None) -> dict[str, Any]:
-    """One candidate: its JATS, else its bulk PDF, else `needs-pdf`. Never raises for the
-    candidate; what went wrong is the answer's `error` and the row's."""
+              pdf: str | None = None, ncbi: str | None = None, on_progress: Callable[[dict[str, Any]], None] | None = None) -> dict[str, Any]:
+    """One candidate: its JATS from Europe PMC, else PMC's XML from NCBI, else its bulk PDF,
+    else `needs-pdf`. Never raises for the candidate; what went wrong is the answer's `error`
+    and the row's."""
     say = on_progress or (lambda e: None)
     row = _row(conn, cand_id)
     if row is None:
@@ -432,21 +490,40 @@ def fetch_one(lib: Library, conn: sqlite3.Connection, cand_id: int, *, timeout: 
     name = file_key(row)
     pmcid = row.get("pmcid")
     try:
-        if pmcid and row.get("has_xml"):
-            say({"event": "candidate", "cand_id": cand_id, "status": "fetching", "format": "jats"})
+        if pmcid and row.get("has_xml") and row.get("is_open_access"):
+            say({"event": "candidate", "cand_id": cand_id, "status": "fetching", "format": "jats", "source": "europepmc"})
             try:
                 xml = _get(f"{rest_base(base)}/{pmcid}/fullTextXML", timeout)
                 if b"<article" in xml[:8000]:
                     dest = lib.inbox_dir / f"{name}.xml"
                     _save(dest, xml)
                     _update(conn, cand_id, status="fetched", file=dest.name, error=None)
-                    say({"event": "candidate", "cand_id": cand_id, "status": "fetched", "format": "jats", "path": str(dest)})
-                    return {"cand_id": cand_id, "status": "fetched", "path": str(dest), "format": "jats", "error": None}
+                    say({"event": "candidate", "cand_id": cand_id, "status": "fetched", "format": "jats", "source": "europepmc", "path": str(dest)})
+                    return {"cand_id": cand_id, "status": "fetched", "path": str(dest), "format": "jats", "source": "europepmc", "error": None}
                 tried.append("full text XML: not an article")
             except urllib.error.HTTPError as e:
                 tried.append(f"full text XML: HTTP {e.code}")
             except (urllib.error.URLError, TimeoutError, OSError) as e:
                 tried.append(f"full text XML: {e}")
+                unreachable = True
+        if pmcid:
+            # Asked of every PMCID the REST service did not serve, not only the ones flagged as
+            # author manuscripts: a candidate found before this route existed has `has_xml` 0
+            # on file, and a search run again never replaces what a row already has.
+            say({"event": "candidate", "cand_id": cand_id, "status": "fetching", "format": "jats", "source": "ncbi"})
+            try:
+                article = _article_from(_ncbi_get(ncbi_url(pmcid, ncbi), timeout))
+                if article is not None:
+                    dest = lib.inbox_dir / f"{name}.xml"
+                    _save(dest, article)
+                    _update(conn, cand_id, status="fetched", file=dest.name, error=None)
+                    say({"event": "candidate", "cand_id": cand_id, "status": "fetched", "format": "jats", "source": "ncbi", "path": str(dest)})
+                    return {"cand_id": cand_id, "status": "fetched", "path": str(dest), "format": "jats", "source": "ncbi", "error": None}
+                tried.append("NCBI PMC XML: no full text in the answer")
+            except urllib.error.HTTPError as e:
+                tried.append(f"NCBI PMC XML: HTTP {e.code}")  # 400: PMC holds it, NCBI may not give it out
+            except (urllib.error.URLError, TimeoutError, OSError) as e:
+                tried.append(f"NCBI PMC XML: {e}")
                 unreachable = True
         if pmcid and (row.get("is_open_access") or row.get("has_pdf")):
             say({"event": "candidate", "cand_id": cand_id, "status": "fetching", "format": "pdf"})
@@ -456,8 +533,8 @@ def fetch_one(lib: Library, conn: sqlite3.Connection, cand_id: int, *, timeout: 
                     dest = lib.inbox_dir / f"{name}.pdf"
                     _save(dest, body)
                     _update(conn, cand_id, status="fetched", file=dest.name, error=None)
-                    say({"event": "candidate", "cand_id": cand_id, "status": "fetched", "format": "pdf", "path": str(dest)})
-                    return {"cand_id": cand_id, "status": "fetched", "path": str(dest), "format": "pdf", "error": None}
+                    say({"event": "candidate", "cand_id": cand_id, "status": "fetched", "format": "pdf", "source": "europepmc", "path": str(dest)})
+                    return {"cand_id": cand_id, "status": "fetched", "path": str(dest), "format": "pdf", "source": "europepmc", "error": None}
                 tried.append("open-access PDF: no PDF in the answer")
             except urllib.error.HTTPError as e:
                 tried.append(f"open-access PDF: HTTP {e.code}")
@@ -482,15 +559,15 @@ def fetch_one(lib: Library, conn: sqlite3.Connection, cand_id: int, *, timeout: 
 
 def fetch(lib: Library, conn: sqlite3.Connection, cand_ids: Iterable[int] | None = None,
           on_progress: Callable[[dict[str, Any]], None] | None = None, *, timeout: float = 90,
-          base: str | None = None, pdf: str | None = None) -> list[dict[str, Any]]:
-    """Fetch candidates into the inbox, XML first, then PDF, else `needs-pdf`:
-    `[{cand_id, status, path, format, error}]`. With no ids, every `staged` candidate. The worker
-    files the returned paths with its `ingest`, then calls `reconcile`."""
+          base: str | None = None, pdf: str | None = None, ncbi: str | None = None) -> list[dict[str, Any]]:
+    """Fetch candidates into the inbox, XML first (Europe PMC's, then NCBI's), then PDF, else
+    `needs-pdf`: `[{cand_id, status, path, format, source, error}]`. With no ids, every `staged`
+    candidate. The worker files the returned paths with its `ingest`, then calls `reconcile`."""
     ensure_schema(conn)
     lib.inbox_dir.mkdir(parents=True, exist_ok=True)
     if cand_ids is None:
         cand_ids = [r[0] for r in conn.execute("SELECT cand_id FROM candidates WHERE status = 'staged' ORDER BY cand_id")]
-    return [fetch_one(lib, conn, int(cid), timeout=timeout, base=base, pdf=pdf, on_progress=on_progress) for cid in cand_ids]
+    return [fetch_one(lib, conn, int(cid), timeout=timeout, base=base, pdf=pdf, ncbi=ncbi, on_progress=on_progress) for cid in cand_ids]
 
 
 # ---------------------------------------------------------------- manual use

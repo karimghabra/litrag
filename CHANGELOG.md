@@ -2,6 +2,34 @@
 
 ## Unreleased
 
+- **Author manuscripts as XML, from NCBI** (Karim, 2026-09-30: one more host, an identifier out
+  and the article in). Europe PMC's REST service serves full text only for the open-access
+  subset and answers 500 for an NIH author manuscript, which PMC holds and NCBI's E-utilities
+  give out. `fetch` now goes Europe PMC's XML → NCBI's `efetch` by PMCID → the bulk area's PDF
+  → `needs-pdf`; the article is taken out of its `<pmc-articleset>` byte for byte and must carry
+  a body (NCBI answers a publisher's closed deposit with an error, or with its front matter
+  alone — both seen live the same day). `has_xml` counts an author manuscript, so the Search tab
+  says "open XML" for it; `LITRAG_NCBI_URL` points it elsewhere (the end-to-end fixture does, so
+  no PMCID in the suite reaches NCBI); `LITRAG_NCBI_EMAIL` and `LITRAG_NCBI_API_KEY` go with
+  each request only when set. On the live search `"electrochemically aligned collagen" AND
+  genipin`, 19 of 22 hits now have XML to fetch, against 5 before; the real window fetched one
+  from Europe PMC and two from NCBI, and read all three into trees with their methods.
+- A candidate marked `needs-pdf` can be fetched again from the Search tab, so a route that came
+  later can find what an earlier fetch did not.
+- `wanted`, and so the collect window, goes most-cited first, as `lit wanted` does (#1).
+- **The `lit` CLI, three fixes stranded on `collect-mode`** (PR #24): a search hit with nothing
+  to file under is skipped and counted, not fatal (#12); the model's answer is streamed, so a long
+  schema-constrained generation no longer dies on the client's headers timeout (#13); a number's
+  " m m" is read as µm and its " 1 C" as °C in pdf.js text, after the padding runs are collapsed
+  and never inside letter-spaced display text.
+- Since 0.3.1 (merged with PR #23): the **Collect PDFs** window opens by itself when a fetch
+  leaves papers with no open copy; every paper card says what kind of paper it is; an author a
+  search names is never hidden behind "et al."; the candidates panel shows this search's
+  candidates; the query suggestions read a library from before the studio, whose searches are
+  bare strings.
+
+### From `claude/ingestion-generalization` — not yet measured (PR #25)
+
 Work from `claude/ingestion-generalization` (2026-09-17/18) that main never received. **Not yet
 measured on main** — the numbers below are the branch's own, taken on its reader and on sets
 mostly from the publishers the rules were written from; main's before/after goes here once

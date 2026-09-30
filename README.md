@@ -54,7 +54,7 @@ Five tabs over one project at a time, picked at the top:
 | Tab | What it is for |
 |---|---|
 | Projects | every project as a card: papers by format and type, how many are read, the searches run, the candidates waiting for a PDF, the passages embedded; **New project**; **Merge libraries…** files every paper of several projects once in a new one |
-| Search | a Europe PMC query (or one the local model drafts from the project's description); each hit with what can be had of it — open XML, an open PDF, nothing open — kept as a candidate; **Fetch & read** takes the XML first, the PDF second, and lists the rest with their links |
+| Search | a Europe PMC query (or one the local model drafts from the project's description); each hit with what can be had of it — open XML, an open PDF, nothing open — kept as a candidate; **Fetch & read** takes the XML first (Europe PMC's, else NCBI's for an NIH author manuscript), the PDF second, and lists the rest with their links |
 | Papers | the three panes below; the tree pane's **Canonical** face re-hangs the paper under its type's structure, each section tagged with the mechanism that placed it |
 | Types | the kinds of paper the project holds, each kind's canonical structure (its slots in order, how often its papers have each), and any paper drawn onto it: a line from each printed section to its slot, coloured by the vocabulary, the catalogue, the embedder, a built heading or the outline judge; the slots it lacks drawn empty |
 | Query | a question, and the passages that answer it, each hydrated from its tree: the headings above it, the paragraphs either side, the methods a finding was measured by, the figures and references it cites; **Open in the tree** lands on it |
