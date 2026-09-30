@@ -142,6 +142,21 @@ export function setStatus(kind: 'ok' | 'busy' | 'bad' | '', text: string) {
   s.title = text;
 }
 
+/** The worker is not running, and why — nothing to run, it would not start, it exited — in the
+ *  status and, in full, in the band under the header, where a person sees it without the log. */
+export function showWorkerProblem(message: string) {
+  setStatus('bad', 'worker not running');
+  $('worker-status').title = message;
+  const band = $('worker-problem');
+  band.querySelector('.problem-text')!.textContent = message;
+  band.hidden = false;
+}
+
+/** A request's rejection as the main process gave it, without Electron's "Error invoking remote method" wrapping. */
+export function rejectionText(e: unknown): string {
+  return String((e as Error)?.message ?? e).replace(/^Error invoking remote method '[^']*': (?:Error: )?/, '');
+}
+
 export function log(kind: string, text: string, paper?: string) {
   const line = el('div', `log-line ${kind}`);
   line.append(el('span', 't', new Date().toLocaleTimeString()));
