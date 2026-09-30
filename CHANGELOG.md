@@ -17,11 +17,42 @@
 - A candidate marked `needs-pdf` can be fetched again from the Search tab, so a route that came
   later can find what an earlier fetch did not.
 - `wanted`, and so the collect window, goes most-cited first, as `lit wanted` does (#1).
+- **The `lit` CLI, three fixes stranded on `collect-mode`** (PR #24): a search hit with nothing
+  to file under is skipped and counted, not fatal (#12); the model's answer is streamed, so a long
+  schema-constrained generation no longer dies on the client's headers timeout (#13); a number's
+  " m m" is read as µm and its " 1 C" as °C in pdf.js text, after the padding runs are collapsed
+  and never inside letter-spaced display text.
 - Since 0.3.1 (merged with PR #23): the **Collect PDFs** window opens by itself when a fetch
   leaves papers with no open copy; every paper card says what kind of paper it is; an author a
   search names is never hidden behind "et al."; the candidates panel shows this search's
   candidates; the query suggestions read a library from before the studio, whose searches are
   bare strings.
+
+### From `claude/ingestion-generalization` — not yet measured (PR #25)
+
+Work from `claude/ingestion-generalization` (2026-09-17/18) that main never received. **Not yet
+measured on main** — the numbers below are the branch's own, taken on its reader and on sets
+mostly from the publishers the rules were written from; main's before/after goes here once
+`pairs.py`, `paper_type --measure` and `gate:ingestion` have been run (NOTES.md, 2026-09-30).
+
+- **Citations, in the styles publishers print** (`citations.py`). A run of brackets is one marker
+  ("[7]–[11]", "[12],14,21,[40]"); a caret superscript ("tendons^2,^3", "energy.^3−9") is read,
+  and where a paper carries carets only those are superscripts; a name with a capital or a digit
+  inside it (BaTiO3, SiO2) is not a citation; ranges with a true minus, spaced dashes, or an en
+  dash that reached the text layer as "e"; a statistic's "F (1, 13)", a figure's number and the
+  front matter's affiliations are not markers; entries run together in one block are cut at the
+  printed number (`repairs.split_references`). The branch: held-out citation agreement 0.672 →
+  0.723.
+- **The type's shape answers** (`paper_type.py`). A results heading beside a methods or a
+  discussion is research; short prose with neither lane is an editorial; an abstract and no
+  results is a review, a methodology section notwithstanding. Letters and editorials decide on
+  the shape alone; "Expression of Concern" in a title is a correction. A tree with no prose at
+  all stays `other` (main's own guard). The branch: 0.786 → 0.927 on 248 labelled papers, 0.738
+  → 0.820 on libraries never inspected; editorial precision 1.000 → 0.846.
+- **A reference list spaced out by the layout model is still found** (`tree.py`, `_tight`):
+  Wiley's "E.    Peled  ," and Nature's "1 . Collins, F . S." now match the entry patterns. The
+  rest of that branch commit — carrying a run over blocks that look like an entry's tail — is
+  held back: it filed a discussion citing by author and year as references.
 
 ## 0.3.1 — 2026-09-24
 

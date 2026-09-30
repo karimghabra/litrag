@@ -5,6 +5,11 @@ wants as they are voiced.
 
 ## Named priorities
 
+- **Measure the port from `claude/ingestion-generalization`** (2026-09-30) — citations
+  (e55e3d9), the type (b97151c, 80ec4d0) and `_tight` (a6c7353) are on `main` since PR #25,
+  with tests but no corpus numbers: the corpora were not where the port was done, and it was
+  merged before they were taken. NOTES.md (2026-09-30) says what each commit can move and which
+  command reads it; the before is a362248. Release on the numbers, not on the branch's.
 - **R3: the type of a paper, a vector per node, edges from a finding to its
   method** (Karim, 2026-09-13) — the plan is DESIGN.md § R3, in the order
   each step earns the next: type from the file, the record, the page, then
@@ -129,6 +134,18 @@ Each one wants a fixture or a test before its fix, as the spot-check does.
 
 ## Observed, not urgent
 
+- **An inferred reference list can open inside the discussion** (found 2026-09-30, porting
+  9df932b) — `_REF_ENTRY`'s "Surname, Name" alternative takes "However, Smith and colleagues
+  reported in 2019 …" for an entry, and `_infer_references`' run passes over three blocks that
+  are not entries as long as one follows: in an author–year paper with no References heading,
+  the last three paragraphs of a discussion before the list are filed as references. The
+  branch's `_BIB_TAIL` carry makes that unbounded, which is why it is not on main; carrying a
+  column-cut entry's tail wants a test that tells a tail from a sentence first (a tail is short
+  and has no verb; a discussion paragraph is neither). Unmeasured how often it happens.
+- **A heading-less letter or editorial links no citations, and its length is not seen** (found
+  2026-09-30) — main files the prose of a paper with no headings as front-matter `meta`, which
+  `citations.py` does not read for markers and `shape_of` does not count as words, so the
+  editorial rule's 3,000-word ceiling passes a long heading-less paper as short.
 - **Sentences still in the text layer and in no node** (after the
   fifteen-defect round, 2026-09-11 night): 75 in 25 of 76 PDFs, from 156
   at the start of the day. (The 53 measured before the round was flattered:
@@ -308,18 +325,20 @@ Each one wants a fixture or a test before its fix, as the spot-check does.
     publishers' own sanctioned route, so it is his call, not a default.
   - Not worth a route: IOP (HTML and PDF only), ACS (no text-mining link),
     Unpaywall, CORE and Semantic Scholar (PDFs or plain text, no JATS).
-- **Work stranded on unmerged branches** (found 2026-09-30) — `collect-mode`
-  (PR #2, closed unmerged on 2026-09-11) holds 20 commits to the `lit` CLI
-  that never reached `main`, among them the fixes for #12 (922be56) and #13
-  (8162c55), the µm/°C glyph repair (dc6eb49), and the work issues #3, #5,
-  #9, #10, #11, #15, #16, #17 and #18 were closed on; `reader-graph-verbs`
-  (PR #7) holds one more. `claude/ingestion-generalization` holds reader work
-  `main` never received: citation styles (`citations.py`, 880af6b) and
-  paper-type shape rules (`paper_type.py`, 97fc360), both clean ports; the
-  scattered-reference-list rules (9df932b) as a hand port; `changes.py`, a
-  page-by-page record of every change the reader makes. Karim to decide
-  which to port (a reader change is gated on the measurements) and which to
-  let go.
+- **Work stranded on unmerged branches** (found 2026-09-30; *the live fixes
+  ported the same day*) — `collect-mode` (PR #2, closed unmerged on
+  2026-09-11) held 20 commits to the `lit` CLI that never reached `main`; PR
+  #24 ported the four that fixed live bugs (#12, #13, the µm/°C repair and
+  its spacing guard). The 16 left are the work issues #3, #5, #9, #10, #11,
+  #15, #16, #17 and #18 were closed on — `lit collect`, notes, profiles,
+  sync, a format-aware inbox, reviews left out of queries — CLI verbs the
+  studio has partly replaced; `reader-graph-verbs` (PR #7) holds one more.
+  From `claude/ingestion-generalization` PR #25 ported the citation styles,
+  the type's shape rules and `_tight` (measure them: the entry at the top);
+  left there are the `_BIB_TAIL` carry (held back: it misfiled a discussion),
+  `changes.py` (a page-by-page record of every change the reader makes) and
+  its report pages. Karim to decide which of what is left to port and which
+  to let go.
 - **The paragraph classifier** (2026-09-17, Karim's idea) — train a small
   head on the embedder over the XML corpus's paragraphs, each labelled by
   the lane of the section it sits in, and validate it on the PDF side of

@@ -642,3 +642,66 @@ def test_the_switch_is_off_and_the_heading_still_stands(monkeypatch):
         monkeypatch.delenv("LITRAG_LANE_AGREEMENT", raising=False)
         importlib.reload(structure)
     assert structure.AGREEMENT is False
+
+
+# -- the reference list, when the page spaces its entries out ------------------------------------
+# From claude/ingestion-generalization (9df932b). Every entry below is a block as Docling read it
+# out of the publisher's own PDF.
+
+WILEY_ENTRIES = [
+    "   L. Grande  ,    E.    Paillard  ,    J.    Hassoun  ,    J.-B.    Park  ,    Y .-J. Lee  ,    Y .-K.    Sun  , S.   Passerini  ,   B.   Scrosati  , Adv. Mater. 2015 , 27 ,   784  .",
+    "   Y .   Lu  ,   M.   Tikekar  ,   R.   Mohanty  ,   K.   Hendrickson  ,   L.   Ma  ,   L. A.   Archer  , Adv. Energy Mater. 2015 , 5 ,   1402073  .",
+    "   J. S. Dunning  ,    W. H.    Tiedemann  ,    L. Hsueh  ,    D. N.    Bennion  , J. Electrochem. Soc. 1971 , 118 ,   1886  .",
+    "   A. S.   Arico  ,   P.   Bruce  ,   B.   Scrosati  ,   J.-M.   T arascon  ,   W .   van Schalkwijk  , Nat. Mater. 2005 , 4 ,   366  .",
+    "   R. Cao  ,    W . Xu  , D.    Lv  , J. Xiao  ,    J.-G.    Zhang  , Adv.  Energy  Mater. 2015 , 5 ,   1402273  .",
+    "   W . Xu  , J. Wang  , F. Ding  , X. Chen  , E. Nasybulin  , Y. Zhang  , J.-G.   Zhang  , Energy Environ. Sci. 2014 , 7 ,   513  .",
+    "   Q.    Chen  ,    K.    Geng  ,    K.    Sieradzki  , J.  Electrochem.  Soc. 2015 , 162 , A2004  .",
+    "   V .    Fleury  ,    J.  N.    Chazalviel  ,    M.    Rosso  ,    B.    Sapoval  , J.  Electroanal. Chem. Interfac. 1990 , 290 ,   249  .",
+    "   J. N.   Chazalviel  , Phys. Rev. A 1990 , 42 ,   7355  .",
+    "   E.    Peled  ,    D.    Golodnitsky  ,   G.   Ardel  , J.  Electrochem. Soc. 1997 , 144 , L208  .",
+]
+
+
+def test_a_reference_list_the_layout_model_spaced_out_is_still_a_reference_list():
+    # Docling reads this Wiley review's entries as "E.    Peled  ,    D.    Golodnitsky ,",
+    # and with that spacing left in, no pattern for an entry matches one of them: the paper
+    # arrived with 192 references and none of them in a reference list.
+    body = [("text", _vary(DISCUSSION, n), 1) for n in range(3)] + [("list_item", e, 2) for e in WILEY_ENTRIES]
+    tree = build_tree(_doc([("title", "A review of solid electrolyte interphases on lithium metal anode", 1), ("text", ABSTRACT, 1)] + body), "k")
+    assert tree.repairs.get("inferred_references") == len(WILEY_ENTRIES)
+    assert [n.role for n in tree.walk() if n.type == "list_item"] == ["references"] * len(WILEY_ENTRIES)
+    assert [n.text for n in tree.walk() if n.type == "list_item"] == [e.strip() for e in WILEY_ENTRIES]  # the patterns read the entry tightened; the node keeps the text as read
+
+
+def test_a_statement_between_spaced_out_entries_stays_inside_the_list():
+    # the same entries, with a statement the page set between them: main keeps such a heading
+    # inside the list when an entry follows (`_entries_follow`) and closes it at the next entry,
+    # and both of those read the entry — spaced out, neither saw one, and the rest of the list
+    # was filed under the statement as back matter
+    statement = "The authors declare no competing financial interest in the work reported here."
+    body = [("section_header", "Discussion", 1), ("text", _vary(DISCUSSION, 0), 1), ("section_header", "References", 2)] + [("list_item", e, 2) for e in WILEY_ENTRIES[:5]] + [("section_header", "Conflict of Interest", 2), ("text", statement, 2)] + [("list_item", e, 2) for e in WILEY_ENTRIES[5:]]
+    tree = build_tree(_doc([("title", "A review of solid electrolyte interphases on lithium metal anode", 1), ("text", ABSTRACT, 1)] + body), "k")
+    assert [n.role for n in tree.walk() if n.type == "list_item"] == ["references"] * len(WILEY_ENTRIES)
+    assert [n.role for n in tree.walk() if n.type == "paragraph" and n.text == statement] == ["back"]
+
+
+def test_a_discussion_that_cites_by_author_and_year_is_not_carried_into_a_reference_list():
+    # A guard, and the reason 9df932b's other half is not on main. There, a block that looks like
+    # the back of an entry — "et al.", "(2020)", "2019," — carried a run of entries on without
+    # breaking it, so that a column-cut entry would not end the list. Body prose citing by author
+    # and year looks just like that, and "However, Smith and colleagues reported in 2019" opens
+    # like an entry ("Surname, Name"): the run opened there and carried the whole discussion
+    # into the reference list the reader put a heading over. Here the list starts at Adams. (Main's
+    # own run still passes over three blocks that are not entries before one resumes, so a
+    # discussion of three paragraphs after such an opening is taken today: BACKLOG.md.)
+    entries = [f"{n}, A. B., Other, C. D. ({2000 + i}). A study of tendon repair number {i}. J. Orthop. Res. {10 + i}, {100 + i}-{110 + i}." for i, n in enumerate(["Adams", "Baker", "Clark", "Davis", "Evans", "Frank", "Green", "Hill", "Irwin", "Jones"])]
+    discussion = [
+        "However, Smith and colleagues reported in 2019 that aligned threads heal faster, which our data confirm for the tendon as well as for the ligament we tested in this study.",
+        "Our findings extend the work of Lee et al. (2020), who measured stiffness only at one week, while we followed the healing tissue for twenty-eight days in total.",
+        "The swelling we saw agrees with earlier reports (Kim et al., 2018; Park, 2021) and suggests the crosslinker density matters more than its chemistry does here.",
+        "Several limitations remain, and larger animals will be needed, as argued by Wu et al. (2022), before any of this can be tried in a clinical setting at all.",
+        "In summary, the scaffold supports cells and bears load, and the next step is a large-animal model as proposed by Zhao et al. (2023) for comparable devices.",
+    ]
+    tree = build_tree(_doc([("title", "Aligned collagen threads for tendon repair", 1), ("section_header", "Abstract", 1), ("text", ABSTRACT, 1), ("section_header", "Discussion", 2)] + [("text", t, 2) for t in discussion] + [("text", e, 3) for e in entries]), "k")
+    assert tree.repairs.get("inferred_references") == len(entries)
+    assert [n.role for n in tree.walk() if n.type == "paragraph" and n.text in discussion] == ["discussion"] * len(discussion)
