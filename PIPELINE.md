@@ -9,7 +9,9 @@ pass, but nothing it does reaches the tree, and it is deprecated. This page
 says which code is which, how a paper moves through the current pipeline,
 and which switches are experiments. `DESIGN.md` has the reasons; `AGENT.md`
 §8 has every op and its shape. Every `python -m` below runs as
-`uv run --project parser python -m …`.
+`uv run --project parser --no-sync python -m …`: `--no-sync` keeps the
+torch the environment was synced with, which a `uv run` without that
+sync's `--extra` would swap for PyPI's (README, Quick start).
 
 ## What to use
 
@@ -119,7 +121,7 @@ at four times chance and the rest are at or near it
 From a shell, one library per request:
 
 ```
-uv run --project parser litrag-parser --root=$HOME/.protracker/library
+uv run --project parser --no-sync litrag-parser --root=$HOME/.protracker/library
 {"id":"1","op":"rebuild","lib":"looped-ligament"}
 {"id":"2","op":"quit"}
 ```

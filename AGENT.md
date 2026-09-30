@@ -223,8 +223,12 @@ window in `app/` (Electron). An assistant on the machine can drive the
 worker directly, the way it drives `lit`:
 
 ```
-uv run --project parser litrag-parser [--root=DIR]
+uv run --project parser --no-sync litrag-parser [--root=DIR]
 ```
+
+`--no-sync` runs it in the environment as it was synced, whichever torch
+it holds; without it, `uv run` syncs the environment back to PyPI's torch
+(on Windows, CPU in place of CUDA) unless given the sync's own `--extra`.
 
 One JSON object per line on stdin; events on stdout, each carrying the
 request's `id`. Reads answer at once; `ingest`, `reparse` and `rebuild` are
