@@ -94,12 +94,13 @@ def test_a_default_bucket_never_makes_a_research_paper_on_its_own():
     assert (got["type"], got["source"]) == ("research", "default") and "the shape agrees" in got["detail"]
     review = _review(printed=False)
     got = decide(review, jats_xml=JATS_DEFAULT, pub_types="Journal Article")
-    assert (got["type"], got["source"]) == ("review", "shape")  # the shape's review rule was measured precise (76 of 76) and decides; the default bucket is noted
+    assert (got["type"], got["source"]) == ("review", "shape")  # the shape's review rule decides; the default bucket is noted
     assert [n["kind"] for n in got["notes"]] == ["type-disagreement"] and "a default bucket" in got["notes"][0]["message"]
     assert decide(review)["type"] == "review" and decide(review)["source"] == "shape"
     letter = build_tree(_doc([("title", "On the question of dose", 1), ("text", "Dear Editor, we read the report with interest and wish to raise a question of dose that the authors did not address in their otherwise careful work.", 1)]), "k")
     got = decide(letter, jats_xml=JATS_DEFAULT)
-    assert (got["type"], got["source"]) == ("other", "default") and "does not confirm" in got["detail"]  # the letter rule may not decide yet: three of three measured is too few
+    assert (got["type"], got["source"]) == ("letter", "shape")  # the letter rule decides now: five of five measured, and the default bucket it overrules is noted
+    assert [n["kind"] for n in got["notes"]] == ["type-disagreement"] and "a default bucket" in got["notes"][0]["message"]
     assert decide(research)["source"] == "shape" and decide(research)["type"] == "research"  # no label at all: the shape's rule for research was measured and decides
 
 
@@ -156,9 +157,13 @@ def test_a_research_paper_without_a_results_heading_is_read_by_its_order_or_its_
         ("section_header", "5. Conclusions", 2), ("text", "Chitosan gels are promising, and several challenges remain before their clinical use can be considered by the community.", 2),
     ]), "k")
     features, verdict = shape_of(review)
-    assert verdict is None and features["methods"] and not features["results"] and features["stats"] == 0.0  # unassignable beats misassigned
+    assert verdict is None and features["methods"] and not features["results"] and features["stats"] == 0.0
     got = decide(review, jats_xml=JATS_DEFAULT)
     assert (got["type"], got["source"]) == ("other", "default")
+    # this one is still unread, and it is the hole that is left: the review rule below asks for an
+    # abstract, and this paper has none. Letting topical sections stand in for the abstract was
+    # measured and was wrong — on the corpus the only papers it newly caught were two letters that
+    # argue under four headings of their own — so the abstract stays required and this stays `other`
     # a research paper whose results stand under topical headings: the body reports measurements
     topical = build_tree(_doc([
         ("title", "A ranking neural network for the prediction of calcium binding sites", 1),
@@ -170,6 +175,67 @@ def test_a_research_paper_without_a_results_heading_is_read_by_its_order_or_its_
     ]), "k")
     features, verdict = shape_of(topical)
     assert verdict == "research" and not features["results"] and not features["methods_last"] and features["stats"] >= 0.10
+
+
+def test_a_review_with_a_methodology_section_and_an_abstract_is_a_review():
+    # the biggest single loss the old gating caused: a review that searches the literature has a
+    # methods lane, so the research rule would not take it and the review rule, which asked for no
+    # methods lane at all, would not either — twenty-five of them fell into `other` in one corpus.
+    # What settles it is the results heading: this paper has none, so it reports no work of its own
+    review = build_tree(_doc([
+        ("title", "Chitosan-based gels: extraction, gelation mechanisms and biomedical applications", 1),
+        ("section_header", "Abstract", 1), ("text", "This review surveys the extraction of chitosan, the mechanisms by which it forms gels, and the uses those gels have found in medicine.", 1),
+        ("section_header", "1. Introduction", 1), ("text", "Chitosan is a polysaccharide obtained from chitin and has been studied for decades in this field of work by many groups.", 1),
+        ("section_header", "2. Methodology", 1), ("text", "The literature was searched in Scopus and Web of Science for articles published between 2010 and 2024 with the terms chitosan and gel.", 1),
+        ("section_header", "3. Sources of Chitosan", 1), ("text", "Chitosan is extracted from crustacean shells, fungi and insects, and each source gives a different degree of deacetylation [12,13].", 1),
+        ("section_header", "4. Discussion", 2), ("text", "Chitosan gels are promising, and several challenges remain before their clinical use can be considered by the community at large.", 2),
+    ]), "k")
+    features, verdict = shape_of(review)
+    assert verdict == "review" and features["methods"] and not features["results"]
+    assert decide(review, jats_xml=JATS_DEFAULT)["type"] == "review"
+
+
+def test_a_results_heading_makes_a_research_paper_even_where_the_methods_got_no_heading():
+    # a paper whose methods are folded into the results section, or into a supplement: the results
+    # heading beside a discussion is enough, and the case-report rule above still runs first
+    tree = build_tree(_doc([
+        ("title", "Faster inference of complex demographic models from large allele frequency spectra", 1),
+        ("section_header", "Abstract", 1), ("text", "We present a faster inference scheme for demographic models and evaluate it on simulated and real spectra.", 1),
+        ("section_header", "1 Introduction", 1), ("text", "Demographic inference from allele frequency spectra is slow for models with many populations and many parameters.", 1),
+        ("section_header", "2 Results", 1), ("text", "The scheme converged in 40 minutes against 14 hours for the reference implementation, a mean speedup of 21 ± 4 across the set.", 1),
+        ("section_header", "3 Discussion", 2), ("text", "The speedup makes models with five populations tractable, which were previously out of reach for routine use.", 2),
+    ]), "k")
+    features, verdict = shape_of(tree)
+    assert verdict == "research" and features["results"] and not features["methods"]
+
+
+def test_short_opinion_prose_is_an_editorial_but_a_mini_review_is_not():
+    editorial = build_tree(_doc([
+        ("title", "Childhood obesity in Pacific Island countries: from fragmented evidence to coordinated action", 1),
+        ("text", "The evidence on childhood obesity in the Pacific is fragmented across small studies that rarely speak to one another, and the region deserves better.", 1),
+        ("text", "What is needed is a coordinated programme of measurement, agreed between the countries, so that the next decade of policy rests on something firmer than this.", 1),
+    ]), "k")
+    assert shape_of(editorial)[1] == "editorial"
+    assert decide(editorial, jats_xml=JATS_DEFAULT)["type"] == "editorial"  # the shape's editorial rule decides, and the default bucket is noted
+    # a mini-review is short too: topics of its own, or an abstract that labels itself, hold the
+    # editorial rule off — otherwise every Current Opinion piece would be read as an editorial
+    mini = build_tree(_doc([
+        ("title", "Cellulose-based hydrogels for tissue engineering", 1),
+        ("section_header", "Abstract", 1), ("text", "Purpose of review: to survey cellulose hydrogels. Recent findings: several new crosslinkers have been reported in the past two years.", 1),
+        ("section_header", "Sources of cellulose", 1), ("text", "Cellulose comes from plants, bacteria and tunicates, and each source gives a fibril of a different width.", 1),
+        ("section_header", "Crosslinking", 1), ("text", "Physical and chemical crosslinking both yield gels, with different mechanics and degradation as several groups have reported.", 1),
+    ]), "k")
+    assert shape_of(mini)[1] == "review"
+    assert shape_of(_review(printed=False))[1] == "review"  # three topics of its own, short though it is
+
+
+def test_an_expression_of_concern_is_a_correction_by_its_title():
+    # the one correction in the corpus was an expression of concern, and nothing read it: the table
+    # knew the phrase as a label but no title rule did, and an expression of concern rarely carries
+    # any other label a PDF can see
+    assert from_title("Expression of Concern: Buzzfindr: automating the detection of feeding buzzes") == Evidence("correction", "expression-of-concern", "title", "Expression of Concern", True)
+    assert from_title("Editorial Expression of Concern regarding the 2019 paper on bat echolocation").type == "correction"
+    assert from_title("Expression of concern in bioethics research over the past decade") is None  # the notice names what it concerns, after a colon or a preposition; a title that runs straight on is prose
 
 
 def test_a_data_descriptors_own_headings_name_it():

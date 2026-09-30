@@ -223,6 +223,16 @@ a results heading is read by its order (Nature's methods after the
 discussion) or by the measurements its body reports, and a review with a
 methodology section is unread rather than misread; every disagreement is a
 note.
+Re-cut 2026-09-17 on `claude/ingestion-generalization` and ported to main
+2026-09-30: the shape's rules read one question in order — does the paper
+report work of its own? A results heading beside a methods or a discussion
+says yes; short prose with neither lane is an editorial; an abstract and no
+results is a review, a methodology section notwithstanding, because a review
+that searches the literature has one. Letters and editorials decide on the
+shape alone, and a title reads "Expression of Concern". On the branch's
+reader the cascade went 0.786 → 0.927 on 248 labelled papers, and 0.738 →
+0.820 on four libraries never inspected; main's own figures wait on
+`--measure` (NOTES.md).
 Step 5 is not built; the profile kind is off unless `LITRAG_TYPE_PROFILE=on`.
 NOTES.md has the tables. The record's one call brings the authors, journal and year
 as well (`record.py`; `papers.authors`, `journal`, `year`), and a JATS
