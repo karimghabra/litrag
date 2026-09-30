@@ -334,8 +334,8 @@ def shape_of(tree: Tree) -> tuple[dict[str, Any], str | None]:
         verdict = _V
     elif (has_results and (has_methods or has_discussion)) or (has_methods and has_discussion and (methods_last or stats >= 0.10)):
         verdict = _R  # a results heading beside a methods or a discussion one — the paper reports work of its own, whether or not the methods got a heading of their own; or, with no results heading, Nature's order or a body that reports measurements
-    elif not has_methods and not has_results and words < _EDITORIAL_WORDS and len(topical) < 3 and not review_abstract:
-        verdict = _E  # short opinion prose with neither lane: an editorial, a commentary, a perspective — and a letter that does not open "Dear Editor", which nothing in the shape tells apart from them. A mini-review is short too, so a paper that has divided itself into topics, or labels its abstract "Purpose of review", is left to the review rule below
+    elif first and not has_methods and not has_results and words < _EDITORIAL_WORDS and len(topical) < 3 and not review_abstract:
+        verdict = _E  # short opinion prose with neither lane: an editorial, a commentary, a perspective — and a letter that does not open "Dear Editor", which nothing in the shape tells apart from them. A mini-review is short too, so a paper that has divided itself into topics, or labels its abstract "Purpose of review", is left to the review rule below. It needs a line of prose to read, the front matter's included (where a paper with no headings keeps its prose): a tree with none, a scan or a reading that found nothing, is unread, not short
     elif not has_results and has_abstract:
         verdict = _V  # an abstract and no results: the paper reports no experiment of its own. A methodology section does not make it research — a review that searches the literature has one too — and the research rule above has already taken every paper whose body measures
     return features, verdict

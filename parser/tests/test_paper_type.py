@@ -229,6 +229,24 @@ def test_short_opinion_prose_is_an_editorial_but_a_mini_review_is_not():
     assert shape_of(_review(printed=False))[1] == "review"  # three topics of its own, short though it is
 
 
+def test_a_tree_with_no_prose_is_unread_not_an_editorial():
+    # the editorial above keeps its prose in the front matter, as a paper with no headings does, so
+    # the rule cannot ask for paragraphs; what it asks for is a line of prose somewhere. A title and
+    # nothing else — a scan, a reading that found no body — or a title over its authors, their
+    # addresses and its dates, has none, and stays `other`, where the confidence score flags it
+    scan = build_tree(_doc([("title", "Aligned collagen speeds tendon healing in rats", 1)]), "k")
+    assert shape_of(scan)[1] is None
+    got = decide(scan, jats_xml=JATS_DEFAULT)
+    assert (got["type"], got["source"]) == ("other", "default")
+    front = build_tree(_doc([
+        ("title", "Aligned collagen speeds tendon healing in rats", 1),
+        ("text", "Jane Doe, John Roe and Ann Poe", 1),
+        ("text", "Department of Orthopaedic Surgery, University of Cincinnati, Cincinnati, OH, USA", 1),
+        ("text", "Received: 12 May 2024; Accepted: 3 June 2024", 1),
+    ]), "k")
+    assert shape_of(front)[1] is None and decide(front)["type"] == "other"
+
+
 def test_an_expression_of_concern_is_a_correction_by_its_title():
     # the one correction in the corpus was an expression of concern, and nothing read it: the table
     # knew the phrase as a label but no title rule did, and an expression of concern rarely carries
