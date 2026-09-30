@@ -72,7 +72,7 @@ describe('talking to Ollama', () => {
     const rows = await extractor.extract({ heading: 'Methods', text: 'Threads were crosslinked in 10 mM EDC.' }, { title: 'A paper' });
     const body = calls[0]!.body as Record<string, unknown>;
     expect(body['model']).toBe('qwen3:14b');
-    expect(body['stream']).toBe(false);
+    expect(body['stream']).toBe(true); // streamed: a long generation must not starve the client's headers timeout
     expect(body['think']).toBe(false);
     expect(body['format']).toMatchObject({ type: 'object' });
     expect((body['options'] as { temperature: number }).temperature).toBe(0);
@@ -172,5 +172,22 @@ describe('the model stage on a library', () => {
     const report = await extractLibrary(lib, broken, { now });
     expect(report.extracted).toEqual([]);
     expect(report.failed).toEqual([{ key: 'doi:10.1/second', error: 'The model did not answer with JSON.' }]);
+  });
+});
+
+describe('a streamed chat answer', () => {
+  it('concatenates message.content across NDJSON lines, and still reads a single object whole', async () => {
+    const rows = { claims: [], materials: [{ name: 'Genipin', role: 'crosslinker' }], methods: [], parameters: [] };
+    const pieces = JSON.stringify(rows).match(/.{1,9}/gs)!;
+    const ndjson = [
+      ...pieces.map((p) => JSON.stringify({ message: { role: 'assistant', content: p }, done: false })),
+      JSON.stringify({ message: { role: 'assistant', content: '' }, done: true }),
+    ].join('\n');
+    const streaming: FetchLike = async (_url, init) => {
+      expect((JSON.parse(init!.body!) as { stream: boolean }).stream).toBe(true);
+      return { ok: true, status: 200, text: async () => ndjson };
+    };
+    const got = await ollamaExtractor(settings, streaming).extract({ heading: 'Methods', text: 'x' }, { title: 'T' });
+    expect(got.materials).toEqual([{ name: 'Genipin', role: 'crosslinker', amount: undefined }]);
   });
 });
