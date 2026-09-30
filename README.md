@@ -15,9 +15,57 @@ a lab notebook: the tracker records what you did, litrag holds what the
 field already knows about it, and an assistant reads both. It stands on
 its own too.
 
-## Quick start
+## Install
+
+Each [release](https://github.com/karimghabra/litrag/releases) carries the app ready to run
+beside a script that installs what it needs: no administrator rights, nothing installed
+beforehand (not even Python), one folder for this user.
+
+**Windows** (10 or 11, 64-bit): download `litrag-<version>-win-x64.zip`, right-click it,
+**Extract All**, and double-click `install.cmd` in the folder that makes (if Windows warns
+about a file from the internet: **More info → Run anyway**). It copies the app to
+`%LOCALAPPDATA%\litrag\app`; installs [uv](https://docs.astral.sh/uv/) beside it, and through
+uv Python 3.12 and the parser's environment (Docling, torch) in `%LOCALAPPDATA%\litrag\venv`;
+installs [Ollama](https://ollama.com) with winget if it is missing and pulls its embedder,
+`nomic-embed-text`; and puts **litrag** in the Start Menu. Everything it does goes to
+`%LOCALAPPDATA%\litrag\install.log`.
+
+**Linux** (x86-64): download `litrag-<version>-linux-x64.tar.gz`, then
+
+```
+tar -xzf litrag-<version>-linux-x64.tar.gz
+litrag-<version>-linux-x64/install.sh
+```
+
+The same steps, into `~/.local/share/litrag` (`$XDG_DATA_HOME/litrag`), with an entry in the
+applications menu. Ollama's Linux installer needs root, so the script names it rather than
+running it; with Ollama there, it pulls the embedder. There is no macOS build yet: there, run
+from source (below).
+
+What it downloads: the archive (~135 MB for Windows, ~110 MB for Linux), about 0.3 GB of
+Python packages, and torch — the CPU build ~0.1–0.2 GB, the CUDA 13 build ~2 GB on Windows and
+~3 GB on Linux with NVIDIA's libraries. The first paper then fetches Docling's models (~0.5 GB,
+once); `nomic-embed-text` is ~0.3 GB.
+
+GPU or CPU: the script takes the CUDA 13 build when `nvidia-smi` runs, which wants an NVIDIA
+driver of R580 or newer (it warns when the driver is older), and the CPU build otherwise.
+`install.cmd -Torch cpu` or `-Torch cu130` (`install.sh --torch cpu|cu130`) chooses.
+`-SkipOllama` (`--skip-ollama`) leaves Ollama alone: papers are read without it, while Query,
+and naming headings by meaning, need it. `-PrefetchModels` (`--prefetch-models`) fetches
+Docling's layout and table models into `<libraries>/models/docling` at install time, so the
+first paper needs no network.
+
+To update, run the new release's install script: it replaces the app, brings the environment
+in line with the new release, and keeps the rest. To uninstall, run
+`%LOCALAPPDATA%\litrag\uninstall.cmd` (`~/.local/share/litrag/uninstall.sh`): it asks, then
+removes the app, the environment, uv and the shortcut. Neither script creates, moves or deletes
+a library — they live in `LITRAG_ROOT` (default `~/.protracker/library`) — and uninstalling
+leaves them, and Ollama, as they were.
+
+## From source (developers)
 
 Needs Node 22+, Python 3.11+ and [uv](https://docs.astral.sh/uv/).
+Query also needs [Ollama](https://ollama.com), with `ollama pull nomic-embed-text`.
 
 ```
 git clone … && cd litrag
@@ -56,6 +104,10 @@ else is Windows-specific: the same `uv sync`, `npm --prefix app install`,
 
 Which code is the current pipeline and which is the deprecated `lit` CLI,
 how a paper moves through it, and every switch: `PIPELINE.md`.
+
+The release archives are `npm --prefix app run release -- win` (which builds on Linux too) and
+`-- linux`, written to `app/release/`; `.github/workflows/release.yml` builds both for each
+published release, installs each once on a clean runner, and attaches them.
 
 ## What you see
 

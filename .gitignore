@@ -14,3 +14,5 @@ app/smoke-out/
 app/e2e-out/
 app/e2e-report/
 harness*.json
+app/release/
+app/installed-out/
