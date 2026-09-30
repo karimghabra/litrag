@@ -3,16 +3,27 @@
 **Read order after any fresh start or compaction:** `campaign/PROMPT.md` (the
 brief), `campaign/PLAN.md` (what to build), then this file. Then carry on.
 
-- **Phase:** 4 (closed-loop reading) — **gate not met, and the reason is the
-  finding**: thirteen invariants are built and priced on DEV, and none reaches a
-  precision a deterministic repair could use, so all thirteen stay advisory and
-  the repair loop was not built. `reports/phase4.md`. Phase 0 **gate passed**;
-  Phase 1 (reliability) landed; Phase 2 (the measurement apparatus) and Phase 3
-  (one reader change, the abstract's end) landed. Phases 5-8 not started; VAL,
-  SEALED and EXAM never scored.
-- **Branch:** `campaign/phase4-closed-loop`, cut from `campaign/dynamic-reader`,
-  itself cut from `8fae8aa` (`origin/claude/decisions-by-meaning`, the merge
-  commit of PR #20). See `DECISIONS.md` D1.
+- **State (2026-09-30): the campaign is closed and on `main`.** Phase 5
+  (assertion by agreement) found the three lane mechanisms are one and refused
+  the canonical floor end to end (`reports/phase5.md`); the code was frozen at
+  `9d0dcd2` before EXAM was fetched (`DECISIONS.md` D7); **EXAM was scored once**
+  at `ff57776`, 74 papers over 31 unseen publishers (ledger line 37,
+  2026-09-23): precision on witness-named lanes 0.96431 [0.93338, 0.98393], on
+  everything asserted 0.89858 [0.77263, 0.97132], coverage 0.79428,
+  conservation 0.93766. Phases 6 (propose-and-verify) and 7 (template memory)
+  were not run. The campaign harness never scored VAL or SEALED; the VAL figures
+  in `CHANGELOG.md` 0.3.x are `chunks.py`'s measure, a different one. Everything
+  shipped in 0.3.0 and landed on `main` with PR #23 (merge `a362248`).
+- **Before that:** Phase 4 (closed-loop reading) — **gate not met, and the reason
+  is the finding**: thirteen invariants are built and priced on DEV, and none
+  reaches a precision a deterministic repair could use, so all thirteen stay
+  advisory and the repair loop was not built. `reports/phase4.md`. Phase 0
+  **gate passed**; Phase 1 (reliability) landed; Phase 2 (the measurement
+  apparatus) and Phase 3 (one reader change, the abstract's end) landed.
+- **Branches:** `campaign/dynamic-reader` → `campaign/phase4-closed-loop` →
+  `campaign/phase5-agreement`, cut from `8fae8aa` (`origin/claude/decisions-by-meaning`,
+  the merge commit of PR #20), then `claude/studio`; all of it is in `main`
+  now. See `DECISIONS.md` D1.
 - **Campaign root:** `~/.protracker/campaign/library` — copies of all eleven
   libraries plus `lanes.sqlite`. **Every command sets
   `LITRAG_ROOT=C:/Users/ihave/.protracker/campaign/library`.** Karim's own root

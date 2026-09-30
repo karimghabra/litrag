@@ -47,7 +47,9 @@ wants as they are voiced.
   Reprofiling must be an explicit user action, with the affected papers shown
   before it starts. Preserve profile data and completion markers across
   migrations; keep profiling status distinct from extraction and embedding.
-- **Collect mode** (Karim, 2026-09-03) — the one step of the loop that
+- ~~**Collect mode**~~ (Karim, 2026-09-03) — *built: the studio's Collect
+  PDFs window (`app/src/main/collect.ts`, e2e test 4), walking `wanted`
+  most-cited first; #1 closed 2026-09-30.* The one step of the loop that
   needs a screen: an in-app browser (in Protracker's Research tab, or a
   small window of litrag's own) that walks the `lit wanted` list, opens
   each DOI through the institution's proxy, lets the user sign in once and
@@ -281,17 +283,43 @@ Each one wants a fixture or a test before its fix, as the spot-check does.
   Gate on `pairs` (depth agrees, faithful on the reviews) and the harness.
   The confidence score flags these readings today ("the introduction
   holds" as its reason).
-- **Author-manuscript XML for the pilot's own PDFs** (2026-09-17, Karim to
-  decide) — of looped-ligament's 43 PDFs, 28 are in PMC (23 as NIH author
-  manuscripts), but Europe PMC's REST service serves full text only for the
-  open-access subset and answers 500 for all of them. The same XML is
-  served by NCBI's PMC OAI service by PMCID (one more host than the
-  invariant allows: identifiers out, XML in, no paper text leaves), and by
-  Europe PMC's own bulk archives at EBI as 1 to 4 GB tarballs per PMCID
-  range (about 14 GB for these 23). Either would make the pilot's hardest
-  PDFs — Wiley, Elsevier, IOP — comparable with their XML. Until then the
-  pilot pairs are the 31 open-access papers whose PDFs EBI's bulk area
-  holds.
+- **Author-manuscript XML for the pilot's own PDFs** (2026-09-17; *the host
+  decided and the fetch built 2026-09-30*: Karim allowed NCBI, and `fetch`
+  asks E-utilities' `efetch` by PMCID when Europe PMC's XML is not there) —
+  of looped-ligament's 43 PDFs, 28 are in PMC (23 as NIH author
+  manuscripts), and Europe PMC's REST service answers 500 for all of them.
+  Left: fetch the 23 on Karim's machine and pair them with the PDFs he holds
+  (`pairs.py`), which makes the pilot's hardest PDFs — Wiley, Elsevier,
+  IOP — comparable with their XML. The five publisher deposits stay closed:
+  NCBI will not give them out either.
+- **More XML to fetch** (2026-09-30, asked by Karim; checked live on the
+  pilot's DOIs):
+  - *bioRxiv and medRxiv* — their API (`api.biorxiv.org/details/<server>/<doi>`)
+    names a `jatsxml` for every preprint, open and without a login: the one
+    open route not yet taken, for the preprints Europe PMC indexes without
+    full text.
+  - *The publishers' text-mining routes, behind the institution's licence* —
+    Crossref names them per DOI (`link`, `intended-application:
+    text-mining`): Elsevier's Article Retrieval API gives `text/xml` for
+    Acta Biomaterialia and Biomaterials, most of the ELAC canon; Wiley and
+    SAGE (Mary Ann Liebert) give `full-xml`. Each needs Karim's API key or
+    TDM token and his institution's entitlement, and "no automated
+    downloading behind a login" says no today: licensed text mining is the
+    publishers' own sanctioned route, so it is his call, not a default.
+  - Not worth a route: IOP (HTML and PDF only), ACS (no text-mining link),
+    Unpaywall, CORE and Semantic Scholar (PDFs or plain text, no JATS).
+- **Work stranded on unmerged branches** (found 2026-09-30) — `collect-mode`
+  (PR #2, closed unmerged on 2026-09-11) holds 20 commits to the `lit` CLI
+  that never reached `main`, among them the fixes for #12 (922be56) and #13
+  (8162c55), the µm/°C glyph repair (dc6eb49), and the work issues #3, #5,
+  #9, #10, #11, #15, #16, #17 and #18 were closed on; `reader-graph-verbs`
+  (PR #7) holds one more. `claude/ingestion-generalization` holds reader work
+  `main` never received: citation styles (`citations.py`, 880af6b) and
+  paper-type shape rules (`paper_type.py`, 97fc360), both clean ports; the
+  scattered-reference-list rules (9df932b) as a hand port; `changes.py`, a
+  page-by-page record of every change the reader makes. Karim to decide
+  which to port (a reader change is gated on the measurements) and which to
+  let go.
 - **The paragraph classifier** (2026-09-17, Karim's idea) — train a small
   head on the embedder over the XML corpus's paragraphs, each labelled by
   the lane of the section it sits in, and validate it on the PDF side of
