@@ -152,16 +152,49 @@ export interface Extractor {
   extract(section: { heading: string; text: string }, paper: { title: string }): Promise<ExtractedRows>;
 }
 
+/**
+ * One chat call, streamed. Without streaming, a schema-constrained
+ * generation can run for minutes before its first byte, and Node's fetch
+ * kills a connection that has sent nothing by its default headers timeout
+ * — the model was still thinking, the client had already hung up. With
+ * streaming, the first token is the first byte, and the idle time between
+ * chunks never comes near the limit. The content still arrives whole, as
+ * NDJSON lines whose message.content pieces concatenate.
+ */
+async function chatContent(settings: OllamaSettings, body: Record<string, unknown>, fetchImpl: FetchLike): Promise<string> {
+  const res = await fetchImpl(`${settings.url.replace(/\/$/, '')}/api/chat`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...body, stream: true }),
+  });
+  const text = await res.text();
+  if (!res.ok) throw new Error(`Ollama /api/chat answered ${res.status}: ${text.slice(0, 200)}`);
+  try {
+    // One JSON object whole: a server ignoring stream, or a fake in a test.
+    return (JSON.parse(text) as { message?: { content?: string } }).message?.content ?? '';
+  } catch {
+    let content = '';
+    for (const line of text.split('\n')) {
+      const t = line.trim();
+      if (!t) continue;
+      try {
+        content += (JSON.parse(t) as { message?: { content?: string } }).message?.content ?? '';
+      } catch {
+        // A torn final line means the stream ended badly; parseRows will say so.
+      }
+    }
+    return content;
+  }
+}
+
 export function ollamaExtractor(settings: OllamaSettings, fetchImpl: FetchLike = defaultFetch): Extractor {
   return {
     model: `ollama:${settings.chat}`,
     async extract(section, paper) {
-      const res = await post<{ message?: { content?: string } }>(
+      const content = await chatContent(
         settings,
-        '/api/chat',
         {
           model: settings.chat,
-          stream: false,
           think: false,
           format: ROWS_SCHEMA,
           options: { temperature: 0, num_ctx: 8192 },
@@ -172,7 +205,7 @@ export function ollamaExtractor(settings: OllamaSettings, fetchImpl: FetchLike =
         },
         fetchImpl,
       );
-      return parseRows(res.message?.content ?? '');
+      return parseRows(content);
     },
   };
 }
