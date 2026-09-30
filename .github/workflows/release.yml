@@ -1,0 +1,129 @@
+name: release
+# The archives a person installs from (README, "Install"): litrag-<version>-win-x64.zip and
+# litrag-<version>-linux-x64.tar.gz, each the unpacked app beside its install scripts. Each is
+# built, installed once on a clean runner (CPU torch, no Ollama), started, and uninstalled
+# before it is kept: attached to the release when one is published, kept as the run's
+# artifact when the workflow is run by hand. check.yml is the test suite; this is packaging.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      torch:
+        description: The torch extra the test install takes (cpu, cu130 or none)
+        default: cpu
+permissions:
+  contents: write
+env:
+  TORCH: ${{ inputs.torch || 'cpu' }}
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: The tag names the app's version
+        if: github.event_name == 'release'
+        shell: bash
+        run: |
+          v="v$(node -p "require('./app/package.json').version")"
+          [ "$v" = "${{ github.event.release.tag_name }}" ] || { echo "the tag is ${{ github.event.release.tag_name }}, app/package.json says $v"; exit 1; }
+      - name: The install scripts parse in Windows PowerShell
+        shell: powershell
+        run: |
+          foreach ($f in 'install\install.ps1', 'install\uninstall.ps1') {
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $f).Path, [ref]$null, [ref]$errors) | Out-Null
+            if ($errors) { $errors | ForEach-Object { Write-Host "${f}: $_" }; exit 1 }
+          }
+      - run: npm ci
+        working-directory: app
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+      - run: npm run release -- win
+        working-directory: app
+      - name: Install it, start it, uninstall it
+        shell: powershell
+        working-directory: app
+        run: |
+          $zip = (Get-ChildItem release\litrag-*-win-x64.zip).FullName
+          $t = $env:RUNNER_TEMP
+          Expand-Archive -LiteralPath $zip -DestinationPath "$t\download"
+          $env:LITRAG_INSTALL_ROOT = "$t\litrag"
+          $env:LITRAG_ROOT = "$t\libraries"
+          & "$t\download\install.ps1" -Torch $env:TORCH -SkipOllama
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          $env:LITRAG_VENV = "$t\litrag\venv"
+          $env:LITRAG_HEADLESS = '1'
+          node tests\installed.mjs "$t\litrag" "$t\installed-out"
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          & "$t\litrag\uninstall.ps1" -Yes
+          if (Test-Path "$t\litrag\app", "$t\litrag\venv", "$t\litrag\uv") { Write-Host 'uninstall left something'; exit 1 }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: installed-windows
+          path: ${{ runner.temp }}/installed-out
+          if-no-files-found: ignore
+      - name: Attach to the release
+        if: github.event_name == 'release'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ github.event.release.tag_name }}" app/release/litrag-*-win-x64.zip --clobber
+      - uses: actions/upload-artifact@v4
+        if: github.event_name != 'release'
+        with:
+          name: litrag-win-x64
+          path: app/release/litrag-*-win-x64.zip
+          compression-level: 0
+
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: The tag names the app's version
+        if: github.event_name == 'release'
+        run: |
+          v="v$(node -p "require('./app/package.json').version")"
+          [ "$v" = "${{ github.event.release.tag_name }}" ] || { echo "the tag is ${{ github.event.release.tag_name }}, app/package.json says $v"; exit 1; }
+      - run: npm ci
+        working-directory: app
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+      - run: npm run release -- linux
+        working-directory: app
+      - name: Install it, start it, uninstall it
+        working-directory: app
+        run: |
+          t="$RUNNER_TEMP"
+          name="litrag-$(node -p "require('./package.json').version")-linux-x64"
+          mkdir -p "$t/download"
+          tar -xzf "release/$name.tar.gz" -C "$t/download"
+          export LITRAG_INSTALL_ROOT="$t/litrag" LITRAG_ROOT="$t/libraries" XDG_DATA_HOME="$t/share"
+          "$t/download/$name/install.sh" --torch "$TORCH" --skip-ollama
+          LITRAG_VENV="$t/litrag/venv" xvfb-run -a node tests/installed.mjs "$t/litrag" "$t/installed-out"
+          "$t/litrag/uninstall.sh" --yes
+          if [ -e "$t/litrag/app" ] || [ -e "$t/litrag/venv" ] || [ -e "$t/litrag/uv" ]; then echo "uninstall left something"; exit 1; fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: installed-linux
+          path: ${{ runner.temp }}/installed-out
+          if-no-files-found: ignore
+      - name: Attach to the release
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ github.event.release.tag_name }}" app/release/litrag-*-linux-x64.tar.gz --clobber
+      - uses: actions/upload-artifact@v4
+        if: github.event_name != 'release'
+        with:
+          name: litrag-linux-x64
+          path: app/release/litrag-*-linux-x64.tar.gz
+          compression-level: 0
