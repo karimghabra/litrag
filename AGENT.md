@@ -158,9 +158,9 @@ The shapes you will reason over most:
   own title, authors and abstract arrive with its full text; a search hit
   with markup in the title is cleaned, and a placeholder title gives way
   to the paper's own at ingest.
-- **`needs-pdf` is not a failure.** It is the tool saying Europe PMC has
-  no open-access full text; `lit wanted` is the list, the inbox is the
-  door. A paper that came through the inbox with no DOI on its page is
+- **`needs-pdf` is not a failure.** It is the tool saying neither Europe
+  PMC nor NCBI gives out a full text for it; `lit wanted` is the list, the
+  inbox is the door. A paper that came through the inbox with no DOI on its page is
   filed by its bytes and reads as `Untitled (<file>)` until you rename it.
 - **`ingest` reports `failed` for a file it could not read** and leaves the
   paper `fetched`, so one bad PDF never stops the rest. The error names
@@ -266,7 +266,7 @@ queued (`queued` comes back immediately, then the stream, then `done`).
 | `merge` | `sources[]`, `name`, `into?` | queued: every paper of the sources filed once in a new project (or `into` one), its file, raw Docling document, record, outline and judgment rows carried; then `rebuild` of the target (`tree` per paper), and `done` with `target, filed, duplicates, rebuilt, reparsed, candidates_merged`. Sources untouched |
 | `search` | `lib`, `query`, `cursor?`, `size?` | `search`: Europe PMC (`resultType=core`), each hit kept as a candidate (`candidates` table, unique by DOI, PMID, PMCID) with `cand_id` and `status`, `total`, `next_cursor`, `added`; the query appended to the manifest's `queries` (`acquire.py`). On its own thread |
 | `candidates` / `wanted` | `lib`, `status?` | `candidates`: every hit any search found, `status` found · staged · fetching · fetched · needs-pdf · ingested · failed · dismissed, with `links` (publisher, Europe PMC); `wanted` only the ones that need a PDF by hand |
-| `fetch` | `lib`, `ids[]` | queued: per candidate the JATS full text if open, else the bulk area's open PDF, else `needs-pdf`; `candidate` events as each moves; the fetched files ingested as dropped ones are; `done` with `fetched` |
+| `fetch` | `lib`, `ids[]` | queued: per candidate the JATS full text if open (Europe PMC), else PMC's own XML from NCBI by PMCID (an NIH author manuscript, which Europe PMC answers 500 for), else the bulk area's open PDF, else `needs-pdf`; `candidate` events as each moves, with `source` (`europepmc` · `ncbi`) once fetched; the fetched files ingested as dropped ones are; `done` with `fetched` |
 | `stage` / `dismiss` | `lib`, `ids[]` | `dismissed`: what changed |
 | `suggest` | `lib` | `suggestions`: `queries` drafted from the project's description by the local model (`suggest.py`, `LITRAG_SUGGEST_MODEL`, default the judge's) — suggestions only; nothing is searched on the model's word |
 | `types` | `lib` | `types`: `overview` (per type: papers, mean confidence, formats), `skeletons` (per type: the canonical slots in order, each with the share of papers having it, its median words, the canonical names and printed headings inside it; furniture at head and tail), `papers` (`canonical.py`) |

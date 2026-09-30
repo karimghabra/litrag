@@ -3,7 +3,8 @@
  * page for a literature search, a `lite` record for a DOI or PMCID the reader looks up), the
  * `fullTextXML` of an open paper, and the bulk area's open-access PDF. The worker is pointed at
  * it with LITRAG_EPMC_URL and LITRAG_EPMC_PDF_URL, so the suite exercises the real fetch path
- * without the network.
+ * without the network; LITRAG_NCBI_URL points NCBI's E-utilities here too, where every `efetch`
+ * is not found, so no PMCID in the suite is ever asked of the real NCBI.
  *
  * Three papers, one for each way a paper can be had:
  *   - open XML: the repository's JATS fixture (PMC11278924);
@@ -35,6 +36,7 @@ export interface Fixture {
   url: string;
   pdfUrl: string;
   doiUrl: string;
+  ncbiUrl: string;
   requests: string[];
   close(): Promise<void>;
 }
@@ -109,6 +111,7 @@ export async function startFixture(papers: FixturePaper[]): Promise<Fixture> {
     url: `http://127.0.0.1:${port}/rest`,
     pdfUrl: `http://127.0.0.1:${port}/pdf`,
     doiUrl: `http://127.0.0.1:${port}/doi/`,
+    ncbiUrl: `http://127.0.0.1:${port}/ncbi`,
     requests,
     close: () => new Promise<void>((resolve) => server.close(() => resolve())),
   };

@@ -126,7 +126,9 @@ function soon(): void {
   }, 400);
 }
 
-const fetchable = (c: Candidate) => ['found', 'failed', 'dismissed', 'staged'].includes(c.status);
+// `needs-pdf` is fetchable again: a route that came later (NCBI's XML for an author manuscript,
+// 2026-09-30) may have what an earlier fetch could not find.
+const fetchable = (c: Candidate) => ['found', 'failed', 'dismissed', 'staged', 'needs-pdf'].includes(c.status);
 
 /** The project's searches so far, as chips: a click runs one again (nothing is added twice). */
 function renderPast(): void {

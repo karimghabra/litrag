@@ -59,7 +59,7 @@ test.beforeAll(async () => {
   root = mkdtempSync(join(tmpdir(), 'litrag-studio-'));
   app = await electron.launch({
     args: [APP_DIR, '--no-sandbox'],
-    env: { ...process.env, LITRAG_ROOT: root, LITRAG_EPMC_URL: fixture.url, LITRAG_EPMC_PDF_URL: fixture.pdfUrl, LITRAG_DOI_RESOLVER: fixture.doiUrl },
+    env: { ...process.env, LITRAG_ROOT: root, LITRAG_EPMC_URL: fixture.url, LITRAG_EPMC_PDF_URL: fixture.pdfUrl, LITRAG_NCBI_URL: fixture.ncbiUrl, LITRAG_DOI_RESOLVER: fixture.doiUrl },
   });
   page = await app.firstWindow();
   await page.waitForLoadState('domcontentloaded');

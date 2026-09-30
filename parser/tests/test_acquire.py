@@ -1,5 +1,6 @@
-"""acquire.py against a canned Europe PMC on 127.0.0.1: search, candidates once, XML first,
-then the bulk PDF, else needs-pdf. Nothing here touches the network."""
+"""acquire.py against a canned Europe PMC and NCBI on 127.0.0.1: search, candidates once, XML
+first (Europe PMC's, then NCBI's), then the bulk PDF, else needs-pdf. Nothing here touches the
+network."""
 
 import io
 import json
@@ -87,8 +88,23 @@ def epmc(monkeypatch):
     c = Canned()
     monkeypatch.setenv("LITRAG_EPMC_URL", f"{c.url}/rest")
     monkeypatch.setenv("LITRAG_EPMC_PDF_URL", f"{c.url}/oa")
+    monkeypatch.setenv("LITRAG_NCBI_URL", f"{c.url}/ncbi")
+    monkeypatch.delenv("LITRAG_NCBI_EMAIL", raising=False)
+    monkeypatch.delenv("LITRAG_NCBI_API_KEY", raising=False)
+    monkeypatch.setattr(acquire, "NCBI_GAP", 0)
     yield c
     c.close()
+
+
+def _ncbi_asked(seen: list[str]) -> list[str]:
+    """The PMCIDs (as E-utilities' bare numbers) NCBI was asked for, in order."""
+    return [urllib.parse.parse_qs(urllib.parse.urlsplit(p).query)["id"][0] for p in seen if p.startswith("/ncbi/efetch.fcgi")]
+
+
+def _articleset(article: bytes) -> bytes:
+    """An article as `efetch` sends one: inside a `<pmc-articleset>`, under its DOCTYPE."""
+    return (b'<?xml version="1.0"  ?><!DOCTYPE pmc-articleset PUBLIC "-//NLM//DTD ARTICLE SET 2.0//EN" '
+            b'"https://dtd.nlm.nih.gov/ncbi/pmc/articleset/nlm-articleset-2.0.dtd"><pmc-articleset>' + article + b"</pmc-articleset>")
 
 
 @pytest.fixture
@@ -211,10 +227,15 @@ def test_fetch_xml_first_then_the_bulk_pdf_else_needs_pdf(epmc, lib):
 
     c = by[ids[2]]
     assert c["status"] == "needs-pdf" and c["path"] is None
-    assert "HTTP 404" in c["error"] and c["links"] == {"doi": "https://doi.org/10.1/nothing", "europepmc": "https://europepmc.org/article/MED/333"}
+    assert "HTTP 404" in c["error"] and "NCBI PMC XML: HTTP 404" in c["error"]
+    assert c["links"] == {"doi": "https://doi.org/10.1/nothing", "europepmc": "https://europepmc.org/article/MED/333"}
     d = by[ids[3]]
     assert d["status"] == "needs-pdf" and d["links"]["europepmc"] == "https://europepmc.org/article/MED/444"
     assert not any("PMC" not in p and "444" in p for p in epmc.seen)  # nothing asked for a paper with no PMCID
+    # NCBI is asked only for what Europe PMC's XML did not give, and before the PDF is
+    assert _ncbi_asked(epmc.seen) == ["100002", "100003"]
+    order = [p for p in epmc.seen if "100002" in p]
+    assert [p.split("/")[1] for p in order] == ["rest", "ncbi", "oa"]
 
     rows = {r["cand_id"]: r for r in acquire.candidates(conn)}
     assert rows[ids[0]]["file"] == "doi_10.1_xml.xml" and rows[ids[0]]["status"] == "fetched"
@@ -247,9 +268,81 @@ def test_a_direct_pdf_answer_and_a_zip_without_one(epmc, lib):
     conn.close()
 
 
+def test_an_author_manuscript_is_fetched_from_ncbi_as_its_article(epmc, lib):
+    # Europe PMC's `core` flags for an NIH author manuscript (PMC5653421, checked live
+    # 2026-09-30): in PMC, not open access; `fullTextXML` answers 500 for it, NCBI serves it
+    hit = acquire.normalise_hit({"id": "28890257", "source": "MED", "pmid": "28890257", "pmcid": "PMC5653421",
+                                 "doi": "10.1016/j.actbio.2017.09.006", "title": "A bioinductive collagen suture",
+                                 "isOpenAccess": "N", "inEPMC": "Y", "inPMC": "Y", "hasPDF": "N", "authMan": "Y", "nihAuthMan": "Y"})
+    assert hit["has_xml"] is True and hit["is_open_access"] is False  # there is XML anyone may fetch, and it is not Europe PMC's
+    article = (FIXTURES / "PMC11278924.xml").read_bytes().split(b"?>", 1)[1]
+    epmc.routes["/ncbi/efetch.fcgi"] = (200, "text/xml", _articleset(article))
+    conn = open_store(lib.store_path)
+    ids = acquire.record_search(lib, conn, "q", [hit])["cand_ids"]
+    events = []
+    (out,) = acquire.fetch(lib, conn, ids, on_progress=events.append)
+    assert out["status"] == "fetched" and out["format"] == "jats" and out["source"] == "ncbi" and out["error"] is None
+    saved = Path(out["path"]).read_bytes()
+    assert Path(out["path"]).name == "doi_10.1016_j.actbio.2017.09.006.xml"
+    assert saved == b'<?xml version="1.0" encoding="UTF-8"?>\n' + article  # the article as NCBI sent it, out of its set
+    assert not any("fullTextXML" in p for p in epmc.seen)  # not open access: the REST service is not asked
+    (asked,) = [p for p in epmc.seen if p.startswith("/ncbi/")]
+    assert urllib.parse.parse_qs(urllib.parse.urlsplit(asked).query) == {"db": ["pmc"], "id": ["5653421"], "tool": ["litrag"]}  # the PMCID, nothing else
+    assert {"status": "fetched", "source": "ncbi"}.items() <= events[-1].items()
+    conn.close()
+
+
+def test_what_ncbi_will_not_give_out_still_needs_a_pdf(epmc, lib):
+    conn = open_store(lib.store_path)
+    ids = acquire.record_search(lib, conn, "q", [
+        {"pmcid": "PMC9469745", "doi": "10.1089/ten.tea.2021.0203", "title": "a publisher's deposit, not open"},
+        {"pmcid": "PMC9469746", "doi": "10.1/front", "title": "front matter only"},
+    ])["cand_ids"]
+    # PMC holds a publisher's deposit but NCBI will not give it out (checked live, 2026-09-30)
+    epmc.routes["/ncbi/efetch.fcgi"] = (400, "text/xml", b'<?xml version="1.0" encoding="UTF-8" ?><eFetchResult><ERROR>unsupported</ERROR></eFetchResult>')
+    (one,) = acquire.fetch(lib, conn, ids[:1])
+    assert one["status"] == "needs-pdf" and "NCBI PMC XML: HTTP 400" in one["error"] and one["links"]["doi"]
+    # an answer with the article's front and no body is not full text
+    epmc.routes["/ncbi/efetch.fcgi"] = (200, "text/xml", _articleset(b'<article><front><article-meta><title-group><article-title>t</article-title></title-group></article-meta></front></article>'))
+    (two,) = acquire.fetch(lib, conn, ids[1:])
+    assert two["status"] == "needs-pdf" and "no full text" in two["error"]
+    assert not list(lib.inbox_dir.glob("*.xml"))
+    conn.close()
+
+
+def test_wanted_is_most_cited_first(lib):
+    conn = open_store(lib.store_path)
+    ids = acquire.record_search(lib, conn, "q", [
+        {"pmid": "1", "title": "cited twice", "cited_by": 2},
+        {"pmid": "2", "title": "cited forty times", "cited_by": 40},
+        {"pmid": "3", "title": "never cited"},
+        {"pmid": "4", "title": "also cited twice", "cited_by": 2},
+    ])["cand_ids"]
+    with conn:
+        conn.execute("UPDATE candidates SET status = 'needs-pdf'")
+    assert [w["cand_id"] for w in acquire.wanted(conn)] == [ids[1], ids[0], ids[3], ids[2]]  # ties in the order found
+    conn.close()
+
+
+def test_article_from_an_articleset():
+    assert acquire._article_from(b"<eFetchResult><ERROR>x</ERROR></eFetchResult>") is None
+    assert acquire._article_from(_articleset(b"<article><front/></article>")) is None  # no body
+    got = acquire._article_from(_articleset(b'<article article-type="research-article"><front><article-meta/></front><body><p>x</p></body></article>'))
+    assert got == b'<?xml version="1.0" encoding="UTF-8"?>\n<article article-type="research-article"><front><article-meta/></front><body><p>x</p></body></article>'
+
+
+def test_ncbi_is_sent_contact_fields_only_when_the_person_set_them(monkeypatch):
+    monkeypatch.delenv("LITRAG_NCBI_EMAIL", raising=False)
+    monkeypatch.delenv("LITRAG_NCBI_API_KEY", raising=False)
+    assert acquire.ncbi_url("pmc123", "https://x/eutils") == "https://x/eutils/efetch.fcgi?db=pmc&id=123&tool=litrag"
+    monkeypatch.setenv("LITRAG_NCBI_EMAIL", "someone@example.org")
+    assert "email=someone%40example.org" in acquire.ncbi_url("PMC123", "https://x/eutils")
+
+
 def test_unreachable_is_failed_not_needs_pdf(lib, monkeypatch):
     monkeypatch.setenv("LITRAG_EPMC_URL", "http://127.0.0.1:9/rest")
     monkeypatch.setenv("LITRAG_EPMC_PDF_URL", "http://127.0.0.1:9/oa")
+    monkeypatch.setenv("LITRAG_NCBI_URL", "http://127.0.0.1:9/ncbi")
     conn = open_store(lib.store_path)
     ids = acquire.record_search(lib, conn, "q", [{"pmcid": "PMC7", "doi": "10.1/x", "title": "t", "has_xml": True, "is_open_access": True}])["cand_ids"]
     (out,) = acquire.fetch(lib, conn, ids, timeout=2)
