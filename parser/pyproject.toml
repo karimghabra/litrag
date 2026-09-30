@@ -51,7 +51,8 @@ conflicts = [[{ extra = "cpu" }, { extra = "cu130" }]]
 # uv remembers no extra. A `uv run` without the one the environment was
 # synced with syncs it back to PyPI's torch: uv 0.12 swaps the build (on
 # Windows, CUDA for CPU); uv 0.8 keeps it, but on Linux adds the `nvidia`
-# libraries. So pass the same `--extra` to `uv run`, or `--no-sync`.
+# libraries. So pass the same `--extra` to `uv run`, or `--no-sync`; the npm
+# scripts go through `bin/parser-run.js`, which reads it off the environment.
 [tool.uv.sources]
 torch = [
     { index = "pytorch-cpu", extra = "cpu", marker = "sys_platform == 'win32' or sys_platform == 'linux'" },
