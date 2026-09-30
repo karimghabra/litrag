@@ -82,6 +82,64 @@ when it turns out durable. Mark inference as inference.
 
 ## Short-term memory
 
+- **2026-09-30: citations and the type, ported from `claude/ingestion-generalization` — and not
+  yet measured** — That branch (tip bea09b2, 19 commits of 2026-09-17/18, never a PR) forked from
+  1d8b5ad, and main's `citations.py` and `paper_type.py` were still byte-identical to the fork
+  point. Ported onto `claude/relaxed-pascal-mtp4qm`, one commit each:
+  - **Citations** (880af6b → e55e3d9): bracket runs, caret superscripts, `_is_word` (BaTiO3 is
+    no citation), true-minus and "e" ranges, entries run together split at the printed number,
+    the front matter not read. One adaptation: the branch recorded a split through its
+    `changes.Repairs` log, which main does not have, so its own test failed here; the count is
+    now *set* on `tree.repairs["split_references"]`, because the worker links a tree and
+    `confidence.py` links it again. `invariants.py`'s I5 imports `_NUMERIC`/`_expand_numeric`
+    and now sees the new ranges too.
+  - **The type** (97fc360 → b97151c): the shape answers in order (a results heading beside a
+    methods or a discussion is research; short prose with neither lane is an editorial; an
+    abstract and no results is a review), `SHAPE_DECIDES` gains letter and editorial, a title
+    rule reads "Expression of Concern". Checked by hand: every verdict the old rules gave, the new
+    ones give too; only trees that got none can gain one.
+  - **Mine, not the branch's** (80ec4d0): on main, the editorial rule fired on a tree with *no
+    text at all* — a title and nothing else — because main files the prose of a paper with no
+    headings as front-matter `meta`, not paragraphs, so `words` is 0 for a real heading-less
+    editorial and for a reading that found nothing alike. The rule now needs one line of prose
+    anywhere (the `first` line the letter rule reads). Drop the commit for the branch verbatim.
+  - **`_tight` only, of 9df932b** (a6c7353): the spacing Docling leaves in Wiley's and Nature's
+    entries is taken out before any entry pattern reads a block, in `_infer_references`,
+    `_entries_follow` and main's re-entry rule. **The `_BIB_TAIL`/`_entry_flags` half is held
+    back**, measured by hand to misfile: a block that looks like an entry's tail ("et al.",
+    "(2020)") carries a run without breaking it, main's `_REF_ENTRY` takes "However, Smith and
+    colleagues reported in 2019" for an entry, and in an author–year paper with no References
+    heading the run opened there and filed the whole discussion as references. The branch tip
+    does the same. A test pins it (`test_a_discussion_that_cites_by_author_and_year_…`). Main's
+    own run already bridges three such blocks (BACKLOG.md).
+  **Nothing here was measured on main**: the corpora are on Karim's machine, and this was done in
+  a cloud container without them. The branch's own figures — citation agreement 0.672 → 0.723
+  held-out; the type cascade 0.786 → 0.927 on 248 labelled papers and 0.738 → 0.820 on four
+  libraries never inspected; reference lists 0.851 → 0.970 / 0.797 → 0.939 / 0.875 → 0.945 —
+  were taken on the branch's reader, with its heading-depth fixes and 9df932b's gather under
+  them, on sets mostly from the publishers the rules were written from. Treat them as a ceiling.
+  What each commit can move, so the before/after is read in the right place (before = a362248):
+  - e55e3d9 moves `refs` and `citations` rows only — no node, no lane. `pairs.py` over the three
+    pairings (`--pdf-lib looped-ligament-pairs --xml-lib looped-ligament`, `held-out-pdf`/`-xml`,
+    `held-out-2-pdf`/`-xml`): `citations.ratio` and `references.ratio`. Both sides of that ratio
+    go through `citations.py`, so it moves on the XML side too; the branch named link precision
+    as what the ratio cannot see. Then the same over `corpus-pdf`/`corpus-xml` for publishers the
+    rules never saw. The harness's `--gate` counts citations lost and gained per paper.
+  - b97151c and 80ec4d0 move `papers.type` only, and with it the confidence score (a typed paper
+    loses the 0.15 "type unsettled" penalty) and the canonical skeletons. `python -m
+    litrag_parser.paper_type --measure --lib …` over the four XML libraries and the held-out
+    ones; watch editorial precision (the branch: 1.000 → 0.846), review precision on held-out
+    (0.880 there), and how many papers leave `other`. `LITRAG_OUTLINE=on` is the one way the type
+    reaches a lane — a paper newly typed research gets the outline's research treatment.
+  - a6c7353 moves nodes: `npm run gate:ingestion` (`python -m litrag_parser.chunks --pairs …`,
+    and `--corpus DEV`/`--corpus VAL`), plus `references.ratio` above. The chunk gate should not
+    move for the first three commits at all; if it does, something is wrong.
+  Write the numbers here and in CHANGELOG.md's Unreleased section before merging.
+  Seen on the way, not fixed: a heading-less letter or editorial links no citations on main
+  (its prose is front-matter `meta`, and only paragraphs, list items, captions and footnotes are
+  read for markers); and the editorial rule's 3,000-word ceiling counts paragraphs only, so it
+  does not see such a paper's length at all.
+
 - **2026-09-23: the studio, and the reader judged in the unit retrieval returns** — Karim asked
   for an independent app (projects, searches, trees, types with their canonical structures, a
   query that hydrates) and a harness that uses it end to end; branch `claude/studio`,

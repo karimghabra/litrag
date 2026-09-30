@@ -2,6 +2,30 @@
 
 ## Unreleased
 
+Work from `claude/ingestion-generalization` (2026-09-17/18) that main never received. **Not yet
+measured on main** — the numbers below are the branch's own, taken on its reader and on sets
+mostly from the publishers the rules were written from; main's before/after goes here once
+`pairs.py`, `paper_type --measure` and `gate:ingestion` have been run (NOTES.md, 2026-09-30).
+
+- **Citations, in the styles publishers print** (`citations.py`). A run of brackets is one marker
+  ("[7]–[11]", "[12],14,21,[40]"); a caret superscript ("tendons^2,^3", "energy.^3−9") is read,
+  and where a paper carries carets only those are superscripts; a name with a capital or a digit
+  inside it (BaTiO3, SiO2) is not a citation; ranges with a true minus, spaced dashes, or an en
+  dash that reached the text layer as "e"; a statistic's "F (1, 13)", a figure's number and the
+  front matter's affiliations are not markers; entries run together in one block are cut at the
+  printed number (`repairs.split_references`). The branch: held-out citation agreement 0.672 →
+  0.723.
+- **The type's shape answers** (`paper_type.py`). A results heading beside a methods or a
+  discussion is research; short prose with neither lane is an editorial; an abstract and no
+  results is a review, a methodology section notwithstanding. Letters and editorials decide on
+  the shape alone; "Expression of Concern" in a title is a correction. A tree with no prose at
+  all stays `other` (main's own guard). The branch: 0.786 → 0.927 on 248 labelled papers, 0.738
+  → 0.820 on libraries never inspected; editorial precision 1.000 → 0.846.
+- **A reference list spaced out by the layout model is still found** (`tree.py`, `_tight`):
+  Wiley's "E.    Peled  ," and Nature's "1 . Collins, F . S." now match the entry patterns. The
+  rest of that branch commit — carrying a run over blocks that look like an entry's tail — is
+  held back: it filed a discussion citing by author and year as references.
+
 ## 0.3.1 — 2026-09-24
 
 The reader's third round on publishers it never saw, and the XML read as its file has it.

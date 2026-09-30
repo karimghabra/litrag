@@ -5,6 +5,11 @@ wants as they are voiced.
 
 ## Named priorities
 
+- **Measure the port from `claude/ingestion-generalization`** (2026-09-30) — citations
+  (e55e3d9), the type (b97151c, 80ec4d0) and `_tight` (a6c7353) are on
+  `claude/relaxed-pascal-mtp4qm` with tests but no corpus numbers: the corpora were not where
+  the port was done. NOTES.md (2026-09-30) says what each commit can move and which command
+  reads it; the before is a362248. Merge on the numbers, not on the branch's.
 - **R3: the type of a paper, a vector per node, edges from a finding to its
   method** (Karim, 2026-09-13) — the plan is DESIGN.md § R3, in the order
   each step earns the next: type from the file, the record, the page, then
@@ -127,6 +132,18 @@ Each one wants a fixture or a test before its fix, as the spot-check does.
 
 ## Observed, not urgent
 
+- **An inferred reference list can open inside the discussion** (found 2026-09-30, porting
+  9df932b) — `_REF_ENTRY`'s "Surname, Name" alternative takes "However, Smith and colleagues
+  reported in 2019 …" for an entry, and `_infer_references`' run passes over three blocks that
+  are not entries as long as one follows: in an author–year paper with no References heading,
+  the last three paragraphs of a discussion before the list are filed as references. The
+  branch's `_BIB_TAIL` carry makes that unbounded, which is why it is not on main; carrying a
+  column-cut entry's tail wants a test that tells a tail from a sentence first (a tail is short
+  and has no verb; a discussion paragraph is neither). Unmeasured how often it happens.
+- **A heading-less letter or editorial links no citations, and its length is not seen** (found
+  2026-09-30) — main files the prose of a paper with no headings as front-matter `meta`, which
+  `citations.py` does not read for markers and `shape_of` does not count as words, so the
+  editorial rule's 3,000-word ceiling passes a long heading-less paper as short.
 - **Sentences still in the text layer and in no node** (after the
   fifteen-defect round, 2026-09-11 night): 75 in 25 of 76 PDFs, from 156
   at the start of the day. (The 53 measured before the round was flattered:
