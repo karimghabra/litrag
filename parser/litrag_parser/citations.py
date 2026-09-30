@@ -331,10 +331,12 @@ def find_citations(tree: Tree, refs: list[Ref]) -> list[Citation]:
     citing = [n for n in tree.walk() if n.type in _CITING_TYPES and n.node_id not in ref_nodes and n.role != "references" and n.text and not _front(n)]
     texts = [n.text.replace("\u00a0", " ") for n in citing]
     # A caret is the layout model saying that the number was printed raised, so where a paper carries
-    # carets they are its superscripts and nothing else is: "BaTiO3" and "SiO2" are chemistry, and
-    # guessing at them is what turns a formula into a citation. A paper whose superscripts reach the
-    # tree without carets falls back to the older guess — the word before three letters or a stop,
-    # every number naming an entry, and the style the paper's own.
+    # carets they are read as its superscripts. The older guess — the word before three letters or a
+    # stop, every number naming an entry, and the style the paper's own — still runs beside them
+    # (with the carets taken out, a caret paper's markers pass its test), so it is `_is_word` that
+    # keeps "BaTiO3" and "SiO2" out, and a bare "4 mm. 12 Samples" in a caret paper still links 12.
+    # Letting the carets decide alone where a paper has them is the branch's stated intent and is
+    # unmeasured (NOTES.md, 2026-09-30).
     bracketed = sum(1 for t in texts for _ in _NUMERIC.finditer(t))
     carets = [x for t in texts for m in _CARET.finditer(t) for x in _expand_numeric(m.group(1))]
     caret_style = len(carets) >= 3 and sum(1 for x in carets if x in numbers) >= 0.8 * len(carets)

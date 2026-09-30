@@ -92,7 +92,10 @@ when it turns out durable. Mark inference as inference.
     `changes.Repairs` log, which main does not have, so its own test failed here; the count is
     now *set* on `tree.repairs["split_references"]`, because the worker links a tree and
     `confidence.py` links it again. `invariants.py`'s I5 imports `_NUMERIC`/`_expand_numeric`
-    and now sees the new ranges too.
+    and now sees the new ranges too. The branch says a caret paper's carets are its only
+    superscripts; the code it measured does not do that — the older bare-number guess still runs
+    beside them, and "4 mm. 12 Samples" in a caret paper links entry 12. Left as measured, the
+    comment corrected; `superscript_style = not caret_style and …` is the one-line change to try.
   - **The type** (97fc360 → b97151c): the shape answers in order (a results heading beside a
     methods or a discussion is research; short prose with neither lane is an editorial; an
     abstract and no results is a review), `SHAPE_DECIDES` gains letter and editorial, a title
