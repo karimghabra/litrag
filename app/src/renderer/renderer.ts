@@ -13,7 +13,7 @@ import { BANDS, SORT_KEYS, bandOf, countBy, filterPapers, sortPapers, validFilte
 import { initProjects, renderProjects } from './projects.ts';
 import { initQuery } from './query.ts';
 import { initSearch, loadCandidates } from './search.ts';
-import { $, ROLES, activity, ctx, dispatch, el, escapeHtml, hooks, log, onProjectChange, onViewShown, rememberedProject, request, roleColor, setProject, setStatus, showView, type ProjectSummary } from './shared.ts';
+import { $, ROLES, activity, ctx, dispatch, el, escapeHtml, hooks, log, onProjectChange, onViewShown, rejectionText, rememberedProject, request, roleColor, setProject, setStatus, showView, showWorkerProblem, type ProjectSummary } from './shared.ts';
 import { initTypes, renderCanonicalTree, type CanonicalTree, type Mapping } from './types.ts';
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL('./pdf.worker.min.mjs', import.meta.url).href;
@@ -983,10 +983,11 @@ function onEvent(ev: Record<string, unknown>) {
       log('error', String(ev['message']));
       break;
     case 'worker-error':
-      setStatus('bad', String(ev['message']));
+      showWorkerProblem(String(ev['message']));
       log('error', String(ev['message']));
       break;
     case 'worker-exit':
+      showWorkerProblem(`The worker exited (${ev['code']}); its last lines are in the log. Start litrag again to restart it.`);
       setStatus('bad', `worker exited (${ev['code']})`);
       log('error', `worker exited (${ev['code']})\n${ev['tail'] ?? ''}`);
       break;
@@ -1096,12 +1097,19 @@ function wire() {
   });
 
   showView(startView);
-  void window.litrag.info().then((i) => log('log', `worker: ${i.command} · root: ${i.root}`));
-  // If the worker was already up before this page loaded, `ready` is gone; ask anyway.
+  void window.litrag.info().then((i) => log('log', `worker: ${i.command ?? 'none'} · root: ${i.root}`));
+  // If the worker was already up before this page loaded, `ready` is gone; ask anyway. A worker
+  // that could not start, or has already exited, sent its reason before this page could hear it:
+  // the rejection carries it.
   window.litrag.request('hello').then(() => {
     setStatus('ok', 'worker ready');
     void loadLibraries();
-  }).catch(() => setStatus('bad', 'worker did not answer'));
+  }).catch((e) => {
+    if (!$('worker-problem').hidden) return; // its event came first and said it already
+    const why = rejectionText(e);
+    showWorkerProblem(why);
+    log('error', why);
+  });
 }
 
 wire();

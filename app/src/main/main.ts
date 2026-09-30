@@ -8,6 +8,7 @@ import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { runCollect, type CollectJob } from './collect.ts';
+import { displayCommand } from './launch.ts';
 import { ParserWorker } from './worker.ts';
 import type { Event } from './protocol.ts';
 
@@ -24,10 +25,11 @@ function forward(event: Event): void {
 }
 
 function startWorker(): ParserWorker {
+  // the command itself — LITRAG_PARSER, the installed environment, or uv in a checkout — is launch.ts's to decide
   const w = new ParserWorker({
     appDir,
     root: libraryRoot(),
-    command: process.env['LITRAG_PARSER'],
+    isPackaged: app.isPackaged,
     onEvent: forward,
     onExit: (code, tail) => {
       forward({ event: 'worker-exit', code, tail });
@@ -94,7 +96,7 @@ ipcMain.handle('shell:open', async (_e, url: string) => {
 
 ipcMain.handle('app:info', async () => {
   if (!worker) worker = startWorker();
-  return { root: libraryRoot() ?? '~/.protracker/library', command: [worker.command.cmd, ...worker.command.args].join(' '), version: app.getVersion() };
+  return { root: libraryRoot() ?? '~/.protracker/library', command: worker.command ? displayCommand(worker.command) : null, version: app.getVersion() };
 });
 
 app.whenReady().then(() => {

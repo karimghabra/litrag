@@ -7,7 +7,11 @@
 }
 * { box-sizing: border-box; }
 html, body { height: 100%; margin: 0; background: var(--bg); }
-body { display: grid; grid-template-rows: 48px 1fr auto; height: 100vh; }
+body { display: grid; grid-template-rows: 48px auto 1fr auto; height: 100vh; }
+#top { grid-row: 1; }
+#worker-problem { grid-row: 2; }
+#shell { grid-row: 3; }
+#log-pane { grid-row: 4; }
 button { font: inherit; border: 1px solid var(--line); background: var(--panel); color: var(--ink); border-radius: 6px; padding: 5px 10px; cursor: pointer; }
 button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
 button.ghost { background: transparent; }
@@ -35,6 +39,12 @@ h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: v
 .status.busy .dot { background: var(--results); animation: pulse 1.2s infinite; }
 .status.bad .dot { background: var(--failed); }
 @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .3; } }
+
+/* the worker is not running: why, in full, under the header — the status is one truncated line and the log may be folded */
+#worker-problem { display: flex; gap: 10px; align-items: baseline; padding: 10px 16px; background: #fdf0ee; border-bottom: 1px solid #f1c6c0; color: var(--failed); }
+#worker-problem[hidden] { display: none; }
+#worker-problem strong { flex: none; }
+#worker-problem .problem-text { color: var(--ink); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; max-height: 30vh; overflow: auto; }
 
 /* the activity bar: what the worker is working through, and how far */
 .activity { display: flex; align-items: center; gap: 8px; font-size: 12px; min-width: 260px; }

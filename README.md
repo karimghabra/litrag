@@ -556,6 +556,20 @@ uv run --project parser litrag-parser --root=/path/to/root
 One JSON line per request on stdin; events on stdout with the same `id`.
 `AGENT.md` lists every op and shape.
 
+An installed litrag has no uv on its path and no checkout: the same worker
+is the console script in the environment its installer made,
+`%LOCALAPPDATA%\litrag\venv\Scripts\litrag-parser.exe` on Windows,
+`~/.local/share/litrag/venv/bin/litrag-parser` on Linux and
+`~/Library/Application Support/litrag/venv/bin/litrag-parser` on macOS
+(`LITRAG_VENV` names another environment). The window starts that when it
+is installed and `uv run` when it runs from a checkout, finding uv on PATH
+or, for a window opened from a shortcut, in `~/.local/bin` or
+`~/.cargo/bin`; with nothing to run it says why under its header instead.
+`LITRAG_PARSER` overrides both, as a JSON array of argv — the way to give a
+path with spaces, `["C:\\Users\\Jane Doe\\AppData\\Local\\litrag\\venv\\Scripts\\litrag-parser.exe"]`
+— as the path of a file, or as the old command line split on whitespace
+(`PIPELINE.md`).
+
 ## The `lit` CLI
 
 `src/` holds the earlier retrieval loop — Europe PMC search and fetch,
