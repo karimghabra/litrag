@@ -134,6 +134,14 @@ Each one wants a fixture or a test before its fix, as the spot-check does.
 
 ## Observed, not urgent
 
+- **The installer, left for later** (2026-09-30):
+  - `app/tests/smoke.mjs` still answers a `prompt()` for New project, which the Projects tab
+    replaced with a form, so it only passes against a root that already holds a library.
+  - An install into a root other than the default (`LITRAG_INSTALL_ROOT`) gets a Start Menu
+    entry that does not carry `LITRAG_VENV`, so the window looks in the default root; the
+    Linux `.desktop` entry does carry it.
+  - No macOS build: a Mac runs from source.
+  - The archives are unsigned, so Windows warns about a file from the internet once.
 - **An inferred reference list can open inside the discussion** (found 2026-09-30, porting
   9df932b) — `_REF_ENTRY`'s "Surname, Name" alternative takes "However, Smith and colleagues
   reported in 2019 …" for an entry, and `_infer_references`' run passes over three blocks that

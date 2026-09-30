@@ -122,7 +122,8 @@ of the query path, as rows.
 ## R2.5 The window
 
 `app/`: Electron 38, TypeScript, esbuild, no framework. The main process
-spawns the worker (`uv run --project parser litrag-parser` in a checkout,
+spawns the worker (`uv run --project parser --no-sync litrag-parser` in a
+checkout, once its environment exists, so the torch it was synced with stays,
 the installer's environment's `litrag-parser` when installed — uv is not
 run there — or `LITRAG_PARSER`; `app/src/main/launch.ts` decides, and when
 there is nothing to run the window says why rather than spawning a name

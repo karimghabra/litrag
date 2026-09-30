@@ -26,6 +26,14 @@ describe('a checkout: uv run in the repository parser', () => {
     expect(resolveCommand(cargo)).toEqual({ cmd: '/home/jane/.cargo/bin/uv', args: devArgs });
   });
 
+  it('runs an environment that exists as it was synced, so a cu130 torch is not synced back to PyPI', () => {
+    const m = machine([REPO_PARSER, '/opt/uv/bin/uv', '/src/litrag/parser/.venv'], { env: { PATH: '/opt/uv/bin' } });
+    expect(resolveCommand(m)).toEqual({ cmd: '/opt/uv/bin/uv', args: ['run', '--project', '/src/litrag/parser', '--no-sync', 'litrag-parser'] });
+    // UV_PROJECT_ENVIRONMENT, relative to the project as uv reads it, is the environment asked about
+    const moved = machine([REPO_PARSER, '/opt/uv/bin/uv', '/src/litrag/envs/gpu'], { env: { PATH: '/opt/uv/bin', UV_PROJECT_ENVIRONMENT: '../envs/gpu' } });
+    expect(resolveCommand(moved)).toEqual({ cmd: '/opt/uv/bin/uv', args: ['run', '--project', '/src/litrag/parser', '--no-sync', 'litrag-parser'] });
+  });
+
   it('says uv is missing and how to get it, rather than spawning a name that is not there', () => {
     const r = resolveCommand(machine([REPO_PARSER], { env: { PATH: '/usr/bin' } }));
     expect(r).toHaveProperty('error');

@@ -2,6 +2,34 @@
 
 ## Unreleased
 
+- **Installable from a release** (Karim, 2026-09-30: "a bat script that installs dependencies,
+  followed by the software itself, which is relatively small"). Each published release gets
+  `litrag-<version>-win-x64.zip` (~135 MB) and `litrag-<version>-linux-x64.tar.gz` (~110 MB):
+  the unpacked app — `app.asar` is 3.9 MB, the rest is Electron — with the parser's source in
+  `resources/parser`, beside `install.cmd`/`install.ps1` or `install.sh`. The script installs
+  for this user, without admin, into `%LOCALAPPDATA%\litrag` (`~/.local/share/litrag`): uv, uv's
+  own Python 3.12, the parser's environment (`-Torch auto|cpu|cu130`, `auto` being cu130 where
+  `nvidia-smi` runs), Docling's models if asked (`-PrefetchModels`), Ollama with
+  `nomic-embed-text` (`-SkipOllama` to leave it), and a Start Menu entry. Running it again
+  updates, keeping the environment; `uninstall.cmd` removes it and never a library.
+  `.github/workflows/release.yml` builds both archives, installs each on a clean runner, starts
+  it, uninstalls it, and only then attaches it (electron-builder, `app/electron-builder.yml`,
+  `app/scripts/release.mjs`).
+- **The window starts an installed litrag's worker straight from its environment**
+  (`%LOCALAPPDATA%\litrag\venv\Scripts\litrag-parser.exe`, `…/venv/bin/litrag-parser`, or
+  `$LITRAG_VENV`), without uv; in a checkout it finds uv where its installers put it even when
+  PATH lacks it, and runs an existing environment with `--no-sync`, so the torch it was synced
+  with stays. `LITRAG_PARSER` takes a JSON array or a file path, so paths with spaces work
+  (`app/src/main/launch.ts`, pure and tested). When the worker isn't running, a band under the
+  header says why — no environment, no uv, the program's own error — instead of "worker did not
+  answer".
+- **Torch chosen by name**: `uv sync --project parser --extra cpu` (PyTorch's CPU build, a
+  ~1.4 GB environment) or `--extra cu130` (CUDA 13, NVIDIA driver R580+); they conflict. With
+  neither, torch is PyPI's — on Windows now CPU-only, where it used to be CUDA 13: uv cannot
+  keep that default beside a `cpu` extra, so **a Windows checkout with an NVIDIA card syncs once
+  with `--extra cu130`**. uv remembers no extra and a plain `uv run` syncs back to PyPI's torch,
+  so the npm scripts go through `bin/parser-run.js`, which passes the extra the environment's
+  torch has, and the docs' commands carry `--no-sync`. CI tests on `cpu` with `--locked`.
 - **Author manuscripts as XML, from NCBI** (Karim, 2026-09-30: one more host, an identifier out
   and the article in). Europe PMC's REST service serves full text only for the open-access
   subset and answers 500 for an NIH author manuscript, which PMC holds and NCBI's E-utilities

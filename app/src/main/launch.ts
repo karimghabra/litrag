@@ -52,7 +52,7 @@ export function resolveCommand(ctx: LaunchContext): Launch {
   if (ctx.isPackaged) {
     const exe = parserExecutable(ctx);
     if (ctx.existsSync(exe)) return { cmd: exe, args: [] };
-    const how = ctx.platform === 'win32' ? 'Run install.cmd from the litrag download' : 'Run the install script from the litrag download';
+    const how = ctx.platform === 'win32' ? 'Run install.cmd from the litrag download' : 'Run install.sh from the litrag download';
     return { error: `litrag's Python environment isn't installed (looked for ${exe}). ${how} to set it up, then start litrag again.` };
   }
 
@@ -60,7 +60,12 @@ export function resolveCommand(ctx: LaunchContext): Launch {
   if (ctx.existsSync(p.join(parserDir, 'pyproject.toml'))) {
     const uv = findUv(ctx);
     if ('error' in uv) return uv;
-    return { cmd: uv.path, args: ['run', '--project', parserDir, 'litrag-parser'] };
+    // uv remembers no extra: a plain `uv run` would sync an environment made with `--extra cu130`
+    // back to PyPI's torch (on Windows, CPU for CUDA). One that exists runs as it was synced; a
+    // checkout with none yet gets one made, with PyPI's torch (parser/pyproject.toml).
+    const venv = p.resolve(parserDir, envOf(ctx, 'UV_PROJECT_ENVIRONMENT') || '.venv');
+    const sync = ctx.existsSync(venv) ? ['--no-sync'] : [];
+    return { cmd: uv.path, args: ['run', '--project', parserDir, ...sync, 'litrag-parser'] };
   }
   // neither installed nor a checkout: whatever `litrag-parser` is on PATH, as before
   return { cmd: 'litrag-parser', args: [] };

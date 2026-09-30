@@ -69,7 +69,7 @@ Query also needs [Ollama](https://ollama.com), with `ollama pull nomic-embed-tex
 
 ```
 git clone … && cd litrag
-uv sync --project parser            Docling and its dependencies (torch: a few GB)
+uv sync --project parser --extra cu130   Docling and its dependencies, CUDA torch (a few GB; --extra cpu without an NVIDIA card)
 npm --prefix app install            Electron, pdf.js
 npm run app                         the window
 ```
@@ -97,7 +97,8 @@ back to PyPI's torch (on Windows, CPU in place of CUDA). At a shell, give
 `uv run` the same `--extra`, or `--no-sync`. The npm scripts that run
 Python (`check:all`, `harness`, `audit`, `judge`, `gate:ingestion`) pass
 the extra themselves, reading it off the torch the environment has, and
-make a missing environment with `cpu`. On an RTX 5080 the first paper of a
+make a missing environment with `cpu`; `npm run app` starts the worker
+with `--no-sync` once the environment exists. On an RTX 5080 the first paper of a
 session takes ~30 s (CUDA warm-up) and every paper after it ~2 s. Nothing
 else is Windows-specific: the same `uv sync`, `npm --prefix app install`,
 `npm run app` from PowerShell or Git Bash.
@@ -422,9 +423,9 @@ library — `held-out-pdf` beside `held-out-xml`, `looped-ligament-pairs`
 beside `looped-ligament`:
 
 ```
-uv run --project parser python -m litrag_parser.pairs --pdf-lib <library> --xml-lib <library> --json <outside the repo>/pairs.json
-uv run --project parser python -m litrag_parser.pairs --pdf-lib <library> --xml-lib <library> --show doi:10.…
-uv run --project parser python -m litrag_parser.confidence --calibrate <outside the repo>/pairs.json …
+uv run --project parser --no-sync python -m litrag_parser.pairs --pdf-lib <library> --xml-lib <library> --json <outside the repo>/pairs.json
+uv run --project parser --no-sync python -m litrag_parser.pairs --pdf-lib <library> --xml-lib <library> --show doi:10.…
+uv run --project parser --no-sync python -m litrag_parser.confidence --calibrate <outside the repo>/pairs.json …
 ```
 
 On 199 such papers the text is nearly always all there (recall 0.99), and
@@ -470,7 +471,7 @@ or `judge` request); `LITRAG_OUTLINE_MODEL` picks the model.
 
 ```
 LITRAG_OUTLINE=on npm run app
-uv run --project parser python -m litrag_parser.outline --pdf-lib <library> --xml-lib <library> --model qwen3:14b --json <outside the repo>/outline.json
+uv run --project parser --no-sync python -m litrag_parser.outline --pdf-lib <library> --xml-lib <library> --model qwen3:14b --json <outside the repo>/outline.json
 ```
 
 The second line measures a model on papers held in both formats: the
@@ -572,8 +573,8 @@ logo filed as a figure on every page. The audit walks every node against
 its neighbours and names those, graded error / warn / info:
 
 ```
-uv run --project parser python -m litrag_parser.audit --lib ~/.protracker/library/looped-ligament
-uv run --project parser python -m litrag_parser.audit parser/tests/fixtures/*.docling.json --errors
+uv run --project parser --no-sync python -m litrag_parser.audit --lib ~/.protracker/library/looped-ligament
+uv run --project parser --no-sync python -m litrag_parser.audit parser/tests/fixtures/*.docling.json --errors
 ```
 
 The worker answers the same to an `audit` op. The fixtures audit clean of
@@ -599,7 +600,7 @@ fine way to look at a library; so is the worker's `sql` op.
 ## The worker on its own
 
 ```
-uv run --project parser litrag-parser --root=/path/to/root
+uv run --project parser --no-sync litrag-parser --root=/path/to/root
 {"id":"1","op":"init","name":"Looped Ligament"}
 {"id":"2","op":"ingest","lib":"looped-ligament","paths":["/path/to/paper.pdf"]}
 {"id":"3","op":"tree","lib":"looped-ligament","key":"doi:10.3390/mi15070851"}

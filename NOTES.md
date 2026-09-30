@@ -89,6 +89,29 @@ when it turns out durable. Mark inference as inference.
 
 ## Short-term memory
 
+- **2026-09-30: installable by a script** — Karim: "the installation should essentially be a bat
+  script that installs dependencies, followed by the software itself". Built in three worktrees
+  against one contract (per-user root `%LOCALAPPDATA%\litrag` with `app\ venv\ uv\`; the
+  installed app runs `venv\Scripts\litrag-parser.exe`, never uv; torch extras `cpu`/`cu130`) and
+  merged on `claude/epic-knuth-1dlvv9`. What was learned:
+  - **uv cannot default Windows to CUDA beside a `cpu` extra**: a source on the plain dependency
+    applies under every extra too, and `uv lock` refuses ("conflicting indexes for package torch
+    in split win32"). So no extra is PyPI's torch — CPU on Windows — and his Windows checkout
+    needs `uv sync --project parser --extra cu130` once.
+  - **uv remembers no extra.** A `uv run` without the sync's extra syncs back to PyPI's torch:
+    uv 0.12 swaps the build (CUDA → CPU on Windows); uv 0.8 kept torch but added 19 CUDA
+    packages on Linux (1.4 → 5.4 GB). Hence `bin/parser-run.js` (reads the extra off the
+    installed torch) for the npm scripts, `--no-sync` in the docs, and the window's checkout
+    launch with `--no-sync` once an environment exists.
+  - **Sizes:** release zip 134 MB, tar.gz 111 MB (`app.asar` 3.9 MB); a cpu environment 1.4 GB,
+    cu130 or PyPI 5.9 GB on Linux; the Windows cu130 wheel a 2.0 GB download.
+  - **Docling 2.126's `docling-tools models download layout tableformer -o <root>/models/docling`**
+    writes the `repo--name` folders `worker.py`'s `artifacts_path` reads: an installed worker read
+    a PDF with the Hub offline.
+  - **Never executed:** anything on Windows (`install.ps1`, winget, `nvidia-smi`, the shortcut,
+    `litrag.exe`) and `release.yml` itself; the `.ps1` files were parsed, not run. Linux was run
+    end to end (below, and in each worktree). The first real Windows install is Karim's.
+
 - **2026-09-30: citations and the type, ported from `claude/ingestion-generalization` — and not
   yet measured** — That branch (tip bea09b2, 19 commits of 2026-09-17/18, never a PR) forked from
   1d8b5ad, and main's `citations.py` and `paper_type.py` were still byte-identical to the fork
