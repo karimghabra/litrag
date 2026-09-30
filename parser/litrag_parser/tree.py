@@ -1066,6 +1066,18 @@ def _fragment_forward(it: dict[str, Any], items: list[dict[str, Any]], i: int, o
 
 _REF_ENTRY = re.compile(r"^(?:\[\d{1,3}\]|\d{1,3}\.)\s+\S|^[A-Z][A-Za-z'\u2019\-]+(?:,\s*|\s+)(?:[A-Z]\.?\s?){1,3}[,;.]|^[A-Z][A-Za-z'\u2019\-]+\s+[A-Z]{1,3}[,.]\s|^[A-Z][A-Za-z'\u2019\-]+,\s+[A-Z][a-z]+|^(?:[A-Z]\.\s?){1,3}[A-Z][A-Za-z'\u2019\-]+,\s")  # "[12] …", "12. …", "Smith, J. A.;", "Smith JA,", "Smith, John", "J. A. Smith," (Wiley)
 _A_YEAR = re.compile(r"\b(?:19|20)\d{2}\b")
+_SPACED_STOP = re.compile(r"\s+([,;.)\]])")
+
+
+def _tight(text: str) -> str:
+    """The spacing the layout model leaves in a reference entry, taken out again: a Wiley PDF
+    reaches Docling as "E.    Peled  ,    D.    Golodnitsky ," and a Nature one as "1 . Collins,
+    F . S.", where the pages printed "E. Peled, D. Golodnitsky," and "1. Collins, F. S." Every
+    pattern for an entry is about initials and punctuation, so with that spacing left in they
+    match nothing on such a page — which is how two reviews with three hundred references each
+    arrived with no reference list at all. Every rule below that asks whether a block is an
+    entry asks it of the block tightened; the block's own text is not changed."""
+    return _SPACED_STOP.sub(r"\1", " ".join(text.split()))
 
 
 def _entries_follow(items: list[dict[str, Any]], index: int, within: int = 40) -> bool:
@@ -1081,6 +1093,7 @@ def _entries_follow(items: list[dict[str, Any]], index: int, within: int = 40) -
             if top_number(text) is not None or role_of(text, meaning=False) not in ("other", "back"):
                 return False  # a body section begins: the list is over
             continue
+        text = _tight(text)
         if it.get("label") in ("list_item", "text", "paragraph") and len(text) < 700 and _REF_ENTRY.match(text) and _A_YEAR.search(text):
             return True
     return False
@@ -1096,7 +1109,7 @@ def _infer_references(items: list[dict[str, Any]], repairs: dict[str, int]) -> l
     n = len(items)
     flags = []
     for it in items:
-        text = (it.get("text") or "").strip()
+        text = _tight((it.get("text") or "").strip())
         flags.append(it.get("label") in ("list_item", "text", "paragraph") and len(text) < 700 and bool(_REF_ENTRY.match(text)) and bool(_A_YEAR.search(text)))
     by_rule = list(flags)  # a run opens at an entry a pattern knows, or at a verdict the next item agrees with; a lone verdict never opens
     # an entry shaped like none of the patterns — the embedder says what it resembles, for
@@ -2593,7 +2606,7 @@ def build_tree(doc: dict[str, Any], key: str, title_hint: str | None = None, jud
             continue
 
         parent = stack[-1][1]
-        if len(stack) > 1 and stack[-1][0] > 1 and parent.role == "back" and next((n.role for lvl, n in stack if lvl == 1), None) == "references" and label in ("list_item", "text", "paragraph") and len(text) < 700 and _REF_ENTRY.match(text) and _A_YEAR.search(text):
+        if len(stack) > 1 and stack[-1][0] > 1 and parent.role == "back" and next((n.role for lvl, n in stack if lvl == 1), None) == "references" and label in ("list_item", "text", "paragraph") and len(_tight(text)) < 700 and _REF_ENTRY.match(_tight(text)) and _A_YEAR.search(text):
             while len(stack) > 1 and stack[-1][0] > 1:
                 stack.pop()  # an entry again: the statement read between the entries is over, the list goes on
             parent = stack[-1][1]
