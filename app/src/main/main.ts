@@ -4,9 +4,10 @@
  * directly; it asks here, and every worker event is forwarded to it.
  */
 
-import { app, BrowserWindow, dialog, ipcMain } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { runCollect, type CollectJob } from './collect.ts';
 import { ParserWorker } from './worker.ts';
 import type { Event } from './protocol.ts';
 
@@ -36,6 +37,9 @@ function startWorker(): ParserWorker {
   return w;
 }
 
+/** `LITRAG_HEADLESS=1`: no window on any screen — hidden, rendered offscreen — for tests and CI. */
+const headless = process.env['LITRAG_HEADLESS'] === '1';
+
 function createWindow(): void {
   win = new BrowserWindow({
     width: 1480,
@@ -44,11 +48,15 @@ function createWindow(): void {
     minHeight: 600,
     title: 'litrag',
     backgroundColor: '#f6f5f2',
+    show: !headless,
     webPreferences: {
       preload: join(__dirname, 'preload.cjs'),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: false,
+      offscreen: headless,
+      // a hidden page's animation frames are paused by Chromium, and pdf.js paints on them
+      backgroundThrottling: !headless,
     },
   });
   win.loadFile(join(__dirname, 'index.html'));
@@ -75,6 +83,13 @@ ipcMain.handle('dialog:pdfs', async () => {
 ipcMain.handle('file:read', async (_e, path: string) => {
   const buf = await readFile(path);
   return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+});
+
+ipcMain.handle('collect:run', async (_e, job: CollectJob) => runCollect(job, (event) => forward(event)));
+
+ipcMain.handle('shell:open', async (_e, url: string) => {
+  // only a web page, and only when a person clicked a link: nothing else leaves the machine this way
+  if (/^https?:\/\//i.test(String(url))) await shell.openExternal(String(url));
 });
 
 ipcMain.handle('app:info', async () => {

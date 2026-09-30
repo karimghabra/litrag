@@ -1,0 +1,6691 @@
+{
+ "salt": "litrag-dynamic-reader-2026-09-21",
+ "shares": {
+  "DEV": 35,
+  "VAL": 25,
+  "SEALED": 20,
+  "EXAM": 15,
+  "RESERVE": 5
+ },
+ "per_prefix": 3,
+ "fitted_prefixes": [
+  "10.1002",
+  "10.1007",
+  "10.1016",
+  "10.1017",
+  "10.1021",
+  "10.1029",
+  "10.1038",
+  "10.1039",
+  "10.1042",
+  "10.1046",
+  "10.1055",
+  "10.1056",
+  "10.1073",
+  "10.1080",
+  "10.1088",
+  "10.1089",
+  "10.1093",
+  "10.1097",
+  "10.1098",
+  "10.1099",
+  "10.1111",
+  "10.1126",
+  "10.1128",
+  "10.1136",
+  "10.1155",
+  "10.1159",
+  "10.1163",
+  "10.1172",
+  "10.1177",
+  "10.1183",
+  "10.1186",
+  "10.12659",
+  "10.13004",
+  "10.1371",
+  "10.14202",
+  "10.14309",
+  "10.14423",
+  "10.14740",
+  "10.14814",
+  "10.15585",
+  "10.1589",
+  "10.1590",
+  "10.1681",
+  "10.17113",
+  "10.17221",
+  "10.18502",
+  "10.18699",
+  "10.21037",
+  "10.21315",
+  "10.2147",
+  "10.2196",
+  "10.2337",
+  "10.2340",
+  "10.23889",
+  "10.25259",
+  "10.26599",
+  "10.2903",
+  "10.30498",
+  "10.3109",
+  "10.3233",
+  "10.33140",
+  "10.3346",
+  "10.3389",
+  "10.3390",
+  "10.3402",
+  "10.34133",
+  "10.3762",
+  "10.3892",
+  "10.3897",
+  "10.3947",
+  "10.4055",
+  "10.4103",
+  "10.4240",
+  "10.4269",
+  "10.4274",
+  "10.5049",
+  "10.5281",
+  "10.5371",
+  "10.5409",
+  "10.5435",
+  "10.5455",
+  "10.5468",
+  "10.5492",
+  "10.5599",
+  "10.7150",
+  "10.7717",
+  "10.7759"
+ ],
+ "note": "DEV also contains every library the reader was built on; those publishers are the `fitted_prefixes` above and are never drawn into VAL, SEALED or EXAM.",
+ "papers": [
+  {
+   "pmcid": "PMC12994734",
+   "doi": "10.1044/2025_ajslp-25-00286",
+   "prefix": "10.1044",
+   "journal": "American journal of speech-language pathology",
+   "publisher": "9114726",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "speech language pathology",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC12133226",
+   "doi": "10.1063/4.0000756",
+   "prefix": "10.1063",
+   "journal": "Structural dynamics (Melville, N.Y.)",
+   "publisher": "101660872",
+   "year": "2025",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "mineralogy crystal structure",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC11457099",
+   "doi": "10.1107/s2052520624007352",
+   "prefix": "10.1107",
+   "journal": "Acta crystallographica Section B, Structural science, crystal engineering and materials",
+   "publisher": "101609037",
+   "year": "2024",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "mineralogy crystal structure",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC11707689",
+   "doi": "10.1107/s2052252524011060",
+   "prefix": "10.1107",
+   "journal": "IUCrJ",
+   "publisher": "101623101",
+   "year": "2025",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "mineralogy crystal structure",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC12809441",
+   "doi": "10.1107/s1600577525002917",
+   "prefix": "10.1107",
+   "journal": "Journal of synchrotron radiation",
+   "publisher": "9888878",
+   "year": "2026",
+   "types": [
+    "editorial",
+    "Historical Article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "PUB_TYPE:\"Historical Article\"",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC13267673",
+   "doi": "10.1113/jp289183",
+   "prefix": "10.1113",
+   "journal": "The Journal of physiology",
+   "publisher": "0266262",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "neuroscience synaptic plasticity",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC12928783",
+   "doi": "10.1161/strokeaha.125.052763",
+   "prefix": "10.1161",
+   "journal": "Stroke",
+   "publisher": "0235266",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Multicenter Study",
+    "Randomized Controlled Trial",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "rehabilitation gait training",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC13055657",
+   "doi": "10.1161/jaha.125.046946",
+   "prefix": "10.1161",
+   "journal": "Journal of the American Heart Association",
+   "publisher": "101580524",
+   "year": "2026",
+   "types": [
+    "Research Support, Non-U.S. Gov't",
+    "research-article",
+    "Multicenter Study",
+    "Randomized Controlled Trial",
+    "Pragmatic Clinical Trial",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "occupational therapy stroke",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC13055663",
+   "doi": "10.1161/jaha.125.045789",
+   "prefix": "10.1161",
+   "journal": "Journal of the American Heart Association",
+   "publisher": "101580524",
+   "year": "2026",
+   "types": [
+    "Research Support, Non-U.S. Gov't",
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "air quality particulate",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC12994001",
+   "doi": "10.1162/imag.a.1162",
+   "prefix": "10.1162",
+   "journal": "Imaging neuroscience (Cambridge, Mass.)",
+   "publisher": "9918663686606676",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "information retrieval evaluation",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC13195919",
+   "doi": "10.1162/imag.a.1236",
+   "prefix": "10.1162",
+   "journal": "Imaging neuroscience (Cambridge, Mass.)",
+   "publisher": "9918663686606676",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "signal processing biomedical",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC13233093",
+   "doi": "10.1162/opmi.a.354",
+   "prefix": "10.1162",
+   "journal": "Open mind : discoveries in cognitive science",
+   "publisher": "101723793",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "mathematics education",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC13261853",
+   "doi": "10.1182/bloodadvances.2026020389",
+   "prefix": "10.1182",
+   "journal": "Blood advances",
+   "publisher": "101698425",
+   "year": "2026",
+   "types": [
+    "Comment",
+    "Editorial"
+   ],
+   "is_author_ms": false,
+   "query": "PUB_TYPE:\"Comment\"",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC13261881",
+   "doi": "10.1182/bloodadvances.2026020387",
+   "prefix": "10.1182",
+   "journal": "Blood advances",
+   "publisher": "101698425",
+   "year": "2026",
+   "types": [
+    "Comment",
+    "Editorial"
+   ],
+   "is_author_ms": false,
+   "query": "PUB_TYPE:\"Comment\"",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC13261941",
+   "doi": "10.1182/bloodadvances.2026020152",
+   "prefix": "10.1182",
+   "journal": "Blood advances",
+   "publisher": "101698425",
+   "year": "2026",
+   "types": [
+    "Comment",
+    "Editorial"
+   ],
+   "is_author_ms": false,
+   "query": "PUB_TYPE:\"Comment\"",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC13008500",
+   "doi": "10.1210/jcemcr/luag058",
+   "prefix": "10.1210",
+   "journal": "JCEM case reports",
+   "publisher": "9918609886906676",
+   "year": "2026",
+   "types": [
+    "Journal Article",
+    "Case Reports",
+    "case-report"
+   ],
+   "is_author_ms": false,
+   "query": "endocrinology thyroid function",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC13069481",
+   "doi": "10.1210/jcemcr/luag051",
+   "prefix": "10.1210",
+   "journal": "JCEM case reports",
+   "publisher": "9918609886906676",
+   "year": "2026",
+   "types": [
+    "Journal Article",
+    "Case Reports",
+    "case-report"
+   ],
+   "is_author_ms": false,
+   "query": "endocrinology thyroid function",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC13097119",
+   "doi": "10.1210/jcemcr/luag084",
+   "prefix": "10.1210",
+   "journal": "JCEM case reports",
+   "publisher": "9918609886906676",
+   "year": "2026",
+   "types": [
+    "Journal Article",
+    "Case Reports",
+    "case-report"
+   ],
+   "is_author_ms": false,
+   "query": "endocrinology thyroid function",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC12560744",
+   "doi": "10.1227/neuprac.0000000000000162",
+   "prefix": "10.1227",
+   "journal": "Neurosurgery practice",
+   "publisher": "9918609288906676",
+   "year": "2025",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "natural language processing clinical not",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC13242473",
+   "doi": "10.1245/s10434-026-19130-1",
+   "prefix": "10.1245",
+   "journal": "Annals of surgical oncology",
+   "publisher": "9420840",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "biostatistics survival analysis",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC12634151",
+   "doi": "10.1302/2633-1462.611.bjo-2025-0138.r1",
+   "prefix": "10.1302",
+   "journal": "Bone & joint open",
+   "publisher": "101770336",
+   "year": "2025",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "orthopaedics arthroplasty outcome",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC12698235",
+   "doi": "10.1302/2633-1462.612.bjo-2025-0164.r1",
+   "prefix": "10.1302",
+   "journal": "Bone & joint open",
+   "publisher": "101770336",
+   "year": "2025",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "orthopaedics arthroplasty outcome",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC12906950",
+   "doi": "10.1302/2633-1462.72.bjo-2025-0029.r1",
+   "prefix": "10.1302",
+   "journal": "Bone & joint open",
+   "publisher": "101770336",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "library science open access",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC12801283",
+   "doi": "10.13107/jocr.2026.v16.i01.6672",
+   "prefix": "10.13107",
+   "journal": "Journal of orthopaedic case reports",
+   "publisher": "101641392",
+   "year": "2026",
+   "types": [
+    "Journal Article",
+    "Case Reports",
+    "case-report"
+   ],
+   "is_author_ms": false,
+   "query": "orthopaedics arthroplasty outcome",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC12801329",
+   "doi": "10.13107/jocr.2026.v16.i01.6652",
+   "prefix": "10.13107",
+   "journal": "Journal of orthopaedic case reports",
+   "publisher": "101641392",
+   "year": "2026",
+   "types": [
+    "Journal Article",
+    "Case Reports",
+    "case-report"
+   ],
+   "is_author_ms": false,
+   "query": "orthopaedics arthroplasty outcome",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC13062288",
+   "doi": "10.13107/jocr.2026.v16.i04.7014",
+   "prefix": "10.13107",
+   "journal": "Journal of orthopaedic case reports",
+   "publisher": "101641392",
+   "year": "2026",
+   "types": [
+    "Editorial"
+   ],
+   "is_author_ms": false,
+   "query": "rehabilitation gait training",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC12643015",
+   "doi": "10.1364/boe.576417",
+   "prefix": "10.1364",
+   "journal": "Biomedical optics express",
+   "publisher": "101540630",
+   "year": "2025",
+   "types": [
+    "review-article",
+    "Review",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "control systems robotics",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC12795444",
+   "doi": "10.1364/boe.549285",
+   "prefix": "10.1364",
+   "journal": "Biomedical optics express",
+   "publisher": "101540630",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "optometry myopia control",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC13155820",
+   "doi": "10.1364/boe.589972",
+   "prefix": "10.1364",
+   "journal": "Biomedical optics express",
+   "publisher": "101540630",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "signal processing biomedical",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC13063123",
+   "doi": "10.14218/jcth.2025.00423",
+   "prefix": "10.14218",
+   "journal": "Journal of clinical and translational hepatology",
+   "publisher": "101649815",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "hepatology fibrosis",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC13195392",
+   "doi": "10.14218/jcth.2025.00711",
+   "prefix": "10.14218",
+   "journal": "Journal of clinical and translational hepatology",
+   "publisher": "101649815",
+   "year": "2026",
+   "types": [
+    "other",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "hepatology fibrosis",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC13247715",
+   "doi": "10.14218/jcth.2026.00043",
+   "prefix": "10.14218",
+   "journal": "Journal of clinical and translational hepatology",
+   "publisher": "101649815",
+   "year": "2026",
+   "types": [
+    "review-article",
+    "Review",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "hepatology fibrosis",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC11744060",
+   "doi": "10.14440/jbm.2024.0038",
+   "prefix": "10.14440",
+   "journal": "Journal of biological methods",
+   "publisher": "101639022",
+   "year": "2024",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "herpetology conservation",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC12994748",
+   "doi": "10.14475/jhpc.2026.29.1.1",
+   "prefix": "10.14475",
+   "journal": "Journal of hospice and palliative care",
+   "publisher": "9918419183806676",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "palliative care communication",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC13246313",
+   "doi": "10.14475/jhpc.2026.29.2.51",
+   "prefix": "10.14475",
+   "journal": "Journal of hospice and palliative care",
+   "publisher": "9918419183806676",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "palliative care communication",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC12821119",
+   "doi": "10.14744/nci.2025.43789",
+   "prefix": "10.14744",
+   "journal": "Northern clinics of Istanbul",
+   "publisher": "101684520",
+   "year": "2025",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "endocrinology thyroid function",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC12831977",
+   "doi": "10.14744/hf.2026.86483",
+   "prefix": "10.14744",
+   "journal": "Hepatology forum",
+   "publisher": "9918351171306676",
+   "year": "2026",
+   "types": [
+    "Editorial"
+   ],
+   "is_author_ms": false,
+   "query": "hepatology fibrosis",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC13168739",
+   "doi": "10.14744/tjtes.2026.33746",
+   "prefix": "10.14744",
+   "journal": "Ulusal travma ve acil cerrahi dergisi = Turkish journal of trauma & emergency surgery : TJTES",
+   "publisher": "101274231",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "emergency triage sepsis",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC13068135",
+   "doi": "10.14745/ccdr.v52i03a02",
+   "prefix": "10.14745",
+   "journal": "Canada communicable disease report = Releve des maladies transmissibles au Canada",
+   "publisher": "9303729",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "public health vaccination uptake",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC12513358",
+   "doi": "10.14797/mdcvj.1663",
+   "prefix": "10.14797",
+   "journal": "Methodist DeBakey cardiovascular journal",
+   "publisher": "101508600",
+   "year": "2025",
+   "types": [
+    "review-article",
+    "Review",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "control systems robotics",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC13124239",
+   "doi": "10.1503/cjs.003226",
+   "prefix": "10.1503",
+   "journal": "Canadian journal of surgery. Journal canadien de chirurgie",
+   "publisher": "0372715",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "bibliometrics citation",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC13155882",
+   "doi": "10.1503/cjs.015624",
+   "prefix": "10.1503",
+   "journal": "Canadian journal of surgery. Journal canadien de chirurgie",
+   "publisher": "0372715",
+   "year": "2026",
+   "types": [
+    "Research Support, Non-U.S. Gov't",
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "medical education curriculum",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC13218603",
+   "doi": "10.1503/cmaj.251293",
+   "prefix": "10.1503",
+   "journal": "CMAJ : Canadian Medical Association journal = journal de l'Association medicale canadienne",
+   "publisher": "9711805",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "obstetrics preeclampsia",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC6865078",
+   "doi": "10.15167/2421-4248/jpmh2019.60.3s1",
+   "prefix": "10.15167",
+   "journal": "Journal of preventive medicine and hygiene",
+   "publisher": "9214440",
+   "year": "2019",
+   "types": [
+    "meeting-report",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "structural seismic retrofit",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC13294561",
+   "doi": "10.15420/ecr.2026.17",
+   "prefix": "10.15420",
+   "journal": "European cardiology",
+   "publisher": "101574780",
+   "year": "2026",
+   "types": [
+    "review-article",
+    "Review",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "cardiology heart failure",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC12824533",
+   "doi": "10.15441/ceem.25.291",
+   "prefix": "10.15441",
+   "journal": "Clinical and experimental emergency medicine",
+   "publisher": "101657493",
+   "year": "2025",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "emergency triage sepsis",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC13122507",
+   "doi": "10.17912/micropub.biology.002102",
+   "prefix": "10.17912",
+   "journal": "microPublication biology",
+   "publisher": "101759238",
+   "year": "2026",
+   "types": [
+    "brief-report",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "proteomics mass spectrometry",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC13268828",
+   "doi": "10.18773/austprescr.2026.025",
+   "prefix": "10.18773",
+   "journal": "Australian prescriber",
+   "publisher": "7804938",
+   "year": "2026",
+   "types": [
+    "Letter",
+    "Comment"
+   ],
+   "is_author_ms": false,
+   "query": "rheumatology biologic therapy",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC13268830",
+   "doi": "10.18773/austprescr.2026.024",
+   "prefix": "10.18773",
+   "journal": "Australian prescriber",
+   "publisher": "7804938",
+   "year": "2026",
+   "types": [
+    "Comment",
+    "News"
+   ],
+   "is_author_ms": false,
+   "query": "PUB_TYPE:\"Comment\"",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC13065381",
+   "doi": "10.20463/pan.2026.0007",
+   "prefix": "10.20463",
+   "journal": "Physical activity and nutrition",
+   "publisher": "101770644",
+   "year": "2026",
+   "types": [
+    "review-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "rehabilitation gait training",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC13199641",
+   "doi": "10.2183/pjab.102.011",
+   "prefix": "10.2183",
+   "journal": "Proceedings of the Japan Academy. Series B, Physical and biological sciences",
+   "publisher": "9318162",
+   "year": "2026",
+   "types": [
+    "Historical Article",
+    "other",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "PUB_TYPE:\"Historical Article\"",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC5843763",
+   "doi": "10.2183/pjab.94.009",
+   "prefix": "10.2183",
+   "journal": "Proceedings of the Japan Academy. Series B, Physical and biological sciences",
+   "publisher": "9318162",
+   "year": "2018",
+   "types": [
+    "research-article",
+    "Review",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "structural seismic retrofit",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC8403529",
+   "doi": "10.2183/pjab.97.021",
+   "prefix": "10.2183",
+   "journal": "Proceedings of the Japan Academy. Series B, Physical and biological sciences",
+   "publisher": "9318162",
+   "year": "2021",
+   "types": [
+    "review-article",
+    "Review",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "structural seismic retrofit",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC11922539",
+   "doi": "10.2478/jofnem-2025-0008",
+   "prefix": "10.2478",
+   "journal": "Journal of nematology",
+   "publisher": "9884299",
+   "year": "2025",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "mycology taxonomy new species",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC12591630",
+   "doi": "10.2478/jofnem-2025-0051",
+   "prefix": "10.2478",
+   "journal": "Journal of nematology",
+   "publisher": "9884299",
+   "year": "2025",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "mycology taxonomy new species",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC13054764",
+   "doi": "10.2478/jvetres-2026-0013",
+   "prefix": "10.2478",
+   "journal": "Journal of veterinary research",
+   "publisher": "101696630",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "poultry science gut microbiota",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC13161774",
+   "doi": "10.24908/pocusj.v11i01.20031",
+   "prefix": "10.24908",
+   "journal": "POCUS journal",
+   "publisher": "9918434088906676",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "emergency triage sepsis",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC13161781",
+   "doi": "10.24908/pocusj.v11i01.20051",
+   "prefix": "10.24908",
+   "journal": "POCUS journal",
+   "publisher": "9918434088906676",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "medical education curriculum",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC11905956",
+   "doi": "10.30466/vrf.2024.2026240.4232",
+   "prefix": "10.30466",
+   "journal": "Veterinary research forum : an international quarterly journal",
+   "publisher": "101625812",
+   "year": "2025",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "apiculture colony loss",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC12835698",
+   "doi": "10.30476/ijcbnm.2025.105680.2718",
+   "prefix": "10.30476",
+   "journal": "International journal of community based nursing and midwifery",
+   "publisher": "101615484",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "midwifery birth outcomes",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC12835703",
+   "doi": "10.30476/ijcbnm.2025.106571.2771",
+   "prefix": "10.30476",
+   "journal": "International journal of community based nursing and midwifery",
+   "publisher": "101615484",
+   "year": "2026",
+   "types": [
+    "Letter"
+   ],
+   "is_author_ms": false,
+   "query": "midwifery birth outcomes",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC13122339",
+   "doi": "10.30476/ijcbnm.2025.108531.2900",
+   "prefix": "10.30476",
+   "journal": "International journal of community based nursing and midwifery",
+   "publisher": "101615484",
+   "year": "2026",
+   "types": [
+    "Letter"
+   ],
+   "is_author_ms": false,
+   "query": "palliative care communication",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC12766591",
+   "doi": "10.3168/jdsc.2025-0843",
+   "prefix": "10.3168",
+   "journal": "JDS communications",
+   "publisher": "9918300983806676",
+   "year": "2025",
+   "types": [
+    "review-article",
+    "Review",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "dairy science mastitis",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC12766597",
+   "doi": "10.3168/jdsc.2025-0941",
+   "prefix": "10.3168",
+   "journal": "JDS communications",
+   "publisher": "9918300983806676",
+   "year": "2025",
+   "types": [
+    "Editorial"
+   ],
+   "is_author_ms": false,
+   "query": "dairy science mastitis",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC7546966",
+   "doi": "10.3168/jds.2015-9445",
+   "prefix": "10.3168",
+   "journal": "Journal of dairy science",
+   "publisher": "2985126R",
+   "year": "2016",
+   "types": [
+    "Research Support, Non-U.S. Gov't",
+    "Review",
+    "abstract",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "agronomy irrigation scheduling",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC13128250",
+   "doi": "10.31744/einstein_journal/2026rw1165",
+   "prefix": "10.31744",
+   "journal": "Einstein (Sao Paulo, Brazil)",
+   "publisher": "101281800",
+   "year": "2026",
+   "types": [
+    "review-article",
+    "Review",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "natural language processing clinical not",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC12928246",
+   "doi": "10.3201/eid3202.251279",
+   "prefix": "10.3201",
+   "journal": "Emerging infectious diseases",
+   "publisher": "9508155",
+   "year": "2026",
+   "types": [
+    "Historical Article",
+    "brief-report",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "PUB_TYPE:\"Historical Article\"",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC13016030",
+   "doi": "10.3201/eid3203.251548",
+   "prefix": "10.3201",
+   "journal": "Emerging infectious diseases",
+   "publisher": "9508155",
+   "year": "2026",
+   "types": [
+    "Historical Article",
+    "brief-report",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "PUB_TYPE:\"Historical Article\"",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC13016032",
+   "doi": "10.3201/eid3203.250469",
+   "prefix": "10.3201",
+   "journal": "Emerging infectious diseases",
+   "publisher": "9508155",
+   "year": "2026",
+   "types": [
+    "Historical Article",
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "PUB_TYPE:\"Historical Article\"",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC12743186",
+   "doi": "10.33073/pjm-2025-025",
+   "prefix": "10.33073",
+   "journal": "Polish journal of microbiology",
+   "publisher": "101229003",
+   "year": "2025",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "apiculture colony loss",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC13199068",
+   "doi": "10.3400/avd.ra.26-00063",
+   "prefix": "10.3400",
+   "journal": "Annals of vascular diseases",
+   "publisher": "101471467",
+   "year": "2026",
+   "types": [
+    "review-article",
+    "Review",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "radiology contrast agent",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC13250406",
+   "doi": "10.34172/bi.33047",
+   "prefix": "10.34172",
+   "journal": "BioImpacts : BI",
+   "publisher": "101558125",
+   "year": "2026",
+   "types": [
+    "review-article",
+    "Review",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "pharmacy practice adherence",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC13250484",
+   "doi": "10.34172/bi.33050",
+   "prefix": "10.34172",
+   "journal": "BioImpacts : BI",
+   "publisher": "101558125",
+   "year": "2026",
+   "types": [
+    "Editorial"
+   ],
+   "is_author_ms": false,
+   "query": "pharmacy practice adherence",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC13143754",
+   "doi": "10.36416/1806-3756/e20250168",
+   "prefix": "10.36416",
+   "journal": "Jornal brasileiro de pneumologia : publicacao oficial da Sociedade Brasileira de Pneumologia e Tisilogia",
+   "publisher": "101222274",
+   "year": "2025",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "air quality particulate",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC11991706",
+   "doi": "10.36519/idcm.2025.449",
+   "prefix": "10.36519",
+   "journal": "Infectious diseases & clinical microbiology",
+   "publisher": "9918680988406676",
+   "year": "2025",
+   "types": [
+    "letter",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "podiatry diabetic foot",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC13242149",
+   "doi": "10.36834/cmej.81766",
+   "prefix": "10.36834",
+   "journal": "Canadian medical education journal",
+   "publisher": "101560935",
+   "year": "2026",
+   "types": [
+    "review-article",
+    "Review",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "medical education curriculum",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC13231321",
+   "doi": "10.37201/req/145.2026",
+   "prefix": "10.37201",
+   "journal": "Revista espanola de quimioterapia : publicacion oficial de la Sociedad Espanola de Quimioterapia",
+   "publisher": "9108821",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article",
+    "Observational Study"
+   ],
+   "is_author_ms": false,
+   "query": "emergency triage sepsis",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC13125055",
+   "doi": "10.3746/pnf.2025.286",
+   "prefix": "10.3746",
+   "journal": "Preventive nutrition and food science",
+   "publisher": "101586663",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "food science fermentation",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC13046612",
+   "doi": "10.3758/s13423-026-02902-x",
+   "prefix": "10.3758",
+   "journal": "Psychonomic bulletin & review",
+   "publisher": "9502924",
+   "year": "2026",
+   "types": [
+    "review-article",
+    "Review",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "control systems robotics",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC13221353",
+   "doi": "10.3758/s13428-026-03024-x",
+   "prefix": "10.3758",
+   "journal": "Behavior research methods",
+   "publisher": "101244316",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "statistics missing data",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC13221368",
+   "doi": "10.3758/s13428-026-03047-4",
+   "prefix": "10.3758",
+   "journal": "Behavior research methods",
+   "publisher": "101244316",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "library science open access",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC12648146",
+   "doi": "10.3766/jaaa.240024",
+   "prefix": "10.3766",
+   "journal": "Journal of the American Academy of Audiology",
+   "publisher": "9114646",
+   "year": "2025",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "audiology hearing aid",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC13105854",
+   "doi": "10.3766/jaaa.250302",
+   "prefix": "10.3766",
+   "journal": "Journal of the American Academy of Audiology",
+   "publisher": "9114646",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "audiology hearing aid",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC13047319",
+   "doi": "10.3934/microbiol.2026006",
+   "prefix": "10.3934",
+   "journal": "AIMS microbiology",
+   "publisher": "101697141",
+   "year": "2026",
+   "types": [
+    "review-article",
+    "Review",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "aquaculture feed conversion",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC12740848",
+   "doi": "10.4014/jmb.2508.08049",
+   "prefix": "10.4014",
+   "journal": "Journal of microbiology and biotechnology",
+   "publisher": "9431852",
+   "year": "2025",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "aquaculture feed conversion",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC13259618",
+   "doi": "10.4014/jmb.2603.03009",
+   "prefix": "10.4014",
+   "journal": "Journal of microbiology and biotechnology",
+   "publisher": "9431852",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "food science fermentation",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC13225942",
+   "doi": "10.4068/cmj.2026.62.2.55",
+   "prefix": "10.4068",
+   "journal": "Chonnam medical journal",
+   "publisher": "101564659",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "cardiology heart failure",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC13216679",
+   "doi": "10.4082/kjfm.47.3e",
+   "prefix": "10.4082",
+   "journal": "Korean journal of family medicine",
+   "publisher": "101502902",
+   "year": "2026",
+   "types": [
+    "Comment",
+    "Editorial"
+   ],
+   "is_author_ms": false,
+   "query": "PUB_TYPE:\"Comment\"",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC13058503",
+   "doi": "10.4102/safp.v68i2.6300",
+   "prefix": "10.4102",
+   "journal": "South African family practice : official journal of the South African Academy of Family Practice/Primary Care",
+   "publisher": "9701104",
+   "year": "2026",
+   "types": [
+    "Historical Article",
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "PUB_TYPE:\"Historical Article\"",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC13058520",
+   "doi": "10.4102/safp.v68i2.6282",
+   "prefix": "10.4102",
+   "journal": "South African family practice : official journal of the South African Academy of Family Practice/Primary Care",
+   "publisher": "9701104",
+   "year": "2026",
+   "types": [
+    "Historical Article",
+    "research-article",
+    "Editorial"
+   ],
+   "is_author_ms": false,
+   "query": "PUB_TYPE:\"Historical Article\"",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC13149527",
+   "doi": "10.4102/sajp.v82i1.2357",
+   "prefix": "10.4102",
+   "journal": "The South African journal of physiotherapy",
+   "publisher": "9816433",
+   "year": "2026",
+   "types": [
+    "Letter"
+   ],
+   "is_author_ms": false,
+   "query": "occupational therapy stroke",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC13243509",
+   "doi": "10.4162/nrp.2026.20.3.504",
+   "prefix": "10.4162",
+   "journal": "Nutrition research and practice",
+   "publisher": "101311052",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "air quality particulate",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC12946569",
+   "doi": "10.4178/epih.e2026002",
+   "prefix": "10.4178",
+   "journal": "Epidemiology and health",
+   "publisher": "101519472",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "dental implant osseointegration",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC13033439",
+   "doi": "10.4178/epih.e2026005",
+   "prefix": "10.4178",
+   "journal": "Epidemiology and health",
+   "publisher": "101519472",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "epidemiology cohort profile",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC12897422",
+   "doi": "10.4239/wjd.v17.i2.113906",
+   "prefix": "10.4239",
+   "journal": "World journal of diabetes",
+   "publisher": "101547524",
+   "year": "2026",
+   "types": [
+    "Letter"
+   ],
+   "is_author_ms": false,
+   "query": "dental implant osseointegration",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC12916054",
+   "doi": "10.4317/jced.63321",
+   "prefix": "10.4317",
+   "journal": "Journal of clinical and experimental dentistry",
+   "publisher": "101603132",
+   "year": "2025",
+   "types": [
+    "review-article",
+    "Review",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "dental implant osseointegration",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC13135286",
+   "doi": "10.4317/medoral.27841",
+   "prefix": "10.4317",
+   "journal": "Medicina oral, patologia oral y cirugia bucal",
+   "publisher": "101231694",
+   "year": "2026",
+   "types": [
+    "review-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "dental implant osseointegration",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC13135290",
+   "doi": "10.4317/medoral.28043",
+   "prefix": "10.4317",
+   "journal": "Medicina oral, patologia oral y cirugia bucal",
+   "publisher": "101231694",
+   "year": "2026",
+   "types": [
+    "review-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "dental implant osseointegration",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC13058445",
+   "doi": "10.46471/gigabyte.175",
+   "prefix": "10.46471",
+   "journal": "GigaByte (Hong Kong, China)",
+   "publisher": "101775049",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "ecology species distribution",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC13062953",
+   "doi": "10.47371/mycosci.2025.05.001",
+   "prefix": "10.47371",
+   "journal": "Mycoscience",
+   "publisher": "9890476",
+   "year": "2025",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "mycology taxonomy new species",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC12647935",
+   "doi": "10.48130/forres-0025-0022",
+   "prefix": "10.48130",
+   "journal": "Forestry research",
+   "publisher": "9918863344406676",
+   "year": "2025",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "forestry biomass yield",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC12648161",
+   "doi": "10.48130/forres-0025-0029",
+   "prefix": "10.48130",
+   "journal": "Forestry research",
+   "publisher": "9918863344406676",
+   "year": "2025",
+   "types": [
+    "review-article",
+    "Review",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "forestry biomass yield",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC13195491",
+   "doi": "10.48130/forres-0026-0016",
+   "prefix": "10.48130",
+   "journal": "Forestry research",
+   "publisher": "9918863344406676",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "evolution phylogenetics",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC12793989",
+   "doi": "10.5114/ait/215145",
+   "prefix": "10.5114",
+   "journal": "Anaesthesiology intensive therapy",
+   "publisher": "101472620",
+   "year": "2025",
+   "types": [
+    "editorial",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "anaesthesia postoperative pain",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC13019873",
+   "doi": "10.5114/ppn.2026.159801",
+   "prefix": "10.5114",
+   "journal": "Postepy psychiatrii neurologii",
+   "publisher": "9434378",
+   "year": "2026",
+   "types": [
+    "review-article",
+    "Review",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "natural language processing clinical not",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC13022963",
+   "doi": "10.5114/reum/218439",
+   "prefix": "10.5114",
+   "journal": "Reumatologia",
+   "publisher": "20130190R",
+   "year": "2026",
+   "types": [
+    "Letter"
+   ],
+   "is_author_ms": false,
+   "query": "rheumatology biologic therapy",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC12951750",
+   "doi": "10.5271/sjweh.4276",
+   "prefix": "10.5271",
+   "journal": "Scandinavian journal of work, environment & health",
+   "publisher": "7511540",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Editorial"
+   ],
+   "is_author_ms": false,
+   "query": "nursing workforce retention",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC13109918",
+   "doi": "10.5334/aogh.5058",
+   "prefix": "10.5334",
+   "journal": "Annals of global health",
+   "publisher": "101620864",
+   "year": "2026",
+   "types": [
+    "Editorial"
+   ],
+   "is_author_ms": false,
+   "query": "global health equity",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC13155086",
+   "doi": "10.5334/gh.1550",
+   "prefix": "10.5334",
+   "journal": "Global heart",
+   "publisher": "101584391",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Review",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "air quality particulate",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC13239324",
+   "doi": "10.5334/aogh.5268",
+   "prefix": "10.5334",
+   "journal": "Annals of global health",
+   "publisher": "101620864",
+   "year": "2026",
+   "types": [
+    "other",
+    "Review",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "global health equity",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC12991479",
+   "doi": "10.5588/pha.25.0041",
+   "prefix": "10.5588",
+   "journal": "Public health action",
+   "publisher": "101624961",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "pharmacy practice adherence",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC13261551",
+   "doi": "10.5606/tftrd.2026.17265",
+   "prefix": "10.5606",
+   "journal": "Turkish journal of physical medicine and rehabilitation",
+   "publisher": "101719024",
+   "year": "2026",
+   "types": [
+    "Letter"
+   ],
+   "is_author_ms": false,
+   "query": "rehabilitation gait training",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC12897474",
+   "doi": "10.5620/eaht.2025s01",
+   "prefix": "10.5620",
+   "journal": "Environmental analysis, health and toxicology",
+   "publisher": "101758126",
+   "year": "2025",
+   "types": [
+    "Editorial"
+   ],
+   "is_author_ms": false,
+   "query": "environmental toxicology bioaccumulation",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC12901817",
+   "doi": "10.5620/eaht.2025031",
+   "prefix": "10.5620",
+   "journal": "Environmental analysis, health and toxicology",
+   "publisher": "101758126",
+   "year": "2025",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "environmental toxicology bioaccumulation",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC13153645",
+   "doi": "10.5620/eaht.2026006",
+   "prefix": "10.5620",
+   "journal": "Environmental analysis, health and toxicology",
+   "publisher": "101758126",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "air quality particulate",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC13048396",
+   "doi": "10.56305/001c.158387",
+   "prefix": "10.56305",
+   "journal": "Journal of Brown hospital medicine",
+   "publisher": "9918917745006676",
+   "year": "2026",
+   "types": [
+    "other",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "hepatology fibrosis",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC13048828",
+   "doi": "10.56305/001c.159167",
+   "prefix": "10.56305",
+   "journal": "Journal of Brown hospital medicine",
+   "publisher": "9918917745006676",
+   "year": "2026",
+   "types": [
+    "other",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "nephrology dialysis outcome",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC12968744",
+   "doi": "10.5662/wjm.v16.i1.107488",
+   "prefix": "10.5662",
+   "journal": "World journal of methodology",
+   "publisher": "101628739",
+   "year": "2026",
+   "types": [
+    "review-article",
+    "Review",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "natural language processing clinical not",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC13122015",
+   "doi": "10.5662/wjm.v16.i2.114322",
+   "prefix": "10.5662",
+   "journal": "World journal of methodology",
+   "publisher": "101628739",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "obstetrics preeclampsia",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC13044821",
+   "doi": "10.57264/cer-2025-0122",
+   "prefix": "10.57264",
+   "journal": "Journal of comparative effectiveness research",
+   "publisher": "101577308",
+   "year": "2026",
+   "types": [
+    "Research Support, Non-U.S. Gov't",
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "dermatology psoriasis",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC13154590",
+   "doi": "10.57264/cer-2025-0153",
+   "prefix": "10.57264",
+   "journal": "Journal of comparative effectiveness research",
+   "publisher": "101577308",
+   "year": "2026",
+   "types": [
+    "Comparative Study",
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "health economics cost effectiveness",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC13154926",
+   "doi": "10.57264/cer-2026-0049",
+   "prefix": "10.57264",
+   "journal": "Journal of comparative effectiveness research",
+   "publisher": "101577308",
+   "year": "2026",
+   "types": [
+    "Editorial"
+   ],
+   "is_author_ms": false,
+   "query": "health economics cost effectiveness",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC13065428",
+   "doi": "10.5765/jkacap.250045",
+   "prefix": "10.5765",
+   "journal": "Journal of the Korean Academy of Child and Adolescent Psychiatry",
+   "publisher": "9918976761606676",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "psychiatry adolescent depression",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC13065429",
+   "doi": "10.5765/jkacap.250058",
+   "prefix": "10.5765",
+   "journal": "Journal of the Korean Academy of Child and Adolescent Psychiatry",
+   "publisher": "9918976761606676",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "psychiatry adolescent depression",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC13065431",
+   "doi": "10.5765/jkacap.260006",
+   "prefix": "10.5765",
+   "journal": "Journal of the Korean Academy of Child and Adolescent Psychiatry",
+   "publisher": "9918976761606676",
+   "year": "2026",
+   "types": [
+    "Editorial"
+   ],
+   "is_author_ms": false,
+   "query": "psychiatry adolescent depression",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC13211880",
+   "doi": "10.5826/dpc.1602a6775",
+   "prefix": "10.5826",
+   "journal": "Dermatology practical & conceptual",
+   "publisher": "101585990",
+   "year": "2026",
+   "types": [
+    "Letter"
+   ],
+   "is_author_ms": false,
+   "query": "dermatology psoriasis",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC13211926",
+   "doi": "10.5826/dpc.1602a7130",
+   "prefix": "10.5826",
+   "journal": "Dermatology practical & conceptual",
+   "publisher": "101585990",
+   "year": "2026",
+   "types": [
+    "Letter"
+   ],
+   "is_author_ms": false,
+   "query": "dermatology psoriasis",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC13211938",
+   "doi": "10.5826/dpc.1602a7645",
+   "prefix": "10.5826",
+   "journal": "Dermatology practical & conceptual",
+   "publisher": "101585990",
+   "year": "2026",
+   "types": [
+    "Published Erratum",
+    "correction",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "dermatology psoriasis",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC13238934",
+   "doi": "10.5888/pcd23.260031",
+   "prefix": "10.5888",
+   "journal": "Preventing chronic disease",
+   "publisher": "101205018",
+   "year": "2026",
+   "types": [
+    "Research Support, U.S. Gov't, P.H.S.",
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "rural health access",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC13254633",
+   "doi": "10.5946/ce.2026.175",
+   "prefix": "10.5946",
+   "journal": "Clinical endoscopy",
+   "publisher": "101576886",
+   "year": "2026",
+   "types": [
+    "Comment",
+    "Editorial"
+   ],
+   "is_author_ms": false,
+   "query": "PUB_TYPE:\"Comment\"",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC13254642",
+   "doi": "10.5946/ce.2026.161",
+   "prefix": "10.5946",
+   "journal": "Clinical endoscopy",
+   "publisher": "101576886",
+   "year": "2026",
+   "types": [
+    "Comment",
+    "Editorial"
+   ],
+   "is_author_ms": false,
+   "query": "PUB_TYPE:\"Comment\"",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC13254643",
+   "doi": "10.5946/ce.2026.112",
+   "prefix": "10.5946",
+   "journal": "Clinical endoscopy",
+   "publisher": "101576886",
+   "year": "2026",
+   "types": [
+    "Comment",
+    "Editorial"
+   ],
+   "is_author_ms": false,
+   "query": "PUB_TYPE:\"Comment\"",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC12313437",
+   "doi": "10.7874/jao.2024.00710",
+   "prefix": "10.7874",
+   "journal": "Journal of audiology & otology",
+   "publisher": "101657815",
+   "year": "2025",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "audiology hearing aid",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC13129886",
+   "doi": "10.7874/jao.2025.00486",
+   "prefix": "10.7874",
+   "journal": "Journal of audiology & otology",
+   "publisher": "101657815",
+   "year": "2026",
+   "types": [
+    "review-article",
+    "Review",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "speech language pathology",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC13129891",
+   "doi": "10.7874/jao.2025.00633",
+   "prefix": "10.7874",
+   "journal": "Journal of audiology & otology",
+   "publisher": "101657815",
+   "year": "2026",
+   "types": [
+    "review-article",
+    "Review",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "audiology hearing aid",
+   "split": "DEV"
+  },
+  {
+   "pmcid": "PMC12904786",
+   "doi": "10.1057/s41599-026-06690-6",
+   "prefix": "10.1057",
+   "journal": "Humanities & social sciences communications",
+   "publisher": "101772751",
+   "year": "2026",
+   "types": [
+    "Letter"
+   ],
+   "is_author_ms": false,
+   "query": "science policy research funding",
+   "split": "EXAM"
+  },
+  {
+   "pmcid": "PMC13229932",
+   "doi": "10.1057/s41599-026-07057-7",
+   "prefix": "10.1057",
+   "journal": "Humanities & social sciences communications",
+   "publisher": "101772751",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "transport traffic flow",
+   "split": "EXAM"
+  },
+  {
+   "pmcid": "PMC13246440",
+   "doi": "10.1057/s41599-026-07847-z",
+   "prefix": "10.1057",
+   "journal": "Humanities & social sciences communications",
+   "publisher": "101772751",
+   "year": "2026",
+   "types": [
+    "Letter"
+   ],
+   "is_author_ms": false,
+   "query": "science policy research funding",
+   "split": "EXAM"
+  },
+  {
+   "pmcid": "PMC13017165",
+   "doi": "10.11005/jbm.26.1003",
+   "prefix": "10.11005",
+   "journal": "Journal of bone metabolism",
+   "publisher": "101599927",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "dental implant osseointegration",
+   "split": "EXAM"
+  },
+  {
+   "pmcid": "PMC12493121",
+   "doi": "10.1117/1.jbo.30.s3.s34101",
+   "prefix": "10.1117",
+   "journal": "Journal of biomedical optics",
+   "publisher": "9605853",
+   "year": "2025",
+   "types": [
+    "Historical Article",
+    "Editorial"
+   ],
+   "is_author_ms": false,
+   "query": "PUB_TYPE:\"Historical Article\"",
+   "split": "EXAM"
+  },
+  {
+   "pmcid": "PMC13133712",
+   "doi": "10.1117/1.jbo.31.5.054701",
+   "prefix": "10.1117",
+   "journal": "Journal of biomedical optics",
+   "publisher": "9605853",
+   "year": "2026",
+   "types": [
+    "Introductory Journal Article",
+    "Editorial",
+    "introduction"
+   ],
+   "is_author_ms": false,
+   "query": "PUB_TYPE:\"Introductory Journal Article\"",
+   "split": "EXAM"
+  },
+  {
+   "pmcid": "PMC13210876",
+   "doi": "10.1117/1.jbo.31.6.064301",
+   "prefix": "10.1117",
+   "journal": "Journal of biomedical optics",
+   "publisher": "9605853",
+   "year": "2026",
+   "types": [
+    "Introductory Journal Article",
+    "Editorial",
+    "introduction"
+   ],
+   "is_author_ms": false,
+   "query": "PUB_TYPE:\"Introductory Journal Article\"",
+   "split": "EXAM"
+  },
+  {
+   "pmcid": "PMC13043164",
+   "doi": "10.1158/2767-9764.crc-25-0554",
+   "prefix": "10.1158",
+   "journal": "Cancer research communications",
+   "publisher": "9918281580506676",
+   "year": "2026",
+   "types": [
+    "Research Support, Non-U.S. Gov't",
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "biostatistics survival analysis",
+   "split": "EXAM"
+  },
+  {
+   "pmcid": "PMC13138221",
+   "doi": "10.1158/2767-9764.crc-25-0447",
+   "prefix": "10.1158",
+   "journal": "Cancer research communications",
+   "publisher": "9918281580506676",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "immunology T cell exhaustion",
+   "split": "EXAM"
+  },
+  {
+   "pmcid": "PMC13139843",
+   "doi": "10.1158/2643-3230.bcd-25-0372",
+   "prefix": "10.1158",
+   "journal": "Blood cancer discovery",
+   "publisher": "101764786",
+   "year": "2026",
+   "types": [
+    "brief-report",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "biostatistics survival analysis",
+   "split": "EXAM"
+  },
+  {
+   "pmcid": "PMC13250754",
+   "doi": "10.1176/appi.prcp.20250047",
+   "prefix": "10.1176",
+   "journal": "Psychiatric research and clinical practice",
+   "publisher": "101776485",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "natural language processing clinical not",
+   "split": "EXAM"
+  },
+  {
+   "pmcid": "PMC13107311",
+   "doi": "10.1192/bjo.2026.11021",
+   "prefix": "10.1192",
+   "journal": "BJPsych open",
+   "publisher": "101667931",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "health economics cost effectiveness",
+   "split": "EXAM"
+  },
+  {
+   "pmcid": "PMC13107321",
+   "doi": "10.1192/bjo.2026.10998",
+   "prefix": "10.1192",
+   "journal": "BJPsych open",
+   "publisher": "101667931",
+   "year": "2026",
+   "types": [
+    "editorial",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "psychiatry adolescent depression",
+   "split": "EXAM"
+  },
+  {
+   "pmcid": "PMC13199594",
+   "doi": "10.1192/bjo.2026.11048",
+   "prefix": "10.1192",
+   "journal": "BJPsych open",
+   "publisher": "101667931",
+   "year": "2026",
+   "types": [
+    "editorial",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "science policy research funding",
+   "split": "EXAM"
+  },
+  {
+   "pmcid": "PMC13003938",
+   "doi": "10.1200/cci-25-00159",
+   "prefix": "10.1200",
+   "journal": "JCO clinical cancer informatics",
+   "publisher": "101708809",
+   "year": "2026",
+   "types": [
+    "Research Support, Non-U.S. Gov't",
+    "research-article",
+    "Multicenter Study",
+    "Journal Article",
+    "Observational Study"
+   ],
+   "is_author_ms": false,
+   "query": "natural language processing clinical not",
+   "split": "EXAM"
+  },
+  {
+   "pmcid": "PMC13068448",
+   "doi": "10.1200/cci-25-00284",
+   "prefix": "10.1200",
+   "journal": "JCO clinical cancer informatics",
+   "publisher": "101708809",
+   "year": "2026",
+   "types": [
+    "Research Support, Non-U.S. Gov't",
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "natural language processing clinical not",
+   "split": "EXAM"
+  },
+  {
+   "pmcid": "PMC13098666",
+   "doi": "10.1200/po-25-00596",
+   "prefix": "10.1200",
+   "journal": "JCO precision oncology",
+   "publisher": "101705370",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "genomics structural variant",
+   "split": "EXAM"
+  },
+  {
+   "pmcid": "PMC12752495",
+   "doi": "10.1242/jcs.264348",
+   "prefix": "10.1242",
+   "journal": "Journal of cell science",
+   "publisher": "0052457",
+   "year": "2025",
+   "types": [
+    "Historical Article",
+    "Research Support, Non-U.S. Gov't",
+    "review-article",
+    "Journal Article",
+    "Research Support, N.I.H., Extramural"
+   ],
+   "is_author_ms": false,
+   "query": "evolution phylogenetics",
+   "split": "EXAM"
+  },
+  {
+   "pmcid": "PMC12755070",
+   "doi": "10.1242/dmm.052784",
+   "prefix": "10.1242",
+   "journal": "Disease models & mechanisms",
+   "publisher": "101483332",
+   "year": "2025",
+   "types": [
+    "Historical Article",
+    "review-article",
+    "Interview"
+   ],
+   "is_author_ms": false,
+   "query": "PUB_TYPE:\"Historical Article\"",
+   "split": "EXAM"
+  },
+  {
+   "pmcid": "PMC12805639",
+   "doi": "10.1242/dmm.052796",
+   "prefix": "10.1242",
+   "journal": "Disease models & mechanisms",
+   "publisher": "101483332",
+   "year": "2025",
+   "types": [
+    "Historical Article",
+    "Editorial"
+   ],
+   "is_author_ms": false,
+   "query": "PUB_TYPE:\"Historical Article\"",
+   "split": "EXAM"
+  },
+  {
+   "pmcid": "PMC12927157",
+   "doi": "10.12669/pjms.42.1.11940",
+   "prefix": "10.12669",
+   "journal": "Pakistan journal of medical sciences",
+   "publisher": "100913117",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "occupational therapy stroke",
+   "split": "EXAM"
+  },
+  {
+   "pmcid": "PMC13238232",
+   "doi": "10.12669/pjms.42.4.14422",
+   "prefix": "10.12669",
+   "journal": "Pakistan journal of medical sciences",
+   "publisher": "100913117",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "global health equity",
+   "split": "EXAM"
+  },
+  {
+   "pmcid": "PMC12712218",
+   "doi": "10.1292/jvms.25-0230",
+   "prefix": "10.1292",
+   "journal": "The Journal of veterinary medical science",
+   "publisher": "9105360",
+   "year": "2025",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "dairy science mastitis",
+   "split": "EXAM"
+  },
+  {
+   "pmcid": "PMC12950301",
+   "doi": "10.1292/jvms.24-0277",
+   "prefix": "10.1292",
+   "journal": "The Journal of veterinary medical science",
+   "publisher": "9105360",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "dairy science mastitis",
+   "split": "EXAM"
+  },
+  {
+   "pmcid": "PMC13062537",
+   "doi": "10.1292/jvms.25-0483",
+   "prefix": "10.1292",
+   "journal": "The Journal of veterinary medical science",
+   "publisher": "9105360",
+   "year": "2026",
+   "types": [
+    "Journal Article",
+    "Case Reports",
+    "case-report"
+   ],
+   "is_author_ms": false,
+   "query": "veterinary parasitology",
+   "split": "EXAM"
+  },
+  {
+   "pmcid": "PMC13008821",
+   "doi": "10.15766/mep_2374-8265.11586",
+   "prefix": "10.15766",
+   "journal": "MedEdPORTAL : the journal of teaching and learning resources",
+   "publisher": "101714390",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "hepatology fibrosis",
+   "split": "EXAM"
+  },
+  {
+   "pmcid": "PMC13098288",
+   "doi": "10.15766/mep_2374-8265.11595",
+   "prefix": "10.15766",
+   "journal": "MedEdPORTAL : the journal of teaching and learning resources",
+   "publisher": "101714390",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "medical education curriculum",
+   "split": "EXAM"
+  },
+  {
+   "pmcid": "PMC13226643",
+   "doi": "10.15766/mep_2374-8265.11605",
+   "prefix": "10.15766",
+   "journal": "MedEdPORTAL : the journal of teaching and learning resources",
+   "publisher": "101714390",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "medical education curriculum",
+   "split": "EXAM"
+  },
+  {
+   "pmcid": "PMC4768927",
+   "doi": "10.19082/1770",
+   "prefix": "10.19082",
+   "journal": "Electronic physician",
+   "publisher": "101645099",
+   "year": "2016",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "structural seismic retrofit",
+   "split": "EXAM"
+  },
+  {
+   "pmcid": "PMC5498711",
+   "doi": "10.19082/4434",
+   "prefix": "10.19082",
+   "journal": "Electronic physician",
+   "publisher": "101645099",
+   "year": "2017",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "structural seismic retrofit",
+   "split": "EXAM"
+  },
+  {
+   "pmcid": "PMC13244309",
+   "doi": "10.20892/j.issn.2095-3941.2026.0349",
+   "prefix": "10.20892",
+   "journal": "Cancer biology & medicine",
+   "publisher": "101588850",
+   "year": "2026",
+   "types": [
+    "Editorial"
+   ],
+   "is_author_ms": false,
+   "query": "oncology immunotherapy response",
+   "split": "EXAM"
+  },
+  {
+   "pmcid": "PMC12764190",
+   "doi": "10.21873/invivo.14222",
+   "prefix": "10.21873",
+   "journal": "In vivo (Athens, Greece)",
+   "publisher": "8806809",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article",
+    "Case Reports"
+   ],
+   "is_author_ms": false,
+   "query": "immunology T cell exhaustion",
+   "split": "EXAM"
+  },
+  {
+   "pmcid": "PMC13133804",
+   "doi": "10.21873/invivo.14337",
+   "prefix": "10.21873",
+   "journal": "In vivo (Athens, Greece)",
+   "publisher": "8806809",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article",
+    "Case Reports"
+   ],
+   "is_author_ms": false,
+   "query": "immunology T cell exhaustion",
+   "split": "EXAM"
+  },
+  {
+   "pmcid": "PMC13133819",
+   "doi": "10.21873/invivo.14338",
+   "prefix": "10.21873",
+   "journal": "In vivo (Athens, Greece)",
+   "publisher": "8806809",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article",
+    "Case Reports"
+   ],
+   "is_author_ms": false,
+   "query": "immunology T cell exhaustion",
+   "split": "EXAM"
+  },
+  {
+   "pmcid": "PMC13265069",
+   "doi": "10.22037/aaem.v14i1.2837",
+   "prefix": "10.22037",
+   "journal": "Archives of academic emergency medicine",
+   "publisher": "101740147",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "bibliometrics citation",
+   "split": "EXAM"
+  },
+  {
+   "pmcid": "PMC13126585",
+   "doi": "10.32604/or.2026.076716",
+   "prefix": "10.32604",
+   "journal": "Oncology research",
+   "publisher": "9208097",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "environmental toxicology bioaccumulation",
+   "split": "EXAM"
+  },
+  {
+   "pmcid": "PMC13126603",
+   "doi": "10.32604/or.2026.076281",
+   "prefix": "10.32604",
+   "journal": "Oncology research",
+   "publisher": "9208097",
+   "year": "2026",
+   "types": [
+    "review-article",
+    "Review",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "oncology immunotherapy response",
+   "split": "EXAM"
+  },
+  {
+   "pmcid": "PMC13292052",
+   "doi": "10.32604/or.2026.078258",
+   "prefix": "10.32604",
+   "journal": "Oncology research",
+   "publisher": "9208097",
+   "year": "2026",
+   "types": [
+    "Journal Article",
+    "Case Reports",
+    "case-report"
+   ],
+   "is_author_ms": false,
+   "query": "oncology immunotherapy response",
+   "split": "EXAM"
+  },
+  {
+   "pmcid": "PMC13065132",
+   "doi": "10.34067/kid.0000001123",
+   "prefix": "10.34067",
+   "journal": "Kidney360",
+   "publisher": "101766381",
+   "year": "2026",
+   "types": [
+    "editorial",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "nephrology dialysis outcome",
+   "split": "EXAM"
+  },
+  {
+   "pmcid": "PMC13229422",
+   "doi": "10.34067/kid.0000001170",
+   "prefix": "10.34067",
+   "journal": "Kidney360",
+   "publisher": "101766381",
+   "year": "2026",
+   "types": [
+    "editorial",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "nephrology dialysis outcome",
+   "split": "EXAM"
+  },
+  {
+   "pmcid": "PMC12754151",
+   "doi": "10.3748/wjg.v31.i46.111176",
+   "prefix": "10.3748",
+   "journal": "World journal of gastroenterology",
+   "publisher": "100883448",
+   "year": "2025",
+   "types": [
+    "review-article",
+    "Review",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "hepatology fibrosis",
+   "split": "EXAM"
+  },
+  {
+   "pmcid": "PMC12809209",
+   "doi": "10.3748/wjg.v32.i2.113432",
+   "prefix": "10.3748",
+   "journal": "World journal of gastroenterology",
+   "publisher": "100883448",
+   "year": "2026",
+   "types": [
+    "Editorial"
+   ],
+   "is_author_ms": false,
+   "query": "rheumatology biologic therapy",
+   "split": "EXAM"
+  },
+  {
+   "pmcid": "PMC12968558",
+   "doi": "10.3748/wjg.v32.i8.115416",
+   "prefix": "10.3748",
+   "journal": "World journal of gastroenterology",
+   "publisher": "100883448",
+   "year": "2026",
+   "types": [
+    "Editorial"
+   ],
+   "is_author_ms": false,
+   "query": "hepatology fibrosis",
+   "split": "EXAM"
+  },
+  {
+   "pmcid": "PMC12754451",
+   "doi": "10.4254/wjh.v17.i12.113844",
+   "prefix": "10.4254",
+   "journal": "World journal of hepatology",
+   "publisher": "101532469",
+   "year": "2025",
+   "types": [
+    "Editorial"
+   ],
+   "is_author_ms": false,
+   "query": "hepatology fibrosis",
+   "split": "EXAM"
+  },
+  {
+   "pmcid": "PMC12865431",
+   "doi": "10.4254/wjh.v18.i1.111902",
+   "prefix": "10.4254",
+   "journal": "World journal of hepatology",
+   "publisher": "101532469",
+   "year": "2026",
+   "types": [
+    "review-article",
+    "Review",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "hepatology fibrosis",
+   "split": "EXAM"
+  },
+  {
+   "pmcid": "PMC12968682",
+   "doi": "10.4254/wjh.v18.i2.115563",
+   "prefix": "10.4254",
+   "journal": "World journal of hepatology",
+   "publisher": "101532469",
+   "year": "2026",
+   "types": [
+    "Letter"
+   ],
+   "is_author_ms": false,
+   "query": "hepatology fibrosis",
+   "split": "EXAM"
+  },
+  {
+   "pmcid": "PMC12696555",
+   "doi": "10.4266/acc.006000",
+   "prefix": "10.4266",
+   "journal": "Acute and critical care",
+   "publisher": "101726905",
+   "year": "2025",
+   "types": [
+    "Editorial"
+   ],
+   "is_author_ms": false,
+   "query": "emergency triage sepsis",
+   "split": "EXAM"
+  },
+  {
+   "pmcid": "PMC13268739",
+   "doi": "10.4266/acc.005625",
+   "prefix": "10.4266",
+   "journal": "Acute and critical care",
+   "publisher": "101726905",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "emergency triage sepsis",
+   "split": "EXAM"
+  },
+  {
+   "pmcid": "PMC13248193",
+   "doi": "10.4292/wjgpt.v17.i2.118195",
+   "prefix": "10.4292",
+   "journal": "World journal of gastrointestinal pharmacology and therapeutics",
+   "publisher": "101547456",
+   "year": "2026",
+   "types": [
+    "Letter",
+    "Comment"
+   ],
+   "is_author_ms": false,
+   "query": "PUB_TYPE:\"Comment\"",
+   "split": "EXAM"
+  },
+  {
+   "pmcid": "PMC13248218",
+   "doi": "10.4292/wjgpt.v17.i2.118130",
+   "prefix": "10.4292",
+   "journal": "World journal of gastrointestinal pharmacology and therapeutics",
+   "publisher": "101547456",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "hepatology fibrosis",
+   "split": "EXAM"
+  },
+  {
+   "pmcid": "PMC12865540",
+   "doi": "10.4329/wjr.v18.i1.114957",
+   "prefix": "10.4329",
+   "journal": "World journal of radiology",
+   "publisher": "101538184",
+   "year": "2026",
+   "types": [
+    "review-article",
+    "Review",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "forensic anthropology",
+   "split": "EXAM"
+  },
+  {
+   "pmcid": "PMC13122038",
+   "doi": "10.4329/wjr.v18.i4.119319",
+   "prefix": "10.4329",
+   "journal": "World journal of radiology",
+   "publisher": "101538184",
+   "year": "2026",
+   "types": [
+    "review-article",
+    "Review",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "radiology contrast agent",
+   "split": "EXAM"
+  },
+  {
+   "pmcid": "PMC12955713",
+   "doi": "10.5014/ajot.2026.051328",
+   "prefix": "10.5014",
+   "journal": "The American journal of occupational therapy : official publication of the American Occupational Therapy Association",
+   "publisher": "7705978",
+   "year": "2026",
+   "types": [
+    "Comparative Study",
+    "research-article",
+    "Journal Article",
+    "Observational Study"
+   ],
+   "is_author_ms": false,
+   "query": "occupational therapy stroke",
+   "split": "EXAM"
+  },
+  {
+   "pmcid": "PMC12955714",
+   "doi": "10.5014/ajot.2026.051162",
+   "prefix": "10.5014",
+   "journal": "The American journal of occupational therapy : official publication of the American Occupational Therapy Association",
+   "publisher": "7705978",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "occupational therapy stroke",
+   "split": "EXAM"
+  },
+  {
+   "pmcid": "PMC12955715",
+   "doi": "10.5014/ajot.2026.051362",
+   "prefix": "10.5014",
+   "journal": "The American journal of occupational therapy : official publication of the American Occupational Therapy Association",
+   "publisher": "7705978",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article",
+    "Observational Study"
+   ],
+   "is_author_ms": false,
+   "query": "occupational therapy stroke",
+   "split": "EXAM"
+  },
+  {
+   "pmcid": "PMC13056589",
+   "doi": "10.5021/ad.25.075",
+   "prefix": "10.5021",
+   "journal": "Annals of dermatology",
+   "publisher": "8916577",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "dermatology psoriasis",
+   "split": "EXAM"
+  },
+  {
+   "pmcid": "PMC13056594",
+   "doi": "10.5021/ad.25.072",
+   "prefix": "10.5021",
+   "journal": "Annals of dermatology",
+   "publisher": "8916577",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "dermatology psoriasis",
+   "split": "EXAM"
+  },
+  {
+   "pmcid": "PMC13243719",
+   "doi": "10.5021/ad.25.227",
+   "prefix": "10.5021",
+   "journal": "Annals of dermatology",
+   "publisher": "8916577",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "dermatology psoriasis",
+   "split": "EXAM"
+  },
+  {
+   "pmcid": "PMC12128289",
+   "doi": "10.5152/iao.2025.241730",
+   "prefix": "10.5152",
+   "journal": "The journal of international advanced otology",
+   "publisher": "101522982",
+   "year": "2025",
+   "types": [
+    "Comparative Study",
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "audiology hearing aid",
+   "split": "EXAM"
+  },
+  {
+   "pmcid": "PMC12869727",
+   "doi": "10.5152/archrheumatol.2026.25240",
+   "prefix": "10.5152",
+   "journal": "Archives of rheumatology",
+   "publisher": "101639000",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "rheumatology biologic therapy",
+   "split": "EXAM"
+  },
+  {
+   "pmcid": "PMC13202967",
+   "doi": "10.5152/fnjn.2026.25191",
+   "prefix": "10.5152",
+   "journal": "Florence Nightingale journal of nursing",
+   "publisher": "101770108",
+   "year": "2026",
+   "types": [
+    "letter",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "nursing workforce retention",
+   "split": "EXAM"
+  },
+  {
+   "pmcid": "PMC12919659",
+   "doi": "10.5194/jbji-11-113-2026",
+   "prefix": "10.5194",
+   "journal": "Journal of bone and joint infection",
+   "publisher": "101701849",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "orthopaedics arthroplasty outcome",
+   "split": "EXAM"
+  },
+  {
+   "pmcid": "PMC13118532",
+   "doi": "10.5194/aab-69-157-2026",
+   "prefix": "10.5194",
+   "journal": "Archives animal breeding",
+   "publisher": "101701238",
+   "year": "2026",
+   "types": [
+    "review-article",
+    "Review",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "dairy science mastitis",
+   "split": "EXAM"
+  },
+  {
+   "pmcid": "PMC13238285",
+   "doi": "10.5194/jbji-11-331-2026",
+   "prefix": "10.5194",
+   "journal": "Journal of bone and joint infection",
+   "publisher": "101701849",
+   "year": "2026",
+   "types": [
+    "review-article",
+    "Review",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "orthopaedics arthroplasty outcome",
+   "split": "EXAM"
+  },
+  {
+   "pmcid": "PMC12793905",
+   "doi": "10.52225/narra.v5i3.2795",
+   "prefix": "10.52225",
+   "journal": "Narra J",
+   "publisher": "9918625888906676",
+   "year": "2025",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "entomology insecticide resistance",
+   "split": "EXAM"
+  },
+  {
+   "pmcid": "PMC12931513",
+   "doi": "10.52225/narra.v5i3.2985",
+   "prefix": "10.52225",
+   "journal": "Narra J",
+   "publisher": "9918625888906676",
+   "year": "2025",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "obstetrics preeclampsia",
+   "split": "EXAM"
+  },
+  {
+   "pmcid": "PMC12614370",
+   "doi": "10.55730/1300-0152.2764",
+   "prefix": "10.55730",
+   "journal": "Turkish journal of biology = Turk biyoloji dergisi",
+   "publisher": "9434434",
+   "year": "2025",
+   "types": [
+    "review-article",
+    "Review",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "soil science tillage erosion",
+   "split": "EXAM"
+  },
+  {
+   "pmcid": "PMC13167003",
+   "doi": "10.5603/rpor.110095",
+   "prefix": "10.5603",
+   "journal": "Reports of practical oncology and radiotherapy : journal of Greatpoland Cancer Center in Poznan and Polish Society of Radiation Oncology",
+   "publisher": "100885761",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "oncology immunotherapy response",
+   "split": "EXAM"
+  },
+  {
+   "pmcid": "PMC13167006",
+   "doi": "10.5603/rpor.110811",
+   "prefix": "10.5603",
+   "journal": "Reports of practical oncology and radiotherapy : journal of Greatpoland Cancer Center in Poznan and Polish Society of Radiation Oncology",
+   "publisher": "100885761",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "biostatistics survival analysis",
+   "split": "EXAM"
+  },
+  {
+   "pmcid": "PMC13167011",
+   "doi": "10.5603/rpor.109096",
+   "prefix": "10.5603",
+   "journal": "Reports of practical oncology and radiotherapy : journal of Greatpoland Cancer Center in Poznan and Polish Society of Radiation Oncology",
+   "publisher": "100885761",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "biostatistics survival analysis",
+   "split": "EXAM"
+  },
+  {
+   "pmcid": "PMC12798143",
+   "doi": "10.5704/moj.2511.019",
+   "prefix": "10.5704",
+   "journal": "Malaysian orthopaedic journal",
+   "publisher": "101564672",
+   "year": "2025",
+   "types": [
+    "Journal Article",
+    "Case Reports",
+    "case-report"
+   ],
+   "is_author_ms": false,
+   "query": "podiatry diabetic foot",
+   "split": "EXAM"
+  },
+  {
+   "pmcid": "PMC13133576",
+   "doi": "10.5704/moj.2603.012",
+   "prefix": "10.5704",
+   "journal": "Malaysian orthopaedic journal",
+   "publisher": "101564672",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "orthopaedics arthroplasty outcome",
+   "split": "EXAM"
+  },
+  {
+   "pmcid": "PMC13133584",
+   "doi": "10.5704/moj.2603.018",
+   "prefix": "10.5704",
+   "journal": "Malaysian orthopaedic journal",
+   "publisher": "101564672",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "orthopaedics arthroplasty outcome",
+   "split": "EXAM"
+  },
+  {
+   "pmcid": "PMC12695014",
+   "doi": "10.5935/1518-0557.20250163",
+   "prefix": "10.5935",
+   "journal": "JBRA assisted reproduction",
+   "publisher": "101684552",
+   "year": "2025",
+   "types": [
+    "Meta-Analysis",
+    "Systematic Review",
+    "review-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "environmental toxicology bioaccumulation",
+   "split": "EXAM"
+  },
+  {
+   "pmcid": "PMC13068123",
+   "doi": "10.1109/jtehm.2026.3668755",
+   "prefix": "10.1109",
+   "journal": "IEEE journal of translational engineering in health and medicine",
+   "publisher": "101623153",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "information retrieval evaluation",
+   "split": "RESERVE"
+  },
+  {
+   "pmcid": "PMC13068125",
+   "doi": "10.1109/ojemb.2026.3666980",
+   "prefix": "10.1109",
+   "journal": "IEEE open journal of engineering in medicine and biology",
+   "publisher": "101766631",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "computer vision segmentation",
+   "split": "RESERVE"
+  },
+  {
+   "pmcid": "PMC13248024",
+   "doi": "10.18849/ve.v11i2.736",
+   "prefix": "10.18849",
+   "journal": "Veterinary evidence",
+   "publisher": "101706458",
+   "year": "2026",
+   "types": [
+    "review-article",
+    "Review",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "anaesthesia postoperative pain",
+   "split": "RESERVE"
+  },
+  {
+   "pmcid": "PMC13145282",
+   "doi": "10.31138/mjr.230725.rac",
+   "prefix": "10.31138",
+   "journal": "Mediterranean journal of rheumatology",
+   "publisher": "101730166",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "rheumatology biologic therapy",
+   "split": "RESERVE"
+  },
+  {
+   "pmcid": "PMC13145289",
+   "doi": "10.31138/mjr.311025.eti",
+   "prefix": "10.31138",
+   "journal": "Mediterranean journal of rheumatology",
+   "publisher": "101730166",
+   "year": "2026",
+   "types": [
+    "review-article",
+    "Review",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "rheumatology biologic therapy",
+   "split": "RESERVE"
+  },
+  {
+   "pmcid": "PMC13124464",
+   "doi": "10.3205/zma001838",
+   "prefix": "10.3205",
+   "journal": "GMS journal for medical education",
+   "publisher": "101676086",
+   "year": "2026",
+   "types": [
+    "other",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "medical education curriculum",
+   "split": "RESERVE"
+  },
+  {
+   "pmcid": "PMC13124497",
+   "doi": "10.3205/zma001837",
+   "prefix": "10.3205",
+   "journal": "GMS journal for medical education",
+   "publisher": "101676086",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "medical education curriculum",
+   "split": "RESERVE"
+  },
+  {
+   "pmcid": "PMC13124531",
+   "doi": "10.3205/zma001841",
+   "prefix": "10.3205",
+   "journal": "GMS journal for medical education",
+   "publisher": "101676086",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "medical education curriculum",
+   "split": "RESERVE"
+  },
+  {
+   "pmcid": "PMC13006545",
+   "doi": "10.3332/ecancer.2026.2063",
+   "prefix": "10.3332",
+   "journal": "Ecancermedicalscience",
+   "publisher": "101392236",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "emergency triage sepsis",
+   "split": "RESERVE"
+  },
+  {
+   "pmcid": "PMC13068371",
+   "doi": "10.3332/ecancer.2026.2077",
+   "prefix": "10.3332",
+   "journal": "Ecancermedicalscience",
+   "publisher": "101392236",
+   "year": "2026",
+   "types": [
+    "meeting-report",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "biostatistics survival analysis",
+   "split": "RESERVE"
+  },
+  {
+   "pmcid": "PMC13161588",
+   "doi": "10.3332/ecancer.2026.2089",
+   "prefix": "10.3332",
+   "journal": "Ecancermedicalscience",
+   "publisher": "101392236",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "palliative care communication",
+   "split": "RESERVE"
+  },
+  {
+   "pmcid": "PMC13233786",
+   "doi": "10.47895/amp.vi0.13680",
+   "prefix": "10.47895",
+   "journal": "Acta medica Philippina",
+   "publisher": "0312677",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "midwifery birth outcomes",
+   "split": "RESERVE"
+  },
+  {
+   "pmcid": "PMC13233788",
+   "doi": "10.47895/amp.vi0.13735",
+   "prefix": "10.47895",
+   "journal": "Acta medica Philippina",
+   "publisher": "0312677",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "medical education curriculum",
+   "split": "RESERVE"
+  },
+  {
+   "pmcid": "PMC13233794",
+   "doi": "10.47895/amp.vi0.13081",
+   "prefix": "10.47895",
+   "journal": "Acta medica Philippina",
+   "publisher": "0312677",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "occupational therapy stroke",
+   "split": "RESERVE"
+  },
+  {
+   "pmcid": "PMC12865442",
+   "doi": "10.5498/wjp.v16.i2.112996",
+   "prefix": "10.5498",
+   "journal": "World journal of psychiatry",
+   "publisher": "101610480",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "psychiatry adolescent depression",
+   "split": "RESERVE"
+  },
+  {
+   "pmcid": "PMC12865463",
+   "doi": "10.5498/wjp.v16.i2.113573",
+   "prefix": "10.5498",
+   "journal": "World journal of psychiatry",
+   "publisher": "101610480",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "psychiatry adolescent depression",
+   "split": "RESERVE"
+  },
+  {
+   "pmcid": "PMC13053460",
+   "doi": "10.5646/ch.2026.32.e16",
+   "prefix": "10.5646",
+   "journal": "Clinical hypertension",
+   "publisher": "101669508",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "obstetrics preeclampsia",
+   "split": "RESERVE"
+  },
+  {
+   "pmcid": "PMC12698073",
+   "doi": "10.1051/sicotj/2025059",
+   "prefix": "10.1051",
+   "journal": "SICOT-J",
+   "publisher": "101675099",
+   "year": "2025",
+   "types": [
+    "Editorial"
+   ],
+   "is_author_ms": false,
+   "query": "control systems robotics",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC13127121",
+   "doi": "10.1051/sicotj/2026006",
+   "prefix": "10.1051",
+   "journal": "SICOT-J",
+   "publisher": "101675099",
+   "year": "2026",
+   "types": [
+    "Editorial"
+   ],
+   "is_author_ms": false,
+   "query": "orthopaedics arthroplasty outcome",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC13143206",
+   "doi": "10.1051/sicotj/2026019",
+   "prefix": "10.1051",
+   "journal": "SICOT-J",
+   "publisher": "101675099",
+   "year": "2026",
+   "types": [
+    "Editorial"
+   ],
+   "is_author_ms": false,
+   "query": "control systems robotics",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC13292829",
+   "doi": "10.1084/jem.2024104606082026c",
+   "prefix": "10.1084",
+   "journal": "The Journal of experimental medicine",
+   "publisher": "2985109R",
+   "year": "2026",
+   "types": [
+    "Published Erratum",
+    "correction"
+   ],
+   "is_author_ms": false,
+   "query": "PUB_TYPE:\"Published Erratum\"",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC11444171",
+   "doi": "10.1101/gr.279002.124",
+   "prefix": "10.1101",
+   "journal": "Genome research",
+   "publisher": "9518021",
+   "year": "2024",
+   "types": [
+    "Research Support, Non-U.S. Gov't",
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "phycology algal bloom",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC13262947",
+   "doi": "10.1101/gr.280564.125",
+   "prefix": "10.1101",
+   "journal": "Genome research",
+   "publisher": "9518021",
+   "year": "2026",
+   "types": [
+    "Research Support, Non-U.S. Gov't",
+    "research-article",
+    "Journal Article",
+    "Research Support, N.I.H., Extramural"
+   ],
+   "is_author_ms": false,
+   "query": "evolution phylogenetics",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC12546490",
+   "doi": "10.1140/epjc/s10052-025-14809-3",
+   "prefix": "10.1140",
+   "journal": "The European physical journal. C, Particles and fields",
+   "publisher": "101622319",
+   "year": "2025",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "nuclear reactor thermal",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC12811334",
+   "doi": "10.1140/epjc/s10052-025-15168-9",
+   "prefix": "10.1140",
+   "journal": "The European physical journal. C, Particles and fields",
+   "publisher": "101622319",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "nuclear reactor thermal",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC9911491",
+   "doi": "10.1140/epjc/s10052-023-11292-6",
+   "prefix": "10.1140",
+   "journal": "The European physical journal. C, Particles and fields",
+   "publisher": "101622319",
+   "year": "2023",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "glaciology ice sheet",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC13092434",
+   "doi": "10.1142/s101370252650006x",
+   "prefix": "10.1142",
+   "journal": "Hong Kong physiotherapy journal : official publication of the Hong Kong Physiotherapy Association Limited = Wu li chih liao",
+   "publisher": "100908968",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "rehabilitation gait training",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC12151248",
+   "doi": "10.1167/iovs.66.7.6",
+   "prefix": "10.1167",
+   "journal": "Investigative ophthalmology & visual science",
+   "publisher": "7703701",
+   "year": "2025",
+   "types": [
+    "Research Support, Non-U.S. Gov't",
+    "research-article",
+    "Review",
+    "Journal Article",
+    "Research Support, N.I.H., Extramural"
+   ],
+   "is_author_ms": false,
+   "query": "optometry myopia control",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC12448128",
+   "doi": "10.1167/iovs.66.12.39",
+   "prefix": "10.1167",
+   "journal": "Investigative ophthalmology & visual science",
+   "publisher": "7703701",
+   "year": "2025",
+   "types": [
+    "Research Support, Non-U.S. Gov't",
+    "research-article",
+    "Review",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "optometry myopia control",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC12924146",
+   "doi": "10.1167/jov.26.2.10",
+   "prefix": "10.1167",
+   "journal": "Journal of vision",
+   "publisher": "101147197",
+   "year": "2026",
+   "types": [
+    "Historical Article",
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "PUB_TYPE:\"Historical Article\"",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC12964390",
+   "doi": "10.1212/wnl.0000000000214675",
+   "prefix": "10.1212",
+   "journal": "Neurology",
+   "publisher": "0401060",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "neuroscience synaptic plasticity",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC13107406",
+   "doi": "10.1212/wnl.0000000000214866",
+   "prefix": "10.1212",
+   "journal": "Neurology",
+   "publisher": "0401060",
+   "year": "2026",
+   "types": [
+    "Meta-Analysis",
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "health economics cost effectiveness",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC13138259",
+   "doi": "10.1212/ne9.0000000000200306",
+   "prefix": "10.1212",
+   "journal": "Neurology. Education",
+   "publisher": "9918787188106676",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "medical education curriculum",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC13053799",
+   "doi": "10.12786/bn.2026.19.e6",
+   "prefix": "10.12786",
+   "journal": "Brain & NeuroRehabilitation",
+   "publisher": "101769810",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "occupational therapy stroke",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC13053800",
+   "doi": "10.12786/bn.2026.19.e4",
+   "prefix": "10.12786",
+   "journal": "Brain & NeuroRehabilitation",
+   "publisher": "101769810",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "speech language pathology",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC13245675",
+   "doi": "10.12890/2026_006801",
+   "prefix": "10.12890",
+   "journal": "European journal of case reports in internal medicine",
+   "publisher": "101648453",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "cardiology heart failure",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC13245683",
+   "doi": "10.12890/2026_006587",
+   "prefix": "10.12890",
+   "journal": "European journal of case reports in internal medicine",
+   "publisher": "101648453",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "occupational therapy stroke",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC13216668",
+   "doi": "10.13081/kjmh.2026.35.41",
+   "prefix": "10.13081",
+   "journal": "Ui sahak",
+   "publisher": "9605018",
+   "year": "2026",
+   "types": [
+    "Historical Article",
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "PUB_TYPE:\"Historical Article\"",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC13216670",
+   "doi": "10.13081/kjmh.2026.35.217",
+   "prefix": "10.13081",
+   "journal": "Ui sahak",
+   "publisher": "9605018",
+   "year": "2026",
+   "types": [
+    "Historical Article",
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "PUB_TYPE:\"Historical Article\"",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC13216671",
+   "doi": "10.13081/kjmh.2026.35.253",
+   "prefix": "10.13081",
+   "journal": "Ui sahak",
+   "publisher": "9605018",
+   "year": "2026",
+   "types": [
+    "Historical Article",
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "PUB_TYPE:\"Historical Article\"",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC12456239",
+   "doi": "10.14639/0392-100x-n3125",
+   "prefix": "10.14639",
+   "journal": "Acta otorhinolaryngologica Italica : organo ufficiale della Societa italiana di otorinolaringologia e chirurgia cervico-facciale",
+   "publisher": "8213019",
+   "year": "2025",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "audiology hearing aid",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC13113190",
+   "doi": "10.14639/0392-100x-a1197",
+   "prefix": "10.14639",
+   "journal": "Acta otorhinolaryngologica Italica : organo ufficiale della Societa italiana di otorinolaringologia e chirurgia cervico-facciale",
+   "publisher": "8213019",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "speech language pathology",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC13134699",
+   "doi": "10.1515/mr-2026-0010",
+   "prefix": "10.1515",
+   "journal": "Medical review (2021)",
+   "publisher": "9918383871606676",
+   "year": "2026",
+   "types": [
+    "review-article",
+    "Review",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "metabolomics biomarker",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC13168217",
+   "doi": "10.1515/crpm-2025-0028",
+   "prefix": "10.1515",
+   "journal": "Case reports in perinatal medicine",
+   "publisher": "101606598",
+   "year": "2026",
+   "types": [
+    "Journal Article",
+    "Case Reports",
+    "case-report"
+   ],
+   "is_author_ms": false,
+   "query": "obstetrics preeclampsia",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC13241176",
+   "doi": "10.1515/med-2026-1456",
+   "prefix": "10.1515",
+   "journal": "Open medicine (Warsaw, Poland)",
+   "publisher": "101672167",
+   "year": "2026",
+   "types": [
+    "Journal Article",
+    "Case Reports",
+    "case-report"
+   ],
+   "is_author_ms": false,
+   "query": "obstetrics preeclampsia",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC13100695",
+   "doi": "10.1538/expanim.25-0060",
+   "prefix": "10.1538",
+   "journal": "Experimental animals",
+   "publisher": "9604830",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "apiculture colony loss",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC13132349",
+   "doi": "10.1556/2006.2025.00386",
+   "prefix": "10.1556",
+   "journal": "Journal of behavioral addictions",
+   "publisher": "101602037",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "psychiatry adolescent depression",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC12826662",
+   "doi": "10.15644/asc59/4/4",
+   "prefix": "10.15644",
+   "journal": "Acta stomatologica Croatica",
+   "publisher": "0253456",
+   "year": "2025",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "dental implant osseointegration",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC12826663",
+   "doi": "10.15644/asc59/4/7",
+   "prefix": "10.15644",
+   "journal": "Acta stomatologica Croatica",
+   "publisher": "0253456",
+   "year": "2025",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "forensic anthropology",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC13068196",
+   "doi": "10.15644/asc60/1/4",
+   "prefix": "10.15644",
+   "journal": "Acta stomatologica Croatica",
+   "publisher": "0253456",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "anaesthesia postoperative pain",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC12449408",
+   "doi": "10.1617/s11527-025-02765-z",
+   "prefix": "10.1617",
+   "journal": "Materials and structures",
+   "publisher": "101691470",
+   "year": "2025",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "concrete durability chloride",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC12554818",
+   "doi": "10.1617/s11527-025-02824-5",
+   "prefix": "10.1617",
+   "journal": "Materials and structures",
+   "publisher": "101691470",
+   "year": "2025",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "concrete durability chloride",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC12952950",
+   "doi": "10.17161/kjm.vol19.24260",
+   "prefix": "10.17161",
+   "journal": "Kansas journal of medicine",
+   "publisher": "101581958",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "nursing workforce retention",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC12097386",
+   "doi": "10.17305/bb.2024.11134",
+   "prefix": "10.17305",
+   "journal": "Biomolecules & biomedicine",
+   "publisher": "9918522188506676",
+   "year": "2025",
+   "types": [
+    "Comparative Study",
+    "research-article",
+    "Journal Article",
+    "Observational Study"
+   ],
+   "is_author_ms": false,
+   "query": "emergency triage sepsis",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC12532045",
+   "doi": "10.18332/ejm/210325",
+   "prefix": "10.18332",
+   "journal": "European journal of midwifery",
+   "publisher": "101773090",
+   "year": "2025",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "midwifery birth outcomes",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC12716161",
+   "doi": "10.18332/ejm/212554",
+   "prefix": "10.18332",
+   "journal": "European journal of midwifery",
+   "publisher": "101773090",
+   "year": "2025",
+   "types": [
+    "Editorial"
+   ],
+   "is_author_ms": false,
+   "query": "midwifery birth outcomes",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC12947846",
+   "doi": "10.18332/ejm/217879",
+   "prefix": "10.18332",
+   "journal": "European journal of midwifery",
+   "publisher": "101773090",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "midwifery birth outcomes",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC13238275",
+   "doi": "10.21142/2523-2754-1402-2026-285",
+   "prefix": "10.21142",
+   "journal": "Revista cientifica odontologica (Universidad Cientifica del Sur)",
+   "publisher": "9918697384606676",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "bacteriology biofilm",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC12945565",
+   "doi": "10.21769/bioprotoc.5618",
+   "prefix": "10.21769",
+   "journal": "Bio-protocol",
+   "publisher": "101635102",
+   "year": "2026",
+   "types": [
+    "methods-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "computer vision segmentation",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC13156697",
+   "doi": "10.21769/bioprotoc.5681",
+   "prefix": "10.21769",
+   "journal": "Bio-protocol",
+   "publisher": "101635102",
+   "year": "2026",
+   "types": [
+    "methods-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "proteomics mass spectrometry",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC12951589",
+   "doi": "10.22540/jfsf-11-065",
+   "prefix": "10.22540",
+   "journal": "Journal of frailty, sarcopenia and falls",
+   "publisher": "101756655",
+   "year": "2026",
+   "types": [
+    "review-article",
+    "Review",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "rehabilitation gait training",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC12361902",
+   "doi": "10.24272/j.issn.2095-8137.2024.327",
+   "prefix": "10.24272",
+   "journal": "Zoological research",
+   "publisher": "101697192",
+   "year": "2025",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "herpetology conservation",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC8317179",
+   "doi": "10.24272/j.issn.2095-8137.2021.085",
+   "prefix": "10.24272",
+   "journal": "Zoological research",
+   "publisher": "101697192",
+   "year": "2021",
+   "types": [
+    "Letter",
+    "research-article"
+   ],
+   "is_author_ms": false,
+   "query": "herpetology conservation",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC13044376",
+   "doi": "10.2471/blt.26.010426",
+   "prefix": "10.2471",
+   "journal": "Bulletin of the World Health Organization",
+   "publisher": "7507052",
+   "year": "2026",
+   "types": [
+    "News"
+   ],
+   "is_author_ms": false,
+   "query": "global health equity",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC13123440",
+   "doi": "10.2471/blt.25.294480",
+   "prefix": "10.2471",
+   "journal": "Bulletin of the World Health Organization",
+   "publisher": "7507052",
+   "year": "2026",
+   "types": [
+    "article-commentary",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "global health equity",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC13252680",
+   "doi": "10.25122/jml-2026-0058",
+   "prefix": "10.25122",
+   "journal": "Journal of medicine and life",
+   "publisher": "101477617",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Review",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "obstetrics preeclampsia",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC13252687",
+   "doi": "10.25122/jml-2026-0039",
+   "prefix": "10.25122",
+   "journal": "Journal of medicine and life",
+   "publisher": "101477617",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article",
+    "Observational Study"
+   ],
+   "is_author_ms": false,
+   "query": "urology stone disease",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC13252688",
+   "doi": "10.25122/jml-2026-0056",
+   "prefix": "10.25122",
+   "journal": "Journal of medicine and life",
+   "publisher": "101477617",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "nephrology dialysis outcome",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC13009681",
+   "doi": "10.26508/lsa.202603631",
+   "prefix": "10.26508",
+   "journal": "Life science alliance",
+   "publisher": "101728869",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "library science open access",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC13046458",
+   "doi": "10.26603/001c.156100",
+   "prefix": "10.26603",
+   "journal": "International journal of sports physical therapy",
+   "publisher": "101553140",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "sports medicine injury",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC13135493",
+   "doi": "10.26603/001c.161023",
+   "prefix": "10.26603",
+   "journal": "International journal of sports physical therapy",
+   "publisher": "101553140",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "sports medicine injury",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC13135714",
+   "doi": "10.26603/001c.159762",
+   "prefix": "10.26603",
+   "journal": "International journal of sports physical therapy",
+   "publisher": "101553140",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "sports medicine injury",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC12308289",
+   "doi": "10.3114/persoonia.2025.54.04",
+   "prefix": "10.3114",
+   "journal": "Persoonia",
+   "publisher": "19540520R",
+   "year": "2025",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "mycology taxonomy new species",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC12906737",
+   "doi": "10.31729/jnma.v63i292.9262",
+   "prefix": "10.31729",
+   "journal": "JNMA; journal of the Nepal Medical Association",
+   "publisher": "0045233",
+   "year": "2025",
+   "types": [
+    "Journal Article",
+    "Case Reports",
+    "case-report"
+   ],
+   "is_author_ms": false,
+   "query": "paediatrics neonatal outcome",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC12906745",
+   "doi": "10.31729/jnma.v63i292.9264",
+   "prefix": "10.31729",
+   "journal": "JNMA; journal of the Nepal Medical Association",
+   "publisher": "0045233",
+   "year": "2025",
+   "types": [
+    "research-article",
+    "Journal Article",
+    "Observational Study"
+   ],
+   "is_author_ms": false,
+   "query": "midwifery birth outcomes",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC12906747",
+   "doi": "10.31729/jnma.v63i292.9255",
+   "prefix": "10.31729",
+   "journal": "JNMA; journal of the Nepal Medical Association",
+   "publisher": "0045233",
+   "year": "2025",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "health economics cost effectiveness",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC13123513",
+   "doi": "10.33393/grhta.2026.3619",
+   "prefix": "10.33393",
+   "journal": "Global & regional health technology assessment",
+   "publisher": "9918417986506676",
+   "year": "2026",
+   "types": [
+    "review-article",
+    "Review",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "health economics cost effectiveness",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC12568759",
+   "doi": "10.3348/kjr.2025.1000",
+   "prefix": "10.3348",
+   "journal": "Korean journal of radiology",
+   "publisher": "100956096",
+   "year": "2025",
+   "types": [
+    "Editorial"
+   ],
+   "is_author_ms": false,
+   "query": "radiology contrast agent",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC12936547",
+   "doi": "10.3348/kjr.2026.0004",
+   "prefix": "10.3348",
+   "journal": "Korean journal of radiology",
+   "publisher": "100956096",
+   "year": "2026",
+   "types": [
+    "Editorial"
+   ],
+   "is_author_ms": false,
+   "query": "radiology contrast agent",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC13136579",
+   "doi": "10.3348/kjr.2026.0064",
+   "prefix": "10.3348",
+   "journal": "Korean journal of radiology",
+   "publisher": "100956096",
+   "year": "2026",
+   "types": [
+    "Review",
+    "Journal Article",
+    "Case Reports",
+    "case-report"
+   ],
+   "is_author_ms": false,
+   "query": "radiology contrast agent",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC12850660",
+   "doi": "10.36469/001c.154974",
+   "prefix": "10.36469",
+   "journal": "Journal of health economics and outcomes research",
+   "publisher": "101648581",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "health economics cost effectiveness",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC12919760",
+   "doi": "10.36469/001c.156056",
+   "prefix": "10.36469",
+   "journal": "Journal of health economics and outcomes research",
+   "publisher": "101648581",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "health economics cost effectiveness",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC13006001",
+   "doi": "10.36469/001c.158931",
+   "prefix": "10.36469",
+   "journal": "Journal of health economics and outcomes research",
+   "publisher": "101648581",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "health economics cost effectiveness",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC13128210",
+   "doi": "10.36660/abc.20260110",
+   "prefix": "10.36660",
+   "journal": "Arquivos brasileiros de cardiologia",
+   "publisher": "0421031",
+   "year": "2026",
+   "types": [
+    "Editorial"
+   ],
+   "is_author_ms": false,
+   "query": "global health equity",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC13054509",
+   "doi": "10.3857/roj.2025.00654",
+   "prefix": "10.3857",
+   "journal": "Radiation oncology journal",
+   "publisher": "101577577",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "biostatistics survival analysis",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC12425674",
+   "doi": "10.3904/kjim.2025.037",
+   "prefix": "10.3904",
+   "journal": "The Korean journal of internal medicine",
+   "publisher": "8712418",
+   "year": "2025",
+   "types": [
+    "Meta-Analysis",
+    "Research Support, Non-U.S. Gov't",
+    "Systematic Review",
+    "review-article",
+    "Research Support, U.S. Gov't, Non-P.H.S.",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "emergency triage sepsis",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC13161547",
+   "doi": "10.3988/jcn.2025.0636",
+   "prefix": "10.3988",
+   "journal": "Journal of clinical neurology (Seoul, Korea)",
+   "publisher": "101252374",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "radiology contrast agent",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC13161591",
+   "doi": "10.3988/jcn.2025.0556",
+   "prefix": "10.3988",
+   "journal": "Journal of clinical neurology (Seoul, Korea)",
+   "publisher": "101252374",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "metabolomics biomarker",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC12962827",
+   "doi": "10.4110/in.2026.26.e9",
+   "prefix": "10.4110",
+   "journal": "Immune network",
+   "publisher": "101137270",
+   "year": "2026",
+   "types": [
+    "Editorial"
+   ],
+   "is_author_ms": false,
+   "query": "immunology T cell exhaustion",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC12962829",
+   "doi": "10.4110/in.2026.26.e12",
+   "prefix": "10.4110",
+   "journal": "Immune network",
+   "publisher": "101137270",
+   "year": "2026",
+   "types": [
+    "review-article",
+    "Review",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "immunology T cell exhaustion",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC12836145",
+   "doi": "10.4251/wjgo.v18.i1.115117",
+   "prefix": "10.4251",
+   "journal": "World journal of gastrointestinal oncology",
+   "publisher": "101532470",
+   "year": "2026",
+   "types": [
+    "Letter"
+   ],
+   "is_author_ms": false,
+   "query": "radiology contrast agent",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC13161698",
+   "doi": "10.4314/rjmhs.v9i1.17",
+   "prefix": "10.4314",
+   "journal": "Rwanda journal of medicine and health sciences",
+   "publisher": "9918663088906676",
+   "year": "2026",
+   "types": [
+    "review-article",
+    "Review",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "palliative care communication",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC13161699",
+   "doi": "10.4314/rjmhs.v9i1.13",
+   "prefix": "10.4314",
+   "journal": "Rwanda journal of medicine and health sciences",
+   "publisher": "9918663088906676",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "midwifery birth outcomes",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC13231482",
+   "doi": "10.4314/gmj.v60i1.5",
+   "prefix": "10.4314",
+   "journal": "Ghana medical journal",
+   "publisher": "0073210",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "optometry myopia control",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC13218629",
+   "doi": "10.46989/001c.161361",
+   "prefix": "10.46989",
+   "journal": "Clinical hematology international",
+   "publisher": "101759455",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "epidemiology cohort profile",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC12967490",
+   "doi": "10.51866/rv.694",
+   "prefix": "10.51866",
+   "journal": "Malaysian family physician : the official journal of the Academy of Family Physicians of Malaysia",
+   "publisher": "101466855",
+   "year": "2026",
+   "types": [
+    "review-article",
+    "Review",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "occupational therapy stroke",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC13198729",
+   "doi": "10.51866/oa.758",
+   "prefix": "10.51866",
+   "journal": "Malaysian family physician : the official journal of the Academy of Family Physicians of Malaysia",
+   "publisher": "101466855",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "public health vaccination uptake",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC9115814",
+   "doi": "10.5249/jivr.v14i1.1698",
+   "prefix": "10.5249",
+   "journal": "Journal of injury & violence research",
+   "publisher": "101535747",
+   "year": "2022",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "structural seismic retrofit",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC12750702",
+   "doi": "10.5339/qmj.2025.99",
+   "prefix": "10.5339",
+   "journal": "Qatar medical journal",
+   "publisher": "8101648",
+   "year": "2025",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "audiology hearing aid",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC12969928",
+   "doi": "10.5339/qmj.2026.5",
+   "prefix": "10.5339",
+   "journal": "Qatar medical journal",
+   "publisher": "8101648",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "anaesthesia postoperative pain",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC13014109",
+   "doi": "10.5339/qmj.2025.116",
+   "prefix": "10.5339",
+   "journal": "Qatar medical journal",
+   "publisher": "8101648",
+   "year": "2025",
+   "types": [
+    "Journal Article",
+    "Case Reports",
+    "case-report"
+   ],
+   "is_author_ms": false,
+   "query": "speech language pathology",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC13248072",
+   "doi": "10.5500/wjt.v16.i2.118962",
+   "prefix": "10.5500",
+   "journal": "World journal of transplantation",
+   "publisher": "101608356",
+   "year": "2026",
+   "types": [
+    "Letter",
+    "Comment"
+   ],
+   "is_author_ms": false,
+   "query": "PUB_TYPE:\"Comment\"",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC13248350",
+   "doi": "10.5500/wjt.v16.i2.114837",
+   "prefix": "10.5500",
+   "journal": "World journal of transplantation",
+   "publisher": "101608356",
+   "year": "2026",
+   "types": [
+    "Comment",
+    "Editorial"
+   ],
+   "is_author_ms": false,
+   "query": "PUB_TYPE:\"Comment\"",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC13248407",
+   "doi": "10.5500/wjt.v16.i2.115035",
+   "prefix": "10.5500",
+   "journal": "World journal of transplantation",
+   "publisher": "101608356",
+   "year": "2026",
+   "types": [
+    "Comment",
+    "Editorial"
+   ],
+   "is_author_ms": false,
+   "query": "PUB_TYPE:\"Comment\"",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC13010438",
+   "doi": "10.5527/wjn.v15.i1.114165",
+   "prefix": "10.5527",
+   "journal": "World journal of nephrology",
+   "publisher": "101610229",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "emergency triage sepsis",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC13010564",
+   "doi": "10.5527/wjn.v15.i1.113952",
+   "prefix": "10.5527",
+   "journal": "World journal of nephrology",
+   "publisher": "101610229",
+   "year": "2026",
+   "types": [
+    "Letter"
+   ],
+   "is_author_ms": false,
+   "query": "emergency triage sepsis",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC13010633",
+   "doi": "10.5527/wjn.v15.i1.111612",
+   "prefix": "10.5527",
+   "journal": "World journal of nephrology",
+   "publisher": "101610229",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "nephrology dialysis outcome",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC13158321",
+   "doi": "10.5694/mja2.70195",
+   "prefix": "10.5694",
+   "journal": "The Medical journal of Australia",
+   "publisher": "0400714",
+   "year": "2026",
+   "types": [
+    "review-article",
+    "Review",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "hepatology fibrosis",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC13255006",
+   "doi": "10.5694/mja2.70228",
+   "prefix": "10.5694",
+   "journal": "The Medical journal of Australia",
+   "publisher": "0400714",
+   "year": "2026",
+   "types": [
+    "other",
+    "Journal Article",
+    "Case Reports"
+   ],
+   "is_author_ms": false,
+   "query": "PUB_TYPE:\"Case Reports\"",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC13064991",
+   "doi": "10.5713/ab.250895",
+   "prefix": "10.5713",
+   "journal": "Animal bioscience",
+   "publisher": "101774366",
+   "year": "2026",
+   "types": [
+    "review-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "dairy science mastitis",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC12931403",
+   "doi": "10.5770/cgj.29.916",
+   "prefix": "10.5770",
+   "journal": "Canadian geriatrics journal : CGJ",
+   "publisher": "101579189",
+   "year": "2026",
+   "types": [
+    "review-article",
+    "Review",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "geriatrics frailty",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC13215370",
+   "doi": "10.5770/cgj.29.901",
+   "prefix": "10.5770",
+   "journal": "Canadian geriatrics journal : CGJ",
+   "publisher": "101579189",
+   "year": "2026",
+   "types": [
+    "review-article",
+    "Review",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "nursing workforce retention",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC13215371",
+   "doi": "10.5770/cgj.29.892",
+   "prefix": "10.5770",
+   "journal": "Canadian geriatrics journal : CGJ",
+   "publisher": "101579189",
+   "year": "2026",
+   "types": [
+    "review-article",
+    "Review",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "rehabilitation gait training",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC10393452",
+   "doi": "10.5811/westjem.59381",
+   "prefix": "10.5811",
+   "journal": "The western journal of emergency medicine",
+   "publisher": "101476450",
+   "year": "2023",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "meteorology convective storm",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC13016053",
+   "doi": "10.5811/westjem.53126",
+   "prefix": "10.5811",
+   "journal": "The western journal of emergency medicine",
+   "publisher": "101476450",
+   "year": "2026",
+   "types": [
+    "article-commentary",
+    "Historical Article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "PUB_TYPE:\"Historical Article\"",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC13135423",
+   "doi": "10.5811/cpcem.50714",
+   "prefix": "10.5811",
+   "journal": "Clinical practice and cases in emergency medicine",
+   "publisher": "101718968",
+   "year": "2026",
+   "types": [
+    "Journal Article",
+    "Case Reports",
+    "case-report"
+   ],
+   "is_author_ms": false,
+   "query": "ophthalmology retinal imaging",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC12965369",
+   "doi": "10.5851/kosfa.2025.e28",
+   "prefix": "10.5851",
+   "journal": "Food science of animal resources",
+   "publisher": "101742126",
+   "year": "2025",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "apiculture colony loss",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC12569872",
+   "doi": "10.6026/973206300212031",
+   "prefix": "10.6026",
+   "journal": "Bioinformation",
+   "publisher": "101258255",
+   "year": "2025",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "forensic anthropology",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC12697464",
+   "doi": "10.6026/973206300212464",
+   "prefix": "10.6026",
+   "journal": "Bioinformation",
+   "publisher": "101258255",
+   "year": "2025",
+   "types": [
+    "other",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "dental implant osseointegration",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC12744458",
+   "doi": "10.6026/973206300213152",
+   "prefix": "10.6026",
+   "journal": "Bioinformation",
+   "publisher": "101258255",
+   "year": "2025",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "dental implant osseointegration",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC12963730",
+   "doi": "10.6065/apem.2550066.033",
+   "prefix": "10.6065",
+   "journal": "Annals of pediatric endocrinology & metabolism",
+   "publisher": "101588279",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "endocrinology thyroid function",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC13124096",
+   "doi": "10.62675/2965-2774.20260338",
+   "prefix": "10.62675",
+   "journal": "Critical care science",
+   "publisher": "9918627781706676",
+   "year": "2026",
+   "types": [
+    "Editorial"
+   ],
+   "is_author_ms": false,
+   "query": "geographic information system mapping",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC13155768",
+   "doi": "10.62675/2965-2774.20260301",
+   "prefix": "10.62675",
+   "journal": "Critical care science",
+   "publisher": "9918627781706676",
+   "year": "2026",
+   "types": [
+    "Editorial"
+   ],
+   "is_author_ms": false,
+   "query": "palliative care communication",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC13248891",
+   "doi": "10.70962/jhi.20250227",
+   "prefix": "10.70962",
+   "journal": "Journal of human immunity",
+   "publisher": "9919054337406676",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "genomics structural variant",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC13144744",
+   "doi": "10.7774/cevr.2026.15.e12",
+   "prefix": "10.7774",
+   "journal": "Clinical and experimental vaccine research",
+   "publisher": "101592344",
+   "year": "2026",
+   "types": [
+    "review-article",
+    "Review",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "public health vaccination uptake",
+   "split": "SEALED"
+  },
+  {
+   "pmcid": "PMC12934502",
+   "doi": "10.1049/htl2.70037",
+   "prefix": "10.1049",
+   "journal": "Healthcare technology letters",
+   "publisher": "101646459",
+   "year": "2026",
+   "types": [
+    "brief-report",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "human computer interaction usability",
+   "split": "VAL"
+  },
+  {
+   "pmcid": "PMC12245641",
+   "doi": "10.11604/pamj.2025.50.102.40580",
+   "prefix": "10.11604",
+   "journal": "The Pan African medical journal",
+   "publisher": "101517926",
+   "year": "2025",
+   "types": [
+    "Journal Article",
+    "Case Reports",
+    "case-report"
+   ],
+   "is_author_ms": false,
+   "query": "mycology taxonomy new species",
+   "split": "VAL"
+  },
+  {
+   "pmcid": "PMC10858983",
+   "doi": "10.12688/openreseurope.15249.3",
+   "prefix": "10.12688",
+   "journal": "Open research Europe",
+   "publisher": "9918230081006676",
+   "year": "2023",
+   "types": [
+    "Letter"
+   ],
+   "is_author_ms": false,
+   "query": "volcanology eruption forecasting",
+   "split": "VAL"
+  },
+  {
+   "pmcid": "PMC12441665",
+   "doi": "10.12688/f1000research.167697.2",
+   "prefix": "10.12688",
+   "journal": "F1000Research",
+   "publisher": "101594320",
+   "year": "2025",
+   "types": [
+    "Journal Article",
+    "Case Reports",
+    "case-report"
+   ],
+   "is_author_ms": false,
+   "query": "paediatrics neonatal outcome",
+   "split": "VAL"
+  },
+  {
+   "pmcid": "PMC13040224",
+   "doi": "10.12688/f1000research.178080.1",
+   "prefix": "10.12688",
+   "journal": "F1000Research",
+   "publisher": "101594320",
+   "year": "2026",
+   "types": [
+    "Historical Article",
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "PUB_TYPE:\"Historical Article\"",
+   "split": "VAL"
+  },
+  {
+   "pmcid": "PMC12897453",
+   "doi": "10.12998/wjcc.v14.i5.117016",
+   "prefix": "10.12998",
+   "journal": "World journal of clinical cases",
+   "publisher": "101618806",
+   "year": "2026",
+   "types": [
+    "Journal Article",
+    "Case Reports",
+    "case-report"
+   ],
+   "is_author_ms": false,
+   "query": "endocrinology thyroid function",
+   "split": "VAL"
+  },
+  {
+   "pmcid": "PMC13004299",
+   "doi": "10.13075/ijomeh.1896.02721",
+   "prefix": "10.13075",
+   "journal": "International journal of occupational medicine and environmental health",
+   "publisher": "9437093",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "air quality particulate",
+   "split": "VAL"
+  },
+  {
+   "pmcid": "PMC12925678",
+   "doi": "10.1523/jneurosci.1519-25.2025",
+   "prefix": "10.1523",
+   "journal": "The Journal of neuroscience : the official journal of the Society for Neuroscience",
+   "publisher": "8102140",
+   "year": "2026",
+   "types": [
+    "Research Support, Non-U.S. Gov't",
+    "research-article",
+    "Journal Article",
+    "Research Support, N.I.H., Extramural"
+   ],
+   "is_author_ms": false,
+   "query": "neuroscience synaptic plasticity",
+   "split": "VAL"
+  },
+  {
+   "pmcid": "PMC13108378",
+   "doi": "10.1523/jneurosci.1746-25.2026",
+   "prefix": "10.1523",
+   "journal": "The Journal of neuroscience : the official journal of the Society for Neuroscience",
+   "publisher": "8102140",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "neuroscience synaptic plasticity",
+   "split": "VAL"
+  },
+  {
+   "pmcid": "PMC13192391",
+   "doi": "10.1523/jneurosci.1540-25.2026",
+   "prefix": "10.1523",
+   "journal": "The Journal of neuroscience : the official journal of the Society for Neuroscience",
+   "publisher": "8102140",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "neuroscience synaptic plasticity",
+   "split": "VAL"
+  },
+  {
+   "pmcid": "PMC12921388",
+   "doi": "10.1530/edm-25-0123",
+   "prefix": "10.1530",
+   "journal": "Endocrinology, diabetes & metabolism case reports",
+   "publisher": "101618943",
+   "year": "2026",
+   "types": [
+    "Journal Article",
+    "Case Reports",
+    "case-report"
+   ],
+   "is_author_ms": false,
+   "query": "endocrinology thyroid function",
+   "split": "VAL"
+  },
+  {
+   "pmcid": "PMC12961266",
+   "doi": "10.1530/edm-25-0162",
+   "prefix": "10.1530",
+   "journal": "Endocrinology, diabetes & metabolism case reports",
+   "publisher": "101618943",
+   "year": "2026",
+   "types": [
+    "Journal Article",
+    "Case Reports",
+    "case-report"
+   ],
+   "is_author_ms": false,
+   "query": "endocrinology thyroid function",
+   "split": "VAL"
+  },
+  {
+   "pmcid": "PMC13052769",
+   "doi": "10.1530/edm-25-0135",
+   "prefix": "10.1530",
+   "journal": "Endocrinology, diabetes & metabolism case reports",
+   "publisher": "101618943",
+   "year": "2026",
+   "types": [
+    "Journal Article",
+    "Case Reports",
+    "case-report"
+   ],
+   "is_author_ms": false,
+   "query": "endocrinology thyroid function",
+   "split": "VAL"
+  },
+  {
+   "pmcid": "PMC13217626",
+   "doi": "10.15537/1658-3175.8790",
+   "prefix": "10.15537",
+   "journal": "Saudi medical journal",
+   "publisher": "7909441",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "meteorology convective storm",
+   "split": "VAL"
+  },
+  {
+   "pmcid": "PMC13217631",
+   "doi": "10.15537/1658-3175.8782",
+   "prefix": "10.15537",
+   "journal": "Saudi medical journal",
+   "publisher": "7909441",
+   "year": "2026",
+   "types": [
+    "review-article",
+    "Review",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "occupational therapy stroke",
+   "split": "VAL"
+  },
+  {
+   "pmcid": "PMC13227370",
+   "doi": "10.15537/1658-3175.1066",
+   "prefix": "10.15537",
+   "journal": "Saudi medical journal",
+   "publisher": "7909441",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "emergency triage sepsis",
+   "split": "VAL"
+  },
+  {
+   "pmcid": "PMC13269360",
+   "doi": "10.15605/jafes.041.01.4989",
+   "prefix": "10.15605",
+   "journal": "Journal of the ASEAN Federation of Endocrine Societies",
+   "publisher": "8608483",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "endocrinology thyroid function",
+   "split": "VAL"
+  },
+  {
+   "pmcid": "PMC12256704",
+   "doi": "10.1584/jpestics.d24-051",
+   "prefix": "10.1584",
+   "journal": "Journal of pesticide science",
+   "publisher": "101580833",
+   "year": "2025",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "weed science herbicide",
+   "split": "VAL"
+  },
+  {
+   "pmcid": "PMC13021355",
+   "doi": "10.1584/jpestics.d25-078",
+   "prefix": "10.1584",
+   "journal": "Journal of pesticide science",
+   "publisher": "101580833",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "weed science herbicide",
+   "split": "VAL"
+  },
+  {
+   "pmcid": "PMC12719952",
+   "doi": "10.17079/jkgn.2025.00066",
+   "prefix": "10.17079",
+   "journal": "Journal of Korean gerontological nursing",
+   "publisher": "101661956",
+   "year": "2025",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "nursing workforce retention",
+   "split": "VAL"
+  },
+  {
+   "pmcid": "PMC12890534",
+   "doi": "10.17085/apm.25305",
+   "prefix": "10.17085",
+   "journal": "Anesthesia and pain medicine",
+   "publisher": "101517708",
+   "year": "2026",
+   "types": [
+    "letter",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "anaesthesia postoperative pain",
+   "split": "VAL"
+  },
+  {
+   "pmcid": "PMC13034982",
+   "doi": "10.17159/2078-516x/2026/v38i1a23613",
+   "prefix": "10.17159",
+   "journal": "South African journal of sports medicine",
+   "publisher": "101132064",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "sports medicine injury",
+   "split": "VAL"
+  },
+  {
+   "pmcid": "PMC13299698",
+   "doi": "10.17159/2078-516x/2026/v38i1a24812",
+   "prefix": "10.17159",
+   "journal": "South African journal of sports medicine",
+   "publisher": "101132064",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "sports medicine injury",
+   "split": "VAL"
+  },
+  {
+   "pmcid": "PMC13244267",
+   "doi": "10.20517/cdr.2026.27",
+   "prefix": "10.20517",
+   "journal": "Cancer drug resistance (Alhambra, Calif.)",
+   "publisher": "101738710",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "biostatistics survival analysis",
+   "split": "VAL"
+  },
+  {
+   "pmcid": "PMC12892862",
+   "doi": "10.20945/2359-4292-2026-0006",
+   "prefix": "10.20945",
+   "journal": "Archives of endocrinology and metabolism",
+   "publisher": "101652058",
+   "year": "2026",
+   "types": [
+    "Journal Article",
+    "Case Reports",
+    "case-report"
+   ],
+   "is_author_ms": false,
+   "query": "endocrinology thyroid function",
+   "split": "VAL"
+  },
+  {
+   "pmcid": "PMC12944293",
+   "doi": "10.20945/2359-4292-2026-0014",
+   "prefix": "10.20945",
+   "journal": "Archives of endocrinology and metabolism",
+   "publisher": "101652058",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "endocrinology thyroid function",
+   "split": "VAL"
+  },
+  {
+   "pmcid": "PMC13048631",
+   "doi": "10.2106/jbjs.oa.26.00060",
+   "prefix": "10.2106",
+   "journal": "JB & JS open access",
+   "publisher": "101726219",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "orthopaedics arthroplasty outcome",
+   "split": "VAL"
+  },
+  {
+   "pmcid": "PMC13259562",
+   "doi": "10.2106/jbjs.oa.26.00076",
+   "prefix": "10.2106",
+   "journal": "JB & JS open access",
+   "publisher": "101726219",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "information retrieval evaluation",
+   "split": "VAL"
+  },
+  {
+   "pmcid": "PMC13054740",
+   "doi": "10.2174/011570159x368986250415105149",
+   "prefix": "10.2174",
+   "journal": "Current neuropharmacology",
+   "publisher": "101157239",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Review",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "bibliometrics citation",
+   "split": "VAL"
+  },
+  {
+   "pmcid": "PMC13223469",
+   "doi": "10.2174/0115672018358562250213113042",
+   "prefix": "10.2174",
+   "journal": "Current drug delivery",
+   "publisher": "101208455",
+   "year": "2026",
+   "types": [
+    "review-article",
+    "Review",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "bibliometrics citation",
+   "split": "VAL"
+  },
+  {
+   "pmcid": "PMC13269942",
+   "doi": "10.2174/011570159x384613250702110845",
+   "prefix": "10.2174",
+   "journal": "Current neuropharmacology",
+   "publisher": "101157239",
+   "year": "2026",
+   "types": [
+    "review-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "bibliometrics citation",
+   "split": "VAL"
+  },
+  {
+   "pmcid": "PMC12054117",
+   "doi": "10.21980/j89m0k",
+   "prefix": "10.21980",
+   "journal": "Journal of education & teaching in emergency medicine",
+   "publisher": "101741448",
+   "year": "2025",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "podiatry diabetic foot",
+   "split": "VAL"
+  },
+  {
+   "pmcid": "PMC12694870",
+   "doi": "10.22088/cjim.16.4.725",
+   "prefix": "10.22088",
+   "journal": "Caspian journal of internal medicine",
+   "publisher": "101523876",
+   "year": "2025",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "bacteriology biofilm",
+   "split": "VAL"
+  },
+  {
+   "pmcid": "PMC12727186",
+   "doi": "10.22514/jofph.2025.072",
+   "prefix": "10.22514",
+   "journal": "Journal of oral & facial pain and headache",
+   "publisher": "101624698",
+   "year": "2025",
+   "types": [
+    "Research Support, Non-U.S. Gov't",
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "bibliometrics citation",
+   "split": "VAL"
+  },
+  {
+   "pmcid": "PMC13154418",
+   "doi": "10.22551/2026.50.1301.10336",
+   "prefix": "10.22551",
+   "journal": "Archive of clinical cases",
+   "publisher": "101727313",
+   "year": "2026",
+   "types": [
+    "Journal Article",
+    "Case Reports",
+    "case-report"
+   ],
+   "is_author_ms": false,
+   "query": "speech language pathology",
+   "split": "VAL"
+  },
+  {
+   "pmcid": "PMC13044549",
+   "doi": "10.22575/interventionalradiology.2025-0066",
+   "prefix": "10.22575",
+   "journal": "Interventional radiology (Higashimatsuyama-shi (Japan)",
+   "publisher": "101745449",
+   "year": "2026",
+   "types": [
+    "Journal Article",
+    "Case Reports",
+    "case-report"
+   ],
+   "is_author_ms": false,
+   "query": "radiology contrast agent",
+   "split": "VAL"
+  },
+  {
+   "pmcid": "PMC13225891",
+   "doi": "10.22575/interventionalradiology.2026-0012",
+   "prefix": "10.22575",
+   "journal": "Interventional radiology (Higashimatsuyama-shi (Japan)",
+   "publisher": "101745449",
+   "year": "2026",
+   "types": [
+    "Journal Article",
+    "Case Reports",
+    "case-report"
+   ],
+   "is_author_ms": false,
+   "query": "radiology contrast agent",
+   "split": "VAL"
+  },
+  {
+   "pmcid": "PMC12904118",
+   "doi": "10.22599/bioj.500",
+   "prefix": "10.22599",
+   "journal": "The British and Irish orthoptic journal",
+   "publisher": "101233819",
+   "year": "2026",
+   "types": [
+    "review-article",
+    "Review",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "optometry myopia control",
+   "split": "VAL"
+  },
+  {
+   "pmcid": "PMC12904128",
+   "doi": "10.22599/bioj.455",
+   "prefix": "10.22599",
+   "journal": "The British and Irish orthoptic journal",
+   "publisher": "101233819",
+   "year": "2026",
+   "types": [
+    "review-article",
+    "Review",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "optometry myopia control",
+   "split": "VAL"
+  },
+  {
+   "pmcid": "PMC12626773",
+   "doi": "10.2490/prm.20250034",
+   "prefix": "10.2490",
+   "journal": "Progress in rehabilitation medicine",
+   "publisher": "101707740",
+   "year": "2025",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "occupational therapy stroke",
+   "split": "VAL"
+  },
+  {
+   "pmcid": "PMC13138795",
+   "doi": "10.2490/prm.20260020",
+   "prefix": "10.2490",
+   "journal": "Progress in rehabilitation medicine",
+   "publisher": "101707740",
+   "year": "2026",
+   "types": [
+    "review-article",
+    "Review",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "occupational therapy stroke",
+   "split": "VAL"
+  },
+  {
+   "pmcid": "PMC13148872",
+   "doi": "10.2490/prm.20260021",
+   "prefix": "10.2490",
+   "journal": "Progress in rehabilitation medicine",
+   "publisher": "101707740",
+   "year": "2026",
+   "types": [
+    "review-article",
+    "Review",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "rehabilitation gait training",
+   "split": "VAL"
+  },
+  {
+   "pmcid": "PMC13263649",
+   "doi": "10.2807/1560-7917.es.2026.31.23.2500769",
+   "prefix": "10.2807",
+   "journal": "Euro surveillance : bulletin Europeen sur les maladies transmissibles = European communicable disease bulletin",
+   "publisher": "100887452",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "statistics missing data",
+   "split": "VAL"
+  },
+  {
+   "pmcid": "PMC12607127",
+   "doi": "10.29374/2527-2179.bjvm007625",
+   "prefix": "10.29374",
+   "journal": "Brazilian journal of veterinary medicine",
+   "publisher": "9918435088106676",
+   "year": "2025",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "oceanography upwelling",
+   "split": "VAL"
+  },
+  {
+   "pmcid": "PMC12999241",
+   "doi": "10.30773/pi.2025.0366",
+   "prefix": "10.30773",
+   "journal": "Psychiatry investigation",
+   "publisher": "101242994",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "psychiatry adolescent depression",
+   "split": "VAL"
+  },
+  {
+   "pmcid": "PMC13211998",
+   "doi": "10.30773/pi.2026.0028",
+   "prefix": "10.30773",
+   "journal": "Psychiatry investigation",
+   "publisher": "101242994",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "psychiatry adolescent depression",
+   "split": "VAL"
+  },
+  {
+   "pmcid": "PMC13127276",
+   "doi": "10.31053/1853.0605.v83.n1.50492",
+   "prefix": "10.31053",
+   "journal": "Revista de la Facultad de Ciencias Medicas (Cordoba, Argentina)",
+   "publisher": "8303003",
+   "year": "2026",
+   "types": [
+    "editorial",
+    "Historical Article",
+    "Journal Article",
+    "English Abstract"
+   ],
+   "is_author_ms": false,
+   "query": "PUB_TYPE:\"Historical Article\"",
+   "split": "VAL"
+  },
+  {
+   "pmcid": "PMC12957964",
+   "doi": "10.31083/ap45458",
+   "prefix": "10.31083",
+   "journal": "Alpha psychiatry",
+   "publisher": "9918284277106676",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "psychiatry adolescent depression",
+   "split": "VAL"
+  },
+  {
+   "pmcid": "PMC13155976",
+   "doi": "10.31083/rcm49095",
+   "prefix": "10.31083",
+   "journal": "Reviews in cardiovascular medicine",
+   "publisher": "100960007",
+   "year": "2026",
+   "types": [
+    "Systematic Review",
+    "systematic-review",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "cardiology heart failure",
+   "split": "VAL"
+  },
+  {
+   "pmcid": "PMC13155987",
+   "doi": "10.31083/rcm47388",
+   "prefix": "10.31083",
+   "journal": "Reviews in cardiovascular medicine",
+   "publisher": "100960007",
+   "year": "2026",
+   "types": [
+    "review-article",
+    "Review",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "air quality particulate",
+   "split": "VAL"
+  },
+  {
+   "pmcid": "PMC12009464",
+   "doi": "10.31661/jbpe.v0i0.2401-1712",
+   "prefix": "10.31661",
+   "journal": "Journal of biomedical physics & engineering",
+   "publisher": "101589641",
+   "year": "2025",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "tribology wear coating",
+   "split": "VAL"
+  },
+  {
+   "pmcid": "PMC13122348",
+   "doi": "10.31661/jbpe.v0i0.2311-1686",
+   "prefix": "10.31661",
+   "journal": "Journal of biomedical physics & engineering",
+   "publisher": "101589641",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "operations research scheduling",
+   "split": "VAL"
+  },
+  {
+   "pmcid": "PMC13263383",
+   "doi": "10.31661/jbpe.v0i0.2402-1720",
+   "prefix": "10.31661",
+   "journal": "Journal of biomedical physics & engineering",
+   "publisher": "101589641",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "signal processing biomedical",
+   "split": "VAL"
+  },
+  {
+   "pmcid": "PMC13048760",
+   "doi": "10.32481/djph.2026.03.03",
+   "prefix": "10.32481",
+   "journal": "Delaware journal of public health",
+   "publisher": "101769648",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "nursing workforce retention",
+   "split": "VAL"
+  },
+  {
+   "pmcid": "PMC13245576",
+   "doi": "10.32481/djph.2026.05.14",
+   "prefix": "10.32481",
+   "journal": "Delaware journal of public health",
+   "publisher": "101769648",
+   "year": "2026",
+   "types": [
+    "discussion",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "nursing workforce retention",
+   "split": "VAL"
+  },
+  {
+   "pmcid": "PMC13244061",
+   "doi": "10.3345/cep.2026.01081",
+   "prefix": "10.3345",
+   "journal": "Clinical and experimental pediatrics",
+   "publisher": "101761234",
+   "year": "2026",
+   "types": [
+    "Comment",
+    "Editorial"
+   ],
+   "is_author_ms": false,
+   "query": "PUB_TYPE:\"Comment\"",
+   "split": "VAL"
+  },
+  {
+   "pmcid": "PMC12661175",
+   "doi": "10.3347/phd.25053",
+   "prefix": "10.3347",
+   "journal": "Parasites, hosts and diseases",
+   "publisher": "9918574074806676",
+   "year": "2025",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "veterinary parasitology",
+   "split": "VAL"
+  },
+  {
+   "pmcid": "PMC12538143",
+   "doi": "10.3350/cmh.2024.1150e",
+   "prefix": "10.3350",
+   "journal": "Clinical and molecular hepatology",
+   "publisher": "101586730",
+   "year": "2025",
+   "types": [
+    "Published Erratum",
+    "correction"
+   ],
+   "is_author_ms": false,
+   "query": "hepatology fibrosis",
+   "split": "VAL"
+  },
+  {
+   "pmcid": "PMC12835739",
+   "doi": "10.3350/cmh.2025.0888",
+   "prefix": "10.3350",
+   "journal": "Clinical and molecular hepatology",
+   "publisher": "101586730",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Multicenter Study",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "hepatology fibrosis",
+   "split": "VAL"
+  },
+  {
+   "pmcid": "PMC13129772",
+   "doi": "10.3350/cmh.2025.1060",
+   "prefix": "10.3350",
+   "journal": "Clinical and molecular hepatology",
+   "publisher": "101586730",
+   "year": "2026",
+   "types": [
+    "review-article",
+    "Review",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "health economics cost effectiveness",
+   "split": "VAL"
+  },
+  {
+   "pmcid": "PMC13231407",
+   "doi": "10.33620/fc.2173-9218.2026.22",
+   "prefix": "10.33620",
+   "journal": "Farmaceuticos comunitarios",
+   "publisher": "9918592388706676",
+   "year": "2026",
+   "types": [
+    "Journal Article",
+    "Case Reports",
+    "case-report"
+   ],
+   "is_author_ms": false,
+   "query": "pharmacy practice adherence",
+   "split": "VAL"
+  },
+  {
+   "pmcid": "PMC13150455",
+   "doi": "10.36628/ijhf.2026.0023",
+   "prefix": "10.36628",
+   "journal": "International journal of heart failure",
+   "publisher": "101775659",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "cardiology heart failure",
+   "split": "VAL"
+  },
+  {
+   "pmcid": "PMC12867515",
+   "doi": "10.3928/24748307-20250915-03",
+   "prefix": "10.3928",
+   "journal": "Health literacy research and practice",
+   "publisher": "101712185",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "human computer interaction usability",
+   "split": "VAL"
+  },
+  {
+   "pmcid": "PMC13236406",
+   "doi": "10.3946/kjme.2025.142",
+   "prefix": "10.3946",
+   "journal": "Korean journal of medical education",
+   "publisher": "101503071",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "medical education curriculum",
+   "split": "VAL"
+  },
+  {
+   "pmcid": "PMC13236408",
+   "doi": "10.3946/kjme.2026.193",
+   "prefix": "10.3946",
+   "journal": "Korean journal of medical education",
+   "publisher": "101503071",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "medical education curriculum",
+   "split": "VAL"
+  },
+  {
+   "pmcid": "PMC13236409",
+   "doi": "10.3946/kjme.2026.188",
+   "prefix": "10.3946",
+   "journal": "Korean journal of medical education",
+   "publisher": "101503071",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "medical education curriculum",
+   "split": "VAL"
+  },
+  {
+   "pmcid": "PMC13254464",
+   "doi": "10.3961/jpmph.25.763",
+   "prefix": "10.3961",
+   "journal": "Journal of preventive medicine and public health = Yebang Uihakhoe chi",
+   "publisher": "101242972",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "geographic information system mapping",
+   "split": "VAL"
+  },
+  {
+   "pmcid": "PMC13145783",
+   "doi": "10.4111/icu.20260089",
+   "prefix": "10.4111",
+   "journal": "Investigative and clinical urology",
+   "publisher": "101674989",
+   "year": "2026",
+   "types": [
+    "Research Support, Non-U.S. Gov't",
+    "review-article",
+    "Review",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "urology stone disease",
+   "split": "VAL"
+  },
+  {
+   "pmcid": "PMC13236462",
+   "doi": "10.4142/jvs.25311",
+   "prefix": "10.4142",
+   "journal": "Journal of veterinary science",
+   "publisher": "100964185",
+   "year": "2026",
+   "types": [
+    "brief-report",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "dairy science mastitis",
+   "split": "VAL"
+  },
+  {
+   "pmcid": "PMC13193736",
+   "doi": "10.4258/hir.2026.32.2.156",
+   "prefix": "10.4258",
+   "journal": "Healthcare informatics research",
+   "publisher": "101534553",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "information retrieval evaluation",
+   "split": "VAL"
+  },
+  {
+   "pmcid": "PMC13193747",
+   "doi": "10.4258/hir.2026.32.2.115",
+   "prefix": "10.4258",
+   "journal": "Healthcare informatics research",
+   "publisher": "101534553",
+   "year": "2026",
+   "types": [
+    "Editorial"
+   ],
+   "is_author_ms": false,
+   "query": "natural language processing clinical not",
+   "split": "VAL"
+  },
+  {
+   "pmcid": "PMC13097229",
+   "doi": "10.47176/mjiri.39.138",
+   "prefix": "10.47176",
+   "journal": "Medical journal of the Islamic Republic of Iran",
+   "publisher": "8910777",
+   "year": "2025",
+   "types": [
+    "review-article",
+    "Review",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "occupational therapy stroke",
+   "split": "VAL"
+  },
+  {
+   "pmcid": "PMC13152370",
+   "doi": "10.5070/m5.52329",
+   "prefix": "10.5070",
+   "journal": "Journal of education & teaching in emergency medicine",
+   "publisher": "101741448",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "endocrinology thyroid function",
+   "split": "VAL"
+  },
+  {
+   "pmcid": "PMC13152385",
+   "doi": "10.5070/m5.52278",
+   "prefix": "10.5070",
+   "journal": "Journal of education & teaching in emergency medicine",
+   "publisher": "101741448",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "sports medicine injury",
+   "split": "VAL"
+  },
+  {
+   "pmcid": "PMC12902584",
+   "doi": "10.5187/jast.2500369",
+   "prefix": "10.5187",
+   "journal": "Journal of animal science and technology",
+   "publisher": "101661694",
+   "year": "2026",
+   "types": [
+    "review-article",
+    "Review",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "poultry science gut microbiota",
+   "split": "VAL"
+  },
+  {
+   "pmcid": "PMC12923260",
+   "doi": "10.5187/jast.2024.e66",
+   "prefix": "10.5187",
+   "journal": "Journal of animal science and technology",
+   "publisher": "101661694",
+   "year": "2026",
+   "types": [
+    "review-article",
+    "Review",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "dairy science mastitis",
+   "split": "VAL"
+  },
+  {
+   "pmcid": "PMC13260098",
+   "doi": "10.5187/jast.2024.e63",
+   "prefix": "10.5187",
+   "journal": "Journal of animal science and technology",
+   "publisher": "101661694",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "dairy science mastitis",
+   "split": "VAL"
+  },
+  {
+   "pmcid": "PMC13248950",
+   "doi": "10.5213/inj.2652134.067",
+   "prefix": "10.5213",
+   "journal": "International neurourology journal",
+   "publisher": "101534513",
+   "year": "2026",
+   "types": [
+    "review-article",
+    "Review",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "urology stone disease",
+   "split": "VAL"
+  },
+  {
+   "pmcid": "PMC13248954",
+   "doi": "10.5213/inj.2651122.061",
+   "prefix": "10.5213",
+   "journal": "International neurourology journal",
+   "publisher": "101534513",
+   "year": "2026",
+   "types": [
+    "review-article",
+    "Review",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "urology stone disease",
+   "split": "VAL"
+  },
+  {
+   "pmcid": "PMC13248958",
+   "doi": "10.5213/inj.2626edi02",
+   "prefix": "10.5213",
+   "journal": "International neurourology journal",
+   "publisher": "101534513",
+   "year": "2026",
+   "types": [
+    "Editorial"
+   ],
+   "is_author_ms": false,
+   "query": "computer vision segmentation",
+   "split": "VAL"
+  },
+  {
+   "pmcid": "PMC13006560",
+   "doi": "10.5223/pghn.2026.29.2.131",
+   "prefix": "10.5223",
+   "journal": "Pediatric gastroenterology, hepatology & nutrition",
+   "publisher": "101590471",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "hepatology fibrosis",
+   "split": "VAL"
+  },
+  {
+   "pmcid": "PMC12836187",
+   "doi": "10.5312/wjo.v17.i1.110188",
+   "prefix": "10.5312",
+   "journal": "World journal of orthopedics",
+   "publisher": "101576349",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "orthopaedics arthroplasty outcome",
+   "split": "VAL"
+  },
+  {
+   "pmcid": "PMC12754552",
+   "doi": "10.5501/wjv.v14.i4.113449",
+   "prefix": "10.5501",
+   "journal": "World journal of virology",
+   "publisher": "101608353",
+   "year": "2025",
+   "types": [
+    "review-article",
+    "Review",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "virology antiviral resistance",
+   "split": "VAL"
+  },
+  {
+   "pmcid": "PMC13000707",
+   "doi": "10.5758/vsi.250133",
+   "prefix": "10.5758",
+   "journal": "Vascular specialist international",
+   "publisher": "101633116",
+   "year": "2026",
+   "types": [
+    "other",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "radiology contrast agent",
+   "split": "VAL"
+  },
+  {
+   "pmcid": "PMC12548772",
+   "doi": "10.7189/jogh.15.03041",
+   "prefix": "10.7189",
+   "journal": "Journal of global health",
+   "publisher": "101578780",
+   "year": "2025",
+   "types": [
+    "Review",
+    "discussion",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "midwifery birth outcomes",
+   "split": "VAL"
+  },
+  {
+   "pmcid": "PMC12922466",
+   "doi": "10.7189/jogh.16.03005",
+   "prefix": "10.7189",
+   "journal": "Journal of global health",
+   "publisher": "101578780",
+   "year": "2026",
+   "types": [
+    "discussion",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "health economics cost effectiveness",
+   "split": "VAL"
+  },
+  {
+   "pmcid": "PMC12967242",
+   "doi": "10.7189/jogh.16.04010",
+   "prefix": "10.7189",
+   "journal": "Journal of global health",
+   "publisher": "101578780",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "air quality particulate",
+   "split": "VAL"
+  },
+  {
+   "pmcid": "PMC10266762",
+   "doi": "10.7554/elife.89158",
+   "prefix": "10.7554",
+   "journal": "eLife",
+   "publisher": "101579614",
+   "year": "2023",
+   "types": [
+    "article-commentary",
+    "Editorial"
+   ],
+   "is_author_ms": false,
+   "query": "palaeontology fossil morphology",
+   "split": "VAL"
+  },
+  {
+   "pmcid": "PMC12893709",
+   "doi": "10.7554/elife.110644",
+   "prefix": "10.7554",
+   "journal": "eLife",
+   "publisher": "101579614",
+   "year": "2026",
+   "types": [
+    "Historical Article",
+    "discussion",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "PUB_TYPE:\"Historical Article\"",
+   "split": "VAL"
+  },
+  {
+   "pmcid": "PMC12908934",
+   "doi": "10.7554/elife.110590",
+   "prefix": "10.7554",
+   "journal": "eLife",
+   "publisher": "101579614",
+   "year": "2026",
+   "types": [
+    "article-commentary",
+    "Editorial"
+   ],
+   "is_author_ms": false,
+   "query": "neuroscience synaptic plasticity",
+   "split": "VAL"
+  },
+  {
+   "pmcid": "PMC13231346",
+   "doi": "10.7555/jbr.39.20250178",
+   "prefix": "10.7555",
+   "journal": "Journal of biomedical research",
+   "publisher": "101551157",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "dermatology psoriasis",
+   "split": "VAL"
+  },
+  {
+   "pmcid": "PMC13299342",
+   "doi": "10.7573/dic.2026-4-9",
+   "prefix": "10.7573",
+   "journal": "Drugs in context",
+   "publisher": "101262187",
+   "year": "2026",
+   "types": [
+    "Journal Article",
+    "Case Reports",
+    "case-report"
+   ],
+   "is_author_ms": false,
+   "query": "rheumatology biologic therapy",
+   "split": "VAL"
+  },
+  {
+   "pmcid": "PMC13299378",
+   "doi": "10.7573/dic.2026-5-15",
+   "prefix": "10.7573",
+   "journal": "Drugs in context",
+   "publisher": "101262187",
+   "year": "2026",
+   "types": [
+    "Published Erratum",
+    "correction"
+   ],
+   "is_author_ms": false,
+   "query": "PUB_TYPE:\"Published Erratum\"",
+   "split": "VAL"
+  },
+  {
+   "pmcid": "PMC13299398",
+   "doi": "10.7573/dic.2026-4-13",
+   "prefix": "10.7573",
+   "journal": "Drugs in context",
+   "publisher": "101262187",
+   "year": "2026",
+   "types": [
+    "Published Erratum",
+    "correction"
+   ],
+   "is_author_ms": false,
+   "query": "PUB_TYPE:\"Published Erratum\"",
+   "split": "VAL"
+  },
+  {
+   "pmcid": "PMC13229528",
+   "doi": "10.9740/mhc.2026.06.117",
+   "prefix": "10.9740",
+   "journal": "The mental health clinician",
+   "publisher": "101728585",
+   "year": "2026",
+   "types": [
+    "review-article",
+    "Review",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "pharmacy practice adherence",
+   "split": "VAL"
+  },
+  {
+   "pmcid": "PMC13229531",
+   "doi": "10.9740/mhc.2026.06.167",
+   "prefix": "10.9740",
+   "journal": "The mental health clinician",
+   "publisher": "101728585",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "pharmacy practice adherence",
+   "split": "VAL"
+  },
+  {
+   "pmcid": "PMC13122155",
+   "doi": "10.9758/cpn.25.1347",
+   "prefix": "10.9758",
+   "journal": "Clinical psychopharmacology and neuroscience : the official scientific journal of the Korean College of Neuropsychopharmacology",
+   "publisher": "101207332",
+   "year": "2026",
+   "types": [
+    "research-article",
+    "Journal Article"
+   ],
+   "is_author_ms": false,
+   "query": "neuroscience synaptic plasticity",
+   "split": "VAL"
+  }
+ ]
+}

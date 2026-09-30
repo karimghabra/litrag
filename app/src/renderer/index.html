@@ -10,50 +10,182 @@
   <header id="top">
     <div class="brand">litrag</div>
     <label class="field">
-      <span>Library</span>
-      <select id="library"></select>
+      <span>Project</span>
+      <select id="library" title="The project whose library every tab shows"></select>
     </label>
-    <button id="new-library" class="ghost" title="Create a library">New library</button>
-    <button id="add" class="primary">Add papers…</button>
-    <button id="reparse" class="ghost" title="Read every paper again with Docling">Reparse all</button>
+    <div id="activity" class="activity" hidden>
+      <span class="activity-label"></span>
+      <span class="activity-track"><span class="activity-fill"></span></span>
+      <span class="activity-count muted"></span>
+    </div>
     <div class="spacer"></div>
     <div id="worker-status" class="status"><span class="dot"></span><span class="text">starting worker…</span></div>
   </header>
 
-  <main id="panes">
-    <section id="papers-pane" class="pane">
-      <div class="pane-head"><h2>Papers</h2><span id="papers-count" class="muted"></span></div>
-      <div id="papers" class="scroll"></div>
-      <div id="drop-hint" class="hint">Drop PDFs or JATS XML anywhere to ingest them into this library.</div>
-    </section>
+  <div id="shell">
+    <nav id="nav">
+      <button data-view="projects" title="Every project, new projects, merging libraries">Projects</button>
+      <button data-view="search" title="Literature searches: Europe PMC, XML first, then PDFs">Search</button>
+      <button data-view="papers" title="The papers of this project, each read into a tree">Papers</button>
+      <button data-view="types" title="The kinds of paper, their canonical structures, and how each paper maps onto one">Types</button>
+      <button data-view="query" title="Ask the library: retrieve passages and hydrate them with their context">Query</button>
+    </nav>
 
-    <section id="tree-pane" class="pane">
-      <div class="pane-head">
-        <h2 id="tree-title">Tree</h2>
-        <div id="role-filter" class="chips"></div>
-      </div>
-      <div id="tree-summary" class="summary"></div>
-      <div id="tree" class="scroll"></div>
-    </section>
-
-    <section id="detail-pane" class="pane">
-      <div class="pane-head">
-        <h2>Page</h2>
-        <div class="pager">
-          <button id="prev-page" class="ghost">‹</button>
-          <span id="page-label" class="muted">–</span>
-          <button id="next-page" class="ghost">›</button>
+    <main id="views">
+      <!-- projects -->
+      <section id="view-projects" class="view" hidden>
+        <div class="view-head">
+          <h1>Projects</h1>
+          <span id="projects-count" class="muted"></span>
+          <div class="spacer"></div>
+          <button id="merge-open" class="ghost" title="Merge two or more projects' libraries into a new one">Merge libraries…</button>
+          <button id="new-library" class="primary">New project</button>
         </div>
-      </div>
-      <div id="page-wrap" class="scroll">
-        <div id="page-stage"><canvas id="page-canvas"></canvas><div id="page-overlay"></div></div>
-      </div>
-      <div id="node-detail" class="detail"><div class="muted">Select a node to see its text, its place in the tree, and where it sits on the page.</div></div>
-    </section>
-  </main>
+        <form id="new-project" class="card form" hidden>
+          <h2>New project</h2>
+          <label>Name <input id="np-name" required placeholder="e.g. Looped ligament" /></label>
+          <label>What it is about <textarea id="np-description" rows="3" placeholder="The research question, the materials, the methods: what the literature search should find"></textarea></label>
+          <div class="row"><button type="submit" class="primary">Create</button><button type="button" id="np-cancel" class="ghost">Cancel</button></div>
+        </form>
+        <form id="merge-form" class="card form" hidden>
+          <h2>Merge libraries</h2>
+          <p class="muted">Every paper of the chosen projects is filed once in a new project (the same DOI in two libraries files once), and its rows are derived again from the saved readings. The sources are left as they are.</p>
+          <div id="merge-sources" class="checks"></div>
+          <label>Name of the merged project <input id="merge-name" required /></label>
+          <div class="row"><button type="submit" class="primary">Merge</button><button type="button" id="merge-cancel" class="ghost">Cancel</button></div>
+        </form>
+        <div id="projects" class="grid"></div>
+      </section>
+
+      <!-- search -->
+      <section id="view-search" class="view" hidden>
+        <div class="view-head">
+          <h1>Search</h1>
+          <span id="search-project" class="muted"></span>
+        </div>
+        <form id="search-form" class="searchbar">
+          <input id="search-q" placeholder='Europe PMC query: collagen AND dehydrothermal · AUTH:"Cauwenberghs G" · TITLE:(neuromorphic) AND PUB_YEAR:[2020 TO 2026]' />
+          <button type="submit" class="primary">Search</button>
+          <button type="button" id="search-suggest" class="ghost" title="Draft queries from the project's description with the local model">Suggest from the project</button>
+        </form>
+        <div id="search-suggestions" class="chips suggestions"></div>
+        <div class="split">
+          <div class="col">
+            <div class="col-head">
+              <h2>Results</h2><span id="search-total" class="muted"></span>
+              <div class="spacer"></div>
+              <label class="check"><input type="checkbox" id="search-all" /> all</label>
+              <button id="search-fetch" class="primary" disabled>Fetch &amp; read selected</button>
+            </div>
+            <div id="search-results" class="scroll list"></div>
+            <div class="col-foot"><button id="search-more" class="ghost" hidden>More results</button></div>
+          </div>
+          <div class="col">
+            <div class="col-head">
+              <h2>Candidates</h2>
+              <div id="cand-filter" class="chips"></div>
+              <div class="spacer"></div>
+              <button id="collect" class="primary small" disabled title="Open a browser window through every paper that needs a PDF: sign in once, click each PDF, and each is caught and read">Collect PDFs</button>
+            </div>
+            <div id="collect-status" class="collect-status" hidden></div>
+            <div id="candidates" class="scroll list"></div>
+            <div class="col-foot hint" id="wanted-hint">Papers marked <b>needs PDF</b> have no open full text. <b>Collect PDFs</b> walks them one by one in a browser window that keeps your institutional sign-in: click each paper's PDF and it is caught, filed under that paper and read, and the window moves on (Ctrl+→ skips, Ctrl+W finishes). Or download one yourself and drop it anywhere on this window.</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- papers: the three panes -->
+      <section id="view-papers" class="view" hidden>
+        <div id="panes">
+          <section id="papers-pane" class="pane">
+            <div class="pane-head"><h2>Papers</h2><span id="papers-count" class="muted"></span>
+              <div class="spacer"></div>
+              <button id="add" class="primary small">Add papers…</button>
+              <button id="reparse" class="ghost small" title="Read every paper again with Docling">Reparse all</button>
+            </div>
+            <div id="papers-tools" class="tools" hidden>
+              <label class="field"><span>Sort</span><select id="papers-sort" title="The order of the list"></select></label>
+              <div id="format-filter" class="chips" title="Show only PDFs, or only XML"></div>
+              <div id="type-filter" class="chips" title="Show only one type of paper"></div>
+              <div id="confidence-filter" class="chips" title="Show only the readings of one band of confidence"></div>
+            </div>
+            <div id="papers" class="scroll"></div>
+            <div id="drop-hint" class="hint">Drop PDFs or JATS XML anywhere to ingest them into this project.</div>
+          </section>
+
+          <section id="tree-pane" class="pane">
+            <div class="pane-head">
+              <h2 id="tree-title">Tree</h2>
+              <div class="seg" id="tree-mode" title="The paper as printed, or re-hung under its type's canonical structure">
+                <button data-mode="printed" class="on">Printed</button>
+                <button data-mode="canonical">Canonical</button>
+              </div>
+            </div>
+            <div class="pane-sub"><div id="role-filter" class="chips"></div></div>
+            <div id="tree-summary" class="summary"></div>
+            <div id="tree" class="scroll"></div>
+            <div id="canonical" class="scroll" hidden></div>
+          </section>
+
+          <section id="detail-pane" class="pane">
+            <div class="pane-head">
+              <h2>Page</h2>
+              <div class="pager">
+                <button id="prev-page" class="ghost">‹</button>
+                <span id="page-label" class="muted">–</span>
+                <button id="next-page" class="ghost">›</button>
+              </div>
+            </div>
+            <div id="page-wrap" class="scroll">
+              <div id="page-stage"><canvas id="page-canvas"></canvas><div id="page-overlay"></div></div>
+              <div id="page-reading" hidden></div>
+            </div>
+            <div id="node-detail" class="detail"><div class="muted">Select a node to see its text, its place in the tree, and where it sits on the page.</div></div>
+          </section>
+        </div>
+      </section>
+
+      <!-- types -->
+      <section id="view-types" class="view" hidden>
+        <div class="view-head">
+          <h1>Types</h1>
+          <span id="types-project" class="muted"></span>
+        </div>
+        <div id="types-list" class="type-tabs"></div>
+        <div class="split types-split">
+          <div class="col">
+            <div class="col-head"><h2 id="skeleton-title">Canonical structure</h2></div>
+            <div id="skeleton" class="scroll"></div>
+          </div>
+          <div class="col wide">
+            <div class="col-head"><h2>How each paper maps onto it</h2><div class="spacer"></div><select id="mapping-paper" title="A paper of this type"></select></div>
+            <div id="mapping" class="scroll"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- query -->
+      <section id="view-query" class="view" hidden>
+        <div class="view-head">
+          <h1>Query</h1>
+          <span id="query-project" class="muted"></span>
+          <div class="spacer"></div>
+          <span id="embed-status" class="muted"></span>
+          <button id="embed" class="ghost" title="Embed every passage of this project once, locally">Embed passages</button>
+        </div>
+        <form id="query-form" class="searchbar">
+          <textarea id="query-q" rows="2" placeholder="Ask the library, e.g. at what temperature and for how long is collagen crosslinked dehydrothermally?"></textarea>
+          <label class="field"><span>Passages</span><input id="query-k" type="number" min="1" max="30" value="8" /></label>
+          <button type="submit" class="primary">Ask</button>
+        </form>
+        <div id="query-meta" class="summary"></div>
+        <div id="query-results" class="scroll results"></div>
+      </section>
+    </main>
+  </div>
 
   <footer id="log-pane">
-    <div class="pane-head"><h2>What the worker is doing</h2><button id="clear-log" class="ghost">Clear</button></div>
+    <div class="pane-head"><h2>What the worker is doing</h2><div class="spacer"></div><button id="toggle-log" class="ghost small">Hide</button><button id="clear-log" class="ghost small">Clear</button></div>
     <div id="log" class="scroll mono"></div>
   </footer>
 

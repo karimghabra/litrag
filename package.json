@@ -1,6 +1,6 @@
 {
   "name": "litrag",
-  "version": "0.1.0",
+  "version": "0.3.1",
   "description": "One library of papers per project. A desktop app watches Docling read each paper into a tree; a Python worker owns the parsing and the store; the `lit` CLI is the earlier retrieval loop, kept until the app replaces its verbs.",
   "type": "module",
   "license": "MIT",
@@ -19,7 +19,13 @@
     "app": "npm --prefix app start",
     "app:check": "npm --prefix app run check",
     "parser:check": "uv run --project parser pytest -q parser/tests",
-    "check:all": "npm run check && npm run app:check && npm run parser:check"
+    "harness": "uv run --project parser python -m litrag_parser.harness",
+    "audit": "uv run --project parser python -m litrag_parser.audit",
+    "judge": "uv run --project parser python -m litrag_parser.judge",
+    "e2e": "npm --prefix app run e2e",
+    "check:all": "npm run check && npm run app:check && npm run parser:check",
+    "e2e:studio": "npm --prefix app run e2e -- studio.spec.ts",
+    "gate:ingestion": "uv run --project parser python -m litrag_parser.chunks"
   },
   "dependencies": {
     "@huggingface/transformers": "^4.2.0",

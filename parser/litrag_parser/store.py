@@ -31,7 +31,17 @@ CREATE TABLE IF NOT EXISTS papers (
   added_at TEXT NOT NULL,
   parsed_at TEXT,
   seconds REAL,
-  has_methods INTEGER
+  has_methods INTEGER,
+  type TEXT,                        -- research | review | letter | editorial | case-report | protocol | data | correction | other
+  type_source TEXT,                 -- record | jats | subject | title | printed | shape | default | meaning | none
+  type_detail TEXT,
+  subtype TEXT,                     -- rct | systematic-review | case-series | brief-report | … when a label states one (paper_type.py)
+  pub_types TEXT,                   -- Europe PMC's publication types, "; "-joined, fetched once at ingest
+  authors TEXT,                     -- JSON [{name, affiliations, corresponding}]: the JATS file's word, else the record's (record.py)
+  journal TEXT,
+  year TEXT,
+  confidence REAL,                  -- how far the reading can be trusted, from the reading alone, in (0, 1] (confidence.py)
+  confidence_detail TEXT            -- JSON {reasons: [...], penalties: {check: points}}: why it is not 1
 );
 CREATE UNIQUE INDEX IF NOT EXISTS papers_doi ON papers(doi) WHERE doi IS NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS papers_sha ON papers(sha256) WHERE sha256 IS NOT NULL;
@@ -59,7 +69,11 @@ CREATE TABLE IF NOT EXISTS nodes (
   page INTEGER,
   bbox_l REAL, bbox_t REAL, bbox_r REAL, bbox_b REAL,
   self_ref TEXT,
-  table_json TEXT              -- {"rows","cols","cells"} for tables
+  table_json TEXT,             -- {"rows","cols","cells"} for tables
+  canonical TEXT,              -- the catalogue's name for a section (headings.py), NULL when it has none
+  guess TEXT,                  -- the lane the reader would have named had it asserted; NULL when role is the guess
+  confidence REAL,             -- how far the lane is to be trusted, 0 to 1; NULL when nothing measured it
+  reasons TEXT                 -- JSON: what each mechanism said, so a silence says why
 );
 CREATE INDEX IF NOT EXISTS nodes_paper ON nodes(paper, ordinal);
 CREATE INDEX IF NOT EXISTS nodes_parent ON nodes(parent);
@@ -72,6 +86,59 @@ END;
 CREATE TRIGGER IF NOT EXISTS nodes_ad AFTER DELETE ON nodes BEGIN
   INSERT INTO nodes_fts(nodes_fts, rowid, text) VALUES ('delete', old.rowid, old.text);
 END;
+
+CREATE TABLE IF NOT EXISTS refs (
+  paper TEXT NOT NULL REFERENCES papers(key) ON DELETE CASCADE,
+  ref_no INTEGER NOT NULL,          -- 1-based, in the order of the reference list
+  node_id TEXT,                     -- the entry's own node
+  ref_id TEXT,                      -- the JATS id, when there is one
+  text TEXT NOT NULL,
+  doi TEXT, pmid TEXT, year TEXT, first_author TEXT, title TEXT,
+  PRIMARY KEY(paper, ref_no)
+);
+CREATE TABLE IF NOT EXISTS citations (
+  paper TEXT NOT NULL REFERENCES papers(key) ON DELETE CASCADE,
+  node_id TEXT NOT NULL,
+  ref_no INTEGER NOT NULL,
+  marker TEXT NOT NULL,             -- the text that named the entry: "[6,9,12]", "Lyon, 2020"
+  PRIMARY KEY(paper, node_id, ref_no)
+);
+CREATE INDEX IF NOT EXISTS citations_ref ON citations(paper, ref_no);
+CREATE INDEX IF NOT EXISTS citations_node ON citations(node_id);  -- a passage's references, fetched for every hit a query hydrates
+
+CREATE TABLE IF NOT EXISTS outlines (
+  paper TEXT NOT NULL REFERENCES papers(key) ON DELETE CASCADE,
+  signature TEXT NOT NULL,          -- sha1 of the prompt version, the model and the paper as the model saw it (outline.signature)
+  model TEXT NOT NULL,
+  outline TEXT NOT NULL,            -- JSON [{title, printed, level, lane, first_paragraph}], the model's answer as read
+  prompt_tokens INTEGER,
+  answer_tokens INTEGER,
+  seconds REAL,
+  at TEXT NOT NULL,
+  PRIMARY KEY(paper, signature)
+);
+
+CREATE TABLE IF NOT EXISTS judgments (
+  paper TEXT NOT NULL REFERENCES papers(key) ON DELETE CASCADE,
+  pair TEXT NOT NULL,               -- sha1 of the two blocks' ends (judge.pair_key)
+  same INTEGER NOT NULL,            -- 1: one paragraph; 0: two
+  model TEXT NOT NULL,
+  at TEXT NOT NULL,
+  PRIMARY KEY(paper, pair)
+);
+
+CREATE TABLE IF NOT EXISTS edges (
+  paper TEXT NOT NULL REFERENCES papers(key) ON DELETE CASCADE,
+  src TEXT NOT NULL,                -- a node: the finding, the citing paragraph
+  dst TEXT NOT NULL,                -- a node: the method subsection, the figure
+  kind TEXT NOT NULL,               -- measured_by | cites_figure
+  evidence TEXT NOT NULL,           -- pointer | terms | caption | similarity | mention
+  detail TEXT,                      -- what made it: "Section 2.3", "compressive modulus", "cosine 0.71 margin 0.09"
+  score REAL,
+  PRIMARY KEY(paper, src, dst, kind)
+);
+CREATE INDEX IF NOT EXISTS edges_src ON edges(src);
+CREATE INDEX IF NOT EXISTS edges_dst ON edges(dst);
 
 CREATE TABLE IF NOT EXISTS events (
   id INTEGER PRIMARY KEY,
@@ -98,6 +165,25 @@ def open_store(path: Path) -> sqlite3.Connection:
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
     conn.executescript(SCHEMA)
+    have = {r[1] for r in conn.execute("PRAGMA table_info(papers)")}
+    for col in ("type", "type_source", "type_detail", "pub_types", "authors", "journal", "year", "subtype"):
+        if col not in have:  # a store from before the paper's type, or its record, was a column
+            conn.execute(f"ALTER TABLE papers ADD COLUMN {col} TEXT")
+    if "confidence" not in have:  # a store from before a reading was scored
+        conn.execute("ALTER TABLE papers ADD COLUMN confidence REAL")
+        conn.execute("ALTER TABLE papers ADD COLUMN confidence_detail TEXT")
+    node_cols = {r[1] for r in conn.execute("PRAGMA table_info(nodes)")}
+    if "canonical" not in node_cols:
+        conn.execute("ALTER TABLE nodes ADD COLUMN canonical TEXT")  # a store from before headings had a canonical name
+    if "guess" not in node_cols:
+        # What the reader would have said had it been willing to say anything. `role` stays the
+        # asserted lane and `other` still means it declined, so nothing downstream changes; these
+        # three columns are the silence's own record, so that abstaining costs coverage without
+        # also throwing away what was nearly decided.
+        conn.execute("ALTER TABLE nodes ADD COLUMN guess TEXT")        # the best lane, named even when refused
+        conn.execute("ALTER TABLE nodes ADD COLUMN confidence REAL")   # how far it is to be trusted, 0 to 1
+        conn.execute("ALTER TABLE nodes ADD COLUMN reasons TEXT")      # JSON: what each mechanism said
+    conn.commit()
     return conn
 
 
@@ -161,9 +247,11 @@ def save_tree(conn: sqlite3.Connection, key: str, tree: Tree, *, parser: str, pa
                 n.node_id, key, n.parent, n.ordinal, n.depth, n.type, n.label, n.level, n.role, n.heading,
                 json.dumps(n.ancestry, ensure_ascii=False), n.text, n.page, b[0], b[1], b[2], b[3], n.self_ref,
                 json.dumps(n.table, ensure_ascii=False) if n.table else None,
+                n.canonical, n.guess, n.confidence,
+                json.dumps(n.reasons, ensure_ascii=False, sort_keys=True) if n.reasons else None,
             ))
         conn.executemany(
-            "INSERT INTO nodes(node_id, paper, parent, ordinal, depth, type, label, level, role, heading, ancestry, text, page, bbox_l, bbox_t, bbox_r, bbox_b, self_ref, table_json) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO nodes(node_id, paper, parent, ordinal, depth, type, label, level, role, heading, ancestry, text, page, bbox_l, bbox_t, bbox_r, bbox_b, self_ref, table_json, canonical, guess, confidence, reasons) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             rows,
         )
         conn.execute(
@@ -171,6 +259,118 @@ def save_tree(conn: sqlite3.Connection, key: str, tree: Tree, *, parser: str, pa
             (tree.title or key, len(tree.pages), parser, parsed_at, seconds, 1 if tree.has_methods else 0, key),
         )
     return len(rows)
+
+
+def save_refs(conn: sqlite3.Connection, key: str, refs: Iterable[Any], cites: Iterable[Any]) -> dict[str, int]:
+    """Replace a paper's reference entries and citation links, in one transaction."""
+    refs, cites = list(refs), list(cites)
+    with conn:
+        conn.execute("DELETE FROM refs WHERE paper = ?", (key,))
+        conn.execute("DELETE FROM citations WHERE paper = ?", (key,))
+        conn.executemany(
+            "INSERT INTO refs(paper, ref_no, node_id, ref_id, text, doi, pmid, year, first_author, title) VALUES (?,?,?,?,?,?,?,?,?,?)",
+            [(key, r.ref_no, r.node_id, r.ref_id, r.text, r.doi, r.pmid, r.year, r.first_author, r.title) for r in refs],
+        )
+        conn.executemany("INSERT OR IGNORE INTO citations(paper, node_id, ref_no, marker) VALUES (?,?,?,?)", [(key, c.node_id, c.ref_no, c.marker) for c in cites])
+    return {"refs": len(refs), "citations": len(cites)}
+
+
+def set_type(conn: sqlite3.Connection, key: str, kind: str, source: str, detail: str, subtype: str | None = None) -> None:
+    with conn:
+        conn.execute("UPDATE papers SET type = ?, type_source = ?, type_detail = ?, subtype = ? WHERE key = ?", (kind, source, detail, subtype, key))
+
+
+def set_confidence(conn: sqlite3.Connection, key: str, confidence: float, reasons: list[str], penalties: dict[str, float]) -> None:
+    """How far this reading can be trusted, and why not further (confidence.py)."""
+    with conn:
+        conn.execute("UPDATE papers SET confidence = ?, confidence_detail = ? WHERE key = ?", (confidence, json.dumps({"reasons": reasons, "penalties": penalties}, ensure_ascii=False), key))
+
+
+def set_record(conn: sqlite3.Connection, key: str, *, pub_types: list[str] | None = None, authors: list[dict[str, Any]] | None = None, journal: str | None = None, year: str | None = None, overwrite: bool = False) -> None:
+    """What is known about a paper beyond its text: Europe PMC's publication types, its authors
+    (`[{name, affiliations, corresponding}]`, stored as JSON), journal and year. Fills what is
+    empty; `overwrite` replaces — the JATS file's own word over the record's."""
+    sets: list[str] = []
+    args: list[Any] = []
+    for col, val in (("pub_types", "; ".join(pub_types) if pub_types else None), ("authors", json.dumps(authors, ensure_ascii=False) if authors else None), ("journal", journal or None), ("year", year or None)):
+        if val is None:
+            continue
+        sets.append(f"{col} = ?" if overwrite else f"{col} = COALESCE({col}, ?)")
+        args.append(val)
+    if sets:
+        with conn:
+            conn.execute(f"UPDATE papers SET {', '.join(sets)} WHERE key = ?", (*args, key))
+
+
+def save_edges(conn: sqlite3.Connection, key: str, edges: Iterable[Any]) -> int:
+    """Replace a paper's edges (edges.py), in one transaction."""
+    rows = [(key, e.src, e.dst, e.kind, e.evidence, e.detail, e.score) for e in edges]
+    with conn:
+        conn.execute("DELETE FROM edges WHERE paper = ?", (key,))
+        conn.executemany("INSERT OR IGNORE INTO edges(paper, src, dst, kind, evidence, detail, score) VALUES (?,?,?,?,?,?,?)", rows)
+    return int(conn.execute("SELECT COUNT(*) FROM edges WHERE paper = ?", (key,)).fetchone()[0])
+
+
+def edges_of(conn: sqlite3.Connection, node_id: str) -> dict[str, list[dict[str, Any]]]:
+    """A node's edges both ways, each with the other node's role, place and first words:
+    `out` (what this finding was measured by, what it cites), `in` (the findings measured
+    here, the paragraphs citing this figure)."""
+    q = """SELECT e.kind, e.evidence, e.detail, e.score, n.node_id, n.type, n.role, n.heading, n.ancestry, n.page, substr(n.text, 1, 200) AS text
+           FROM edges e JOIN nodes n ON n.node_id = e.{other}
+           WHERE e.{this} = ? ORDER BY e.kind, e.score DESC, n.ordinal"""
+    out = [dict(r) for r in conn.execute(q.format(other="dst", this="src"), (node_id,))]
+    inc = [dict(r) for r in conn.execute(q.format(other="src", this="dst"), (node_id,))]
+    for rows in (out, inc):
+        for r in rows:
+            r["ancestry"] = json.loads(r["ancestry"] or "[]")
+    paper = node_id.split("#", 1)[0]
+    subs = conn.execute("SELECT COUNT(*) FROM nodes WHERE paper = ? AND role = 'methods' AND type = 'section' AND level = 2", (paper,)).fetchone()[0]
+    paras = conn.execute("SELECT COUNT(*) FROM nodes WHERE paper = ? AND role = 'methods' AND type = 'paragraph'", (paper,)).fetchone()[0] if not subs else 0
+    return {"out": out, "in": inc, "candidates": int(subs or paras)}
+
+
+def refs_of(conn: sqlite3.Connection, key: str) -> list[dict[str, Any]]:
+    """A paper's reference list, each entry with the nodes that cite it."""
+    cited: dict[int, list[str]] = {}
+    for r in conn.execute("SELECT ref_no, node_id FROM citations WHERE paper = ? ORDER BY ref_no, node_id", (key,)):
+        cited.setdefault(r["ref_no"], []).append(r["node_id"])
+    return [{**dict(r), "cited_by": cited.get(r["ref_no"], [])} for r in conn.execute("SELECT ref_no, node_id, ref_id, text, doi, pmid, year, first_author, title FROM refs WHERE paper = ? ORDER BY ref_no", (key,))]
+
+
+def cites_of(conn: sqlite3.Connection, node_id: str) -> list[dict[str, Any]]:
+    """The entries one node cites, with the marker that named each."""
+    return [dict(r) for r in conn.execute(
+        """SELECT c.ref_no, c.marker, r.node_id, r.text, r.doi, r.pmid, r.year, r.first_author, r.title
+           FROM citations c JOIN refs r ON r.paper = c.paper AND r.ref_no = c.ref_no
+           WHERE c.node_id = ? ORDER BY c.ref_no""", (node_id,))]
+
+
+def cited_by(conn: sqlite3.Connection, key: str, ref_no: int) -> list[dict[str, Any]]:
+    """The nodes that cite one entry: id, role, where in the paper, and the text."""
+    return [dict(r) for r in conn.execute(
+        """SELECT n.node_id, n.role, n.ancestry, n.page, substr(n.text, 1, 200) AS text, c.marker
+           FROM citations c JOIN nodes n ON n.node_id = c.node_id
+           WHERE c.paper = ? AND c.ref_no = ? ORDER BY n.depth, n.ordinal""", (key, ref_no))]
+
+
+def judgment(conn: sqlite3.Connection, paper: str, pair: str) -> int | None:
+    r = conn.execute("SELECT same FROM judgments WHERE paper = ? AND pair = ?", (paper, pair)).fetchone()
+    return None if r is None else int(r["same"])
+
+
+def save_judgment(conn: sqlite3.Connection, paper: str, pair: str, same: bool, model: str, at: str) -> None:
+    with conn:
+        conn.execute("INSERT OR REPLACE INTO judgments(paper, pair, same, model, at) VALUES (?,?,?,?,?)", (paper, pair, 1 if same else 0, model, at))
+
+
+def node_count(conn: sqlite3.Connection, key: str) -> int:
+    """How many nodes a paper actually has.
+
+    `status` says what the reader last intended; this says what it produced. They came apart
+    when the worker died mid-run and left seventeen PDFs with a `papers` row and nothing under
+    it (BACKLOG.md), and nothing noticed, because every later ingest read the row and skipped
+    the file."""
+    return int(conn.execute("SELECT COUNT(*) FROM nodes WHERE paper = ?", (key,)).fetchone()[0])
 
 
 def list_papers(conn: sqlite3.Connection) -> list[dict[str, Any]]:
@@ -199,6 +399,12 @@ def paper_tree(conn: sqlite3.Connection, key: str) -> dict[str, Any] | None:
             by_id[d["parent"]]["children"].append(d)
     for d in by_id.values():
         d["children"].sort(key=lambda c: c["ordinal"])
+    for r in conn.execute("SELECT node_id, ref_no FROM citations WHERE paper = ? ORDER BY node_id, ref_no", (key,)):
+        if r["node_id"] in by_id:
+            by_id[r["node_id"]].setdefault("cites", []).append(r["ref_no"])
+    for r in conn.execute("SELECT node_id, ref_no FROM refs WHERE paper = ? AND node_id IS NOT NULL", (key,)):
+        if r["node_id"] in by_id:
+            by_id[r["node_id"]]["ref_no"] = r["ref_no"]
     roles: dict[str, int] = {}
     for r in conn.execute("SELECT role, COUNT(*) c FROM nodes WHERE paper = ? AND parent IS NOT NULL GROUP BY role", (key,)):
         roles[r["role"]] = r["c"]
@@ -211,7 +417,13 @@ def _node_dict(r: sqlite3.Row) -> dict[str, Any]:
         "node_id": r["node_id"], "parent": r["parent"], "ordinal": r["ordinal"], "depth": r["depth"],
         "type": r["type"], "label": r["label"], "level": r["level"], "role": r["role"], "heading": r["heading"],
         "ancestry": json.loads(r["ancestry"]), "text": r["text"], "page": r["page"], "bbox": bbox,
-        "self_ref": r["self_ref"], "table": json.loads(r["table_json"]) if r["table_json"] else None, "children": [],
+        "self_ref": r["self_ref"], "table": json.loads(r["table_json"]) if r["table_json"] else None, "canonical": r["canonical"] if "canonical" in r.keys() else None, "children": [],
+        # a store written before the reader recorded its near misses has neither the columns
+        # nor the answers; an older row reads as "nothing was measured", never as "nothing was
+        # nearly decided"
+        "guess": r["guess"] if "guess" in r.keys() else None,
+        "confidence": r["confidence"] if "confidence" in r.keys() else None,
+        "reasons": json.loads(r["reasons"]) if "reasons" in r.keys() and r["reasons"] else None,
     }
 
 

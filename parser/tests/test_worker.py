@@ -10,7 +10,7 @@ FIXTURES = Path(__file__).parent / "fixtures"
 
 def talk(root: Path, requests: list[dict]) -> list[dict]:
     lines = "".join(json.dumps(r) + "\n" for r in requests + [{"id": "q", "op": "quit"}])
-    proc = subprocess.run([sys.executable, "-m", "litrag_parser.worker", f"--root={root}"], input=lines, capture_output=True, text=True, timeout=120, cwd=Path(__file__).parent.parent)
+    proc = subprocess.run([sys.executable, "-m", "litrag_parser.worker", f"--root={root}"], input=lines, capture_output=True, text=True, encoding="utf-8", timeout=120, cwd=Path(__file__).parent.parent)
     assert proc.returncode == 0, proc.stderr
     return [json.loads(l) for l in proc.stdout.splitlines() if l.strip()]
 
@@ -44,3 +44,52 @@ def test_hello_init_and_parse_json(tmp_path):
     assert by(events, "7")[0]["event"] == "error"
     assert by(events, "8")[0]["event"] == "error"
     assert events[-1]["event"] == "bye"
+
+
+def test_a_papers_own_doi_is_picked_over_its_datasets():
+    from litrag_parser.worker import pick_doi
+
+    page = "HardwareX 11 (2022) e00297 Design files: https://doi.org/10.5281/zenodo.4996271 Continuous fiber extruder https://doi.org/10.1016/j.ohx.2022.e00297 Received 1 March"
+    assert pick_doi(page) == "10.1016/j.ohx.2022.e00297"  # the dataset's Zenodo DOI stands first on the page and is not the paper's
+    assert pick_doi("A technical report. https://doi.org/10.5281/zenodo.4897976.") == "10.5281/zenodo.4897976"  # all there is: a report filed there
+    assert pick_doi("PNAS 2026 https://doi.org/10.1073/pnas and then 10.1073/pnas.2601235123") == "10.1073/pnas.2601235123"
+    assert pick_doi("no identifier on this page") is None
+
+
+def test_audit_op_over_a_raw_document(tmp_path):
+    events = talk(tmp_path, [
+        {"id": "1", "op": "audit", "path": str(FIXTURES / "PMC11278924.jats.docling.json"), "key": "doi:10.3390/mi15070851"},
+        {"id": "2", "op": "init", "name": "Empty"},
+        {"id": "3", "op": "audit", "lib": "empty"},
+    ])
+    a = by(events, "1")[0]
+    assert a["event"] == "audit" and [p["key"] for p in a["papers"]] == ["doi:10.3390/mi15070851"]
+    paper = a["papers"][0]
+    assert paper["nodes"] > 100 and paper["dropped"] == {"empty": 1} and "findings" in paper and isinstance(paper["counts"], dict)
+    assert not [f for f in paper["findings"] if f["severity"] == "error"]
+    assert by(events, "3")[0] == {"event": "audit", "id": "3", "papers": []}
+
+
+
+def test_a_pdf_that_prints_no_identifier_is_read_by_its_name(tmp_path):
+    """A paper printing neither a DOI nor a PMCID is filed under its content hash, and a hash
+    meets nothing — it never finds the same paper's JATS, so the witness pair is lost in
+    silence. 15 of the campaign corpus's 334 PDFs were like that, and every one was *named*
+    after its PMCID. The name is the file's own property, not a publisher's, so reading it
+    transfers; it is tried last, because what a paper prints about itself beats what someone
+    called the file."""
+    from litrag_parser.worker import sniff_ids
+
+    blank = tmp_path / "PMC13267673.pdf"
+    blank.write_bytes(b"not a pdf at all")  # pdfium reads nothing; the name is all there is
+    assert sniff_ids(blank) == (None, "PMC13267673")
+
+    doi_named = tmp_path / "10.1113_jp289183.pdf"
+    doi_named.write_bytes(b"not a pdf at all")
+    assert sniff_ids(doi_named) == ("10.1113/jp289183", None)
+
+    anonymous = tmp_path / "paper-final-v2.pdf"
+    anonymous.write_bytes(b"not a pdf at all")
+    assert sniff_ids(anonymous) == (None, None)  # nothing to read: the hash key is right
+
+    assert sniff_ids(tmp_path / "PMC1.xml") == (None, None)  # JATS is read by jats_ids, not here

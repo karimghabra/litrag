@@ -1,0 +1,72 @@
+{
+ "(root)": {
+  "bytes": 30805673,
+  "files": 4,
+  "sha256": "67ba38059be4a9518794e100a09e7492"
+ },
+ ".git": {
+  "bytes": 239250744,
+  "files": 273,
+  "sha256": "4089569bc1f97edd54ca1600f3cb50e3"
+ },
+ "held-out-2-pdf": {
+  "bytes": 588877114,
+  "files": 284,
+  "sha256": "2298edb0041ab4d5ac708cc3fd084562"
+ },
+ "held-out-2-xml": {
+  "bytes": 152455163,
+  "files": 402,
+  "sha256": "f2ce6bcd6c5d21f971899fdcd2440539"
+ },
+ "held-out-3-pdf": {
+  "bytes": 467661463,
+  "files": 262,
+  "sha256": "72792326fbc7b54aa04299698cd455a0"
+ },
+ "held-out-3-xml": {
+  "bytes": 103305554,
+  "files": 262,
+  "sha256": "b78d8c7dd6982b581a85a7421d43e1d6"
+ },
+ "held-out-4-pdf": {
+  "bytes": 758957599,
+  "files": 334,
+  "sha256": "52ecdd2d5af0af9b72c0c8ba2b3190d9"
+ },
+ "held-out-4-xml": {
+  "bytes": 109976974,
+  "files": 334,
+  "sha256": "6eac95bae74626a5195e4e2fcf1becb9"
+ },
+ "held-out-pdf": {
+  "bytes": 207449437,
+  "files": 72,
+  "sha256": "987c99eac6d80a13f590315505b47257"
+ },
+ "held-out-xml": {
+  "bytes": 214226078,
+  "files": 326,
+  "sha256": "4e90cce0c7f3024dfecedfb76c790178"
+ },
+ "looped-ligament": {
+  "bytes": 424646364,
+  "files": 208,
+  "sha256": "163cc3b924f12110b81a7aa1fa1c347a"
+ },
+ "looped-ligament-pairs": {
+  "bytes": 276623367,
+  "files": 66,
+  "sha256": "edbe4f200d313e39ff2345109856964e"
+ },
+ "measurements": {
+  "bytes": 40152462,
+  "files": 194,
+  "sha256": "3e68ae586693de2443048464cb45cf71"
+ },
+ "succinylated-collagen": {
+  "bytes": 413331405,
+  "files": 311,
+  "sha256": "d2ed7223826f02b6f1aa586b66604f7b"
+ }
+}

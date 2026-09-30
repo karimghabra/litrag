@@ -45,7 +45,7 @@ def test_tree_roundtrips_through_rows(tmp_path):
     assert got["root"]["node_id"] == key
     assert len(got["pages"]) == 14
     tops = [c for c in got["root"]["children"] if c["type"] == "section"]
-    assert [c["role"] for c in tops if c["heading"] != "Front matter"][:4] == ["introduction", "methods", "results", "discussion"]
+    assert [c["role"] for c in tops if c["heading"] != "Front matter"][:5] == ["abstract", "introduction", "methods", "results", "discussion"]
 
     methods = section(conn, key, "methods")
     assert methods and all(m["role"] == "methods" for m in methods)
@@ -69,3 +69,52 @@ def test_sql_is_read_only_and_one_statement(tmp_path):
     with pytest.raises(ValueError):
         run_select(conn, "select 1; select 2")
     assert run_select(conn, "select 'a;b' as s")["rows"] == [{"s": "a;b"}]
+
+
+def test_judgments_are_rows(tmp_path):
+    from litrag_parser.store import judgment, save_judgment
+
+    conn = open_store(tmp_path / "store.sqlite")
+    file_paper(conn, title="t", file="x.pdf", sha256="s", fmt="pdf", doi="10.1/x", pmid=None, pmcid=None, now="2026-09-11T00:00:00Z")
+    assert judgment(conn, "doi:10.1/x", "abc") is None
+    save_judgment(conn, "doi:10.1/x", "abc", True, "qwen3:14b", "2026-09-11T00:00:00Z")
+    save_judgment(conn, "doi:10.1/x", "def", False, "qwen3:14b", "2026-09-11T00:00:00Z")
+    assert judgment(conn, "doi:10.1/x", "abc") == 1 and judgment(conn, "doi:10.1/x", "def") == 0
+    save_judgment(conn, "doi:10.1/x", "abc", False, "qwen3:14b", "2026-09-11T00:01:00Z")  # a second verdict replaces the first
+    assert judgment(conn, "doi:10.1/x", "abc") == 0
+
+
+def test_a_silence_keeps_what_it_nearly_decided(tmp_path):
+    """`role` stays the asserted lane, `other` still means the reader declined — and the near
+    miss is a row beside it. A reader that abstains without saying what it nearly decided
+    cannot be improved by anyone, including itself."""
+    from litrag_parser.store import open_store, paper_tree, save_tree
+    from litrag_parser.tree import Node, Page, Tree
+
+    section = Node(node_id="s", parent="root", ordinal=1, depth=1, type="section",
+                   label="section_header", level=1, role="other", heading="Neurophysiology",
+                   ancestry=[], text="", page=1, bbox=None, self_ref=None,
+                   guess="methods", confidence=0.62,
+                   reasons={"vocabulary": "other", "catalogue": "other", "embedder": "methods",
+                            "blocks": "methods"})
+    root = Node(node_id="root", parent=None, ordinal=0, depth=0, type="document",
+                label="document", level=None, role="other", heading=None, ancestry=[], text="",
+                page=None, bbox=None, self_ref=None, children=[section])
+    tree = Tree(title="t", pages=[Page(page_no=1, width=612.0, height=792.0)], root=root,
+                roles={}, has_methods=False)
+
+    conn = open_store(tmp_path / "store.sqlite")
+    conn.execute("INSERT INTO papers(key, title, added_at) VALUES ('k', 't', '2026-01-01')")
+    conn.commit()
+    save_tree(conn, "k", tree, parser="test", parsed_at="2026-01-01", seconds=0.0)
+
+    got = conn.execute("SELECT role, guess, confidence, reasons FROM nodes WHERE node_id = 's'").fetchone()
+    assert got["role"] == "other", "the reader still declines: coverage is what abstaining costs"
+    assert got["guess"] == "methods" and got["confidence"] == 0.62
+    assert json.loads(got["reasons"])["embedder"] == "methods"
+
+    back = paper_tree(conn, "k")
+    kid = back["root"]["children"][0]
+    assert kid["role"] == "other" and kid["guess"] == "methods"
+    assert kid["reasons"]["blocks"] == "methods"
+    conn.close()

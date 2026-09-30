@@ -1,0 +1,638 @@
+{
+ "source_root": "C:\\Users\\ihave\\.protracker\\campaign\\library",
+ "prefixes": {
+  "10.3390": {
+   "papers": 278,
+   "journals": [
+    "Polymers",
+    "International Journal of Molecular Sciences",
+    "Gels",
+    "Insects"
+   ]
+  },
+  "10.1038": {
+   "papers": 136,
+   "journals": [
+    "Scientific Reports",
+    "Nature Communications",
+    "Sci Rep",
+    "Nat Commun"
+   ]
+  },
+  "10.1016": {
+   "papers": 120,
+   "journals": [
+    "iScience",
+    "Materials Today Bio",
+    "Lancet (London, England)",
+    "Acta Biomater"
+   ]
+  },
+  "10.3389": {
+   "papers": 115,
+   "journals": [
+    "Frontiers in Microbiology",
+    "Front Microbiol",
+    "Frontiers in Public Health",
+    "Front Public Health"
+   ]
+  },
+  "10.1002": {
+   "papers": 109,
+   "journals": [
+    "Advanced Science",
+    "J Biomed Mater Res B Appl Biomater",
+    "Health Science Reports",
+    "Adv Sci (Weinh)"
+   ]
+  },
+  "10.1093": {
+   "papers": 63,
+   "journals": [
+    "Genetics",
+    "Brain",
+    "Nucleic Acids Research",
+    "G3: Genes | Genomes | Genetics"
+   ]
+  },
+  "10.1186": {
+   "papers": 59,
+   "journals": [
+    "BMC Psychiatry",
+    "BMC Genomics",
+    "Mov Ecol",
+    "Movement Ecology"
+   ]
+  },
+  "10.1021": {
+   "papers": 45,
+   "journals": [
+    "ACS Omega",
+    "ACS Applied Materials & Interfaces",
+    "ACS Appl Mater Interfaces",
+    "Journal of the American Chemical Society"
+   ]
+  },
+  "10.1039": {
+   "papers": 44,
+   "journals": [
+    "RSC Advances",
+    "RSC Adv",
+    "Chemical Science",
+    "Chem Sci"
+   ]
+  },
+  "10.1111": {
+   "papers": 43,
+   "journals": [
+    "Global Change Biology",
+    "Glob Chang Biol",
+    "Environ Microbiol",
+    "Influenza Other Respir Viruses"
+   ]
+  },
+  "10.1007": {
+   "papers": 39,
+   "journals": [
+    "Ecotoxicology",
+    "Ecotoxicology (London, England)",
+    "Drugs",
+    "Discov Oncol"
+   ]
+  },
+  "10.1371": {
+   "papers": 27,
+   "journals": [
+    "PLOS One",
+    "PLoS One",
+    "PLOS Medicine",
+    "PLOS Global Public Health"
+   ]
+  },
+  "10.1080": {
+   "papers": 20,
+   "journals": [
+    "Virulence",
+    "Gut Microbes",
+    "Annals of Medicine",
+    "Hum Vaccin Immunother"
+   ]
+  },
+  "10.1155": {
+   "papers": 19,
+   "journals": [
+    "J Nutr Metab",
+    "J Toxicol",
+    "Can J Infect Dis Med Microbiol",
+    "Canadian Respiratory Journal"
+   ]
+  },
+  "10.1097": {
+   "papers": 15,
+   "journals": [
+    "Environ Epidemiol",
+    "Environmental Epidemiology",
+    "Otol Neurotol",
+    "Journal of Occupational and Environmental Me"
+   ]
+  },
+  "10.1136": {
+   "papers": 15,
+   "journals": [
+    "BMJ Open",
+    "BMJ Mil Health",
+    "BMJ Military Health",
+    "BMJ Public Health"
+   ]
+  },
+  "10.1177": {
+   "papers": 15,
+   "journals": [
+    "Int J Artif Organs",
+    "J Public Health Res",
+    "Geriatr Orthop Surg Rehabil",
+    "Orthopaedic Journal of Sports Medicine"
+   ]
+  },
+  "10.7759": {
+   "papers": 15,
+   "journals": [
+    "Cureus"
+   ]
+  },
+  "10.1128": {
+   "papers": 14,
+   "journals": [
+    "Microbiology Spectrum",
+    "Microbiol Spectr",
+    "Applied and Environmental Microbiology",
+    "Appl Environ Microbiol"
+   ]
+  },
+  "10.1088": {
+   "papers": 12,
+   "journals": [
+    "Biofabrication",
+    "Biomed Mater",
+    "Environ Res Lett",
+    "Environmental Research Letters"
+   ]
+  },
+  "10.1126": {
+   "papers": 11,
+   "journals": [
+    "Science Advances"
+   ]
+  },
+  "10.1183": {
+   "papers": 11,
+   "journals": [
+    "ERJ Open Research",
+    "Eur Respir Rev",
+    "European Respiratory Review",
+    "Eur Respir J"
+   ]
+  },
+  "10.2147": {
+   "papers": 11,
+   "journals": [
+    "International Journal of Nanomedicine",
+    "Drug Design, Development and Therapy",
+    "Infect Drug Resist",
+    "Int J Womens Health"
+   ]
+  },
+  "10.1073": {
+   "papers": 9,
+   "journals": [
+    "Proceedings of the National Academy of Scien",
+    "Proc Natl Acad Sci U S A",
+    "?"
+   ]
+  },
+  "10.1089": {
+   "papers": 5,
+   "journals": [
+    "Tissue Eng Part A",
+    "Tissue Eng Part B Rev",
+    "Tissue Engineering. Part B, Reviews"
+   ]
+  },
+  "10.1055": {
+   "papers": 4,
+   "journals": [
+    "Arq Neuropsiquiatr",
+    "Indian J Plast Surg",
+    "Arquivos de Neuro-Psiquiatria",
+    "Indian Journal of Plastic Surgery : Official"
+   ]
+  },
+  "10.1159": {
+   "papers": 4,
+   "journals": [
+    "Ophthalmic Res",
+    "Urol Int"
+   ]
+  },
+  "10.21037": {
+   "papers": 4,
+   "journals": [
+    "Transl Cancer Res",
+    "Translational Cancer Research"
+   ]
+  },
+  "10.2337": {
+   "papers": 4,
+   "journals": [
+    "Diabetes Care"
+   ]
+  },
+  "10.5281": {
+   "papers": 4,
+   "journals": [
+    "?",
+    "Malariaworld J",
+    "MalariaWorld Journal"
+   ]
+  },
+  "10.7717": {
+   "papers": 4,
+   "journals": [
+    "PeerJ"
+   ]
+  },
+  "10.1029": {
+   "papers": 3,
+   "journals": [
+    "GeoHealth",
+    "Geohealth"
+   ]
+  },
+  "10.1056": {
+   "papers": 3,
+   "journals": [
+    "The New England Journal of Medicine",
+    "N Engl J Med"
+   ]
+  },
+  "10.7150": {
+   "papers": 3,
+   "journals": [
+    "Nanotheranostics",
+    "Theranostics"
+   ]
+  },
+  "10.1017": {
+   "papers": 2,
+   "journals": [
+    "Gut Microbiome (Camb)",
+    "Gut Microbiome"
+   ]
+  },
+  "10.1046": {
+   "papers": 2,
+   "journals": [
+    "Artif Organs"
+   ]
+  },
+  "10.1098": {
+   "papers": 2,
+   "journals": [
+    "R Soc Open Sci",
+    "Royal Society Open Science"
+   ]
+  },
+  "10.1099": {
+   "papers": 2,
+   "journals": [
+    "Microbiology (Reading)",
+    "Microbiology"
+   ]
+  },
+  "10.1172": {
+   "papers": 2,
+   "journals": [
+    "The Journal of Clinical Investigation",
+    "J Clin Invest"
+   ]
+  },
+  "10.12659": {
+   "papers": 2,
+   "journals": [
+    "Am J Case Rep",
+    "The American Journal of Case Reports"
+   ]
+  },
+  "10.13004": {
+   "papers": 2,
+   "journals": [
+    "Korean J Neurotrauma",
+    "Korean Journal of Neurotrauma"
+   ]
+  },
+  "10.14202": {
+   "papers": 2,
+   "journals": [
+    "Vet World",
+    "Veterinary World"
+   ]
+  },
+  "10.14309": {
+   "papers": 2,
+   "journals": [
+    "ACG Case Rep J",
+    "ACG Case Reports Journal"
+   ]
+  },
+  "10.14814": {
+   "papers": 2,
+   "journals": [
+    "Physiological Reports",
+    "Physiol Rep"
+   ]
+  },
+  "10.1590": {
+   "papers": 2,
+   "journals": [
+    "Rev Assoc Med Bras (1992)",
+    "Revista da Associa\u00e7\u00e3o M\u00e9dica Brasileira"
+   ]
+  },
+  "10.17221": {
+   "papers": 2,
+   "journals": [
+    "Vet Med (Praha)",
+    "Veterin\u00e1rn\u00ed Medic\u00edna"
+   ]
+  },
+  "10.18502": {
+   "papers": 2,
+   "journals": [
+    "Iran J Microbiol",
+    "Iranian Journal of Microbiology"
+   ]
+  },
+  "10.18699": {
+   "papers": 2,
+   "journals": [
+    "Vavilovskii Zhurnal Genet Selektsii",
+    "Vavilov Journal of Genetics and Breeding"
+   ]
+  },
+  "10.21315": {
+   "papers": 2,
+   "journals": [
+    "Trop Life Sci Res",
+    "Tropical Life Sciences Research"
+   ]
+  },
+  "10.2196": {
+   "papers": 2,
+   "journals": [
+    "JMIR Form Res",
+    "JMIR Formative Research"
+   ]
+  },
+  "10.2340": {
+   "papers": 2,
+   "journals": [
+    "J Rehabil Med",
+    "Journal of Rehabilitation Medicine"
+   ]
+  },
+  "10.23889": {
+   "papers": 2,
+   "journals": [
+    "Int J Popul Data Sci",
+    "International Journal of Population Data Sci"
+   ]
+  },
+  "10.25259": {
+   "papers": 2,
+   "journals": [
+    "Indian J Med Res",
+    "The Indian Journal of Medical Research"
+   ]
+  },
+  "10.26599": {
+   "papers": 2,
+   "journals": [
+    "J Otol",
+    "Journal of Otology"
+   ]
+  },
+  "10.3346": {
+   "papers": 2,
+   "journals": [
+    "J Korean Med Sci",
+    "Journal of Korean Medical Science"
+   ]
+  },
+  "10.34133": {
+   "papers": 2,
+   "journals": [
+    "Biomaterials Research",
+    "Research"
+   ]
+  },
+  "10.3897": {
+   "papers": 2,
+   "journals": [
+    "Biodivers Data J",
+    "Biodiversity Data Journal"
+   ]
+  },
+  "10.3947": {
+   "papers": 2,
+   "journals": [
+    "Infect Chemother",
+    "Infection & Chemotherapy"
+   ]
+  },
+  "10.4055": {
+   "papers": 2,
+   "journals": [
+    "Clin Orthop Surg",
+    "Clinics in Orthopedic Surgery"
+   ]
+  },
+  "10.4103": {
+   "papers": 2,
+   "journals": [
+    "Indian Journal of Dermatology",
+    "Indian Dermatology Online Journal"
+   ]
+  },
+  "10.4269": {
+   "papers": 2,
+   "journals": [
+    "Am J Trop Med Hyg",
+    "The American Journal of Tropical Medicine an"
+   ]
+  },
+  "10.4274": {
+   "papers": 2,
+   "journals": [
+    "J Turk Ger Gynecol Assoc",
+    "Journal of the Turkish German Gynecological "
+   ]
+  },
+  "10.5049": {
+   "papers": 2,
+   "journals": [
+    "Electrolyte Blood Press",
+    "Electrolytes & Blood Pressure : E & BP"
+   ]
+  },
+  "10.5371": {
+   "papers": 2,
+   "journals": [
+    "Hip Pelvis",
+    "Hip & Pelvis"
+   ]
+  },
+  "10.5409": {
+   "papers": 2,
+   "journals": [
+    "World J Clin Pediatr",
+    "World Journal of Clinical Pediatrics"
+   ]
+  },
+  "10.5435": {
+   "papers": 2,
+   "journals": [
+    "J Am Acad Orthop Surg Glob Res Rev",
+    "JAAOS Global Research & Reviews"
+   ]
+  },
+  "10.5455": {
+   "papers": 2,
+   "journals": [
+    "Open Vet J",
+    "Open Veterinary Journal"
+   ]
+  },
+  "10.5468": {
+   "papers": 2,
+   "journals": [
+    "Obstet Gynecol Sci",
+    "Obstetrics & Gynecology Science"
+   ]
+  },
+  "10.5492": {
+   "papers": 2,
+   "journals": [
+    "World J Crit Care Med",
+    "World Journal of Critical Care Medicine"
+   ]
+  },
+  "10.1042": {
+   "papers": 1,
+   "journals": [
+    "Biochemical Journal"
+   ]
+  },
+  "10.1163": {
+   "papers": 1,
+   "journals": [
+    "J Biomater Sci Polym Ed"
+   ]
+  },
+  "10.14423": {
+   "papers": 1,
+   "journals": [
+    "Southern Medical Journal"
+   ]
+  },
+  "10.14740": {
+   "papers": 1,
+   "journals": [
+    "Journal of Clinical Medicine Research"
+   ]
+  },
+  "10.15585": {
+   "papers": 1,
+   "journals": [
+    "Morbidity and Mortality Weekly Report"
+   ]
+  },
+  "10.1589": {
+   "papers": 1,
+   "journals": [
+    "Journal of Physical Therapy Science"
+   ]
+  },
+  "10.1681": {
+   "papers": 1,
+   "journals": [
+    "J Am Soc Nephrol"
+   ]
+  },
+  "10.17113": {
+   "papers": 1,
+   "journals": [
+    "Food Technology and Biotechnology"
+   ]
+  },
+  "10.2903": {
+   "papers": 1,
+   "journals": [
+    "EFSA Journal"
+   ]
+  },
+  "10.30498": {
+   "papers": 1,
+   "journals": [
+    "Iranian Journal of Biotechnology"
+   ]
+  },
+  "10.3109": {
+   "papers": 1,
+   "journals": [
+    "J Dermatolog Treat"
+   ]
+  },
+  "10.3233": {
+   "papers": 1,
+   "journals": [
+    "Biomed Mater Eng"
+   ]
+  },
+  "10.33140": {
+   "papers": 1,
+   "journals": [
+    "Journal of clinical & experimental immunolog"
+   ]
+  },
+  "10.3402": {
+   "papers": 1,
+   "journals": [
+    "Journal of Extracellular Vesicles"
+   ]
+  },
+  "10.3762": {
+   "papers": 1,
+   "journals": [
+    "Beilstein Journal of Nanotechnology"
+   ]
+  },
+  "10.3892": {
+   "papers": 1,
+   "journals": [
+    "International Journal of Molecular Medicine"
+   ]
+  },
+  "10.4240": {
+   "papers": 1,
+   "journals": [
+    "World Journal of Gastrointestinal Surgery"
+   ]
+  },
+  "10.5599": {
+   "papers": 1,
+   "journals": [
+    "ADMET & DMPK"
+   ]
+  }
+ }
+}
