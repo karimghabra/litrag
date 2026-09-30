@@ -18,14 +18,14 @@
     "check": "npm run typecheck && npm test",
     "app": "npm --prefix app start",
     "app:check": "npm --prefix app run check",
-    "parser:check": "uv run --project parser pytest -q parser/tests",
-    "harness": "uv run --project parser python -m litrag_parser.harness",
-    "audit": "uv run --project parser python -m litrag_parser.audit",
-    "judge": "uv run --project parser python -m litrag_parser.judge",
+    "parser:check": "node bin/parser-run.js pytest -q parser/tests",
+    "harness": "node bin/parser-run.js python -m litrag_parser.harness",
+    "audit": "node bin/parser-run.js python -m litrag_parser.audit",
+    "judge": "node bin/parser-run.js python -m litrag_parser.judge",
     "e2e": "npm --prefix app run e2e",
     "check:all": "npm run check && npm run app:check && npm run parser:check",
     "e2e:studio": "npm --prefix app run e2e -- studio.spec.ts",
-    "gate:ingestion": "uv run --project parser python -m litrag_parser.chunks"
+    "gate:ingestion": "node bin/parser-run.js python -m litrag_parser.chunks"
   },
   "dependencies": {
     "@huggingface/transformers": "^4.2.0",

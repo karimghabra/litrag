@@ -37,12 +37,22 @@ seconds on four CPU cores; a GPU is picked up automatically when torch
 sees one — the log says `ready on cuda:0` (or `cpu`) as the first paper
 opens.
 
-On Windows, `uv sync` takes torch from PyTorch's CUDA 13 index
-(`parser/pyproject.toml`), since the PyPI wheel there is CPU-only; that
-needs an NVIDIA driver of R580 or newer. On an RTX 5080 the first paper
-of a session takes ~30 s (CUDA warm-up) and every paper after it ~2 s.
-Nothing else is Windows-specific: the same `uv sync`, `npm --prefix app
-install`, `npm run app` from PowerShell or Git Bash.
+Which torch is chosen by name (`parser/pyproject.toml`): `uv sync
+--project parser --extra cu130` takes PyTorch's CUDA 13 build, which needs
+an NVIDIA driver of R580 or newer; `--extra cpu` takes its CPU-only build,
+an environment of ~1.4 GB where the CUDA one is ~6 GB. With neither, torch
+is PyPI's: the CUDA build on Linux, CPU-only on Windows and macOS. So a
+Windows machine with an NVIDIA card names `cu130`, and a Mac, which has no
+CUDA build, gets PyPI's wheel under either extra. uv remembers no extra,
+and a `uv run` without the one the environment was synced with syncs it
+back to PyPI's torch (on Windows, CPU in place of CUDA). At a shell, give
+`uv run` the same `--extra`, or `--no-sync`. The npm scripts that run
+Python (`check:all`, `harness`, `audit`, `judge`, `gate:ingestion`) pass
+the extra themselves, reading it off the torch the environment has, and
+make a missing environment with `cpu`. On an RTX 5080 the first paper of a
+session takes ~30 s (CUDA warm-up) and every paper after it ~2 s. Nothing
+else is Windows-specific: the same `uv sync`, `npm --prefix app install`,
+`npm run app` from PowerShell or Git Bash.
 
 Which code is the current pipeline and which is the deprecated `lit` CLI,
 how a paper moves through it, and every switch: `PIPELINE.md`.
