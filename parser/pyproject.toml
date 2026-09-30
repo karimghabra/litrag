@@ -5,10 +5,20 @@ description = "litrag's parsing worker: Docling over PDFs and JATS into one node
 requires-python = ">=3.11"
 dependencies = [
     "docling>=2.40",
-    # named here (not only through docling) so [tool.uv.sources] can route them
+    # named here as well as in the extras, so every build of torch below
+    # meets the same floor
     "torch>=2.14",
     "torchvision>=0.29",
 ]
+
+# Which torch is chosen by name, `--extra cpu` or `--extra cu130`, never both:
+#   cpu    PyTorch's CPU-only build: no driver, a ~0.2 GB wheel.
+#   cu130  PyTorch's CUDA 13 build: an NVIDIA driver of R580 or newer, a
+#          ~2 GB wheel on Windows (~3 GB installed).
+# The installer takes cu130 where `nvidia-smi` runs, and cpu everywhere else.
+[project.optional-dependencies]
+cpu = ["torch>=2.14", "torchvision>=0.29"]
+cu130 = ["torch>=2.14", "torchvision>=0.29"]
 
 [project.scripts]
 litrag-parser = "litrag_parser.worker:main"
@@ -23,12 +33,39 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["litrag_parser"]
 
-# torch from PyPI is CPU-only on Windows; the CUDA build lives on PyTorch's own
-# index. Only Windows is pointed there — the Linux wheel on PyPI already
-# carries CUDA. cu130 needs an NVIDIA driver of R580 or newer.
+[tool.uv]
+conflicts = [[{ extra = "cpu" }, { extra = "cu130" }]]
+
+# Each extra points torch and torchvision at PyTorch's index of the same
+# name, on Windows and Linux. macOS has no CUDA build: there both extras take
+# PyPI's wheel (CPU, and the Apple GPU through MPS), so on a Mac
+# `--extra cu130` is `--extra cpu`.
+#
+# With no extra, torch is PyPI's, as docling alone would have it: on Linux
+# the CUDA 13 build (~3 GB of `nvidia` libraries beside it), on Windows and
+# macOS CPU-only. It cannot be otherwise: uv applies a source on the plain
+# dependency under every extra as well, where on Windows it would meet the
+# cpu index and the lock would refuse. So a Windows machine with an NVIDIA
+# card names cu130.
+#
+# uv remembers no extra. A `uv run` without the one the environment was
+# synced with syncs it back to PyPI's torch: uv 0.12 swaps the build (on
+# Windows, CUDA for CPU); uv 0.8 keeps it, but on Linux adds the `nvidia`
+# libraries. So pass the same `--extra` to `uv run`, or `--no-sync`.
 [tool.uv.sources]
-torch = [{ index = "pytorch-cu130", marker = "sys_platform == 'win32'" }]
-torchvision = [{ index = "pytorch-cu130", marker = "sys_platform == 'win32'" }]
+torch = [
+    { index = "pytorch-cpu", extra = "cpu", marker = "sys_platform == 'win32' or sys_platform == 'linux'" },
+    { index = "pytorch-cu130", extra = "cu130", marker = "sys_platform == 'win32' or sys_platform == 'linux'" },
+]
+torchvision = [
+    { index = "pytorch-cpu", extra = "cpu", marker = "sys_platform == 'win32' or sys_platform == 'linux'" },
+    { index = "pytorch-cu130", extra = "cu130", marker = "sys_platform == 'win32' or sys_platform == 'linux'" },
+]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
 
 [[tool.uv.index]]
 name = "pytorch-cu130"
