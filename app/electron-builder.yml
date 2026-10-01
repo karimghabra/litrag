@@ -1,0 +1,39 @@
+# The packaged app: `npm run dist:win` / `npm run dist:linux` → release/<platform>-unpacked/,
+# both from Linux too (electron-builder writes the exe's name and version itself, no wine).
+# An unpacked folder only — no NSIS, no signing, no auto-update. The install scripts in
+# ../install are the installer: they copy this folder into place and make the parser's
+# Python environment beside it (README, "Install").
+appId: io.github.karimghabra.litrag
+productName: litrag
+executableName: litrag
+directories:
+  output: release
+# esbuild bundles everything into dist/ (main, preload, renderer, pdf.js's worker), and the
+# app has no runtime dependencies, so app.asar holds dist/ and package.json and nothing else.
+files:
+  - dist/**
+  - package.json
+npmRebuild: false
+# no auto-update: nothing to publish to, and no app-update.yml beside app.asar
+publish: null
+# The parser's source, beside app.asar as resources/parser: the installer runs
+# `uv sync --project <app>/resources/parser`, so the lock that built it travels with the app.
+# No tests, no .venv, no caches.
+extraResources:
+  - from: ../parser
+    to: parser
+    filter:
+      - pyproject.toml
+      - uv.lock
+      - litrag_parser/**
+      - "!**/__pycache__/**"
+      - "!**/*.pyc"
+win:
+  target:
+    - target: dir
+      arch: x64
+linux:
+  target:
+    - target: dir
+      arch: x64
+  category: Science

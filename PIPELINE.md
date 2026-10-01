@@ -9,7 +9,9 @@ pass, but nothing it does reaches the tree, and it is deprecated. This page
 says which code is which, how a paper moves through the current pipeline,
 and which switches are experiments. `DESIGN.md` has the reasons; `AGENT.md`
 §8 has every op and its shape. Every `python -m` below runs as
-`uv run --project parser python -m …`.
+`uv run --project parser --no-sync python -m …`: `--no-sync` keeps the
+torch the environment was synced with, which a `uv run` without that
+sync's `--extra` would swap for PyPI's (README, Quick start).
 
 ## What to use
 
@@ -18,7 +20,7 @@ and which switches are experiments. `DESIGN.md` has the reasons; `AGENT.md`
 | `app/`, the window (`npm run app`) | current | five tabs over one project at a time: **Projects** (make one, describe it, merge several), **Search** (Europe PMC, XML first — Europe PMC's, else NCBI's for an author manuscript — then open PDFs, the rest listed to download by hand), **Papers** (trees, pages, citations, edges, the canonical face; **Reparse all**), **Types** (each kind of paper's canonical structure, a paper's mapping onto it), **Query** (passages retrieved and hydrated from the tree) |
 | `npm run e2e:studio` | current | the window end to end: a search against Europe PMC stood in on 127.0.0.1, a fetch, two real PDFs through Docling, types, a hydrated query through the embedder, a merge — the harness a change to the product has to pass |
 | `npm run gate:ingestion -- --pairs A:B … [--min 0.95]`, `python -m litrag_parser.bench` | measurement | the reader judged in the unit retrieval returns (a paragraph node in the right lane, against the XML twin); retrieval judged on questions with a known answering passage, the tree beside the `lit` CLI |
-| `parser/`, the worker (`uv run --project parser litrag-parser`) | current | what the window does, and the ops it has no button for, among them `rebuild`, `judge`, `audit` and `sql` |
+| `parser/`, the worker (`uv run --project parser --no-sync litrag-parser`) | current | what the window does, and the ops it has no button for, among them `rebuild`, `judge`, `audit` and `sql` |
 | `npm run harness`, `npm run audit` | current | judging a change to the reader on whole libraries |
 | `python -m litrag_parser.headings`, `.meaning`, `.paper_type`, `.edges`, `.judge`, `.boundary` | maintenance | regenerating the shipped centroids, measuring a kind or the type before it decides, fetching Europe PMC records, running or calibrating the opt-in judges |
 | `python -m litrag_parser.pairs`, `.confidence --calibrate` | measurement | a PDF's reading against the XML's of the same paper, from two libraries; the confidence score against those pairs. The truth every change to the reader or to the score is judged on |
@@ -119,7 +121,7 @@ at four times chance and the rest are at or near it
 From a shell, one library per request:
 
 ```
-uv run --project parser litrag-parser --root=$HOME/.protracker/library
+uv run --project parser --no-sync litrag-parser --root=$HOME/.protracker/library
 {"id":"1","op":"rebuild","lib":"looped-ligament"}
 {"id":"2","op":"quit"}
 ```
@@ -171,7 +173,8 @@ on re-embeds a whole library the next time its papers are read.
 | `LITRAG_TYPE_PROFILE` | off | `on` lets the profile kind name a paper's type | opt-in; measured at 0.66 accuracy |
 | `LITRAG_VOCABULARY` | on | `off` names headings by the embedder alone | experiment, to measure what the vocabulary is worth |
 | `LITRAG_LAYOUT_CHILD`, `LITRAG_LAYOUT_TIMEOUT` | on, `300` | Docling's layout stage runs in a child process the worker supervises, so a native crash costs one paper and not the rest of the queue: a per-paper timeout, a respawn when the child dies, one retry in a fresh child, then the paper fails with a reason. `off` converts in the worker's own process, as before | current |
-| `LITRAG_PARSER` | the repository's `parser/` | the command the window starts as its worker | current |
+| `LITRAG_PARSER` | installed: the environment's `litrag-parser`; a checkout: `uv run --project <repo>/parser litrag-parser`, uv from PATH, else litrag's `uv/`, `~/.local/bin` or `~/.cargo/bin` | the command the window starts as its worker, in one of three forms: a JSON array of argv, the form for a path with spaces (`["C:\\Users\\Jane Doe\\AppData\\Local\\litrag\\venv\\Scripts\\litrag-parser.exe"]`); the path of an existing file, taken whole as one program; else a command line split on whitespace (`uv run --project /x/parser litrag-parser`), the old form, in which no part may hold a space. With nothing to run — no environment, no uv — the window says why in a band under its header and spawns nothing | current |
+| `LITRAG_VENV` | `<install root>/venv` | the environment an installed app runs its worker from, `Scripts\litrag-parser.exe` on Windows and `bin/litrag-parser` elsewhere; uv is not run. The install root is `%LOCALAPPDATA%\litrag` on Windows, `$XDG_DATA_HOME/litrag` (else `~/.local/share/litrag`) on Linux, `~/Library/Application Support/litrag` on macOS | current |
 | `LITRAG_HEADLESS`, `LITRAG_E2E_PAPERS`, `LITRAG_E2E_MIN_METHODS`, `LITRAG_E2E_MIN_TITLES` | | the end-to-end suite | tests |
 | `LITRAG_PT` | `pt` | Protracker's command | the deprecated CLI only |
 

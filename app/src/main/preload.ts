@@ -12,7 +12,8 @@ export interface LitragApi {
   choosePdfs(): Promise<string[]>;
   pathsOf(files: File[]): string[];
   readFile(path: string): Promise<ArrayBuffer>;
-  info(): Promise<{ root: string; command: string; version: string }>;
+  /** `command` is null when there is no worker to run; a request says why. */
+  info(): Promise<{ root: string; command: string | null; version: string }>;
   /** A paper's page at its publisher or at Europe PMC, in the system's browser: http(s) only. */
   openExternal(url: string): Promise<void>;
   /** The collect window through the papers that want a PDF (collect.ts); its progress arrives as `collect` events. */

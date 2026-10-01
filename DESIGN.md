@@ -122,8 +122,12 @@ of the query path, as rows.
 ## R2.5 The window
 
 `app/`: Electron 38, TypeScript, esbuild, no framework. The main process
-spawns the worker (`uv run --project parser litrag-parser`, or
-`LITRAG_PARSER`) and relays every event to the renderer over one IPC
+spawns the worker (`uv run --project parser --no-sync litrag-parser` in a
+checkout, once its environment exists, so the torch it was synced with stays,
+the installer's environment's `litrag-parser` when installed — uv is not
+run there — or `LITRAG_PARSER`; `app/src/main/launch.ts` decides, and when
+there is nothing to run the window says why rather than spawning a name
+that is not there) and relays every event to the renderer over one IPC
 channel; the renderer asks for reads over another and gets the worker's
 answer back. Three panes and a log: papers with their live stage and lane
 bar; the tree with lane colours, chips to dim all but one lane, references

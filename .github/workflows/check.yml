@@ -8,8 +8,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
-      - run: uv sync --project parser
-      - run: uv run --project parser pytest -q parser/tests
+      # --locked: a uv.lock behind pyproject.toml fails here, not in the installer's `uv sync --frozen`
+      - run: uv sync --project parser --extra cpu --locked
+      - run: uv run --project parser --extra cpu pytest -q parser/tests
   app:
     runs-on: ubuntu-latest
     steps:

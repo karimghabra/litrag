@@ -223,8 +223,20 @@ window in `app/` (Electron). An assistant on the machine can drive the
 worker directly, the way it drives `lit`:
 
 ```
-uv run --project parser litrag-parser [--root=DIR]
+uv run --project parser --no-sync litrag-parser [--root=DIR]
 ```
+
+`--no-sync` runs it in the environment as it was synced, whichever torch
+it holds; without it, `uv run` syncs the environment back to PyPI's torch
+(on Windows, CPU in place of CUDA) unless given the sync's own `--extra`.
+
+On an installed litrag, with no checkout and no uv, the same worker is the
+installer's environment's console script, run directly:
+`%LOCALAPPDATA%\litrag\venv\Scripts\litrag-parser.exe [--root=DIR]` on
+Windows, `~/.local/share/litrag/venv/bin/litrag-parser` on Linux,
+`~/Library/Application Support/litrag/venv/bin/litrag-parser` on macOS, or
+the one under `$LITRAG_VENV`. `LITRAG_PARSER` is how the window is pointed
+at another (`PIPELINE.md` has its three forms).
 
 One JSON object per line on stdin; events on stdout, each carrying the
 request's `id`. Reads answer at once; `ingest`, `reparse` and `rebuild` are
