@@ -4,8 +4,9 @@
  * `fullTextXML` of an open paper, and the bulk area's open-access PDF. The worker is pointed at
  * it with LITRAG_EPMC_URL and LITRAG_EPMC_PDF_URL, so the suite exercises the real fetch path
  * without the network; LITRAG_NCBI_URL points NCBI's E-utilities here too, where every `efetch`
- * is not found, and LITRAG_PMC_CLOUD_URL points the PMC Cloud Service here, whose every listing is
- * empty, so no PMCID in the suite is ever asked of the real NCBI or NLM.
+ * is not found, LITRAG_PMC_CLOUD_URL points the PMC Cloud Service here, whose every listing is
+ * empty, and LITRAG_OPENALEX_URL points OpenAlex here, where no work is found, so no identifier in
+ * the suite is ever asked of the real NCBI, NLM or OpenAlex.
  *
  * Three papers, one for each way a paper can be had:
  *   - open XML: the repository's JATS fixture (PMC11278924);
@@ -39,6 +40,7 @@ export interface Fixture {
   doiUrl: string;
   ncbiUrl: string;
   cloudUrl: string;
+  openalexUrl: string;
   requests: string[];
   close(): Promise<void>;
 }
@@ -120,6 +122,7 @@ export async function startFixture(papers: FixturePaper[]): Promise<Fixture> {
     doiUrl: `http://127.0.0.1:${port}/doi/`,
     ncbiUrl: `http://127.0.0.1:${port}/ncbi`,
     cloudUrl: `http://127.0.0.1:${port}/cloud`,
+    openalexUrl: `http://127.0.0.1:${port}/openalex`,
     requests,
     close: () => new Promise<void>((resolve) => server.close(() => resolve())),
   };

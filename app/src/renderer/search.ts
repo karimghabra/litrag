@@ -29,6 +29,8 @@ export interface Candidate {
   links?: Record<string, string>;
   /** 1 for a search's hit; n + 1 for a work a citation round found through a round-n paper (graph.py) */
   round?: number | null;
+  /** an open copy OpenAlex knows of, outside PMC */
+  oa_url?: string | null;
 }
 
 /** A citation round's find no one has acted on yet: listed on the Graph tab, not among a search's candidates. */
@@ -249,6 +251,7 @@ function linkRow(c: Candidate): HTMLElement | null {
   if (c.doi) links.push(['publisher', `https://doi.org/${c.doi}`]);
   if (c.pmid) links.push(['Europe PMC', `https://europepmc.org/article/MED/${c.pmid}`]);
   else if (c.pmcid) links.push(['Europe PMC', `https://europepmc.org/article/PMC/${c.pmcid}`]);
+  if (c.oa_url) links.push(['open copy', c.oa_url]); // where OpenAlex says one is, outside PMC: a person follows it
   if (!links.length) return null;
   const row = el('span', 'row');
   for (const [label, href] of links) {

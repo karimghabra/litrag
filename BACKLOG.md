@@ -6,12 +6,13 @@ wants as they are voiced.
 ## Named priorities
 
 - **The rounds, further** (after Karim, 2026-10-04) — a citation round files what the papers cite
-  and what cites them (`graph.py`, the Graph tab). Next: a reference with no DOI or PMID looked up
-  by its title (Europe PMC first, exact title and year agreeing; OpenAlex would find more and is
-  a new host); a round's candidates scored for the project (the description's embedding against
+  and what cites them (`graph.py`, the Graph tab), from Europe PMC and OpenAlex side by side
+  (*2026-10-04*: a reference with no DOI or PMID matched in OpenAlex by its whole title, year and
+  first author). Next: a round's candidates scored for the project (the description's embedding against
   their abstracts) beside `cited_here`, so a large round can be read top-down; co-citation and
   bibliographic coupling as `SELECT`s in the presets; authors joined by ORCID where both works
-  have one, before family name and initial.
+  have one (OpenAlex's author ids, which a round already reads, would join more), before family
+  name and initial.
 - **More sources for PDFs and figures** (Karim to decide, 2026-10-04; NOTES.md has the survey) —
   each a new host for invariant 1. ~~The PMC Cloud Service bucket~~ (*built 2026-10-04*: asked
   before EBI's bulk area for every open PDF, an XML paper's figures PDF included). Still open, no

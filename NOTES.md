@@ -89,6 +89,18 @@ when it turns out durable. Mark inference as inference.
 
 ## Short-term memory
 
+- **2026-10-04: OpenAlex in the rounds** — Karim: "we can use it in parallel with what we've got.
+  implement it." Invariant 1 names it. OpenAlex's terms as of 2026-10 (its docs): one work by id is
+  free and unlimited; a filtered list $0.0001, a search $0.001; **no key = $0.10/day shared by every
+  machine behind one IP** — this cloud container's was spent before we asked anything (a 429 that
+  says "Insufficient budget"), so the live check ran on the free one-by-one path: 183 works for
+  three papers in 56 s. A free key (account at openalex.org, `LITRAG_OPENALEX_KEY`) has $1/day of
+  its own; Karim would want one on his machine if the lab shares an address. What it added on the
+  three Akkus-lab papers, after Europe PMC: 95 candidates, 18 not in Europe PMC (Ceramics
+  International, J Mech Phys Solids, Applied Sciences…), 28 with an open copy outside PMC.
+  OpenAlex listed 62 references for the Micromachines paper against Europe PMC's 46. Its years are
+  the online date, often a year before the issue's — the title match allows ±1.
+
 - **2026-10-04: citation rounds, the graph, SQL over works** — Karim asked for a second round of
   searches from the first round's citations, an Obsidian-like graph, ordered and by-author
   searches in SQL that prompt further ingestion. What existed: every reference list was already

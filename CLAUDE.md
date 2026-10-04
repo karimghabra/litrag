@@ -35,8 +35,11 @@ Invariants:
    (PMC's XML by PMCID, for the author manuscripts Europe PMC will not
    serve: an identifier out, the article in — Karim, 2026-09-30), and
    NLM's PMC Cloud Service (`pmc-oa-opendata.s3.amazonaws.com`: an
-   open-access paper's PDF by PMCID, the same way — Karim, 2026-10-04).
-   Nothing reads a paper for a cloud service.
+   open-access paper's PDF by PMCID, the same way — Karim, 2026-10-04),
+   and OpenAlex (`api.openalex.org`, for citation rounds beside Europe PMC:
+   identifiers out, and for a reference entry naming none its own words,
+   never a paper's text — Karim, 2026-10-04). Nothing reads a paper for a
+   cloud service.
 2. **Two languages, one wire.** Python owns parsing and the store; TypeScript
    owns the window. They meet only on the JSON-lines protocol in
    `parser/litrag_parser/worker.py` and `app/src/main/protocol.ts`. No

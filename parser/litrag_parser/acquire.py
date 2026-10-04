@@ -82,19 +82,25 @@ CREATE TABLE IF NOT EXISTS candidates (
   updated_at TEXT NOT NULL,
   round INTEGER,                    -- how the library reached it: 1 a search, n+1 the citations of a round-n paper (graph.py)
   published TEXT,                   -- Europe PMC's first publication date, YYYY-MM-DD
-  author_list TEXT                  -- JSON [{name, family, given, initials, orcid}], from the record's author list
+  author_list TEXT,                 -- JSON [{name, family, given, initials, orcid}], from the record's author list
+  openalex TEXT,                    -- OpenAlex's id of the work (W…), when a round found it there (openalex.py)
+  oa_url TEXT                       -- where OpenAlex says an open copy is, for a person to follow
 );
 CREATE UNIQUE INDEX IF NOT EXISTS candidates_doi ON candidates(doi) WHERE doi IS NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS candidates_pmid ON candidates(pmid) WHERE pmid IS NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS candidates_pmcid ON candidates(pmcid) WHERE pmcid IS NOT NULL;
 CREATE INDEX IF NOT EXISTS candidates_status ON candidates(status);
 """
+#: Made once the columns it needs exist (an older table gains them in `ensure_schema`).
+INDEXES = """
+CREATE UNIQUE INDEX IF NOT EXISTS candidates_openalex ON candidates(openalex) WHERE openalex IS NOT NULL;
+"""
 
 #: The columns a hit fills, in the order they are inserted.
 _FIELDS = ("pmid", "pmcid", "doi", "title", "authors", "journal", "year", "abstract", "pub_types", "cited_by", "is_open_access", "has_xml", "has_pdf",
-           "published", "author_list")
+           "published", "author_list", "openalex", "oa_url")
 #: Columns added since the table was first made, for a library made before them.
-_ADDED = (("round", "INTEGER"), ("published", "TEXT"), ("author_list", "TEXT"))
+_ADDED = (("round", "INTEGER"), ("published", "TEXT"), ("author_list", "TEXT"), ("openalex", "TEXT"), ("oa_url", "TEXT"))
 
 
 class AcquireError(RuntimeError):
@@ -287,14 +293,17 @@ def citations_of(pmid: str | None, pmcid: str | None = None, *, timeout: float =
     return _listing("citations", pmid, pmcid, timeout, base, most)
 
 
-def ident_of(*, doi: Any = None, pmid: Any = None, pmcid: Any = None) -> str | None:
-    """A paper's identity for a lookup: `pmid:…`, else `doi:…` (lowercased), else `pmcid:…`."""
+def ident_of(*, doi: Any = None, pmid: Any = None, pmcid: Any = None, openalex: Any = None) -> str | None:
+    """A paper's identity for a lookup: `pmid:…`, else `doi:…` (lowercased), else `pmcid:…`, else
+    `openalex:W…`."""
     if pmid and str(pmid).strip().isdigit():
         return f"pmid:{str(pmid).strip()}"
     if doi and str(doi).strip():
         return f"doi:{str(doi).strip().lower()}"
     if pmcid and re.fullmatch(r"(?i)pmc\d+", str(pmcid).strip()):
         return f"pmcid:{str(pmcid).strip().upper()}"
+    if openalex and re.fullmatch(r"W\d+", str(openalex).strip()):
+        return f"openalex:{str(openalex).strip()}"
     return None
 
 
@@ -350,6 +359,7 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
     for col, kind in _ADDED:
         if col not in have:
             conn.execute(f"ALTER TABLE candidates ADD COLUMN {col} {kind}")
+    conn.executescript(INDEXES)
     conn.commit()
 
 
@@ -376,13 +386,13 @@ def _values(hit: dict[str, Any]) -> dict[str, Any]:
 
 
 def _existing(conn: sqlite3.Connection, v: dict[str, Any]) -> int | None:
-    for col in ("doi", "pmid", "pmcid"):
+    for col in ("doi", "pmid", "pmcid", "openalex"):
         if v.get(col):
             r = conn.execute(f"SELECT cand_id FROM candidates WHERE {col} = ?", (v[col],)).fetchone()
             if r is not None:
                 return int(r[0])
-    if not (v.get("doi") or v.get("pmid") or v.get("pmcid")) and v.get("title"):
-        r = conn.execute("SELECT cand_id FROM candidates WHERE doi IS NULL AND pmid IS NULL AND pmcid IS NULL AND title = ? AND COALESCE(year, '') = ?", (v["title"], v.get("year") or "")).fetchone()
+    if not (v.get("doi") or v.get("pmid") or v.get("pmcid") or v.get("openalex")) and v.get("title"):
+        r = conn.execute("SELECT cand_id FROM candidates WHERE doi IS NULL AND pmid IS NULL AND pmcid IS NULL AND openalex IS NULL AND title = ? AND COALESCE(year, '') = ?", (v["title"], v.get("year") or "")).fetchone()
         if r is not None:
             return int(r[0])
     return None
@@ -399,16 +409,22 @@ def upsert_candidate(conn: sqlite3.Connection, hit: dict[str, Any], *, query: st
         cur = conn.execute(f"INSERT INTO candidates({', '.join(cols)}) VALUES ({', '.join('?' * len(cols))})", (query, *(v[k] for k in _FIELDS), status, now, now, round))
         return int(cur.lastrowid), True
     conn.execute("UPDATE candidates SET round = ? WHERE cand_id = ? AND round > ?", (round, cid, round))  # NULL, from before rounds, is a search's: 1
+    fill_candidate(conn, cid, hit)
+    return cid, False
+
+
+def fill_candidate(conn: sqlite3.Connection, cid: int, hit: dict[str, Any]) -> None:
+    """What a candidate lacks, from another record of the same work; nothing it has is replaced,
+    and an identifier another candidate already holds stays that one's — two partial rows of one
+    paper stay two rather than one being overwritten by the other."""
+    v = _values(hit)
     for col in _FIELDS:
         if v.get(col) is None:
             continue
-        if col in ("doi", "pmid", "pmcid"):
-            # an identifier another candidate already holds is that one's; two partial rows of one
-            # paper stay two rather than one being overwritten by the other
+        if col in ("doi", "pmid", "pmcid", "openalex"):
             if conn.execute(f"SELECT 1 FROM candidates WHERE {col} = ? AND cand_id != ?", (v[col], cid)).fetchone():
                 continue
         conn.execute(f"UPDATE candidates SET {col} = COALESCE({col}, ?) WHERE cand_id = ?", (v[col], cid))
-    return cid, False
 
 
 def _write_manifest(lib: Library, update: Callable[[dict[str, Any]], None]) -> dict[str, Any]:
@@ -471,6 +487,8 @@ def links(row: dict[str, Any]) -> dict[str, str]:
         out["europepmc"] = f"https://europepmc.org/article/MED/{row['pmid']}"
     elif row.get("pmcid"):
         out["europepmc"] = f"https://europepmc.org/article/PMC/{row['pmcid']}"
+    if row.get("oa_url"):
+        out["open"] = str(row["oa_url"])  # an open copy OpenAlex knows of, outside PMC: for a person to follow, never fetched
     return out
 
 

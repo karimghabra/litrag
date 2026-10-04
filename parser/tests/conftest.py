@@ -1,5 +1,5 @@
-"""What every test starts from: no oracle configured, and no test writing verdicts into
-the user's real library root. `fake_oracle` is an oracle over a toy embedder for the tests
+"""What every test starts from: no oracle configured, no test writing verdicts into
+the user's real library root, and OpenAlex off. `fake_oracle` is an oracle over a toy embedder for the tests
 that need one."""
 
 import re
@@ -14,6 +14,8 @@ from litrag_parser import lanes, meaning
 def _no_oracle_leaks(monkeypatch):
     lanes._active = None
     monkeypatch.setenv("LITRAG_LANES", "off")  # the subprocess worker in test_worker inherits this
+    monkeypatch.setenv("LITRAG_OPENALEX", "off")  # no test reaches OpenAlex: those that ask it point it at a canned one
+    monkeypatch.setenv("LITRAG_OPENALEX_URL", "http://127.0.0.1:9")
     yield
     lanes._active = None
 

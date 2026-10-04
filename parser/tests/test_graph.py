@@ -269,3 +269,171 @@ def test_a_round_that_cannot_reach_europe_pmc_files_nothing_and_tries_again(epmc
     assert _q(conn, "SELECT doi, title FROM candidates") == [("10.9/x", "A cited work")]
     assert _q(conn, "SELECT citing FROM cites") == [(a,)]
     conn.close()
+
+
+# ---------------------------------------------------------------- OpenAlex beside Europe PMC
+
+
+def _work(w_id, title, year, *, doi=None, pmid=None, authors=(("Shengmao Lin", "0000-0002-8116-3324"),), refs=(), oa_url=None, source="Micromachines"):
+    """An OpenAlex work as its API returns one (shaped after W4400292404, checked 2026-10-04)."""
+    ids = {"openalex": f"https://openalex.org/{w_id}"}
+    if doi:
+        ids["doi"] = f"https://doi.org/{doi}"
+    if pmid:
+        ids["pmid"] = f"https://pubmed.ncbi.nlm.nih.gov/{pmid}"
+    return {"id": f"https://openalex.org/{w_id}", "doi": f"https://doi.org/{doi}" if doi else None, "ids": ids, "title": title,
+            "publication_year": year, "publication_date": f"{year}-06-13", "type": "article", "cited_by_count": 81,
+            "authorships": [{"author_position": "first" if i == 0 else "middle", "author": {"id": f"https://openalex.org/A{i}{w_id[1:]}", "display_name": n,
+                                                                                               "orcid": f"https://orcid.org/{o}" if o else None}} for i, (n, o) in enumerate(authors)],
+            "primary_location": {"source": {"display_name": source}}, "open_access": {"is_oa": bool(oa_url), "oa_url": oa_url},
+            "referenced_works": [f"https://openalex.org/{r}" for r in refs]}
+
+
+class _OpenAlex:
+    """OpenAlex on the canned server: works by id, DOI or PMID; lists by `openalex:` and `cites:`
+    filters; a search; and, when `spent`, a list or a search answered as a spent budget is."""
+
+    def __init__(self, canned, works, citing=None):
+        self.works = {w["id"].rsplit("/", 1)[1]: w for w in works}
+        self.citing = citing or {}
+        self.spent = False
+        self.searched = []
+        canned.routes["/openalex/works"] = self.listing
+        for w_id, w in self.works.items():
+            canned.json(f"/openalex/works/{w_id}", w)
+            if w.get("doi"):
+                canned.json(f"/openalex/works/doi:{w['doi'].split('doi.org/')[1]}", w)
+            if (w.get("ids") or {}).get("pmid"):
+                canned.json(f"/openalex/works/pmid:{w['ids']['pmid'].rsplit('/', 1)[1]}", w)
+        self.results = []  # what a search answers
+
+    def listing(self, q):
+        if self.spent:
+            return 429, "application/json", json.dumps({"error": "Rate limit exceeded", "message": "Insufficient budget. This request has no API key"}).encode()
+        f = (q.get("filter") or [""])[0]
+        if "search" in q:
+            self.searched.append((q["search"][0], f))
+            out = self.results
+        elif f.startswith("openalex:"):
+            out = [self.works[w] for w in f.split(":", 1)[1].split("|") if w in self.works]
+        elif f.startswith("cites:"):
+            out = [self.works[w] for w in self.citing.get(f.split(":", 1)[1], [])]
+        else:
+            out = []
+        return 200, "application/json", json.dumps({"meta": {"count": len(out), "next_cursor": None}, "results": out}).encode()
+
+
+@pytest.fixture
+def openalex_on(epmc, monkeypatch):
+    monkeypatch.setenv("LITRAG_OPENALEX", "on")
+    monkeypatch.setenv("LITRAG_OPENALEX_URL", f"{epmc.url}/openalex")
+    monkeypatch.setattr("litrag_parser.openalex.GAP", 0)
+    return epmc
+
+
+def test_openalex_names_what_europe_pmc_does_not(openalex_on, lib):
+    epmc = openalex_on
+    conn = open_store(lib.store_path)
+    a = _paper(conn, pmid="111", doi="10.1/a", title="Computational and Experimental Characterization of Aligned Collagen", year=2024)
+    epmc.json("/rest/MED/111/references", {"hitCount": 1, "referenceList": {"reference": [{"source": "MED", "id": "222", "title": "In PubMed", "pubYear": 2019, "match": "Y"}]}})
+    epmc.routes["/rest/search"] = _search([_core("222", "In PubMed", 2019, doi="10.2/pubmed", pmcid="PMC222")])
+    oa = _OpenAlex(epmc, [
+        _work("W1", "Computational and Experimental Characterization of Aligned Collagen", 2024, doi="10.1/a", pmid="111",
+              authors=(("Shengmao Lin", "0000-0002-8116-3324"), ("Vipuil Kishore", "0000-0002-2559-1789")), refs=("W222", "W900", "W901")),
+        _work("W222", "In PubMed", 2019, doi="10.2/pubmed", pmid="222"),
+        _work("W900", "3D printing-assisted design of scaffold structures", 2015, doi="10.1007/s00170-015-7386-6",
+              authors=(("Antreas Kantaros", "0000-0001-7927-1468"),), oa_url="https://repository.example/kantaros.pdf", source="The International Journal of Advanced Manufacturing Technology"),
+        _work("W901", "A handbook of collagen, with no DOI", 1998, authors=(("Ramachandran G", None),)),
+    ])
+    out = graph.harvest(lib, conn)
+    assert out["errors"] == [] and out["openalex"]["asked"] == 1 and out["openalex"]["works"] == 3 and not out["openalex"]["spent"]
+    cands = {r["pmid"] or r["doi"] or r["openalex"]: r for r in map(dict, conn.execute("SELECT * FROM candidates"))}
+    assert set(cands) == {"222", "10.1007/s00170-015-7386-6", "W901"}
+    assert cands["222"]["pmcid"] == "PMC222" and cands["222"]["openalex"] == "W222"  # Europe PMC's record, OpenAlex's id beside it
+    eng = cands["10.1007/s00170-015-7386-6"]  # a journal PubMed never indexed: OpenAlex's record
+    assert eng["title"] == "3D printing-assisted design of scaffold structures" and eng["journal"] == "The International Journal of Advanced Manufacturing Technology"
+    assert eng["round"] == 2 and eng["oa_url"] == "https://repository.example/kantaros.pdf" and eng["has_xml"] == 0
+    assert acquire.links(eng)["open"] == "https://repository.example/kantaros.pdf"
+    assert cands["W901"]["title"] == "A handbook of collagen, with no DOI" and cands["W901"]["doi"] is None
+    asked_epmc = [urllib.parse.unquote(p) for p in epmc.seen if p.startswith("/rest/search")]
+    assert any("s00170" in p for p in asked_epmc) and not any("W901" in p for p in asked_epmc)  # a DOI is asked of Europe PMC; a work no register names is not
+    assert _q(conn, "SELECT orcid FROM authors a JOIN works w USING (work) WHERE w.doi = '10.1007/s00170-015-7386-6'") == [("0000-0001-7927-1468",)]
+    # the held paper had no authors of its own: OpenAlex's, filled in
+    assert [x["name"] for x in json.loads(_q(conn, "SELECT authors FROM papers WHERE key = ?", a)[0][0])] == ["Shengmao Lin", "Vipuil Kishore"]
+    edges = {(e["src"], e["dst"]): e["origin"] for e in graph.graph(conn, candidates="all")["edges"]}
+    assert edges[(a, f"cand:{cands['222']['cand_id']}")] == "europepmc+openalex"
+    assert edges[(a, f"cand:{eng['cand_id']}")] == "openalex"
+    asked = len(epmc.seen)
+    assert graph.harvest(lib, conn)["papers"] == 0 and len(epmc.seen) == asked  # twice asks nothing
+    conn.close()
+
+
+def test_a_spent_openalex_budget_fetches_one_by_one_and_skips_what_needs_it(openalex_on, lib):
+    epmc = openalex_on
+    conn = open_store(lib.store_path)
+    a = _paper(conn, doi="10.1/a", title="A paper outside PubMed", year=2024)
+    oa = _OpenAlex(epmc, [_work("W1", "A paper outside PubMed", 2024, doi="10.1/a", refs=("W900",)),
+                          _work("W900", "3D printing-assisted design of scaffold structures", 2015, doi="10.9/eng")],
+                   citing={"W1": ["W900"]})
+    oa.spent = True
+    epmc.routes["/rest/search"] = _search([])
+    out = graph.harvest(lib, conn, citations=True)
+    assert out["openalex"]["spent"] and any("budget" in e for e in out["errors"])
+    assert _q(conn, "SELECT doi FROM candidates") == [("10.9/eng",)]  # its references, one free lookup at a time
+    assert _q(conn, "SELECT kind FROM harvests WHERE paper = ? AND kind LIKE 'openalex%'", a) == [("openalex-references",)]  # what cites it waits for a budget
+    oa.spent = False
+    again = graph.harvest(lib, conn, citations=True)
+    assert again["papers"] == 1 and not again["openalex"]["spent"]
+    assert _q(conn, "SELECT origin FROM cites WHERE citing LIKE 'cand:%' AND cited = ?", a) == [("openalex",)]  # W900 cites it too
+    conn.close()
+
+
+def test_an_entry_naming_nothing_is_matched_only_by_its_whole_title(openalex_on, lib):
+    epmc = openalex_on
+    conn = open_store(lib.store_path)
+    pdf = _paper(conn, title="A PDF with no identifier", year=2020, refs=[
+        {"text": "Kantaros A, Chatzidai N, Karalekas D. 3D printing-assisted design of scaffold structures. Int J Adv Manuf Technol. 2016;82:559–71.", "year": "2016"},
+        {"text": "Smith J. Collagen. Academic Press; 2010.", "year": "2010"},
+    ])
+    right = _work("W900", "3D printing-assisted design of scaffold structures", 2015, doi="10.1007/s00170-015-7386-6", authors=(("Antreas Kantaros", None),))
+    near = _work("W950", "3D printing", 2016, doi="10.9/near", authors=(("Antreas Kantaros", None),))
+    oa = _OpenAlex(epmc, [right, near])
+    oa.results = [near, right]
+    epmc.routes["/rest/search"] = _search([])
+    out = graph.harvest(lib, conn)
+    assert out["openalex"]["searches"] == 2 and out["openalex"]["matched"] == 1  # "Collagen" is too short a title to stand for one work
+    assert oa.searched[0][1] == "publication_year:2015-2017"
+    assert _q(conn, "SELECT doi FROM candidates") == [("10.1007/s00170-015-7386-6",)]
+    assert _q(conn, "SELECT citing, origin, ref_no FROM cites") == [(pdf, "openalex", 1)]
+    assert out["unidentified"] == 1
+    conn.close()
+
+
+def test_a_reference_matches_a_work_only_by_its_whole_title_year_and_first_author():
+    from litrag_parser import openalex
+
+    w = _work("W900", "3D printing-assisted design of scaffold structures", 2015, authors=(("Antreas Kantaros", None),))
+    entry = {"text": "Kantaros A, et al. 3D printing-assisted design of scaffold structures. Int J Adv Manuf Technol 2016", "year": "2016"}
+    assert openalex.matches(entry, w)
+    assert not openalex.matches({**entry, "year": "2012"}, w)  # years too far apart
+    assert not openalex.matches({**entry, "text": entry["text"].replace("Kantaros", "Lyon")}, w)  # another first author
+    assert not openalex.matches({**entry, "text": "Kantaros A. 3D printing-assisted design. 2016"}, w)  # part of the title is not the title
+    assert openalex.ident(w) == "openalex:W900" and openalex.ident(_work("W1", "t", 2020, doi="10.1/X", pmid="5")) == "pmid:5"
+    h = openalex.hit(_work("W1", "t", 2020, doi="10.1/X", oa_url="https://x/y.pdf"))
+    assert (h["doi"], h["openalex"], h["oa_url"], h["is_open_access"], h["has_xml"]) == ("10.1/x", "W1", "https://x/y.pdf", True, False)
+
+
+def test_one_work_under_two_dois_is_one_candidate(openalex_on, lib):
+    epmc = openalex_on
+    conn = open_store(lib.store_path)
+    a = _paper(conn, pmid="111", doi="10.1/a", title="A paper citing an old one", year=2017)
+    title = "Modulation of the formation of adhesions during the healing of injured tendons"
+    epmc.json("/rest/MED/111/references", {"hitCount": 1, "referenceList": {"reference": [{"source": "MED", "id": "11041601", "match": "Y"}]}})
+    epmc.routes["/rest/search"] = _search([_core("11041601", title, 2000, doi="10.1302/0301-620x.82b7.9892", authors=(("Tang", "JB", None),))])
+    # OpenAlex holds the same paper under the publisher's other DOI, and no PMID
+    _OpenAlex(epmc, [_work("W1", "A paper citing an old one", 2017, doi="10.1/a", pmid="111", refs=("W9",)),
+                     _work("W9", title, 2000, doi="10.1302/0301-620x.82b7.0821054", authors=(("Jin Bo Tang", None),))])
+    graph.harvest(lib, conn)
+    assert _q(conn, "SELECT pmid, doi, openalex FROM candidates") == [("11041601", "10.1302/0301-620x.82b7.9892", "W9")]
+    assert sorted(_q(conn, "SELECT origin FROM cites WHERE citing = ?", a)) == [("europepmc",), ("openalex",)]
+    conn.close()

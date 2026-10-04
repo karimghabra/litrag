@@ -20,13 +20,15 @@ A *round* is how the library grows. Round 1 is what a search found or a person d
 citation round asks, for held papers, what they cite (and, when asked, what cites them), and
 files every work it can identify as a candidate of the next round: found, not fetched. Fetching
 stays the person's choice, so any `SELECT` over `works` — chronological, by an author, the most
-cited here and not held — is a way to choose what the library reads next. The only host asked
-is Europe PMC's, sent identifiers.
+cited here and not held — is a way to choose what the library reads next. The hosts asked are
+Europe PMC's and OpenAlex's (openalex.py), side by side, sent identifiers — and OpenAlex, for an
+entry that names none, the entry's own words.
 """
 
 from __future__ import annotations
 
 import json
+import os
 import re
 import sqlite3
 import unicodedata
@@ -300,8 +302,8 @@ def _held_index(conn: sqlite3.Connection) -> dict[str, str]:
 
 def _cand_index(conn: sqlite3.Connection) -> dict[str, int]:
     out: dict[str, int] = {}
-    for cid, doi, pmid, pmcid in conn.execute("SELECT cand_id, doi, pmid, pmcid FROM candidates ORDER BY cand_id"):
-        for ident in (acquire.ident_of(pmid=pmid), acquire.ident_of(doi=doi), acquire.ident_of(pmcid=pmcid)):
+    for cid, doi, pmid, pmcid, oa_id in conn.execute("SELECT cand_id, doi, pmid, pmcid, openalex FROM candidates ORDER BY cand_id"):
+        for ident in (acquire.ident_of(pmid=pmid), acquire.ident_of(doi=doi), acquire.ident_of(pmcid=pmcid), acquire.ident_of(openalex=oa_id)):
             if ident:
                 out.setdefault(ident, cid)
     return out
@@ -321,40 +323,96 @@ def _own_hit(ident: str, seen: dict[str, Any]) -> dict[str, Any]:
     first author and year — enough to list it and to fetch it by hand."""
     kind, value = ident.split(":", 1)
     return {"doi": value if kind == "doi" else seen.get("doi"), "pmid": value if kind == "pmid" else None, "pmcid": value if kind == "pmcid" else None,
+            "openalex": value if kind == "openalex" else None,
             "title": seen.get("title"), "authors": seen.get("authors"), "journal": seen.get("journal"), "year": seen.get("year"),
             "has_xml": False, "is_open_access": False, "has_pdf": False, "cited_by": None, "pub_types": []}
 
 
+#: A title this long, the same year and the same first author: one work under two identifiers (a
+#: publisher that changed a paper's DOI, OpenAlex holding the other one).
+SAME_TITLE_WORDS = 6
+
+
+def _same_work(conn: sqlite3.Connection, h: dict[str, Any]) -> int | None:
+    """The one candidate that is this record's work by everything but an identifier: its whole
+    title (six words or more, letters and digits only), its year and its first author's family
+    name. None when none is, or more than one."""
+    title = " ".join(re.sub(r"[^a-z0-9]+", " ", str(h.get("title") or "").lower()).split())
+    first = (h.get("author_list") or [{}])[0].get("name") or ""
+    family = split_name(first)[0] if first else None
+    if len(title.split()) < SAME_TITLE_WORDS or not h.get("year") or not family:
+        return None
+    same = []
+    for cid, t, authors, listed in conn.execute("SELECT cand_id, title, authors, author_list FROM candidates WHERE year = ?", (str(h["year"]),)).fetchall():
+        if " ".join(re.sub(r"[^a-z0-9]+", " ", str(t or "").lower()).split()) != title:
+            continue
+        rows = _author_rows("", listed, authors)  # (work, pos, name, family, …)
+        if rows and _fold(rows[0][3] or "") == _fold(family):
+            same.append(cid)
+    return same[0] if len(same) == 1 else None
+
+
+def _paper_ident(p: dict[str, Any]) -> str | None:
+    return acquire.ident_of(doi=p["doi"]) or acquire.ident_of(pmid=p["pmid"]) or acquire.ident_of(pmcid=p["pmcid"])
+
+
+def _fill_record(conn: sqlite3.Connection, key: str, w: dict[str, Any]) -> None:
+    """A held paper's authors, journal and year from OpenAlex, where it has none of its own (a
+    paper outside Europe PMC, read from a PDF): filled, never replacing what the file or Europe
+    PMC said."""
+    from . import openalex as oa
+    from .store import set_record
+
+    h = oa.hit(w)
+    authors = [{"name": a["name"], "affiliations": [], "corresponding": False, **({"orcid": a["orcid"]} if a.get("orcid") else {})} for a in h["author_list"] or []]
+    set_record(conn, key, authors=authors or None, journal=h["journal"], year=h["year"])
+
+
 def harvest(lib: Library, conn: sqlite3.Connection, keys: Iterable[str] | None = None, *, references: bool = True, citations: bool = False,
-            again: bool = False, network: bool = True, most_citing: int = 1000, timeout: float = 30,
+            again: bool = False, network: bool = True, openalex: bool | None = None, most_citing: int = 1000,
+            title_searches: int | None = None, timeout: float = 30,
             on_progress: Callable[[dict[str, Any]], None] | None = None) -> dict[str, Any]:
     """One citation round from held papers (`keys`, else every held paper not asked before):
-    what each cites — its own reference list as read, and Europe PMC's list of it — and, with
-    `citations`, what cites it. A cited work the library holds is a `cites` row to it; one with
-    an identifier is a candidate of the paper's round + 1 (Europe PMC's record of it where it has
-    one, else what the reference printed) and a `cites` row to that; one with neither is counted
-    and left. Nothing is fetched. Twice changes nothing; `again` asks Europe PMC once more."""
+    what each cites and, with `citations`, what cites it — asked of Europe PMC and of OpenAlex
+    side by side (`openalex=False` leaves OpenAlex out; `LITRAG_OPENALEX=off` always does), the paper's own reference list
+    read beside them. A cited or citing work the library holds is a `cites` row to it; one with
+    an identifier is a candidate of the paper's round + 1 and a `cites` row to that — filed with
+    Europe PMC's record where it has one (the PMCID and open-access flags a fetch needs), else
+    OpenAlex's, else what the reference printed. For a paper neither source has a list for, an
+    entry naming no identifier is searched in OpenAlex by its words (at most `title_searches` a
+    round) and taken only when one work's whole title, year and first author are in it; else it
+    is counted and left. Nothing is fetched. Twice changes nothing; `again` asks once more."""
+    from . import openalex as oa
+    from .lineage import _Library
+
     ensure_schema(conn)
     sync(conn)
     say = on_progress or (lambda e: None)
-    from .lineage import _Library
+    use_oa = network and oa.enabled() and (openalex is None or bool(openalex))  # `LITRAG_OPENALEX=off` is the machine's word, above a request's
+    searches_left = int(os.environ.get("LITRAG_OPENALEX_SEARCHES", "50") if title_searches is None else title_searches)
 
-    rows = [dict(r) for r in conn.execute("SELECT key, doi, pmid, pmcid, title FROM papers ORDER BY added_at, key")]
+    rows = [dict(r) for r in conn.execute("SELECT key, doi, pmid, pmcid, title, authors FROM papers ORDER BY added_at, key")]
     if keys is not None:
         wanted_keys = set(keys)
         rows = [r for r in rows if r["key"] in wanted_keys]
-    kinds = [k for k, on in (("references", references), ("citations", citations)) if on]
+    kinds = [k for k, on in (("references", references), ("citations", citations),
+                              ("openalex-references", references and use_oa), ("openalex-citations", citations and use_oa)) if on]
     asked = {(p, k) for p, k in conn.execute("SELECT paper, kind FROM harvests")}
     if not again and keys is None:
         rows = [r for r in rows if any((r["key"], k) not in asked for k in kinds)]
     held = _held_index(conn)
     resolver = _Library(conn)
-    # ident -> what is known of it, and the citations to write once it is a work
-    found: dict[str, dict[str, Any]] = {}
-    edges: list[tuple[str, str, str, str, int | None]] = []  # (citing, cited, origin, round side, ref_no) with idents for the unheld side
+    found: dict[str, dict[str, Any]] = {}  # ident -> what is known of it, before it is filed
+    oa_hits: dict[str, dict[str, Any]] = {}  # ident -> OpenAlex's record of it, as a candidate's hit
+    # (citing, cited, origin, side, ref_no, harvest kind): the unheld side an ident until filed
+    edges: list[tuple[str, str, str, str, int | None, str]] = []
     direct: set[tuple[str, str, str, int | None]] = set()  # between held papers
-    stats = {"papers": len(rows), "entries": 0, "held": 0, "identified": 0, "unidentified": 0, "asked": 0, "added": 0, "errors": []}
     done: list[tuple[str, str, str, int]] = []  # the asks that were answered, marked once the round is filed
+    stats: dict[str, Any] = {"papers": len(rows), "entries": 0, "held": 0, "identified": 0, "unidentified": 0, "asked": 0, "added": 0, "errors": [],
+                             "openalex": {"on": use_oa, "asked": 0, "works": 0, "matched": 0, "searches": 0, "spent": False}}
+    oas = stats["openalex"]
+    w_refs: dict[str, list[str]] = {}  # a held paper's references, as OpenAlex ids, to fetch once for all papers
+    w_of: dict[str, str] = {}  # a held paper's own OpenAlex id
 
     def note(ident: str, paper_round: int, query: str, seen: dict[str, Any]) -> None:
         f = found.setdefault(ident, {"round": paper_round + 1, "query": query, "seen": {}})
@@ -363,14 +421,34 @@ def harvest(lib: Library, conn: sqlite3.Connection, keys: Iterable[str] | None =
             if v and not f["seen"].get(k):
                 f["seen"][k] = v
 
+    def openalex_work(p: dict[str, Any]) -> dict[str, Any] | None:
+        ident = _paper_ident(p)
+        if ident is None:
+            return None
+        w = oa.work(ident, timeout=timeout)
+        oas["asked"] += 1
+        if w is not None:
+            w_of[p["key"]] = oa.short_id(w.get("id")) or ""
+            if not p["authors"]:
+                _fill_record(conn, p["key"], w)
+        return w
+
+    def spent(e: Exception) -> None:
+        if not oas["spent"]:
+            stats["errors"].append(f"OpenAlex: {e}")
+        oas["spent"] = True
+
     for i, p in enumerate(rows):
         key = p["key"]
         say({"event": "progress", "op": "round", "done": i, "total": len(rows), "label": f"Citations of {i + 1} of {len(rows)}: {(p['title'] or key)[:60]}"})
         r = round_of(conn, key)
         epmc_refs = None
+        listed = False  # whether either source gave the paper's reference list
 
         def due(kind: str) -> bool:
-            return network and bool(p["pmid"] or p["pmcid"]) and (again or keys is not None or (key, kind) not in asked)
+            if not network or kind not in kinds or not (again or keys is not None or (key, kind) not in asked):
+                return False
+            return bool(p["pmid"] or p["pmcid"]) if not kind.startswith("openalex") else _paper_ident(p) is not None
 
         if "references" in kinds:
             failed = False
@@ -378,10 +456,24 @@ def harvest(lib: Library, conn: sqlite3.Connection, keys: Iterable[str] | None =
                 try:
                     epmc_refs = acquire.references_of(p["pmid"], p["pmcid"], timeout=timeout)
                     stats["asked"] += 1
+                    listed = bool(epmc_refs)
                 except (acquire.AcquireError, OSError) as e:
                     stats["errors"].append(f"{key}: references: {e}")
                     failed = True  # not asked, so not marked asked: the next round tries again
+            if due("openalex-references"):
+                try:
+                    w = openalex_work(p)
+                    if w is not None and w.get("referenced_works"):
+                        w_refs[key] = [x for x in (oa.short_id(v) for v in w["referenced_works"]) if x]
+                        listed = True
+                    else:
+                        done.append((key, "openalex-references", now_iso(), 0))  # OpenAlex holds no list of it: asked all the same
+                except oa.Budget as e:
+                    spent(e)
+                except OSError as e:
+                    stats["errors"].append(f"{key}: OpenAlex: {e}")
             n_found = 0
+            unnamed: list[dict[str, Any]] = []  # entries naming nothing, for a search when no list came
             # the paper's own list, as read here
             for ref in conn.execute("SELECT ref_no, text, doi, pmid, year, first_author, title FROM refs WHERE paper = ? ORDER BY ref_no", (key,)).fetchall():
                 ref = dict(ref)
@@ -393,7 +485,7 @@ def harvest(lib: Library, conn: sqlite3.Connection, keys: Iterable[str] | None =
                     continue
                 ident = acquire.ident_of(pmid=ref["pmid"]) or acquire.ident_of(doi=ref["doi"])
                 if ident is None:
-                    stats["unidentified"] += epmc_refs is None
+                    unnamed.append(ref)
                     continue
                 if ident in held:  # another paper held, or the paper's own identifier: no candidate either way
                     if held[ident] != key:
@@ -401,7 +493,7 @@ def harvest(lib: Library, conn: sqlite3.Connection, keys: Iterable[str] | None =
                         n_found += 1
                     continue
                 note(ident, r, f"cited by {key}", {"title": ref["title"], "year": ref["year"], "authors": ref["first_author"], "doi": ref["doi"]})
-                edges.append((key, ident, "refs", "cited", ref["ref_no"]))
+                edges.append((key, ident, "refs", "cited", ref["ref_no"], "references"))
                 n_found += 1
             # Europe PMC's list of it
             for x in epmc_refs or []:
@@ -417,35 +509,112 @@ def harvest(lib: Library, conn: sqlite3.Connection, keys: Iterable[str] | None =
                     continue
                 note(ident, r, f"cited by {key}", {"title": acquire.plain_text(x.get("title")), "year": str(x.get("pubYear") or "") or None,
                                                    "authors": str(x.get("authorString") or "").rstrip(".") or None, "journal": x.get("journalAbbreviation")})
-                edges.append((key, ident, "europepmc", "cited", None))
+                edges.append((key, ident, "europepmc", "cited", None, "references"))
                 n_found += 1
+            # no list from either source: an entry naming nothing is searched by its words
+            if not listed and use_oa:
+                for ref in unnamed:
+                    if oas["spent"] or searches_left <= 0:
+                        stats["unidentified"] += epmc_refs is None
+                        continue
+                    try:
+                        searches_left -= 1
+                        oas["searches"] += 1
+                        w = oa.match(ref, timeout=timeout)
+                    except oa.Budget as e:
+                        spent(e)
+                        w = None
+                    except OSError as e:
+                        stats["errors"].append(f"{key}: OpenAlex search: {e}")
+                        w = None
+                    ident = oa.ident(w) if w else None
+                    if ident is None:
+                        stats["unidentified"] += epmc_refs is None
+                        continue
+                    oas["matched"] += 1
+                    if ident in held:
+                        if held[ident] != key:
+                            direct.add((key, held[ident], "openalex", ref["ref_no"]))
+                        continue
+                    oa_hits[ident] = oa.hit(w)  # type: ignore[arg-type]
+                    note(ident, r, f"cited by {key}", {})
+                    edges.append((key, ident, "openalex", "cited", ref["ref_no"], "references"))
+            else:
+                stats["unidentified"] += len(unnamed) if epmc_refs is None else 0
             if not failed:
                 done.append((key, "references", now_iso(), n_found))
         if "citations" in kinds and due("citations"):
             try:
                 citing = acquire.citations_of(p["pmid"], p["pmcid"], timeout=timeout, most=most_citing) or []
                 stats["asked"] += 1
+                for x in citing:
+                    ident = _epmc_ident(x)
+                    if ident is None:
+                        continue
+                    if ident in held:
+                        if held[ident] != key:
+                            direct.add((held[ident], key, "europepmc", None))
+                        continue
+                    note(ident, r, f"cites {key}", {"title": acquire.plain_text(x.get("title")), "year": str(x.get("pubYear") or "") or None,
+                                                    "authors": str(x.get("authorString") or "").rstrip(".") or None, "journal": x.get("journalAbbreviation")})
+                    edges.append((ident, key, "europepmc", "citing", None, "citations"))
+                done.append((key, "citations", now_iso(), len(citing)))
             except (acquire.AcquireError, OSError) as e:
-                stats["errors"].append(f"{key}: citations: {e}")
-                continue  # not marked asked: the next round tries again
-            for x in citing:
-                ident = _epmc_ident(x)
-                if ident is None:
-                    continue
-                if ident in held:
-                    if held[ident] != key:
-                        direct.add((held[ident], key, "europepmc", None))
-                    continue
-                note(ident, r, f"cites {key}", {"title": acquire.plain_text(x.get("title")), "year": str(x.get("pubYear") or "") or None,
-                                                "authors": str(x.get("authorString") or "").rstrip(".") or None, "journal": x.get("journalAbbreviation")})
-                edges.append((ident, key, "europepmc", "citing", None))
-            done.append((key, "citations", now_iso(), len(citing)))
+                stats["errors"].append(f"{key}: citations: {e}")  # not marked asked: the next round tries again
+        if due("openalex-citations") and not oas["spent"]:
+            try:
+                w_id = w_of.get(key) or oa.short_id((openalex_work(p) or {}).get("id"))
+                ws = oa.citing(w_id, most=most_citing, timeout=timeout) if w_id else []
+                for w in ws:
+                    ident = oa.ident(w)
+                    if ident is None:
+                        continue
+                    if ident in held:
+                        if held[ident] != key:
+                            direct.add((held[ident], key, "openalex", None))
+                        continue
+                    oa_hits.setdefault(ident, oa.hit(w))
+                    note(ident, r, f"cites {key}", {})
+                    edges.append((ident, key, "openalex", "citing", None, "openalex-citations"))
+                done.append((key, "openalex-citations", now_iso(), len(ws)))
+            except oa.Budget as e:
+                spent(e)
+            except OSError as e:
+                stats["errors"].append(f"{key}: OpenAlex citations: {e}")
 
-    # every identified work a candidate: those known already as they are, the rest looked up
+    # OpenAlex's reference lists, the works in them fetched once for every paper
+    wanted = sorted({w for ids in w_refs.values() for w in ids})
+    if wanted:
+        try:
+            got, was_spent = oa.works(wanted, timeout=timeout, on_batch=lambda n, t: say({"event": "progress", "op": "round", "done": n, "total": t, "label": f"Fetching {len(wanted)} works from OpenAlex ({n + 1} of {t})"}))
+            if was_spent and not oas["spent"]:
+                spent(oa.Budget("OpenAlex's daily budget is spent: the rest were fetched one by one, which costs nothing"))
+            oas["works"] = len(got)
+            for key, ids in w_refs.items():
+                r = round_of(conn, key)
+                n = 0
+                for w_id in ids:
+                    w = got.get(w_id)
+                    ident = oa.ident(w) if w else None
+                    if ident is None:
+                        continue
+                    n += 1
+                    if ident in held:
+                        if held[ident] != key:
+                            direct.add((key, held[ident], "openalex", None))
+                        continue
+                    oa_hits.setdefault(ident, oa.hit(w))  # type: ignore[arg-type]
+                    note(ident, r, f"cited by {key}", {})
+                    edges.append((key, ident, "openalex", "cited", None, "openalex-references"))
+                done.append((key, "openalex-references", now_iso(), n))
+        except OSError as e:
+            stats["errors"].append(f"OpenAlex: {e}")  # those papers not marked asked: the next round tries again
+
+    # every identified work a candidate: those known already as they are, the rest looked up in
+    # Europe PMC (its record carries what a fetch needs); a work only OpenAlex names is not asked
     cands = _cand_index(conn)
-    unknown = [ident for ident in found if ident not in cands]
+    unknown = [ident for ident in found if ident not in cands and not ident.startswith("openalex:")]
     records: dict[str, dict[str, Any]] = {}
-    missed: set[str] = set()
     if network and unknown:
         records, lost = acquire.lookup(unknown, timeout=max(timeout, 60), on_batch=lambda n, t: say({"event": "progress", "op": "round", "done": n, "total": t, "label": f"Looking up {len(unknown)} works in Europe PMC ({n + 1} of {t})"}))
         missed = set(lost)
@@ -453,7 +622,7 @@ def harvest(lib: Library, conn: sqlite3.Connection, keys: Iterable[str] | None =
             # without its record a work would be filed with no PMCID and no open-access flags, and
             # stay so: those are left for the next round, and the papers naming them not marked asked
             stats["errors"].append(f"lookup: {len(missed)} of {len(unknown)} works could not be looked up in Europe PMC; the next round asks again")
-            unfinished = {(a if side == "cited" else b, "references" if side == "cited" else "citations") for a, b, _o, side, _n in edges if (b if side == "cited" else a) in missed}
+            unfinished = {(a if side == "cited" else b, kind) for a, b, _o, side, _n, kind in edges if (b if side == "cited" else a) in missed}
             done = [d for d in done if (d[0], d[1]) not in unfinished]
             found = {i: f for i, f in found.items() if i not in missed}
             edges = [e for e in edges if (e[1] if e[3] == "cited" else e[0]) not in missed]
@@ -461,17 +630,27 @@ def harvest(lib: Library, conn: sqlite3.Connection, keys: Iterable[str] | None =
     added = 0
     ident_cand: dict[str, int] = {}
     with conn:
-        for ident, f in found.items():
-            hit = records.get(ident) or _own_hit(ident, f["seen"])
+        # Europe PMC's records first, so a work OpenAlex knows by another DOI meets its candidate
+        for ident, f in sorted(found.items(), key=lambda kv: kv[0] not in records):
+            hits = [h for h in (records.get(ident), oa_hits.get(ident)) if h] or [_own_hit(ident, f["seen"])]
             cid = cands.get(ident)
+            if cid is None and not records.get(ident) and oa_hits.get(ident):
+                # a work only OpenAlex's record names may be a candidate already, under another
+                # identity: one of its other identifiers, or the same title, year and first author
+                h = oa_hits[ident]
+                cid = next((cands[a] for a in (acquire.ident_of(pmid=h.get("pmid")), acquire.ident_of(doi=h.get("doi")), acquire.ident_of(pmcid=h.get("pmcid")), acquire.ident_of(openalex=h.get("openalex"))) if a in cands), None)
+                if cid is None:
+                    cid = _same_work(conn, h)
             if cid is None:
-                cid, new = acquire.upsert_candidate(conn, hit, query=f["query"], now=now, round=f["round"])
+                cid, new = acquire.upsert_candidate(conn, hits[0], query=f["query"], now=now, round=f["round"])
                 added += int(new)
-                for alias in (acquire.ident_of(pmid=hit.get("pmid")), acquire.ident_of(doi=hit.get("doi")), acquire.ident_of(pmcid=hit.get("pmcid"))):
-                    if alias:
-                        cands.setdefault(alias, cid)
             else:
                 conn.execute("UPDATE candidates SET round = ? WHERE cand_id = ? AND round > ?", (f["round"], cid, f["round"]))
+            for h in hits:
+                acquire.fill_candidate(conn, cid, h)  # what one record lacks, the other fills
+                for alias in (acquire.ident_of(pmid=h.get("pmid")), acquire.ident_of(doi=h.get("doi")), acquire.ident_of(pmcid=h.get("pmcid")), acquire.ident_of(openalex=h.get("openalex"))):
+                    if alias:
+                        cands.setdefault(alias, cid)
             ident_cand[ident] = cid
     stats["identified"] = len(found)
     acquire.reconcile(conn)
@@ -479,7 +658,7 @@ def harvest(lib: Library, conn: sqlite3.Connection, keys: Iterable[str] | None =
         conn.executemany("INSERT OR REPLACE INTO harvests VALUES (?, ?, ?, ?)", done)
         for citing, cited, origin, ref_no in direct:
             conn.execute("INSERT OR IGNORE INTO cites VALUES (?, ?, ?, ?)", (citing, cited, origin, ref_no))
-        for a, b, origin, side, ref_no in edges:
+        for a, b, origin, side, ref_no, _kind in edges:
             if side == "cited":
                 citing, cited = a, _work_of(conn, ident_cand[b])
             else:
@@ -501,7 +680,7 @@ def graph(conn: sqlite3.Connection, candidates: str = "cited", min_cited: int = 
     candidates — `none`, those cited (or citing) at least `min_cited` held papers (`cited`), or
     `all`. Each node `{id, paper, cand_id, state, status, title, label, year, first_author,
     journal, round, cited_here, cites_here, type}`; each edge `{src, dst, origin}`, src citing
-    dst, `origin` 'both' when both sources name it."""
+    dst, `origin` every source that names it, joined: "europepmc+openalex+refs"."""
     sync(conn)
     nodes = [dict(r) for r in conn.execute("SELECT * FROM works")]
     held = {n["work"] for n in nodes if n["state"] == "held"}
@@ -534,6 +713,6 @@ def graph(conn: sqlite3.Connection, candidates: str = "cited", min_cited: int = 
                           "title": n["title"], "label": f"{who} {n['year']}" if n["year"] else who, "year": n["year"],
                           "first_author": n["first_author"], "journal": n["journal"], "round": n["round"],
                           "cited_here": n["cited_here"], "cites_here": n["cites_here"], "type": n["type"]})
-    out_edges = [{"src": a, "dst": b, "origin": "both" if len(o) > 1 else next(iter(o))} for (a, b), o in sorted(pairs.items()) if a in ids and b in ids]
+    out_edges = [{"src": a, "dst": b, "origin": "+".join(sorted(o))} for (a, b), o in sorted(pairs.items()) if a in ids and b in ids]
     return {"nodes": out_nodes, "edges": out_edges,
             "hidden": sum(1 for n in nodes if n["work"] not in ids)}

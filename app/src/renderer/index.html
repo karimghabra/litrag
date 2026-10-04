@@ -193,8 +193,9 @@
           <span id="graph-project" class="muted"></span>
           <div class="spacer"></div>
           <span id="graph-summary" class="muted"></span>
-          <label class="check" title="Also ask Europe PMC what cites each paper, not only what it cites"><input type="checkbox" id="round-citing" /> and what cites them</label>
-          <button id="round-run" class="primary" title="Ask what each paper read since the last round cites — its own reference list and Europe PMC's — and file every work found as a candidate of the next round. Nothing is fetched.">Citation round</button>
+          <label class="check" title="Also ask what cites each paper, not only what it cites"><input type="checkbox" id="round-citing" /> and what cites them</label>
+          <label class="check" title="Ask OpenAlex too, beside Europe PMC: works outside PubMed, reference lists for any DOI, and entries with no identifier matched by their title. Free within a daily budget; a free key (LITRAG_OPENALEX_KEY) raises it tenfold"><input type="checkbox" id="round-openalex" checked /> OpenAlex too</label>
+          <button id="round-run" class="primary" title="Ask what each paper read since the last round cites — its own reference list, Europe PMC's and OpenAlex's — and file every work found as a candidate of the next round. Nothing is fetched.">Citation round</button>
         </div>
         <div class="graph-layout">
           <div class="col graph-col">

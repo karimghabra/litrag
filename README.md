@@ -681,14 +681,34 @@ where state = 'candidate' order by cited_here desc, year desc;
   are read; nothing is asked of the network.
 - **A citation round** (**Citation round** on the Graph tab, the `round`
   op) asks, for each paper read since the last round, what it cites: its
-  own reference list and Europe PMC's list of it; ticked, also what cites
-  it. Every work it can identify (a DOI or PMID) is looked up in Europe PMC
-  — twenty to a request — and filed as a candidate of the next round:
-  round 1 is what a search found or a person dropped in, round 2 what those
-  cite, and so on. Nothing is fetched. An entry naming no identifier is
-  counted and left, never guessed onto a paper. On two papers, 46 and 27
+  own reference list, Europe PMC's list of it and OpenAlex's; ticked, also
+  what cites it. Every work it can identify (a DOI or PMID) is looked up in
+  Europe PMC — twenty to a request — and filed as a candidate of the next
+  round: round 1 is what a search found or a person dropped in, round 2 what
+  those cite, and so on. Nothing is fetched. On two papers, 46 and 27
   references and 27 citing papers came back as 117 candidates, 46 of them
   with open XML, in about nine seconds.
+- **OpenAlex beside Europe PMC** (**OpenAlex too**, ticked by default).
+  [OpenAlex](https://openalex.org) is an open index of 300M+ works in every
+  field: it knows papers PubMed never indexed — engineering, physics,
+  materials journals — and a reference list for any DOI whose publisher
+  deposited one. On three papers Europe PMC had already been asked about,
+  its lists named 183 works and added 95 candidates, 18 of them unknown to
+  Europe PMC (Ceramics International, J Mech Phys Solids…), and 28 with an
+  open copy outside PMC (the candidate's **open** link — for a person to
+  follow; nothing is fetched from it). A work Europe PMC knows is filed with
+  Europe PMC's record, since that is what a fetch needs; one it does not,
+  with OpenAlex's. For a paper neither has a list for (a PDF with no DOI), an
+  entry naming no identifier is searched in OpenAlex by its words and taken
+  only when one work's whole title (four words or more), year (give or take
+  one) and first author are all in it; else it is counted and left, never
+  guessed onto a paper. OpenAlex is asked one work at a time by its id —
+  free and unlimited — and in lists of a hundred while its daily budget
+  lasts ($0.10 a day without a key, shared by every machine behind one
+  address; $1 with a free key in `LITRAG_OPENALEX_KEY`). A spent budget
+  makes the lists one-by-one (slower, still free) and leaves what needs it
+  — what cites a paper, the title searches — for the next round, said in
+  the log. `LITRAG_OPENALEX=off` turns it off.
 - **The next round is a choice.** Any query's rows that are candidates can
   be ticked and fetched and read from the SQL pane (**Fetch & read
   selected**), which is the next round of the library; a paper read later

@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+- **OpenAlex beside Europe PMC in the citation rounds** (Karim, 2026-10-04: "we can use it in
+  parallel with what we've got"; one more host for invariant 1, sent identifiers, and for an entry
+  naming none its own words). `openalex.py` asks for a held paper's work by DOI, PMID or PMCID
+  (free) and its `referenced_works`, fetched a hundred to a list call while OpenAlex's daily budget
+  lasts and one by one — free — once it is spent; with `citations`, the works citing it (`cites:`).
+  A work Europe PMC knows is filed with Europe PMC's record, one it does not with OpenAlex's
+  (new candidates columns `openalex`, `oa_url`; an open copy outside PMC is the candidate's `open`
+  link, for a person, never fetched); `cites.origin` gains `openalex`. For a paper neither source
+  has a list for, an entry naming no identifier is searched in OpenAlex by its words and taken only
+  when one work's whole title, year ±1 and first author are in it (at most 50 searches a round).
+  A held paper with no authors on record gets OpenAlex's. A work OpenAlex holds under another DOI
+  than Europe PMC's (a publisher that changed it) is the same candidate when its whole title, year
+  and first author agree. A spent budget is said, and what it stopped waits for the next round. `LITRAG_OPENALEX=off`, `LITRAG_OPENALEX_KEY` (a free key: ten
+  times the budget), `LITRAG_OPENALEX_URL` (the tests and the end-to-end fixture point it at a
+  canned server; tests run with it off unless they ask). The Graph tab's **OpenAlex too**. Live,
+  on three papers Europe PMC had already been asked about: 183 works in OpenAlex's lists, 95 new
+  candidates, 18 of them unknown to Europe PMC, 28 with an open copy outside PMC.
 - **The library as a graph, and citation rounds** (Karim, 2026-10-04: "a second round of searches,
   based on the citations in the first round … a graphical representation of the literature which
   connects papers together, much like the graph in something like obsidian … ordered searches,

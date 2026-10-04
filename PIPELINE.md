@@ -101,9 +101,10 @@ ingest` cuts chunks into `lit.sqlite`, never a tree.
 
 **Rounds.** A library grows in rounds (`graph.py`, the `round` op, the
 Graph tab): round 1 is what searches found and people dropped in; a citation
-round asks Europe PMC, for each paper read since the last, its list of
-references (and, asked, of citing papers), looks every identified work up
-twenty to a request, and files it as a candidate of the next round —
+round asks Europe PMC and OpenAlex side by side, for each paper read since
+the last, its list of references (and, asked, of citing papers), looks every
+identified work up in Europe PMC twenty to a request (OpenAlex's record for
+a work Europe PMC does not know), and files it as a candidate of the next round —
 `candidates.round`, `cites` rows, `authors` rows, the `works` view. Nothing
 is fetched until a person picks what to read, by a click or by a `SELECT`
 over `works`; a paper read is due its own round.

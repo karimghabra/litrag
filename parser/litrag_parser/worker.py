@@ -833,11 +833,14 @@ class Worker:
             papers = req.get("papers")
             out = graph.harvest(lib, conn, [str(k) for k in papers] if papers else None, references=bool(req.get("references", True)),
                                 citations=bool(req.get("citations")), again=bool(req.get("again")),
+                                openalex=None if req.get("openalex") is None else bool(req.get("openalex")),
                                 on_progress=lambda e: emit({**e, "id": req_id, "lib": lib.id}))
         finally:
             conn.close()
+        o = out["openalex"]
         emit({"event": "stage", "id": req_id, "lib": lib.id, "stage": "round",
-              "message": f"{out['papers']} papers: {out['added']} new candidates, {out['held']} citations between papers held, {out['unidentified']} entries naming no identifier"})
+              "message": f"{out['papers']} papers: {out['added']} new candidates, {out['held']} citations between papers held, {out['unidentified']} entries naming no identifier"
+                         + (f"; OpenAlex: {o['works']} works in its lists, {o['matched']} of {o['searches']} entries matched by title{', its daily budget spent' if o['spent'] else ''}" if o["on"] else "")})
         emit({"event": "done", "id": req_id, "op": "round", "lib": lib.id, **out})
 
     def do_merge(self, req: dict[str, Any]) -> None:

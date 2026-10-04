@@ -145,8 +145,10 @@ export function initGraph(): void {
     if (ev['event'] !== 'done' || ev['lib'] !== ctx.lib) return;
     if (ev['op'] === 'round') {
       activity.hide();
-      const e = ev as Record<string, number | string[]>;
-      log('stage', `Citation round: ${e['papers']} papers asked, ${e['added']} new candidates, ${e['held']} citations between papers held, ${e['unidentified']} entries naming no identifier${(e['errors'] as string[] | undefined)?.length ? ` — ${(e['errors'] as string[]).join('; ')}` : ''}`);
+      const e = ev as Record<string, unknown>;
+      const o = (e['openalex'] ?? {}) as { on?: boolean; works?: number; matched?: number; searches?: number; spent?: boolean };
+      const errors = (e['errors'] as string[] | undefined) ?? [];
+      log('stage', `Citation round: ${e['papers']} papers asked, ${e['added']} new candidates, ${e['held']} citations between papers held, ${e['unidentified']} entries naming no identifier${o.on ? `; OpenAlex: ${o.works ?? 0} works in its lists, ${o.matched ?? 0} of ${o.searches ?? 0} entries matched by title${o.spent ? ', its daily budget spent' : ''}` : ''}${errors.length ? ` — ${errors.join('; ')}` : ''}`);
       if (ctx.view === 'graph') {
         void loadGraph();
         $<HTMLTextAreaElement>('sql-q').value = PRESETS[1]!.sql();
@@ -207,9 +209,10 @@ async function loadGraph(): Promise<void> {
 async function runRound(papers: string[] | null): Promise<void> {
   if (!ctx.lib) return;
   const citations = $<HTMLInputElement>('round-citing').checked;
+  const openalex = $<HTMLInputElement>('round-openalex').checked;
   try {
     activity.show(papers ? 'Citation round from one paper' : 'Citation round');
-    await request('round', { lib: ctx.lib, ...(papers ? { papers } : {}), citations });
+    await request('round', { lib: ctx.lib, ...(papers ? { papers } : {}), citations, openalex });
     log('stage', papers ? `Asking what ${papers[0]} cites${citations ? ', and what cites it' : ''}` : `Asking what the project's papers cite${citations ? ', and what cites them' : ''}: each work found is filed as a candidate of the next round, nothing fetched`);
   } catch (e) {
     activity.hide();
