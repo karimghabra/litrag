@@ -212,6 +212,83 @@ test('a finding shows the method it was measured by, or says none was found', as
   expect(shown, 'papers with a results paragraph to select').toBeGreaterThan(0);
 });
 
+interface LabelItem {
+  paper: string;
+  finding: { node_id: string; text: string };
+  candidates: { node_id: string; heading: string | null; paragraphs: { node_id: string; text: string }[]; edge: { evidence: string } | null }[];
+}
+interface LabelRow { finding: string; method: string; verdict: string; paragraph: string | null; finding_now: string | null }
+
+test('a finding is labelled in the panel, by mouse and by key, and each label is a row', async () => {
+  test.skip(Boolean(process.env['LITRAG_E2E_PAPERS']), 'one finding of the fixture, labelled by hand');
+  const queue = (await request(page, 'label_queue', { lib, n: 100 })) as { items: LabelItem[] };
+  expect(queue.items.length, 'findings to label in the fixture').toBeGreaterThan(1);
+  const first = queue.items[0]!;
+  await page.click('#label-links');
+  const panel = page.locator('#label-panel');
+  await expect(panel).toBeVisible();
+  await expect(panel.locator('.label-finding')).toHaveText(first.finding.text);
+  await expect(page.locator('#label-pos')).toContainText(`1 of ${queue.items.length}`);
+  const rows = panel.locator('.cand:not(.none)');
+  await expect(rows).toHaveCount(first.candidates.length);
+  // every candidate pre-checked from the linker's edges, and the edge's evidence on it
+  for (const [i, c] of first.candidates.entries()) {
+    await expect(rows.nth(i).locator('input')).toBeChecked({ checked: Boolean(c.edge) });
+    if (c.edge) await expect(rows.nth(i).locator('.ev')).toHaveText(c.edge.evidence);
+  }
+  await expect(page.locator('#label-truth')).toContainText('Nothing labelled yet');
+  // the paragraph the finding rests on, marked inside one method (which checks it); another method toggled by its number key
+  const k = first.candidates.findIndex((c) => c.paragraphs.length);
+  expect(k, 'a candidate with paragraphs').toBeGreaterThanOrEqual(0);
+  await rows.nth(k).locator('.twist').click();
+  await expect(rows.nth(k).locator('.para')).toHaveCount(first.candidates[k]!.paragraphs.length);
+  await rows.nth(k).locator('.para').first().click();
+  await expect(rows.nth(k).locator('.para.on')).toHaveCount(1);
+  await expect(rows.nth(k).locator('input')).toBeChecked();
+  const j = k === 0 ? 1 : 0;
+  const before = await rows.nth(j).locator('input').isChecked();
+  await page.keyboard.press(String(j + 1));
+  await expect(rows.nth(j).locator('input')).toBeChecked({ checked: !before });
+  const shots = process.env['LITRAG_E2E_SHOTS'];
+  if (shots) await page.screenshot({ path: join(shots, 'label-panel.png') });
+  await page.keyboard.press('Enter');
+  // saved: the panel moves to the next finding, and the running line counts it
+  await expect(page.locator('#label-pos')).toContainText(`2 of ${queue.items.length}`);
+  await expect(panel.locator('.label-finding')).toHaveText(queue.items[1]!.finding.text);
+  await expect(page.locator('#label-truth')).toContainText('1 labelled');
+  if (shots) await page.screenshot({ path: join(shots, 'label-panel-next.png') });
+  const want = first.candidates.map((c, i) => {
+    const yes = i === k ? true : i === j ? !before : Boolean(c.edge);
+    return { method: c.node_id, verdict: yes ? 'yes' : 'no', paragraph: i === k ? c.paragraphs[0]!.node_id : null };
+  });
+  const rowsOf = async (finding: string) => ((await request(page, 'labels', { lib })) as { labels: LabelRow[] }).labels.filter((r) => r.finding === finding);
+  const saved = await rowsOf(first.finding.node_id);
+  expect(saved.map((r) => ({ method: r.method, verdict: r.verdict, paragraph: r.paragraph })).sort((a, b) => a.method.localeCompare(b.method))).toEqual([...want].sort((a, b) => a.method.localeCompare(b.method)));
+  expect(saved.every((r) => r.finding_now === first.finding.node_id)).toBe(true);
+  await page.keyboard.press('Escape');
+  await expect(panel).toBeHidden();
+
+  // the same finding from its node detail: the editor opens on it as labelled, and "no method" replaces the set
+  await openPaper(first.paper);
+  await page.locator(`#tree .tree-node[data-id="${first.finding.node_id}"]`).click();
+  await page.locator('#node-detail .links.edges .label-act').click();
+  await expect(panel).toBeVisible();
+  await expect(page.locator('#label-pos')).toHaveText('one finding');
+  await expect(panel.locator('.label-note')).toContainText('Labelled before');
+  await expect(rows.nth(k).locator('input')).toBeChecked();
+  await expect(rows.nth(k).locator('.para.on')).toHaveCount(1); // the marked paragraph, shown unfolded
+  await page.keyboard.press('n');
+  await expect(panel.locator('.cand.none input')).toBeChecked();
+  await expect(rows.locator('input:checked')).toHaveCount(0);
+  await page.keyboard.press('Enter');
+  await expect(panel).toBeHidden();
+  expect((await rowsOf(first.finding.node_id)).map((r) => [r.method, r.verdict])).toEqual([['', 'none']]);
+  // the queue picks up where it was left
+  await page.click('#label-links');
+  await expect(page.locator('#label-pos')).toContainText(`2 of ${queue.items.length}`);
+  await page.keyboard.press('Escape');
+});
+
 test('citations are linked both ways', async () => {
   const rows = ((await request(page, 'papers', { lib })) as { papers: PaperRow[] }).papers;
   let linked = 0;

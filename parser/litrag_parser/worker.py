@@ -4,8 +4,8 @@ The desktop app spawns one of these and talks to it over stdio. Every request
 is one line — `{"id": ..., "op": ..., ...}` — and every answer is one or more
 lines carrying the same id: `stage` and `working` events while a paper is
 being read, `paper`/`tree` events as it lands, and a final `done` (or
-`error`). Reads (`papers`, `tree`, `node`, `sql`) are answered at once from
-the main thread; `ingest`, `reparse` and `rebuild` run one at a time on the
+`error`). Reads (`papers`, `tree`, `node`, `sql`) and small writes (`describe`,
+`label`) are answered at once from the main thread; `ingest`, `reparse` and `rebuild` run one at a time on the
 ingest thread, so the app can browse trees while Docling is busy.
 
 Docling is imported lazily on the ingest thread — it takes seconds and pulls
@@ -927,6 +927,27 @@ class Worker:
                 both = edges_of(conn, str(req["node_id"]))
                 conn.close()
                 emit({"event": "edges", "id": req_id, "node_id": str(req["node_id"]), **both})
+            elif op in ("label_queue", "label", "labels", "truth"):
+                # the truth for the finding→method links (truth.py): findings to label, a finding's
+                # labels written, every label, and the linker measured against them
+                from . import truth
+
+                lib = self._lib(req)
+                conn = open_store(lib.store_path)
+                try:
+                    if op == "label_queue":
+                        out = truth.queue(conn, n=int(req.get("n") or 100), seed=int(req.get("seed") or 0),
+                                          per_paper=int(req.get("per_paper") or truth.PER_PAPER), finding=req.get("finding") or None)
+                        emit({"event": "label_queue", "id": req_id, "lib": lib.id, **out})
+                    elif op == "label":
+                        saved = truth.save_labels(conn, str(req["finding"]), list(req.get("labels") or []), by=req.get("by"))
+                        emit({"event": "labelled", "id": req_id, "lib": lib.id, "finding": str(req["finding"]), "labels": saved})
+                    elif op == "labels":
+                        emit({"event": "labels", "id": req_id, "lib": lib.id, "labels": truth.labels(conn)})
+                    else:
+                        emit({"event": "truth", "id": req_id, "lib": lib.id, **truth.measure(conn)})
+                finally:
+                    conn.close()
             elif op == "audit":
                 # Every node against its neighbours — see audit.py. One paper, a library, or a raw document.
                 from .audit import audit_doc, summarize

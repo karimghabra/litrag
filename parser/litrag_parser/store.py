@@ -140,6 +140,24 @@ CREATE TABLE IF NOT EXISTS edges (
 CREATE INDEX IF NOT EXISTS edges_src ON edges(src);
 CREATE INDEX IF NOT EXISTS edges_dst ON edges(dst);
 
+-- A person's word on which method a finding was measured by (truth.py): the truth the edges are
+-- measured against. Not derived, so no foreign key and nothing clears it — a reread or a rebuild
+-- replaces the nodes and leaves these; the finding's first words and the method's heading find
+-- them again when the node ids have moved.
+CREATE TABLE IF NOT EXISTS link_labels (
+  paper TEXT NOT NULL,
+  finding TEXT NOT NULL,            -- the finding's node_id when it was labelled
+  finding_text TEXT NOT NULL,       -- its first 200 characters
+  method TEXT NOT NULL,             -- the methods subsection's node_id; '' for the verdict `none`
+  method_heading TEXT NOT NULL DEFAULT '',  -- its heading (a methods paragraph with none: its first 200 characters)
+  paragraph TEXT,                   -- optional: the paragraph inside the method the finding rests on
+  paragraph_text TEXT,
+  verdict TEXT NOT NULL CHECK (verdict IN ('yes', 'no', 'none')),  -- `none`: no method in this paper
+  by TEXT,
+  at TEXT NOT NULL,
+  PRIMARY KEY(paper, finding, method)
+);
+
 CREATE TABLE IF NOT EXISTS events (
   id INTEGER PRIMARY KEY,
   paper TEXT NOT NULL,
