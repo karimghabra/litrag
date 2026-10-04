@@ -744,9 +744,12 @@ where state = 'candidate' order by cited_here desc, year desc;
   cut, and a merge, give back every link.
 - **Expand: read the most cited** runs a round, then fetches and reads the
   works the papers held cite most (linked to the most of them, then the
-  most cited anywhere; at most the number beside it, 10 by default) — the
-  next round of the library in one click. Each paper takes a minute or so to
-  read; once read, every passage that cited it leads to it.
+  ones that can be read — an open XML, then an author manuscript — then the
+  most cited anywhere) until the number beside it (10 by default) are read.
+  The more cited ones nothing open is on record for are passed over, not
+  spent from the number, and marked for Collect PDFs. The next round of the
+  library in one click: 100 papers read in half an hour at scale; once
+  read, every passage that cited one leads to it.
 - **The next round is a choice.** Any query's rows that are candidates can
   be ticked and fetched and read from the SQL pane (**Fetch & read
   selected**), which is the next round of the library; a paper read later

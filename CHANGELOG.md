@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+- **Expand at scale** (Karim, 2026-10-04: "we need to test this at scale"). A 44-paper library
+  expanded by 100 read 19: the most cited works of a grown library are mostly classics nothing
+  open is on record for, and readability only broke ties between works cited as often. Of every
+  fetch so far, those with nothing open on record failed 74 of 74, an open XML Europe PMC hosts
+  never failed, an NIH author manuscript came about two times in five. `next_to_read` now scores
+  `readable` 2, 1 or 0 by those odds and orders by it among works cited as often;
+  `graph.expansion` takes the next works that can be read until the count is met, and the more
+  cited ones it passes over are fetched too, which marks them needs-pdf for Collect PDFs, never
+  spent from the count; a refused paper is replaced from further down, a few times. The same
+  expansion again: 100 of 100 read (90 JATS from Europe PMC, 10 from NCBI) in 29.5 min, 100
+  passed to a person, 278 passages of the papers held leading to the papers read. Collect PDFs
+  opens an open copy OpenAlex knows of first (56 of the 99 no service gave out had one; a person's
+  click, nothing fetched unasked). At 163 papers, 12,232 reference entries, 4,678 candidates and
+  7,774 citing passages (store 64 MB): a sync with nothing new 30 ms, from scratch 1.8 s; the
+  graph op 172 ms for 4,684 works; the Graph tab drawn in 337 ms (cited by two) or 642 ms (every
+  candidate). A 2,000-row SQL table held the window 1.1 s, and a click on a row 1.2 s more (the
+  table laid out again when the detail beside it changed): rows are now put down 200 at a time as
+  the table is scrolled, and each pane is laid out on its own — 0.34 s and 0.13 s.
 - **Entry linking at scale** (Karim, 2026-10-04: "we need to test this at scale"). On a library of
   25 PDFs with 2,406 candidates and 4,895 kept list rows, linking every entry from scratch took
   24 s — and a `SELECT`, the Graph tab or a paper's references wait on it after any round or fetch:

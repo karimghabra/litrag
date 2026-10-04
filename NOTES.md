@@ -89,6 +89,23 @@ when it turns out durable. Mark inference as inference.
 
 ## Short-term memory
 
+- **2026-10-04: the scale test** — Karim: "i know it wouldnt be more, but we need to test this at
+  scale". Grown from the six-paper link-test library by Expand in this container (Europe PMC, NCBI,
+  the PMC Cloud bucket; OpenAlex's free one-by-one path, its keyless budget spent). Expand 50 at
+  44 papers read 35 (11.5 min); Expand 100 read **19** (22.8 min): the most cited works of a grown
+  library are classics nothing open is on record for (74 of 74 such fetches failed; open XML never
+  failed; NIH author manuscripts ~2 in 5). With readability ordering and the passed-over ones
+  marked for a person: Expand 100 read **100** (94 of 94 open-XML bets, 6 of 12 author manuscripts,
+  the 6 refused replaced from further down) in 29.5 min, 100 passed to Collect PDFs, of which an
+  earlier count found 56 in 99 with an open copy OpenAlex knows of (shown, not fetched — fetching
+  from arbitrary hosts is Karim's call, not asked yet). Library then: 163 papers, 12,232 entries,
+  4,678 candidates, 7,774 citing passages, 64 MB. The link test at 25 pairs: 2,599 entries, 0 wrong,
+  recall 0.956. Speed: entry linking was 24 s from scratch (fixed: 0.45 s); sync 30 ms with nothing
+  new; graph op 172 ms; next_to_read 408 ms; the Graph tab 337 ms / 642 ms (cited by two / every
+  candidate, 60 fps once settled); a 2,000-row SQL table 1.1 s and a row click 1.2 s (fixed: 0.34 s
+  and 0.13 s — rows put down 200 at a time, each pane laid out on its own). Unanswered: a PR to
+  main; whether to fetch OpenAlex's open copies outside PMC.
+
 - **2026-10-04: the link test** — Karim: "I want you to test this feature". Six open papers from six
   publishers (Micromachines, Cureus, Sci Rep, Adv Eng Mater, PLOS ONE, Front Bioeng), read as JATS
   (truth: 252 of 273 entries carry a DOI or PMID) and as PDF (76 of 275 printed a DOI). Scores with

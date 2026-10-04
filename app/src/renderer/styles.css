@@ -259,6 +259,9 @@ h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: v
 .sql-col .searchbar { padding: 8px 12px; }
 .sql-col textarea { font-size: 12px; }
 #sql-results { padding: 0 12px 10px; }
+/* each pane laid out on its own: a long table is not laid out again when the work beside it changes */
+#sql-results, #graph-detail { contain: strict; }
+#sql-results .more-rows { padding: 6px; font-size: 12px; }
 table.sql-table { border-collapse: collapse; font-size: 12px; width: 100%; }
 table.sql-table th, table.sql-table td { border-bottom: 1px solid var(--line); padding: 3px 6px; text-align: left; vertical-align: top; max-width: 420px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 table.sql-table th { position: sticky; top: 0; background: var(--panel); font-weight: 600; }

@@ -94,7 +94,12 @@ const state = {
   loading: false,
   /** asked for again while loading: one more load once this one is done */
   again: false,
+  /** watches the end of the SQL table for the next rows */
+  more: null as IntersectionObserver | null,
 };
+
+/** Rows of a query's table put down at a time: 2,000 laid out at once held the window for a second. */
+const ROWS_AT_ONCE = 200;
 
 export function initGraph(): void {
   const presets = $('sql-presets');
@@ -134,6 +139,8 @@ export function initGraph(): void {
     state.data = null;
     state.selected = null;
     state.picked = new Set();
+    state.more?.disconnect();
+    state.more = null;
     $('sql-results').innerHTML = '';
     $('sql-meta').textContent = '';
     void renderDetail();
@@ -291,6 +298,8 @@ async function runSql(): Promise<void> {
 
 function renderRows(columns: string[], rows: Record<string, unknown>[]): void {
   const box = $('sql-results');
+  state.more?.disconnect();
+  state.more = null;
   box.innerHTML = '';
   state.picked = new Set();
   updateFetchButton();
@@ -302,15 +311,12 @@ function renderRows(columns: string[], rows: Record<string, unknown>[]): void {
   const works = worksOf(columns, rows);
   const named = new Set(works.filter((w): w is string => !!w));
   state.view?.highlight(named.size ? named : null);
-  const table = el('table', 'sql-table');
-  const head = el('tr');
-  head.append(el('th'));
-  for (const c of columns) head.append(el('th', undefined, c));
-  table.append(head);
-  rows.forEach((row, i) => {
+  const statuses = columns.includes('status');
+  const rowAt = (i: number): HTMLElement => {
+    const row = rows[i]!;
     const tr = el('tr');
     const cell = el('td', 'pick');
-    const cand = fetchableCand(works[i] ?? null, columns.includes('status') ? row['status'] : undefined);
+    const cand = fetchableCand(works[i] ?? null, statuses ? row['status'] : undefined);
     if (cand !== null) {
       const box = document.createElement('input');
       box.type = 'checkbox';
@@ -341,9 +347,37 @@ function renderRows(columns: string[], rows: Record<string, unknown>[]): void {
         }
       });
     }
-    table.append(tr);
-  });
+    return tr;
+  };
+  const table = el('table', 'sql-table');
+  const head = el('tr');
+  head.append(el('th'));
+  for (const c of columns) head.append(el('th', undefined, c));
+  table.append(head);
+  let shown = 0;
+  const more = (): void => {
+    const end = typeof IntersectionObserver === 'undefined' ? rows.length : Math.min(rows.length, shown + ROWS_AT_ONCE);
+    const part = document.createDocumentFragment();
+    for (; shown < end; shown++) part.append(rowAt(shown));
+    table.append(part);
+  };
+  more();
   box.append(table);
+  if (shown >= rows.length) return;
+  // the rest as the table is scrolled towards them
+  const end = el('div', 'muted more-rows', `${(rows.length - shown).toLocaleString()} more rows below`);
+  box.append(end);
+  state.more = new IntersectionObserver((seen) => {
+    if (!seen.some((e) => e.isIntersecting)) return;
+    more();
+    if (shown < rows.length) end.textContent = `${(rows.length - shown).toLocaleString()} more rows below`;
+    else {
+      state.more?.disconnect();
+      state.more = null;
+      end.remove();
+    }
+  }, { root: box, rootMargin: '600px 0px' });
+  state.more.observe(end);
 }
 
 /** The chosen work: what it is, who wrote it, what it cites and what cites it, and what can be done with it. */
