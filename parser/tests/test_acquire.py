@@ -121,6 +121,28 @@ def _zip(pmcid: str) -> bytes:
     return buf.getvalue()
 
 
+def test_with_an_xml_the_bulk_pdf_is_fetched_beside_it_for_its_figures(epmc, lib):
+    xml = (FIXTURES / "PMC11278924.xml").read_bytes()
+    epmc.routes["/rest/PMC100001/fullTextXML"] = (200, "application/xml", xml)
+    epmc.routes["/oa/PMCxxxx11/PMC100001.zip"] = (200, "application/zip", _zip("PMC100001"))
+    conn = open_store(lib.store_path)
+    ids = _cands(lib, conn)
+    events = []
+    a = acquire.fetch_one(lib, conn, ids[0], on_progress=events.append)
+    assert a["status"] == "fetched" and a["format"] == "jats" and Path(a["path"]).suffix == ".xml"
+    assert Path(a["figures"]) == lib.inbox_dir / "doi_10.1_xml.pdf" and Path(a["figures"]).read_bytes() == b"%PDF-1.4 the paper itself"
+    assert [e["status"] for e in events][-1] == "fetched" and all(e.get("format") != "pdf" for e in events)  # the candidate is its XML
+    # no PDF in the bulk area: no figures, and the XML stands as it was
+    epmc.routes.pop("/oa/PMCxxxx11/PMC100001.zip")
+    (lib.inbox_dir / "doi_10.1_xml.pdf").unlink()
+    (lib.inbox_dir / "doi_10.1_xml.xml").unlink()
+    conn.execute("UPDATE candidates SET status = 'found', file = NULL WHERE cand_id = ?", (ids[0],))
+    conn.commit()
+    again = acquire.fetch_one(lib, conn, ids[0])
+    assert again["status"] == "fetched" and again["format"] == "jats" and again["figures"] is None
+    conn.close()
+
+
 def test_search_normalises_a_core_answer(epmc):
     epmc.json("/rest/search", CORE)
     page = acquire.search("hydrogel cartilage", page_size=3)

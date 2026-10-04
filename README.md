@@ -615,8 +615,23 @@ within 1.5 % of its axis's range, read either way. On a Wiley paper drawn
 as vectors, 10 of 11 plots were read (the 11th, stress–strain curves, is
 said unread), and they agree with the bars as printed; on an Advanced
 Healthcare Materials paper of images, its grouped gene-expression bars read
-within about 0.05. Curves without markers, box plots, horizontal bars and
-figures in XML papers (whose images are not yet fetched) are not read yet.
+within about 0.05. Curves without markers, box plots and horizontal bars are
+not read yet.
+
+**An XML paper's figures come from a PDF of it.** JATS names its figures
+(`<graphic xlink:href="…g001.jpg"/>`) and holds none; Europe PMC's figure
+pages sit behind a bot check, and the images its API gives open-access papers
+are display-size (~730 px), too small to read a tick label. So the XML stays
+the paper — its text, its structure — and a PDF of the same paper is kept
+beside it (`papers.figures_file`, `papers/<key>.figures.pdf`) only to read the
+charts: each page that prints a figure's caption is read, an image there whole
+at its own resolution and the rest with the page's text layer, and every plot
+is pinned to the caption under it — "Figure 2." to the XML's figure 2 (a
+sentence that begins "Figure 2 shows" is no caption). The PDF comes three
+ways: a fetch takes EBI's open-access PDF of the paper beside its XML where
+that area has one; a PDF dropped into a project whose paper is already its XML
+is kept for the figures instead of being set aside; and **Collect PDFs** lists
+the XML papers whose figures want one, after the papers with no copy at all.
 
 ## Citations
 

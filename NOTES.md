@@ -89,6 +89,37 @@ when it turns out durable. Mark inference as inference.
 
 ## Short-term memory
 
+- **2026-10-04: where figures (and papers) can come from** — a survey for Karim ("see if there are
+  alternative publishers or platforms"), probed from the cloud container; full report kept out
+  of the repo. What is true now:
+  - **NCBI retired the PMC OA web service (`oa.fcgi`), its FTP packages and the old cloud files
+    on 2026-08-24.** The successor is the **PMC Cloud Service**, a public S3 bucket
+    (`pmc-oa-opendata.s3.amazonaws.com`): per article version `.xml`, `.txt`, `.json` (licence,
+    `is_manuscript`, `pdf_url`), and for the open-access subset the PDF and figures. Not asked by
+    litrag: a new host is Karim's to allow. It held the MDPI test paper's PDF; EBI's bulk PDF
+    area — what the fetch asks now — did not (`PMCxxxx1128/` lists no such file).
+  - **NIH author manuscripts** (most Acta Biomaterialia papers in PMC) have XML and text only,
+    everywhere open: their PDF and figures come from the publisher (Elsevier's API with an
+    institutional key) or from a person through Collect PDFs.
+  - **Bot checks**: PMC's site (reCAPTCHA), europepmc.org's renders and `/bin/` images, and the
+    sites of Elsevier, Wiley, Sage, T&F, ACS, RSC (Cloudflare), www.mdpi.com (Akamai) — from a
+    datacenter IP; Karim's own may fare otherwise.
+  - **Full-size figures** from CC-BY publishers, unblocked: PLOS (original TIFFs, 1889 px), eLife
+    (IIIF, 2362 px), Frontiers (1414 px), MDPI's CDN `mdpi-res.com` (2916 px PNG) — against PMC's
+    ~700 px. Discovery services (OpenAlex, Unpaywall now on OpenAlex's data, Semantic Scholar)
+    found no new copy of the three test papers.
+  - **Licensed**: Elsevier's API (key + campus subscription: XML, PDF, high-res figures) is the
+    only automated route to most tendon papers in Acta Biomaterialia and Biomaterials; Wiley's TDM
+    API next. Sage, T&F and ACS restrict "AI use" (Sage names RAG) — for Karim and the library.
+
+- **2026-10-04: an XML paper's figures, from a PDF of it** — built: the PDF kept beside the XML
+  (`figures_file`), read page by page and pinned by caption number. The Advanced Healthcare
+  Materials paper (PMC11468977) read as XML plus its PDF: 12 of 24 plots read, 127 values, in
+  ~60 s on CPU; first tries pinned two panels of one figure to two captions (a caption's line
+  comes in pieces from the text layer; its extent is now the whole line) and read a page's
+  running head as a title. Images inside a page are read whole, as one figure each, so a figure's
+  panels share its legend.
+
 - **2026-10-04: figures read into numbers** — Karim: "ingesting figures, and converting them …
   to a numerical format". Built `charts.py` (a pixel reader) and `figures.py` (cut a figure from
   its PDF page, rows). What was learned, on what is in this container:

@@ -14,7 +14,9 @@ else the publisher's PDF from EBI's bulk open-access area
 (`ftp.ebi.ac.uk/pub/databases/pmc/pdf/OA/PMCxxxx<block>/<PMCID>.zip`, the same place the corpus
 scripts fetch from — the website's `?pdf=render` links sit behind a bot check and are left
 alone); else the candidate `needs-pdf`, with the links a person can follow to get it by hand
-and drop it into the app. What is fetched lands in the library's inbox; the worker's `ingest`
+and drop it into the app. With an XML, the bulk area's PDF of the same paper is fetched too where
+it has one: the XML names its figures but holds none, and the PDF is kept beside it to read them
+(figures.py). What is fetched lands in the library's inbox; the worker's `ingest`
 files it (DOI, then PMID, then hash) and `reconcile` marks the candidate `ingested`.
 
 The only hosts asked are Europe PMC's (EBI's) and NCBI's E-utilities, and NCBI is only ever
@@ -468,11 +470,32 @@ def _update(conn: sqlite3.Connection, cid: int, **cols: Any) -> None:
         conn.execute(f"UPDATE candidates SET {', '.join(f'{k} = ?' for k in cols)} WHERE cand_id = ?", (*cols.values(), cid))
 
 
+def _figures_pdf(lib: Library, pmcid: str | None, name: str, pdf: str | None, timeout: float, say: Callable[[dict[str, Any]], None], cand_id: int) -> str | None:
+    """After the XML, the same paper's PDF from the bulk open-access area, for its figures: the XML
+    names its figures but holds none, and a PDF draws them (figures.py). The same host the PDF
+    route asks; only open PDFs are filed there, so a miss is no failure and says nothing of the
+    XML. Off with `LITRAG_FIGURES=off`."""
+    from .figures import enabled
+
+    if not pmcid or not enabled():
+        return None
+    try:
+        body = _pdf_from(_get(pdf_url(pmcid, pdf), timeout), pmcid)
+    except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, OSError):
+        return None
+    if body is None:
+        return None
+    dest = lib.inbox_dir / f"{name}.pdf"
+    _save(dest, body)
+    return str(dest)
+
+
 def fetch_one(lib: Library, conn: sqlite3.Connection, cand_id: int, *, timeout: float = 90, base: str | None = None,
               pdf: str | None = None, ncbi: str | None = None, on_progress: Callable[[dict[str, Any]], None] | None = None) -> dict[str, Any]:
     """One candidate: its JATS from Europe PMC, else PMC's XML from NCBI, else its bulk PDF,
-    else `needs-pdf`. Never raises for the candidate; what went wrong is the answer's `error`
-    and the row's."""
+    else `needs-pdf`. With an XML, its bulk PDF as well where there is one, for its figures
+    (`figures` in the answer: the PDF's path, or None). Never raises for the candidate; what went
+    wrong is the answer's `error` and the row's."""
     say = on_progress or (lambda e: None)
     row = _row(conn, cand_id)
     if row is None:
@@ -482,7 +505,9 @@ def fetch_one(lib: Library, conn: sqlite3.Connection, cand_id: int, *, timeout: 
     if row["status"] == "fetched" and row["file"] and (lib.inbox_dir / row["file"]).exists():
         # fetched before and still waiting in the inbox: the same file, not a second download
         path = lib.inbox_dir / row["file"]
-        return {"cand_id": cand_id, "status": "fetched", "path": str(path), "format": "jats" if path.suffix == ".xml" else "pdf", "error": None}
+        beside = path.with_suffix(".pdf") if path.suffix == ".xml" else None
+        return {"cand_id": cand_id, "status": "fetched", "path": str(path), "format": "jats" if path.suffix == ".xml" else "pdf", "error": None,
+                "figures": str(beside) if beside is not None and beside.exists() else None}
     _update(conn, cand_id, status="fetching", error=None)
     say({"event": "candidate", "cand_id": cand_id, "status": "fetching"})
     tried: list[str] = []
@@ -499,7 +524,8 @@ def fetch_one(lib: Library, conn: sqlite3.Connection, cand_id: int, *, timeout: 
                     _save(dest, xml)
                     _update(conn, cand_id, status="fetched", file=dest.name, error=None)
                     say({"event": "candidate", "cand_id": cand_id, "status": "fetched", "format": "jats", "source": "europepmc", "path": str(dest)})
-                    return {"cand_id": cand_id, "status": "fetched", "path": str(dest), "format": "jats", "source": "europepmc", "error": None}
+                    return {"cand_id": cand_id, "status": "fetched", "path": str(dest), "format": "jats", "source": "europepmc", "error": None,
+                            "figures": _figures_pdf(lib, pmcid, name, pdf, timeout, say, cand_id)}
                 tried.append("full text XML: not an article")
             except urllib.error.HTTPError as e:
                 tried.append(f"full text XML: HTTP {e.code}")
@@ -518,7 +544,8 @@ def fetch_one(lib: Library, conn: sqlite3.Connection, cand_id: int, *, timeout: 
                     _save(dest, article)
                     _update(conn, cand_id, status="fetched", file=dest.name, error=None)
                     say({"event": "candidate", "cand_id": cand_id, "status": "fetched", "format": "jats", "source": "ncbi", "path": str(dest)})
-                    return {"cand_id": cand_id, "status": "fetched", "path": str(dest), "format": "jats", "source": "ncbi", "error": None}
+                    return {"cand_id": cand_id, "status": "fetched", "path": str(dest), "format": "jats", "source": "ncbi", "error": None,
+                            "figures": _figures_pdf(lib, pmcid, name, pdf, timeout, say, cand_id)}
                 tried.append("NCBI PMC XML: no full text in the answer")
             except urllib.error.HTTPError as e:
                 tried.append(f"NCBI PMC XML: HTTP {e.code}")  # 400: PMC holds it, NCBI may not give it out

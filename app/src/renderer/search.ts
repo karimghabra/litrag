@@ -7,6 +7,7 @@
  */
 
 import { $, activity, ctx, el, log, onProjectChange, onViewShown, onWorkerEvent, projectName, queryText, request } from './shared.ts';
+import { collectLabel, collectList, type CollectEntry, type FiguresWanted } from './collectlist.ts';
 
 export interface Candidate {
   cand_id: number;
@@ -38,6 +39,8 @@ const state = {
   /** the candidates panel: this search's hits only (once a search has run), or every search's */
   scope: 'search' as 'search' | 'all',
   selected: new Set<number>(),
+  /** XML papers whose figures want a PDF: the collect window offers them after the candidates */
+  figuresWanted: [] as FiguresWanted[],
 };
 
 export function initSearch(): void {
@@ -321,6 +324,9 @@ export async function loadCandidates(): Promise<void> {
     const r = await request<{ candidates: Candidate[] }>('candidates', { lib });
     if (ctx.lib !== lib) return;
     state.candidates = r.candidates;
+    const w = await request<{ figures?: FiguresWanted[] }>('wanted', { lib }).catch(() => ({ figures: [] as FiguresWanted[] }));
+    if (ctx.lib !== lib) return;
+    state.figuresWanted = w.figures ?? [];
   } catch (e) {
     log('error', `candidates: ${(e as Error).message}`);
     state.candidates = [];
@@ -330,9 +336,13 @@ export async function loadCandidates(): Promise<void> {
 
 function renderCandidates(): void {
   const wanting = state.candidates.filter((c) => c.status === 'needs-pdf').length;
+  const figures = state.figuresWanted.length;
   const button = $<HTMLButtonElement>('collect');
-  button.disabled = !wanting || collecting;
-  button.textContent = collecting ? 'Collecting…' : wanting ? `Collect PDFs (${wanting})` : 'Collect PDFs';
+  button.disabled = !(wanting || figures) || collecting;
+  button.textContent = collectLabel(wanting, figures, collecting);
+  button.title = figures
+    ? `Open each paper's page to fetch its PDF by hand: ${wanting} with no open copy, and ${figures} read from XML whose figures need the PDF to be read`
+    : 'Open each paper’s page to fetch its PDF by hand';
   const chips = $('cand-filter');
   chips.innerHTML = '';
   // a project's candidates are every hit of every search it has run; after a search the panel
@@ -408,9 +418,10 @@ async function collect(): Promise<void> {
     log('error', 'collect: the project has no folder on disk');
     return;
   }
-  let wanted: Candidate[];
+  let wanted: CollectEntry[];
   try {
-    wanted = (await request<{ candidates: Candidate[] }>('wanted', { lib })).candidates;
+    const r = await request<{ candidates: Candidate[]; figures?: FiguresWanted[] }>('wanted', { lib });
+    wanted = collectList(r.candidates, r.figures ?? []);
   } catch (e) {
     log('error', `collect: ${(e as Error).message}`);
     return;
@@ -422,7 +433,7 @@ async function collect(): Promise<void> {
   box.hidden = false;
   box.textContent = `Opening the collect window for ${wanted.length} paper${wanted.length === 1 ? '' : 's'}…`;
   const inboxDir = `${project.dir.replace(/[\\/]+$/, '')}/inbox`;
-  const papers = wanted.map((c) => ({ cand_id: c.cand_id, title: c.title ?? null, doi: c.doi ?? null, pmid: c.pmid ?? null, pmcid: c.pmcid ?? null }));
+  const papers = wanted;
   try {
     const r = await window.litrag.collect({ lib, inboxDir, papers });
     if (r['ok'] === false) log('error', `collect: ${String(r['message'])}`);

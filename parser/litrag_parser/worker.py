@@ -412,6 +412,7 @@ class Worker:
         req_id = req.get("id")
         conn = open_store(lib.store_path)
         filed: list[tuple[str, Path]] = []
+        figure_sources: list[str] = []  # XML papers given a PDF for their figures
         keys: dict[str, str] = {}
         known_all: dict[str, dict[str, Any]] = req.get("known") or {}
         for raw in req.get("paths", []):
@@ -437,6 +438,21 @@ class Worker:
             result = file_paper(conn, title=src.stem, file="", sha256=sha, fmt=fmt, doi=doi, pmid=pmid or known.get("pmid"), pmcid=pmcid or known.get("pmcid"), now=now_iso())
             keys[str(raw)] = result.key
             row = conn.execute("SELECT status, file FROM papers WHERE key = ?", (result.key,)).fetchone()
+            if result.existed and fmt == "pdf" and row and (row["file"] or "").lower().endswith(".xml") and not req.get("reread"):
+                # The paper is its XML: the text, its structure. A PDF of it is kept beside it for
+                # what the XML only names — its figures, drawn — and read for their numbers.
+                dest = lib.papers_dir / f"{_safe(result.key)}.figures.pdf"
+                if src.resolve() != dest.resolve():
+                    shutil.copy2(src, dest)
+                    if src.parent.resolve() == lib.inbox_dir.resolve():
+                        src.unlink()
+                conn.execute("UPDATE papers SET figures_file = ? WHERE key = ?", (dest.name, result.key))
+                conn.commit()
+                log_event(conn, result.key, now_iso(), "filed", f"a PDF of the XML, kept for its figures: {src.name}")
+                emit({"event": "paper", "id": req_id, "lib": lib.id, "paper": result.key, "existed": True, "kept": True, "figures_file": dest.name, "doi": doi, "pmcid": pmcid,
+                      "file": row["file"], "status": row["status"]})
+                figure_sources.append(result.key)
+                continue
             # A paper already read stays as it was read — the same DOI arriving as a second file
             # (a PDF after its JATS, say) is noted, not swapped in. `reread` is the way to replace it.
             #
@@ -472,6 +488,10 @@ class Worker:
         for i, (key, path) in enumerate(filed):
             emit({"event": "progress", "id": req_id, "op": "ingest", "lib": lib.id, "done": i, "total": len(filed), "label": f"Reading paper {i + 1} of {len(filed)}"})
             self.parse_one(lib, key, path, req_id, ask_judge=bool(req.get("judge")), ask_outline=bool(req.get("outline")) or outline_enabled())
+        parsed_now = {k for k, _ in filed}
+        for key in figure_sources:
+            if key not in parsed_now:  # read already: its figures now; one read in this batch read them as it was saved
+                self.figures_of(lib, key, req_id)
         conn = open_store(lib.store_path)
         try:
             acquire.reconcile(conn)  # a candidate whose paper is now filed is `ingested`, whichever way the file came
@@ -667,8 +687,13 @@ class Worker:
             if o is not None and o.summary()["down"] and not self._reported_down:
                 self._reported_down = True
                 stage("meaning", f"The embedder is not answering ({o.summary()['error']}): texts the vocabulary does not know read as `other` and are not stored; a rebuild once it answers will read them")
-            if path.suffix.lower() == ".pdf" and figures_enabled():
-                self.read_figures(conn, key, path, stage)
+            if figures_enabled():
+                if path.suffix.lower() == ".pdf":
+                    self.read_figures(conn, key, path, stage)
+                else:
+                    beside = conn.execute("SELECT figures_file FROM papers WHERE key = ?", (key,)).fetchone()
+                    if beside and beside["figures_file"] and (path.parent / beside["figures_file"]).exists():
+                        self.read_figures(conn, key, path.parent / beside["figures_file"], stage, pages=True)
             links = summarize_citations(refs, cites)
             judged = judge.summary()
             stage("saved", f"{n} nodes, {links['refs']} references, {links['citations']} citation links, {linked['linked']} of {linked['findings']} findings linked to a method, a {kind['type']} paper by its {kind['source']}, confidence {sure['confidence']}" + (f" ({sure['reasons'][0]})" if sure["reasons"] else "") + (f", outline by {outlined['model']}: {outlined.get('lanes', 0)} lanes, {outlined.get('built', 0)} headings built" if outlined.get("sections") is not None else "") + (f", {judged['joined']} of {judged['asked']} judged pairs joined" if judged["asked"] else "") + f" in {seconds}s", nodes=n, **links, judged=judged, edges=linked, type=kind)
@@ -680,25 +705,46 @@ class Worker:
         finally:
             conn.close()
 
-    def read_figures(self, conn: Any, key: str, path: Path, stage: Any) -> dict[str, Any] | None:
-        """A PDF's figures read into numbers (figures.py); a failure is said and never fails the paper."""
+    def read_figures(self, conn: Any, key: str, path: Path, stage: Any, pages: bool = False) -> dict[str, Any] | None:
+        """A PDF's figures read into numbers (figures.py) — the paper's own, or (`pages`) the PDF
+        kept beside its XML; a failure is said and never fails the paper."""
         from . import figures
 
         try:
-            n = len(figures.pictures(conn, key))
+            n = len(figures.figure_numbers(conn, key) if pages else figures.pictures(conn, key))
             if not n:
                 return None
-            stage("figures", f"Reading the charts in {n} figure{'s' if n != 1 else ''}")
-            out = figures.read_paper(conn, key, path)
-            stage("figures", f"{out['read']} of {out['plots']} charts read in {out['figures']} figures: {out['values']} values, in {out['seconds']}s", **out)
+            stage("figures", f"Reading the charts in {n} figure{'s' if n != 1 else ''}" + (f" from {path.name}" if pages else ""))
+            out = figures.read_pages(conn, key, path) if pages else figures.read_paper(conn, key, path)
+            stage("figures", f"{out['read']} of {out['plots']} charts read in {out['figures']} figures: {out['values']} values, in {out['seconds']}s"
+                  + (f"; {out['unmatched']} plots under no caption of the paper's" if out.get("unmatched") else ""), **out)
             return out
         except Exception as e:  # noqa: BLE001 — the paper is read; only its charts are not
             stage("figures", f"The figures could not be read: {type(e).__name__}: {e}")
             return None
 
+    def figures_of(self, lib: Library, key: str, req_id: Any) -> dict[str, Any] | None:
+        """A read paper's figures, now (a PDF arrived for its XML): progress and a log line, never
+        a stage, so the paper's own state is left as it was."""
+        from . import figures
+
+        conn = open_store(lib.store_path)
+        try:
+            emit({"event": "progress", "id": req_id, "op": "figures", "lib": lib.id, "done": 0, "total": 1, "label": "Reading the figures from the PDF beside the XML"})
+            out = figures.read_for(conn, key, lib.papers_dir)
+            if out is not None:
+                emit({"event": "log", "id": req_id, "lib": lib.id, "paper": key, "logger": "figures",
+                      "message": f"{out['read']} of {out['plots']} charts read from the PDF beside the XML: {out['values']} values"})
+            return out
+        except Exception as e:  # noqa: BLE001 — the paper stays read; only its charts are not
+            emit({"event": "log", "id": req_id, "lib": lib.id, "paper": key, "logger": "figures", "message": f"{type(e).__name__}: {e}"})
+            return None
+        finally:
+            conn.close()
+
     def do_figures(self, req: dict[str, Any]) -> None:
-        """Every PDF paper's figures read into numbers — those not read by this reader, or the
-        papers named; `force` reads them again."""
+        """Every paper's figures read into numbers — a PDF paper's, and an XML paper's from the PDF
+        kept beside it — those not read by this reader, or the papers named; `force` reads them again."""
         from . import figures
 
         lib = self._lib(req)
@@ -707,17 +753,16 @@ class Worker:
         keys = set(req.get("keys") or [])
         totals = {"papers": 0, "figures": 0, "plots": 0, "read": 0, "values": 0}
         try:
-            rows = [r for r in conn.execute("SELECT key, file FROM papers WHERE status = 'parsed' AND format = 'pdf' ORDER BY added_at") if not keys or r["key"] in keys]
+            rows = [r for r in conn.execute("SELECT key, file FROM papers WHERE status = 'parsed' AND (format = 'pdf' OR figures_file IS NOT NULL) ORDER BY added_at") if not keys or r["key"] in keys]
             todo = [r for r in rows if req.get("force") or not figures.is_read(conn, r["key"])]
             for i, r in enumerate(todo):
                 emit({"event": "progress", "id": req_id, "op": "figures", "lib": lib.id, "done": i, "total": len(todo), "label": f"Reading the charts of paper {i + 1} of {len(todo)}"})
-                path = lib.papers_dir / r["file"]
-                if not path.exists():
-                    continue
                 try:
-                    out = figures.read_paper(conn, r["key"], path)
+                    out = figures.read_for(conn, r["key"], lib.papers_dir)
                 except Exception as e:  # noqa: BLE001 — one paper's figures do not stop the rest
                     emit({"event": "log", "id": req_id, "lib": lib.id, "paper": r["key"], "logger": "figures", "message": f"{type(e).__name__}: {e}"})
+                    continue
+                if out is None:
                     continue
                 totals["papers"] += 1
                 for k in ("figures", "plots", "read", "values"):
@@ -743,13 +788,15 @@ class Worker:
                 got.append(acquire.fetch_one(lib, conn, cid, on_progress=lambda e: emit({**e, "id": req_id, "lib": lib.id})))
         finally:
             conn.close()
-        paths = [g["path"] for g in got if g.get("path")]
+        # the XML first, then any PDF fetched beside it for its figures: ingest files the paper as
+        # its XML and keeps the PDF for the figures, never the other way round
+        paths = [g["path"] for g in got if g.get("path")] + [g["figures"] for g in got if g.get("path") and g.get("figures")]
         conn = open_store(lib.store_path)
         try:
             ids = {g["cand_id"]: dict(conn.execute("SELECT doi, pmid, pmcid FROM candidates WHERE cand_id = ?", (g["cand_id"],)).fetchone() or {}) for g in got if g.get("path")}
         finally:
             conn.close()
-        known = {g["path"]: ids.get(g["cand_id"], {}) for g in got if g.get("path")}
+        known = {g["path"]: ids.get(g["cand_id"], {}) for g in got if g.get("path")} | {g["figures"]: ids.get(g["cand_id"], {}) for g in got if g.get("path") and g.get("figures")}
         counts: dict[str, int] = {}
         for g in got:
             counts[str(g.get("status"))] = counts.get(str(g.get("status")), 0) + 1
@@ -904,7 +951,9 @@ class Worker:
                     if op == "candidates":
                         emit({"event": "candidates", "id": req_id, "lib": lib.id, "candidates": acquire.candidates(conn, status=req.get("status"), query=req.get("query"))})
                     elif op == "wanted":
-                        emit({"event": "wanted", "id": req_id, "lib": lib.id, "candidates": acquire.wanted(conn)})
+                        from .figures import figures_wanted
+
+                        emit({"event": "wanted", "id": req_id, "lib": lib.id, "candidates": acquire.wanted(conn), "figures": figures_wanted(conn)})
                     else:
                         fn = acquire.dismiss if op == "dismiss" else acquire.stage
                         emit({"event": "dismissed", "id": req_id, "lib": lib.id, "op": op, **fn(conn, [int(i) for i in req.get("ids") or []])})

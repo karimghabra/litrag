@@ -4,7 +4,8 @@ reference line, outlined bars with slanted labels, points joined by lines over d
 side by side, a log axis. Each is written as a 300-dpi PNG (read with OCR) and a PDF (rendered
 and read with its own text layer), with the values it was drawn from in truth.json.
 
-    uv run --with matplotlib python parser/tests/fixtures/charts/make.py
+    uv run --with matplotlib python parser/tests/fixtures/charts/make.py          # the charts
+    uv run --with matplotlib python parser/tests/fixtures/charts/make.py page     # page_paper.pdf
 
 matplotlib is needed only here, to make the fixtures; they are committed.
 """
@@ -37,13 +38,15 @@ def truth_bars(cats, series, err, ylabel, panel=None, scale="linear"):
 
 
 def save(name, fig, plots):
-    fig.savefig(HERE / f"{name}.png", dpi=300)
-    fig.savefig(HERE / f"{name}.pdf")
+    if not ONLY_PAGE:
+        fig.savefig(HERE / f"{name}.png", dpi=300)
+        fig.savefig(HERE / f"{name}.pdf")
     plt.close(fig)
     return {name: plots}
 
 
 truth = {}
+ONLY_PAGE = len(__import__("sys").argv) > 1 and __import__("sys").argv[1] == "page"
 
 # 1. four bars, greys, error bars with caps, a bracket and stars
 fig, ax = plt.subplots(figsize=(3.2, 2.6))
@@ -134,5 +137,43 @@ ax.set_ylabel("Cell number")
 fig.tight_layout()
 truth |= save("bars_log", fig, [truth_bars(cats, s, e, "Cell number", scale="log")])
 
-(HERE / "truth.json").write_text(json.dumps(truth, indent=1))
-print("wrote", ", ".join(truth))
+if not ONLY_PAGE:
+    (HERE / "truth.json").write_text(json.dumps(truth, indent=1))
+    print("wrote", ", ".join(truth))
+
+
+def page_paper():
+    """Two pages of a paper's PDF: on the first, Figure 1 (two panels, drawn) over its caption and
+    a running head and a sentence that begins "Figure 2" above it; on the second, Figure 2, an
+    image of a chart, over its caption. What read_pages pins to an XML's figures 1 and 2."""
+    from matplotlib.backends.backend_pdf import PdfPages
+
+    with PdfPages(HERE / "page_paper.pdf", metadata={"CreationDate": None}) as pdf:
+        fig = plt.figure(figsize=(8.27, 11.69))
+        fig.text(0.1, 0.96, "www.journal.example · Page 4", fontsize=8)
+        fig.text(0.1, 0.92, "Figure 2 shows the strength of the threads after a week in culture.", fontsize=10)
+        a1 = fig.add_axes([0.12, 0.55, 0.33, 0.28])
+        a2 = fig.add_axes([0.6, 0.55, 0.33, 0.28])
+        bars(a1, ["Random", "ELAC"], {"Modulus": [0.78, 1.36]}, ["0.3"], {"Modulus": [0.1, 0.12]}, width=0.5)
+        a1.set_ylim(0, 2)
+        a1.set_ylabel("Young's modulus (MPa)")
+        a1.set_title("(A)", loc="left", x=-0.3)
+        bars(a2, ["Random", "ELAC"], {"Strength": [12.5, 31.0]}, ["0.6"], {"Strength": [2.1, 4.4]}, width=0.5)
+        a2.set_ylim(0, 40)
+        a2.set_ylabel("UTS (MPa)")
+        a2.set_title("(B)", loc="left", x=-0.3)
+        fig.text(0.1, 0.47, "Figure 1. (A) Modulus and (B) strength of random and aligned threads.", fontsize=10)
+        fig.text(0.1, 0.3, "The threads were stronger when aligned, as Figure 1 shows, and stiffer too.", fontsize=10)
+        pdf.savefig(fig)
+        plt.close(fig)
+        fig = plt.figure(figsize=(8.27, 11.69))
+        ax = fig.add_axes([0.1, 0.5, 0.8, 0.4])
+        ax.imshow(plt.imread(HERE / "bars_grouped.png"))
+        ax.axis("off")
+        fig.text(0.1, 0.45, "Figure 2. Fold change of tenogenic markers on each substrate.", fontsize=10)
+        pdf.savefig(fig)
+        plt.close(fig)
+
+
+if __name__ == "__main__" and len(__import__("sys").argv) > 1 and __import__("sys").argv[1] == "page":
+    page_paper()

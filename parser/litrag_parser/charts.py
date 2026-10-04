@@ -121,7 +121,7 @@ _UNIT = re.compile(r"\(([^()]{1,20})\)\s*$")
 
 def number(text: str) -> float | None:
     """A tick label's value: `40`, `2.5`, `−1`, `0,5`, `50%`; None for anything else."""
-    t = text.strip().replace(" ", "")
+    t = re.sub(r"[-–—]+$", "", text.strip().replace(" ", ""))  # OCR reads a tick mark into its label: "0.4-"
     m = _NUMBER.match(t)
     if not m:
         return None
@@ -643,12 +643,18 @@ def _markers(img: np.ndarray, fg: np.ndarray, x0: int, x1: int, top: int, base: 
 # -- the names ----------------------------------------------------------------------------------------------
 
 
-def legend(img: np.ndarray, fg: np.ndarray, words: list[Word], taken: set[int]) -> list[tuple[str, tuple[int, int, int]]]:
-    """Legend entries: a word with a swatch of colour just left of it, (name, colour)."""
+def legend(img: np.ndarray, fg: np.ndarray, words: list[Word], taken: set[int], near: tuple[float, float, float, float] | None = None) -> list[tuple[str, tuple[int, int, int]]]:
+    """Legend entries: a short label with a swatch of colour just left of it, (name, colour) —
+    within `near` (x0, y0, x1, y1) when given: a legend stands by its plot, not in the text
+    around the figure."""
     out = []
     for i, w in enumerate(words):
         if i in taken or number(w.text) is not None or len(w.text.strip()) < 2 or w.h > 1.2 * w.w or not any(c.isalnum() for c in w.text):
             continue  # a tick, a lone mark, a significance star, a title set on its side
+        if len(w.text.strip()) > 30 or len(w.text.split()) > 4:
+            continue  # a line of prose
+        if near is not None and not (near[0] <= w.cx <= near[2] and near[1] <= w.cy <= near[3]):
+            continue
         x1 = int(w.x0) - 1
         x0 = int(max(w.x0 - 4 * w.h, 0))
         y0, y1 = int(w.cy - 0.35 * w.h), int(w.cy + 0.35 * w.h) + 1
@@ -718,7 +724,8 @@ def _plot_title(words: list[Word], yaxis: Line, xaxis: Line, others: list[tuple[
         return any(v is not yaxis and v.mid - 0.1 * (hz.a1 - v.mid) <= w.cx <= hz.a1 and hz.mid - 2 <= w.y0 <= hz.mid + 0.4 * (v.a1 - v.a0) for v, hz in others)
 
     above = [w for w in words if yaxis.a0 - 0.3 * h <= w.y1 <= yaxis.a0 + 0.05 * h and yaxis.mid - 0.05 * h <= w.cx <= xaxis.a1
-             and number(w.text) is None and not _PANEL.match(w.text.strip()) and any(c.isalpha() for c in w.text) and w.w >= w.h and not under_another(w)]
+             and number(w.text) is None and not _PANEL.match(w.text.strip()) and any(c.isalpha() for c in w.text) and w.w >= w.h and not under_another(w)
+             and not re.search(r"www\.|https?:|doi|©|\bpage\b", w.text, re.I)]  # a page's running head is no title
     if not above:
         return ""
     low = max(w.y1 for w in above)  # the line nearest the frame
@@ -735,6 +742,31 @@ def _entitle(p: dict[str, Any], words: list[Word], yaxis: Line, xaxis: Line, fra
         p["y"]["unit"] = unit_of(p["y"]["label"])
 
 
+def clean_title(text: str) -> str:
+    """A title as OCR gives it, without what is not one: significance stars, stray marks read as
+    other scripts ("水水水" for "***")."""
+    keep = [t for t in text.split() if re.search(r"[A-Za-z0-9µμ%°]", t) and not re.search(r"[\u3000-\u9fff\uac00-\ud7af]", t)]
+    return " ".join(keep).strip()
+
+
+def _near(yaxis: Line, xaxis: Line) -> tuple[float, float, float, float]:
+    """Where a plot's legend can stand: over it, or a little beside it, chiefly to its right."""
+    w, h = xaxis.a1 - yaxis.mid, xaxis.mid - yaxis.a0
+    return (yaxis.mid - 0.1 * w, yaxis.a0 - 0.25 * h, xaxis.a1 + 0.6 * w, xaxis.mid + 0.1 * h)
+
+
+def share_legend(plots: list[dict[str, Any]]) -> None:
+    """The plots of one figure share a legend: a series left unnamed takes the name another plot
+    gave the same fill ("TCP", "Circle 50" printed once, beside the last panel)."""
+    named = [(s_["colour"], s_["name"]) for p in plots for s_ in p.get("series", []) if s_.get("name")]
+    for p in plots:
+        for s_ in p.get("series", []):
+            if not s_.get("name") and s_.get("colour") is not None:
+                near = [(_dist(c, s_["colour"]), n) for c, n in named if _dist(c, s_["colour"]) <= SAME_COLOUR]
+                if near and len({n for _, n in near}) == 1:
+                    s_["name"] = near[0][1]
+
+
 def unit_of(title: str) -> str | None:
     m = _UNIT.search(title)
     return m.group(1).strip() if m else None
@@ -747,7 +779,7 @@ def read_plot(img: np.ndarray, fg: np.ndarray, words: list[Word], yaxis: Line, x
     """One frame read: `{status, reason, kind, panel, bbox, y: {label, unit, scale, residual,
     ticks}, x: {...}, categories, series: [{name, colour, values: [{category|x, y, err_lo,
     err_hi}]}]}`."""
-    out: dict[str, Any] = {"status": "unread", "reason": "", "kind": None, "panel": _panel(words, yaxis, xaxis),
+    out: dict[str, Any] = {"status": "unread", "reason": "", "kind": None, "panel": _panel(words, yaxis, xaxis), "words": "ocr" if ocr is not None else "text",
                            "bbox": [int(yaxis.mid), int(yaxis.a0), int(xaxis.a1), int(xaxis.mid)], "series": [], "categories": []}
     ys, ticks, why = y_scale(fg, words, yaxis, xaxis)
     if ys is None and ocr is not None and len(_ticks_marks(fg, yaxis, horizontal_axis=False, reach=12)) >= MIN_TICKS:
@@ -761,7 +793,7 @@ def read_plot(img: np.ndarray, fg: np.ndarray, words: list[Word], yaxis: Line, x
         out["y"] = {"label": _y_title(words, ticks, yaxis) if ticks else "", "unit": None}
         out["reason"] = why
         return out
-    title = _y_title(words, ticks, yaxis, img, ocr)
+    title = clean_title(_y_title(words, ticks, yaxis, img, ocr))
     out["y"] = {"label": title, "unit": unit_of(title)}
     out["_words"] = words  # for the title, once every plot of the figure is known (read)
     out["y"].update({"scale": "log" if ys.log else "linear", "residual": round(ys.residual, 5), "ticks": [round(v, 6) for _, v in ys.ticks]})
@@ -811,7 +843,10 @@ def read_plot(img: np.ndarray, fg: np.ndarray, words: list[Word], yaxis: Line, x
                 near = min(under, key=lambda w: abs(w.cx - mid), default=None)
                 names[groups.index(g)] = near.text.strip() if near is not None and abs(near.cx - mid) <= (g[-1]["x1"] - g[0]["x0"]) else None
         out["categories"] = names
-        entries = legend(img, fg, words, {i for i, w in enumerate(words) if id(w) in taken or w in under})
+        def band(w: Word) -> bool:  # under an x axis, this plot's or another's: a category, not a legend
+            return any(hz.mid - 2 <= w.y0 <= hz.mid + 0.3 * (hz.mid - v.a0) and v.mid - 0.05 * (hz.a1 - v.mid) <= w.x1 and w.x0 <= hz.a1
+                       for v, hz in list(others) + [(yaxis, xaxis)])
+        entries = legend(img, fg, words, {i for i, w in enumerate(words) if id(w) in taken or w in under or band(w)}, _near(yaxis, xaxis))
         width = max(len(g) for g in groups)
         series: dict[Any, dict[str, Any]] = {}
         for gi, g in enumerate(groups):
@@ -837,7 +872,7 @@ def read_plot(img: np.ndarray, fg: np.ndarray, words: list[Word], yaxis: Line, x
             below = [w for w in words if w.y0 > max(w2.y1 for w2 in xticks) and w.y0 <= base + 0.4 * (base - top) and x0 <= w.cx <= x1]
             out["x"]["label"] = " ".join(w.text.strip() for w in sorted(below, key=lambda w: w.x0))
             out["x"]["unit"] = unit_of(out["x"]["label"])
-        entries = legend(img, fg, words, {i for i, w in enumerate(words) if id(w) in taken})
+        entries = legend(img, fg, words, {i for i, w in enumerate(words) if id(w) in taken}, _near(yaxis, xaxis))
         labels = [w for w in words if id(w) not in taken and number(w.text) is None and len(w.text.strip()) >= 2 and w.h <= 1.2 * w.w]  # level words: a legend's
         marks = [m for m in marks if not any(abs(m["cy"] - w.cy) <= 0.7 * w.h and 0 <= w.x0 - m["cx"] <= 5 * w.h for w in labels)]  # a legend's own marker
         groups_by_colour: list[dict[str, Any]] = []
@@ -887,7 +922,7 @@ def _ocr_around(img: np.ndarray, ocr: "Ocr", yaxis: Line, xaxis: Line, most: int
     import cv2
 
     w, h = xaxis.a1 - yaxis.mid, xaxis.mid - yaxis.a0
-    x0, x1 = int(max(yaxis.mid - 0.45 * w, 0)), int(min(xaxis.a1 + 0.05 * w, img.shape[1]))
+    x0, x1 = int(max(yaxis.mid - 0.45 * w, 0)), int(min(xaxis.a1 + 0.4 * w, img.shape[1]))  # a legend often stands to the right
     y0, y1 = int(max(yaxis.a0 - 0.12 * h, 0)), int(min(xaxis.mid + 0.35 * h, img.shape[0]))
     crop = np.ascontiguousarray(img[y0:y1, x0:x1])
     if crop.size == 0:
@@ -1013,12 +1048,15 @@ def read(img: np.ndarray, words: list[Word] | None = None, ocr: Ocr | None = Non
     if used_ocr is None and ocr is not None:
         # the given words (a PDF's text layer) have nothing beside some axis: a raster panel in a
         # vector figure; those plots are read again with OCR, of the plot and its margins alone
-        plots = [read_plot(img, fg, _ocr_around(img, ocr, v, h) + words, v, h, ocr, found) if p["reason"] == NOT_A_CHART else p for p, (v, h) in zip(plots, found)]
+        plots = [read_plot(img, fg, _ocr_around(img, ocr, v, h) + words, v, h, ocr, found)
+                 if p["reason"] == NOT_A_CHART and len(_ticks_marks(fg, v, horizontal_axis=False, reach=12)) >= MIN_TICKS else p
+                 for p, (v, h) in zip(plots, found)]  # only an axis with tick marks is worth reading; a photograph's edge has none
     charts_ = [(v, h) for p, (v, h) in zip(plots, found) if p["reason"] != NOT_A_CHART]
     for p, (v, h) in zip(plots, found):
         ws = p.pop("_words", None)
         if ws is not None:
             _entitle(p, ws, v, h, charts_)
     plots = [p for p in plots if p["reason"] != NOT_A_CHART]  # a photograph's edges, a panel's border
+    share_legend(plots)
     plots.sort(key=lambda p: (round(p["bbox"][1] / 50), p["bbox"][0]))
     return plots

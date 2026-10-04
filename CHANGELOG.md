@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- **An XML paper's figures, from a PDF of it** (Karim, 2026-10-04: "if we only ever retrieve an
+  xml … we end up missing a bunch of figures?"). JATS names its figures and holds none, so the
+  XML stays the paper and a PDF of the same paper is kept beside it for its charts
+  (`papers.figures_file`): each page printing a figure's caption is read — an image there whole,
+  at its own resolution, the rest with the page's text layer — and every plot pinned to the
+  caption under it, "Figure 2." to the XML's figure 2 (`charts.figure_label`; a sentence that
+  begins "Figure 2 shows" is no caption; a rebuild finds the figure again by its number). The PDF
+  comes from a fetch (EBI's open-access PDF beside the XML, where that area has it), from a PDF
+  dropped for a paper already read as XML (kept for its figures, no longer set aside), or from
+  **Collect PDFs**, which now lists the XML papers whose figures want one after the papers with
+  no copy (`wanted` → `figures`). On the Advanced Healthcare Materials paper read as XML, its
+  PDF gave 12 of 24 plots, 127 values, its two-panel gene-expression figure with every series
+  named.
 - **Figures read into numbers** (Karim, 2026-10-04: "ingesting figures, and converting them from
   data in a visual format, to one in a numerical format"). A PDF's figures are cut from their
   pages and their charts read (`charts.py`, `figures.py`): each bar and point's value, its error

@@ -41,7 +41,8 @@ CREATE TABLE IF NOT EXISTS papers (
   journal TEXT,
   year TEXT,
   confidence REAL,                  -- how far the reading can be trusted, from the reading alone, in (0, 1] (confidence.py)
-  confidence_detail TEXT            -- JSON {reasons: [...], penalties: {check: points}}: why it is not 1
+  confidence_detail TEXT,           -- JSON {reasons: [...], penalties: {check: points}}: why it is not 1
+  figures_file TEXT                 -- an XML paper's PDF in papers/, kept for its figures: the XML is the text, the PDF draws the charts
 );
 CREATE UNIQUE INDEX IF NOT EXISTS papers_doi ON papers(doi) WHERE doi IS NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS papers_sha ON papers(sha256) WHERE sha256 IS NOT NULL;
@@ -204,6 +205,8 @@ def open_store(path: Path) -> sqlite3.Connection:
     for col in ("type", "type_source", "type_detail", "pub_types", "authors", "journal", "year", "subtype"):
         if col not in have:  # a store from before the paper's type, or its record, was a column
             conn.execute(f"ALTER TABLE papers ADD COLUMN {col} TEXT")
+    if "figures_file" not in have:  # an XML paper's PDF, kept for its figures (figures.py)
+        conn.execute("ALTER TABLE papers ADD COLUMN figures_file TEXT")
     if "confidence" not in have:  # a store from before a reading was scored
         conn.execute("ALTER TABLE papers ADD COLUMN confidence REAL")
         conn.execute("ALTER TABLE papers ADD COLUMN confidence_detail TEXT")

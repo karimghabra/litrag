@@ -157,3 +157,77 @@ def test_the_worker_reads_a_library_s_figures_and_answers_for_one(tmp_path, caps
     one, paper = by(events, "c")[0], by(events, "p")[0]
     assert one["event"] == "charts" and [p["panel"] for p in one["plots"]] == ["A", "B"]
     assert [f["figure"] for f in paper["figures"]] == [f"{key}#section-1#picture-1"]
+
+
+# -- an XML paper's figures, from a PDF of it ------------------------------------------------------------------
+
+
+def _xml_paper(conn, figures_n=3, doi="10.3390/mi15070851"):
+    """A paper read from XML: its figures numbered by their captions, no page, no box."""
+    key = file_paper(conn, title="read from XML", file="paper.xml", sha256="x1", fmt="jats", doi=doi, pmid=None, pmcid=None, now="t").key
+    rows = [(f"{key}#section-1", key, None, 0, 1, "section", "section_header", "results", "3 Results", "[]", "")]
+    for i in range(1, figures_n + 1):
+        rows.append((f"{key}#section-1#picture-{i}", key, f"{key}#section-1", i, 2, "picture", "picture", "results", None, '["3 Results"]', ""))
+        rows.append((f"{key}#section-1#picture-{i}#caption-1", key, f"{key}#section-1#picture-{i}", 0, 3, "caption", "caption", "results", None, '["3 Results"]', f"Figure {i} What figure {i} shows."))
+    conn.executemany("INSERT INTO nodes(node_id, paper, parent, ordinal, depth, type, label, role, heading, ancestry, text) VALUES (?,?,?,?,?,?,?,?,?,?,?)", rows)
+    conn.execute("UPDATE papers SET status = 'parsed', file = 'paper.xml' WHERE key = ?", (key,))
+    conn.commit()
+    return key
+
+
+def test_a_caption_is_told_from_a_sentence_that_begins_with_a_figure():
+    from litrag_parser.charts import Word
+
+    def caps(texts):
+        return [n for n, _ in figures.captions([Word(10, 10 + 20 * i, 400, 22 + 20 * i, t) for i, t in enumerate(texts)])]
+
+    assert caps(["Figure 2. Fold change", "FIGURE 3 Percent reduction", "Fig. 4. SEM images", "Figure 5: Strength", "Figure 6 | Modulus", "Fig. S1. More"]) == ["2", "3", "4", "5", "6", "S1"]
+    assert caps(["Figure 2 shows the strength", "(Figure 2)", "Figures 3 and 4 show", "as Figure 1 shows", "Figure 2.5 times"]) == []
+
+
+def test_an_xml_paper_s_figures_are_read_from_a_pdf_of_it_and_pinned_by_their_captions(tmp_path):
+    conn = open_store(tmp_path / "store.sqlite")
+    key = _xml_paper(conn)
+    assert figures.figure_numbers(conn, key) == {str(i): f"{key}#section-1#picture-{i}" for i in (1, 2, 3)}
+    out = figures.read_pages(conn, key, CHARTS / "page_paper.pdf")
+    assert (out["plots"], out["read"], out["unmatched"]) == (3, 3, 0)
+    rows = conn.execute("SELECT figure, figure_label, plot, page, panel, source, y_label FROM charts ORDER BY figure, plot").fetchall()
+    assert [tuple(r)[1:] for r in rows] == [("1", 0, 1, "A", "vector", "Young's modulus (MPa)"), ("1", 1, 1, "B", "vector", "UTS (MPa)"), ("2", 0, 2, None, "raster", rows[2]["y_label"])]
+    assert rows[0]["figure"] == f"{key}#section-1#picture-1" and rows[2]["figure"] == f"{key}#section-1#picture-2"
+    image = figures.of_figure(conn, f"{key}#section-1#picture-2")[0]  # an image in the PDF, read with OCR
+    names = [s["name"] for s in image["series"]]  # named, or left unnamed: never misnamed
+    assert names[:2] == ["TCP", "Circle 50"] and names[2] in ("Rhombus 50", None) and "change" in image["y"]["label"]
+    assert abs(next(v["y"] for v in figures.of_figure(conn, f"{key}#section-1#picture-1")[1]["series"][0]["values"] if v["category"] == "ELAC") - 31.0) < 0.6
+    # a rebuild renumbers the XML's figures: the plots follow their number
+    conn.execute("UPDATE nodes SET node_id = replace(node_id, '#picture-', '#fig-'), parent = replace(parent, '#picture-', '#fig-') WHERE paper = ?", (key,))
+    conn.commit()
+    assert figures.remap(conn, key) == 3 and {r[0] for r in conn.execute("SELECT DISTINCT figure FROM chart_values")} == {f"{key}#section-1#fig-1", f"{key}#section-1#fig-2"}
+
+
+def test_a_pdf_arriving_for_an_xml_paper_is_kept_for_its_figures_and_read(tmp_path, capsys):
+    from litrag_parser.worker import Worker
+
+    from test_worker import by, talk
+
+    assert by(talk(tmp_path, [{"id": "1", "op": "init", "name": "Threads"}]), "1")[0]["event"] == "library"
+    lib = tmp_path / "threads"
+    conn = open_store(lib / "store.sqlite")
+    key = _xml_paper(conn)
+    (lib / "papers" / "paper.xml").write_text("<article/>")
+    assert [w["key"] for w in figures.figures_wanted(conn)] == [key]
+    conn.close()
+    dropped = lib / "inbox" / "from-the-publisher.pdf"
+    shutil.copy(CHARTS / "page_paper.pdf", dropped)
+    Worker(tmp_path).do_ingest({"id": "i", "op": "ingest", "lib": "threads", "paths": [str(dropped)], "offline": True,
+                                "known": {str(dropped): {"doi": "10.3390/mi15070851"}}})
+    events = [json.loads(line) for line in capsys.readouterr().out.splitlines() if line.strip()]
+    paper = next(e for e in events if e["event"] == "paper")
+    assert paper["kept"] and paper["figures_file"].endswith(".figures.pdf")
+    conn = open_store(lib / "store.sqlite")
+    row = conn.execute("SELECT file, format, figures_file FROM papers WHERE key = ?", (key,)).fetchone()
+    assert (row["file"], row["format"]) == ("paper.xml", "jats")  # the paper is its XML still
+    assert (lib / "papers" / row["figures_file"]).exists() and not dropped.exists()
+    assert conn.execute("SELECT COUNT(*) FROM charts WHERE paper = ? AND status = 'read'", (key,)).fetchone()[0] == 3
+    assert figures.figures_wanted(conn) == [] and figures.is_read(conn, key)
+    assert any(e["event"] == "log" and "charts read from the PDF beside the XML" in e["message"] for e in events)
+    conn.close()

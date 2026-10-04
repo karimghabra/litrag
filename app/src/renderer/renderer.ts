@@ -28,6 +28,8 @@ interface Paper {
   doi: string | null;
   file: string | null;
   format: string | null;
+  /** an XML paper's PDF, kept beside it for its figures */
+  figures_file?: string | null;
   pages: number | null;
   status: string;
   error: string | null;
@@ -722,7 +724,13 @@ async function loadCharts(n: Node, into: HTMLElement) {
   const read = r.plots.filter((p) => p.status === 'read').length;
   const head = el('div', 'links-head', r.plots.length ? `Numbers read from this figure — ${read} of ${r.plots.length} plot${r.plots.length === 1 ? '' : 's'}` : 'No numbers read from this figure');
   const paper = state.selectedPaper ? state.papers.get(state.selectedPaper) : undefined;
-  if (!r.plots.length && paper?.format === 'pdf') {
+  if (!r.plots.length && paper?.format === 'jats' && !paper.figures_file) {
+    box.append(head);
+    box.append(el('div', 'muted', 'Read from XML, which names its figures but holds none. A PDF of the paper draws them: drop one here, or fetch it with Collect PDFs on the Search tab, and its charts are read and pinned to these figures.'));
+    into.append(box);
+    return;
+  }
+  if (!r.plots.length && (paper?.format === 'pdf' || paper?.figures_file)) {
     const b = el('button', 'ghost small label-act', 'Read the figures') as HTMLButtonElement;
     b.title = 'Read the charts in this paper’s figures into numbers (bars, points, error bars), on this machine';
     b.addEventListener('click', (ev) => {
