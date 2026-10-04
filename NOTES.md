@@ -89,6 +89,18 @@ when it turns out durable. Mark inference as inference.
 
 ## Short-term memory
 
+- **2026-10-04: the link test** — Karim: "I want you to test this feature". Six open papers from six
+  publishers (Micromachines, Cureus, Sci Rep, Adv Eng Mater, PLOS ONE, Front Bioeng), read as JATS
+  (truth: 252 of 273 entries carry a DOI or PMID) and as PDF (76 of 275 printed a DOI). Scores with
+  `python -m litrag_parser.graph --lib pdf --truth xml`: first 0.944 precision / 0.67 recall (all 10
+  wrong links were PDF DOIs mangled at line breaks; the Wiley paper 0/47 — no titles printed, no
+  PMID known for the held paper, its "[PubMed: n]" unread); after the fixes 1.0 / 0.92. What is
+  left unreached is mostly reading faults (Frontiers' back matter filed as reference entries, two
+  entries run together; BACKLOG) and a few entries no list matched. Europe PMC's `citedOrder` is
+  not the paper's order for every paper (Sci Rep: its 1 was the PDF's 10), which is why a place is
+  never taken without author and year. Timings: a full relink of 3,600 entries 0.23 s, 2 ms when
+  nothing changed; Expand reads three open papers in ~40–50 s.
+
 - **2026-10-04: passages linked to the works they cite; Expand** — Karim: "expand on corpuses by
   grabbing references cited by the corpus' papers … link chunks that cite specific references to
   these new citations". Built `ref_lists`, `ref_works`, `passage_cites`, the `expand` and

@@ -28,6 +28,35 @@ from .tree import Node, Tree
 
 _YEAR = r"(?:1[89]|20)\d{2}[a-z]?"
 _DOI = re.compile(r"10\.\d{4,9}/[^\s\"<>]+")
+#: a PMID a reference entry prints: "PMID: 19470768" (PLOS, Wiley), "[PubMed: 24217518]" (an NIH
+#: author manuscript), "PubMed PMID: 123"
+_PMID = re.compile(r"(?:\bPMID\s*:?\s*|\[\s*PubMed\s*:\s*)(\d{5,9})\b", re.I)
+#: what a DOI's line break leaves behind: the DOI's next piece after a space, when the piece before
+#: it ended in a dot, a hyphen or an open bracket ("10.1016/j.cell. 2013.11.029", "9612(00) 00102-2")
+_DOI_REST = re.compile(r"\s+([0-9][0-9A-Za-z.()/_-]*)")
+
+
+def entry_doi(text: str) -> str | None:
+    """The DOI an entry prints, as far as its words carry it. A PDF's text layer breaks a DOI where
+    the line broke: after a dot or a hyphen, inside a bracket. The piece after the space is joined
+    back only then; a DOI that is still not whole is caught later, since a round trusts a DOI read
+    off a PDF only once Europe PMC or OpenAlex knows it (graph.py)."""
+    m = _DOI.search(text)
+    if m is None:
+        return None
+    doi = m.group(0)
+    rest = _DOI_REST.match(text, m.end())
+    piece = rest.group(1).rstrip(".,;") if rest else ""
+    after = text[rest.end():rest.end() + 1] if rest else ""
+    # a bare year or volume after a full stop is the citation going on ("doi:10.1/abc. 2019;5:1"),
+    # not the DOI: a piece is joined only when it has a DOI's inner marks and ends the entry or a word
+    if piece and re.search(r"[.()/-]", piece) and after in ("", " ", "\n") and (
+            doi.endswith((".", "-", "/")) or doi.count("(") > doi.count(")") or re.search(r"\(\d+\)$", doi)):
+        doi += piece
+    doi = doi.rstrip(".,;")
+    while doi.endswith(")") and doi.count(")") > doi.count("("):
+        doi = doi[:-1].rstrip(".,;")
+    return doi
 _YEAR_RE = re.compile(rf"\b({_YEAR})\b")
 #: every dash a publisher sets a range of entries with. ACS writes "3−9" with a minus sign, others
 #: with a hyphen, a figure dash or an en dash, and the PDF's font may hand over any of them.
@@ -158,12 +187,13 @@ def reference_entries(tree: Tree) -> list[Ref]:
     refs: list[Ref] = []
     printed: list[int | None] = []
     for i, (n, text) in enumerate(entries):
-        m = re.match(r"^\[?(\d{1,3})[\].]\s+", text)
+        m = re.match(r"^\[?(\d{1,3})(?:\]\.?|\.)\s+", text)
         printed.append(int(m.group(1)) if m else None)
-        text = re.sub(r"^\[?(\d{1,3})[\].]\s+", "", text)  # an entry's own number, if printed
-        doi = _DOI.search(text)
+        text = re.sub(r"^\[?(\d{1,3})(?:\]\.?|\.)\s+", "", text)  # an entry's own number, if printed: "1.", "[1]", "[1]."
         year = _YEAR_RE.search(text)
-        refs.append(Ref(ref_no=i + 1, node_id=n.node_id, text=text, doi=doi.group(0).rstrip(".,;)") if doi else None, year=year.group(1) if year else None, first_author=first_surname(text)))
+        pmid = _PMID.search(text)
+        refs.append(Ref(ref_no=i + 1, node_id=n.node_id, text=text, doi=entry_doi(text), pmid=pmid.group(1) if pmid else None,
+                        year=year.group(1) if year else None, first_author=first_surname(text)))
     # when the paper prints its numbers and they run in order, they are the entry numbers: a
     # merged or a missing entry no longer shifts every link after it; an unnumbered entry in
     # such a list is the rest of the one before it, and links nowhere

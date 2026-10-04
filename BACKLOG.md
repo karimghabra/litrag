@@ -5,6 +5,17 @@ wants as they are voiced.
 
 ## Named priorities
 
+- **Reading faults the link test found** (2026-10-04, six papers read as PDF and as XML) —
+  (1) `tree._pick_title` refuses a real title shaped like a list of names ("Mesenchymal Stem Cell
+  Migration and Tissue Repair", doi:10.3390/cells8080784): `_never_a_title` → `_name_list` /
+  `_looks_like_authors` veto even a Docling `title` item read from JATS, and the paper is filed
+  under its file's name (a fetch now falls back to the record's title; a dropped JATS does not).
+  (2) A Frontiers PDF (doi:10.3389/fbioe.2024.1505102) had its funding, AI-use and disclaimer
+  statements filed in the references lane as entries, and two entries run together at a column
+  break; 12 of its 53 cited works stay unlinked for it. (3) The same Frontiers PDF's title was
+  read as "EDITED BY Jianxun Ding, Chinese Academy of Sciences (CAS), China" (the front page's
+  editor box), and the Micromachines PDF's introduction opens with "Academic Editor: Dmitry
+  Volodkin" joined into its first paragraph — MDPI's and Frontiers' first-page boxes, read as text.
 - **The rounds, further** (after Karim, 2026-10-04; *passages linked to the works they cite and Expand built the same day*) — a citation round files what the papers cite
   and what cites them (`graph.py`, the Graph tab), from Europe PMC and OpenAlex side by side
   (*2026-10-04*: a reference with no DOI or PMID matched in OpenAlex by its whole title, year and

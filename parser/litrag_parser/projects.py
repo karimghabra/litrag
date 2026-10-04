@@ -363,4 +363,10 @@ def _merge_candidates(sconn: sqlite3.Connection, tconn: sqlite3.Connection, now:
         if "harvests" in tables:
             for paper, kind, at, found in sconn.execute("SELECT paper, kind, at, found FROM harvests WHERE kind != 'local'"):
                 tconn.execute("INSERT OR IGNORE INTO harvests VALUES (?, ?, ?, ?)", (paper, kind, at, found))
+        if "ref_lists" in tables:
+            # the lists a round kept are what line a paper's entries up with their works: a round
+            # marked asked would never fetch them again, so they come too
+            cols = [c for c in graph.REF_LIST_COLS.split(", ") if c in {r[1] for r in sconn.execute("PRAGMA table_info(ref_lists)")}]
+            tconn.executemany(f"INSERT OR IGNORE INTO ref_lists ({', '.join(cols)}) VALUES ({', '.join('?' * len(cols))})",
+                              [tuple(r) for r in sconn.execute(f"SELECT {', '.join(cols)} FROM ref_lists")])
     return added

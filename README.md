@@ -726,6 +726,22 @@ where state = 'candidate' order by cited_here desc, year desc;
   edge knows how many passages it stands for. In the Papers tab an entry
   says what it names (→ in the library, a click away; → found, a
   candidate), and in Query a passage's citations lead to the papers held.
+- **How right the links are** is measured, not assumed: `python -m
+  litrag_parser.graph --lib <a PDF library> --truth <the same papers' JATS>`
+  scores every link of the first against the identifiers the second's
+  entries carry. On six open papers from six publishers (MDPI, Cureus,
+  Scientific Reports, Wiley, PLOS, Frontiers): 246 of 270 PDF entries
+  linked, none wrong, 14 to works the JATS itself names no identifier for
+  (books, a few non-PubMed papers, checked by hand), and 231 of the 252
+  works the JATS identifies reached (0.92). What it took: a DOI the PDF's
+  line breaks mangled is trusted only once Europe PMC or OpenAlex knows it
+  (it had made all 10 wrong links of the first try); the PMIDs PDF entries
+  print are read; a held paper's own PMID is looked up so Europe PMC's list
+  can be asked; titles are matched with accents folded and the PDF's lost
+  hyphens forgiven, against any year the entry prints; and an entry that
+  prints no title (Wiley's "Geissler J, Injury 2019, 50, S64.") by its
+  first author, year, volume and first page. A rebuild with the network
+  cut, and a merge, give back every link.
 - **Expand: read the most cited** runs a round, then fetches and reads the
   works the papers held cite most (linked to the most of them, then the
   most cited anywhere; at most the number beside it, 10 by default) — the

@@ -32,6 +32,7 @@ import os
 import re
 import sqlite3
 import unicodedata
+from pathlib import Path
 from typing import Any, Callable, Iterable
 
 from . import acquire
@@ -66,6 +67,7 @@ CREATE TABLE IF NOT EXISTS ref_lists (
                            -- openalex-search: the entry (ref_no) whose words found it
   ident TEXT,              -- the work it names, when the source knew: pmid:… | doi:… | pmcid:… | openalex:W…
   title TEXT, year TEXT, first_author TEXT,
+  volume TEXT, first_page TEXT, -- what an entry printing no title is matched by, with its author and year
   PRIMARY KEY (paper, source, ord)
 );
 CREATE TABLE IF NOT EXISTS ref_works (
@@ -128,6 +130,10 @@ FROM citations c JOIN ref_works r ON r.paper = c.paper AND r.ref_no = c.ref_no
 def ensure_schema(conn: sqlite3.Connection) -> None:
     acquire.ensure_schema(conn)
     conn.executescript(SCHEMA)
+    have = {r[1] for r in conn.execute("PRAGMA table_info(ref_lists)")}
+    for col in ("volume", "first_page"):
+        if col not in have:  # lists kept before an entry with no title could be matched by its print
+            conn.execute(f"ALTER TABLE ref_lists ADD COLUMN {col} TEXT")
     for name, sql in (("works", WORKS_VIEW), ("passage_cites", PASSAGES_VIEW)):
         have = conn.execute("SELECT sql FROM sqlite_master WHERE type = 'view' AND name = ?", (name,)).fetchone()
         if have is None or " ".join(str(have[0]).split()) != " ".join(sql.split()):
@@ -284,15 +290,20 @@ def _fold_family(name: Any) -> str | None:
 
 def _at_its_place(entry: dict[str, Any], row: dict[str, Any]) -> bool:
     """Whether Europe PMC's entry at the same place in the list is this entry: its first author's
-    family name in the entry's words, and the years equal when both are known. A list read from a
+    family name in the entry's words, and a year it prints within one of the entry's (or none). A list read from a
     PDF can run out of step with the printed one; these keep a place from being taken on trust."""
     from .openalex import _norm
+
+    from .openalex import year_agrees
 
     family = _fold_family(row.get("first_author"))
     if not family or f" {family} " not in f" {_norm(entry.get('text'))} ":
         return False
-    printed, known = str(entry.get("year") or "")[:4], str(row.get("year") or "")[:4]
-    return not (printed.isdigit() and known.isdigit() and printed != known)
+    return year_agrees(entry, row.get("year"))
+
+
+#: How entries are matched to works: raised whenever that changes, so libraries linked before are linked again.
+LINKER = 2
 
 
 def link_refs(conn: sqlite3.Connection) -> int:
@@ -302,15 +313,19 @@ def link_refs(conn: sqlite3.Connection) -> int:
     at the same place when its first author and year agree, else the one work of either list whose
     whole title, year and first author the entry carries. An entry none of these names stays
     unlinked (invariant 5). Done again whenever the papers, their lists, the candidates or the
-    lists change, so a reread or a rebuild is linked again without asking anything."""
+    lists change, so a reread or a rebuild is linked again without asking anything. An entry that
+    prints no title is matched by what it does print: first author, year, volume and first page.
+
+    The stamp folds in the linker's own version, so a change to how entries are matched reaches a
+    library linked before it."""
     from .lineage import _Library
-    from .openalex import names
+    from .openalex import cites_by_place_in_print, names
 
     changed, stamp = _stamp(conn, "refs-linked",
-                            "SELECT COUNT(*), MAX(rowid), GROUP_CONCAT(parsed_at), TOTAL(length(doi)), TOTAL(length(pmid)), TOTAL(length(title)) FROM papers"
-                            " UNION ALL SELECT COUNT(*), MAX(rowid), NULL, NULL, NULL, NULL FROM refs"
-                            " UNION ALL SELECT COUNT(*), MAX(cand_id), COUNT(paper_key), TOTAL(length(doi)), TOTAL(length(pmid)), TOTAL(length(openalex)) FROM candidates"
-                            " UNION ALL SELECT COUNT(*), MAX(rowid), NULL, NULL, NULL, NULL FROM ref_lists")
+                            f"SELECT {LINKER}, COUNT(*), MAX(rowid), GROUP_CONCAT(parsed_at), TOTAL(length(doi)), TOTAL(length(pmid)), TOTAL(length(title)) FROM papers"
+                            " UNION ALL SELECT NULL, COUNT(*), MAX(rowid), NULL, NULL, NULL, NULL FROM refs"
+                            " UNION ALL SELECT NULL, COUNT(*), MAX(cand_id), COUNT(paper_key), TOTAL(length(doi)), TOTAL(length(pmid)), TOTAL(length(openalex)) FROM candidates"
+                            " UNION ALL SELECT NULL, COUNT(*), MAX(rowid), NULL, NULL, NULL, NULL FROM ref_lists")
     if not changed:
         return 0
     held = _held_index(conn)
@@ -342,9 +357,11 @@ def link_refs(conn: sqlite3.Connection) -> int:
                 w, how = work(placed[e["ref_no"]]["ident"]), "europepmc"
             if w is None and e["ref_no"] in searched:
                 w, how = work(searched[e["ref_no"]]["ident"]), "openalex-search"
-            if w is None:
-                named = {r["ident"]: r["source"] for r in rows if r["ident"] and r["source"] != "openalex-search"
-                         and names(e, r["title"], r["year"], _fold_family(r["first_author"]))}
+            for match in (lambda r: names(e, r["title"], r["year"], _fold_family(r["first_author"])),
+                          lambda r: cites_by_place_in_print(e, _fold_family(r["first_author"]), r["year"], r["volume"], r["first_page"])):
+                if w is not None:
+                    break
+                named = {r["ident"]: r["source"] for r in rows if r["ident"] and r["source"] != "openalex-search" and match(r)}
                 if len({work(i) for i in named} - {None}) == 1:
                     ident = next(i for i in named if work(i))
                     w, how = work(ident), named[ident]
@@ -437,6 +454,39 @@ def _same_work(conn: sqlite3.Connection, h: dict[str, Any]) -> int | None:
     return same[0] if len(same) == 1 else None
 
 
+def _own_identifiers(conn: sqlite3.Connection, rows: list[dict[str, Any]], timeout: float) -> None:
+    """A held paper read from a PDF knows its DOI and seldom its PMID or PMCID — and without them
+    Europe PMC's list of its references cannot be asked. Its record is looked up by the DOI, and
+    what it lacks is filled (never replaced), in the rows and in `papers`."""
+    lacking = {acquire.ident_of(doi=p["doi"]): p for p in rows if p["doi"] and not (p["pmid"] or p["pmcid"])}
+    lacking.pop(None, None)
+    if not lacking:
+        return
+    try:
+        got, _ = acquire.lookup(list(lacking), timeout=max(timeout, 60))
+    except (acquire.AcquireError, OSError):
+        return
+    with conn:
+        for ident, hit in got.items():
+            p = lacking[ident]
+            p["pmid"], p["pmcid"] = p["pmid"] or hit.get("pmid"), p["pmcid"] or hit.get("pmcid")
+            conn.execute("UPDATE papers SET pmid = COALESCE(pmid, ?), pmcid = COALESCE(pmcid, ?) WHERE key = ?", (hit.get("pmid"), hit.get("pmcid"), p["key"]))
+
+
+REF_LIST_COLS = "paper, source, ord, ident, title, year, first_author, volume, first_page"
+
+
+def _first_page(pages: Any) -> str | None:
+    """"1913-1927" → "1913"; "S64-S68" → "S64"; "e32566" → "e32566"."""
+    first = re.split(r"\s*[-–—]\s*", str(pages or "").strip())[0]
+    return first or None
+
+
+def _biblio(w: dict[str, Any]) -> tuple[str | None, str | None]:
+    b = w.get("biblio") or {}
+    return (str(b.get("volume") or "") or None, str(b.get("first_page") or "") or None)
+
+
 def _paper_ident(p: dict[str, Any]) -> str | None:
     return acquire.ident_of(doi=p["doi"]) or acquire.ident_of(pmid=p["pmid"]) or acquire.ident_of(pmcid=p["pmcid"])
 
@@ -476,7 +526,7 @@ def harvest(lib: Library, conn: sqlite3.Connection, keys: Iterable[str] | None =
     use_oa = network and oa.enabled() and (openalex is None or bool(openalex))  # `LITRAG_OPENALEX=off` is the machine's word, above a request's
     searches_left = int(os.environ.get("LITRAG_OPENALEX_SEARCHES", "50") if title_searches is None else title_searches)
 
-    rows = [dict(r) for r in conn.execute("SELECT key, doi, pmid, pmcid, title, authors FROM papers ORDER BY added_at, key")]
+    rows = [dict(r) for r in conn.execute("SELECT key, doi, pmid, pmcid, title, authors, format FROM papers ORDER BY added_at, key")]
     if keys is not None:
         wanted_keys = set(keys)
         rows = [r for r in rows if r["key"] in wanted_keys]
@@ -485,9 +535,13 @@ def harvest(lib: Library, conn: sqlite3.Connection, keys: Iterable[str] | None =
     asked = {(p, k) for p, k in conn.execute("SELECT paper, kind FROM harvests")}
     if not again and keys is None:
         rows = [r for r in rows if any((r["key"], k) not in asked for k in kinds)]
+    if network:
+        _own_identifiers(conn, rows, timeout)
     held = _held_index(conn)
     resolver = _Library(conn)
     found: dict[str, dict[str, Any]] = {}  # ident -> what is known of it, before it is filed
+    printed: set[str] = set()  # what only a PDF's printed words named: trusted once a source knows it
+    from_lists: set[str] = set()  # what a source's list named
     oa_hits: dict[str, dict[str, Any]] = {}  # ident -> OpenAlex's record of it, as a candidate's hit
     # (citing, cited, origin, side, ref_no, harvest kind): the unheld side an ident until filed
     edges: list[tuple[str, str, str, str, int | None, str]] = []
@@ -500,7 +554,9 @@ def harvest(lib: Library, conn: sqlite3.Connection, keys: Iterable[str] | None =
     kept: dict[tuple[str, str], list[tuple[Any, ...]]] = {}  # (paper, source) -> its list, kept as `ref_lists` rows
     w_of: dict[str, str] = {}  # a held paper's own OpenAlex id
 
-    def note(ident: str, paper_round: int, query: str, seen: dict[str, Any]) -> None:
+    def note(ident: str, paper_round: int, query: str, seen: dict[str, Any], *, source: bool = True) -> None:
+        if source:
+            from_lists.add(ident)
         f = found.setdefault(ident, {"round": paper_round + 1, "query": query, "seen": {}})
         f["round"] = min(f["round"], paper_round + 1)
         for k, v in seen.items():
@@ -578,13 +634,16 @@ def harvest(lib: Library, conn: sqlite3.Connection, keys: Iterable[str] | None =
                         direct.add((key, held[ident], "refs", ref["ref_no"]))
                         n_found += 1
                     continue
-                note(ident, r, f"cited by {key}", {"title": ref["title"], "year": ref["year"], "authors": ref["first_author"], "doi": ref["doi"]})
+                note(ident, r, f"cited by {key}", {"title": ref["title"], "year": ref["year"], "authors": ref["first_author"], "doi": ref["doi"]}, source=False)
                 edges.append((key, ident, "refs", "cited", ref["ref_no"], "references"))
+                if p["format"] != "jats":
+                    printed.add(ident)
                 n_found += 1
             # Europe PMC's list of it, kept: its places line its entries up with the paper's own
             if epmc_refs is not None:
                 kept[(key, "europepmc")] = [(key, "europepmc", int(x.get("citedOrder") or n + 1), _epmc_ident(x), acquire.plain_text(x.get("title")),
-                                             str(x.get("pubYear") or "") or None, str(x.get("authorString") or "").rstrip(".") or None)
+                                             str(x.get("pubYear") or "") or None, str(x.get("authorString") or "").rstrip(".") or None,
+                                             str(x.get("volume") or "") or None, _first_page(x.get("pageInfo")))
                                             for n, x in enumerate(epmc_refs)]
             for x in epmc_refs or []:
                 stats["entries"] += 1
@@ -622,7 +681,8 @@ def harvest(lib: Library, conn: sqlite3.Connection, keys: Iterable[str] | None =
                         stats["unidentified"] += epmc_refs is None
                         continue
                     oas["matched"] += 1
-                    kept.setdefault((key, "openalex-search"), []).append((key, "openalex-search", ref["ref_no"], ident, w.get("title"), str(w.get("publication_year") or "") or None, oa.first_author(w)))  # type: ignore[union-attr]
+                    kept.setdefault((key, "openalex-search"), []).append((key, "openalex-search", ref["ref_no"], ident, w.get("title"), str(w.get("publication_year") or "") or None, oa.first_author(w),  # type: ignore[union-attr]
+                                                                       *_biblio(w)))
                     if ident in held:
                         if held[ident] != key:
                             direct.add((key, held[ident], "openalex", ref["ref_no"]))
@@ -685,7 +745,7 @@ def harvest(lib: Library, conn: sqlite3.Connection, keys: Iterable[str] | None =
                 r = round_of(conn, key)
                 n = 0
                 kept[(key, "openalex")] = [(key, "openalex", i, oa.ident(got[w_id]), got[w_id].get("title"), str(got[w_id].get("publication_year") or "") or None,
-                                            oa.first_author(got[w_id])) for i, w_id in enumerate(ids, start=1) if w_id in got]
+                                            oa.first_author(got[w_id]), *_biblio(got[w_id])) for i, w_id in enumerate(ids, start=1) if w_id in got]
                 for w_id in ids:
                     w = got.get(w_id)
                     ident = oa.ident(w) if w else None
@@ -719,6 +779,23 @@ def harvest(lib: Library, conn: sqlite3.Connection, keys: Iterable[str] | None =
             done = [d for d in done if (d[0], d[1]) not in unfinished]
             found = {i: f for i, f in found.items() if i not in missed}
             edges = [e for e in edges if (e[1] if e[3] == "cited" else e[0]) not in missed]
+    # A DOI read off a PDF can be one the line break mangled ("10.1158/00085472…" for 0008-5472):
+    # it is filed only when Europe PMC or OpenAlex knows it, else the entry is left to the lists
+    for ident in sorted(printed - from_lists):
+        if ident not in found or records.get(ident) or oa_hits.get(ident) or ident in cands:
+            continue
+        w = None
+        if use_oa and not oas["spent"]:
+            try:
+                w = oa.work(ident, timeout=timeout)
+            except (oa.Budget, OSError):
+                w = None
+        if w is not None and oa.ident(w):
+            oa_hits[ident] = oa.hit(w)
+            continue
+        del found[ident]
+        stats["unverified"] = stats.get("unverified", 0) + 1
+    edges = [e for e in edges if (e[1] if e[3] == "cited" else e[0]) in found or (e[1] if e[3] == "cited" else e[0]) in held]
     now = now_iso()
     added = 0
     ident_cand: dict[str, int] = {}
@@ -751,7 +828,7 @@ def harvest(lib: Library, conn: sqlite3.Connection, keys: Iterable[str] | None =
         conn.executemany("INSERT OR REPLACE INTO harvests VALUES (?, ?, ?, ?)", done)
         for (paper, source), rows_kept in kept.items():
             conn.execute("DELETE FROM ref_lists WHERE paper = ? AND source = ?", (paper, source))
-            conn.executemany("INSERT OR REPLACE INTO ref_lists VALUES (?, ?, ?, ?, ?, ?, ?)", rows_kept)
+            conn.executemany(f"INSERT OR REPLACE INTO ref_lists ({REF_LIST_COLS}) VALUES ({', '.join('?' * 9)})", rows_kept)
         # a `refs` citation is an entry linked to its work, which `link_refs` derives from these rows
         for citing, cited, origin, ref_no in direct:
             if origin != "refs":
@@ -846,16 +923,147 @@ def passages_citing(conn: sqlite3.Connection, work: str, limit: int = 200) -> li
 def next_to_read(conn: sqlite3.Connection, most: int = 20, min_cited: int = 1) -> list[dict[str, Any]]:
     """The candidates the papers held cite most and the library has not read: cited (or citing) by
     at least `min_cited` held papers, not yet fetched, dismissed or given up on — the most cited
-    here first; among those cited as often, one that can be read now (an open XML, or a PMCID the
-    PDF routes can ask by) before one that would wait for a person; then the most cited anywhere,
+    here first; among those cited as often, one that can be read now (an open XML, or an open paper
+    with a PMCID the PDF routes ask by — a PMCID alone is no promise: PMC shows many papers it may
+    not give out, measured 2026-10-04) before one that would wait for a person; then the most cited anywhere,
     then the newest — at most `most`."""
     sync(conn)
     return [dict(r) for r in conn.execute(
         """SELECT w.cand_id, w.work, w.title, w.year, w.first_author, w.status, w.cited_by,
                   (SELECT COUNT(DISTINCT x.citing) FROM cites x WHERE x.cited = w.work AND x.citing IN (SELECT key FROM papers))
                 + (SELECT COUNT(DISTINCT x.cited) FROM cites x WHERE x.citing = w.work AND x.cited IN (SELECT key FROM papers)) AS held_links,
-                  (c.has_xml = 1 OR c.pmcid IS NOT NULL) AS readable
+                  (c.has_xml = 1 OR (c.is_open_access = 1 AND c.pmcid IS NOT NULL)) AS readable
            FROM works w JOIN candidates c ON c.cand_id = w.cand_id
            WHERE w.state = 'candidate' AND w.status IN ('found', 'failed')
            ORDER BY held_links DESC, readable DESC, COALESCE(w.cited_by, 0) DESC, COALESCE(w.year, 0) DESC, w.cand_id""").fetchall()
         if r["held_links"] >= max(1, int(min_cited))][: max(0, int(most))]
+
+
+# ---------------------------------------------------------------- how right the links are
+
+
+def _paper_pairs(test: sqlite3.Connection, truth: sqlite3.Connection) -> list[tuple[str, str]]:
+    """The papers two libraries both hold: by DOI, else PMID, else PMCID, else the same title."""
+    def ids(conn: sqlite3.Connection) -> dict[str, str]:
+        out: dict[str, str] = {}
+        for key, doi, pmid, pmcid, title in conn.execute("SELECT key, doi, pmid, pmcid, title FROM papers"):
+            for i in (acquire.ident_of(doi=doi), acquire.ident_of(pmid=pmid), acquire.ident_of(pmcid=pmcid),
+                      f"title:{' '.join(re.sub(r'[^a-z0-9]+', ' ', str(title or '').lower()).split())}" if title else None):
+                if i:
+                    out.setdefault(i, key)
+        return out
+
+    t, g = ids(test), ids(truth)
+    pairs: dict[str, str] = {}
+    for i, key in t.items():
+        if i in g:
+            pairs.setdefault(key, g[i])
+    return sorted(pairs.items())
+
+
+def _work_ids(conn: sqlite3.Connection, work: str) -> tuple[set[str], str | None]:
+    """A work's identifiers (`doi:…`, `pmid:…`) and its title, held or a candidate."""
+    if work.startswith("cand:"):
+        r = conn.execute("SELECT doi, pmid, pmcid, title FROM candidates WHERE cand_id = ?", (int(work[5:]),)).fetchone()
+    else:
+        r = conn.execute("SELECT doi, pmid, pmcid, title FROM papers WHERE key = ?", (work,)).fetchone()
+    if r is None:
+        return set(), None
+    return {i for i in (acquire.ident_of(doi=r[0]), acquire.ident_of(pmid=r[1]), acquire.ident_of(pmcid=r[2])) if i}, r[3]
+
+
+def measure_links(test: sqlite3.Connection, truth: sqlite3.Connection, show: int = 0) -> dict[str, Any]:
+    """How right one reading's entry links are (`ref_works`), against another reading of the same
+    papers whose entries carry their own identifiers — the JATS of the papers a PDF library holds.
+    For each paper both hold: every link is `right` when the work it names is one the truth's list
+    names by DOI or PMID, else `unverified` when the truth has entries naming nothing it could be,
+    else `wrong`; a right link is at the `right entry` when that truth entry's first author is in the
+    linked entry's words. `reached` is the share of the truth's identified works some entry of the
+    test reading is linked to. `show` lists that many unverified or wrong links to look at."""
+    sync(test)
+    papers, totals = [], {"entries": 0, "linked": 0, "right": 0, "right_entry": 0, "wrong": 0, "unverified": 0, "gold": 0, "reached": 0, "by": {}}
+    shown: list[dict[str, Any]] = []
+    for tkey, gkey in _paper_pairs(test, truth):
+        gold: dict[str, dict[str, Any]] = {}
+        unnamed = 0
+        for r in truth.execute("SELECT ref_no, doi, pmid, first_author, year, text FROM refs WHERE paper = ?", (gkey,)):
+            got = {i for i in (acquire.ident_of(doi=r[1]), acquire.ident_of(pmid=r[2])) if i}
+            unnamed += not got
+            for i in got:
+                gold.setdefault(i, {"first_author": r[3], "year": r[4], "text": r[5]})
+        distinct: list[set[str]] = []
+        for r in truth.execute("SELECT doi, pmid FROM refs WHERE paper = ?", (gkey,)):
+            got = {i for i in (acquire.ident_of(doi=r[0]), acquire.ident_of(pmid=r[1])) if i}
+            if got and not any(got & d for d in distinct):
+                distinct.append(got)
+        row = {"paper": tkey, "entries": 0, "linked": 0, "right": 0, "right_entry": 0, "wrong": 0, "unverified": 0, "gold": len(distinct), "reached": 0}
+        row["entries"] = test.execute("SELECT COUNT(*) FROM refs WHERE paper = ?", (tkey,)).fetchone()[0]
+        reached: set[int] = set()
+        for ref_no, work, how, text in test.execute(
+                "SELECT rw.ref_no, rw.work, rw.how, r.text FROM ref_works rw JOIN refs r ON r.paper = rw.paper AND r.ref_no = rw.ref_no WHERE rw.paper = ?", (tkey,)).fetchall():
+            row["linked"] += 1
+            totals["by"].setdefault(how, {"linked": 0, "right": 0, "wrong": 0, "unverified": 0})
+            totals["by"][how]["linked"] += 1
+            ids, title = _work_ids(test, work)
+            hit = next((gold[i] for i in ids if i in gold), None)
+            if hit is not None:
+                row["right"] += 1
+                totals["by"][how]["right"] += 1
+                reached |= {n for n, d in enumerate(distinct) if ids & d}
+                family = _fold_family(hit["first_author"]) if hit["first_author"] else None
+                from .openalex import _norm
+
+                if family and f" {family} " in f" {_norm(text)} ":
+                    row["right_entry"] += 1
+                continue
+            verdict = "unverified" if unnamed else "wrong"
+            row[verdict] += 1
+            totals["by"][how][verdict] += 1
+            if len(shown) < show:
+                shown.append({"paper": tkey, "ref_no": ref_no, "how": how, "verdict": verdict, "entry": (text or "")[:200], "work": work, "title": title})
+        row["reached"] = len(reached)
+        papers.append(row)
+        for k in ("entries", "linked", "right", "right_entry", "wrong", "unverified", "gold", "reached"):
+            totals[k] += row[k]
+    judged = totals["right"] + totals["wrong"]
+    totals["precision"] = round(totals["right"] / judged, 3) if judged else None
+    totals["recall"] = round(totals["reached"] / totals["gold"], 3) if totals["gold"] else None
+    return {"papers": papers, "totals": totals, "shown": shown}
+
+
+def main(argv: list[str] | None = None) -> int:
+    import argparse
+    import sys
+
+    from .store import open_store
+
+    ap = argparse.ArgumentParser(prog="python -m litrag_parser.graph", description="The library as a graph of works: measure its entry links.")
+    ap.add_argument("--lib", required=True, help="the library whose links are measured (its store's folder), e.g. the PDFs")
+    ap.add_argument("--truth", required=True, help="a library holding the same papers whose entries carry their identifiers, e.g. their JATS")
+    ap.add_argument("--show", type=int, default=0, help="list this many unverified or wrong links")
+    ap.add_argument("--json", action="store_true")
+    a = ap.parse_args(argv)
+    test, truth = open_store(Path(a.lib) / "store.sqlite"), open_store(Path(a.truth) / "store.sqlite")
+    try:
+        out = measure_links(test, truth, show=a.show)
+    finally:
+        test.close()
+        truth.close()
+    sys.stdout.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]
+    if a.json:
+        print(json.dumps(out, ensure_ascii=False, indent=2))
+        return 0
+    t = out["totals"]
+    print(f"{len(out['papers'])} papers in both; {t['entries']} entries, {t['linked']} linked: {t['right']} right ({t['right_entry']} at the right entry), "
+          f"{t['wrong']} wrong, {t['unverified']} not verifiable; precision {t['precision']}, works reached {t['reached']} of {t['gold']} (recall {t['recall']})")
+    for how, b in sorted(t["by"].items()):
+        print(f"  {how:16} {b['linked']:4} linked, {b['right']:4} right, {b['wrong']:3} wrong, {b['unverified']:3} unverified")
+    for p in out["papers"]:
+        print(f"  {p['paper'][:40]:40} {p['entries']:3} entries, {p['linked']:3} linked, {p['right']:3} right, {p['wrong']:2} wrong, {p['unverified']:2} unverified, reached {p['reached']}/{p['gold']}")
+    for s in out["shown"]:
+        print(f"  [{s['verdict']}] {s['paper']} [{s['ref_no']}] by {s['how']}: {s['entry'][:110]!r} -> {s['title']!r}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -33,8 +33,8 @@ def lib(tmp_path):
     return create_library(tmp_path, "Tendon")
 
 
-def _paper(conn, *, doi=None, pmid=None, pmcid=None, title, year, authors=None, refs=(), at="2026-10-01T00:00:00"):
-    key = file_paper(conn, title=title, file="", sha256=title, fmt="pdf", doi=doi, pmid=pmid, pmcid=pmcid, now=at).key
+def _paper(conn, *, doi=None, pmid=None, pmcid=None, title, year, authors=None, refs=(), at="2026-10-01T00:00:00", fmt="pdf"):
+    key = file_paper(conn, title=title, file="", sha256=title, fmt=fmt, doi=doi, pmid=pmid, pmcid=pmcid, now=at).key
     conn.execute("UPDATE papers SET status = 'parsed', parsed_at = ?, year = ? WHERE key = ?", (at, str(year), key))
     conn.commit()
     if authors:
@@ -128,7 +128,7 @@ def test_authors_are_rows_and_works_answer_in_order(lib):
 def test_a_citation_round_files_what_the_papers_cite_as_the_next_round(epmc, lib):
     conn = open_store(lib.store_path)
     held = _paper(conn, doi="10.1/held", title="A paper the library holds already", year=2012)
-    a = _paper(conn, pmid="111", doi="10.1/a", title="The first round's paper", year=2020, refs=[
+    a = _paper(conn, pmid="111", doi="10.1/a", title="The first round's paper", year=2020, fmt="jats", refs=[  # its DOIs the publisher's own
         {"doi": "10.1/held", "first_author": "Islam", "year": "2012"},
         {"pmid": "222", "first_author": "Lyon", "year": "2019", "title": "Cited by both lists"},
         {"doi": "10.9/unknown", "first_author": "Gautieri", "year": "2011", "title": "A work Europe PMC does not know"},
@@ -257,7 +257,7 @@ def test_a_merge_carries_a_round_s_candidates_and_citations(tmp_path):
 
 def test_a_round_that_cannot_reach_europe_pmc_files_nothing_and_tries_again(epmc, lib):
     conn = open_store(lib.store_path)
-    a = _paper(conn, pmid="111", title="The first round's paper", year=2020, refs=[{"doi": "10.9/x", "title": "A cited work"}, {"pmid": "111"}])  # the second: itself
+    a = _paper(conn, pmid="111", title="The first round's paper", year=2020, fmt="jats", refs=[{"doi": "10.9/x", "title": "A cited work"}, {"pmid": "111"}])  # the second: itself
     epmc.json("/rest/MED/111/references", {"hitCount": 0, "referenceList": {"reference": []}})
     epmc.json("/rest/search", {"error": "refused"}, status=500)  # the lookup fails
     out = graph.harvest(lib, conn)
@@ -416,7 +416,18 @@ def test_a_reference_matches_a_work_only_by_its_whole_title_year_and_first_autho
     w = _work("W900", "3D printing-assisted design of scaffold structures", 2015, authors=(("Antreas Kantaros", None),))
     entry = {"text": "Kantaros A, et al. 3D printing-assisted design of scaffold structures. Int J Adv Manuf Technol 2016", "year": "2016"}
     assert openalex.matches(entry, w)
-    assert not openalex.matches({**entry, "year": "2012"}, w)  # years too far apart
+    assert not openalex.matches({"text": entry["text"].replace("2016", "2012"), "year": "2012"}, w)  # years too far apart
+    # what a PDF does to an entry: accents, a hyphen the line break took, a page range read as the year
+    assert openalex.matches({"text": "García-García A, Pigeot S. Engineering of immunoinstructive extracellular matrices. Bioact Mater 2022", "year": "2022"},
+                            _work("W2", "Engineering of immunoinstructive extracellular matrices", 2022, authors=(("Andrés García‐García", None),)))
+    assert openalex.matches({"text": "Wang X. Effects of an injectable platelet-rich fibrin in comparison to plateletrich plasma. 2018", "year": "2018"},
+                            _work("W3", "Effects of an injectable platelet-rich fibrin in comparison to platelet-rich plasma", 2017, authors=(("Xuzhu Wang", None),)))
+    assert openalex.matches({"text": "Miron RJ et al. Use of platelet-rich fibrin in regenerative dentistry: a systematic review. Clin Oral Investig 21, 1913-1927 (2017).", "year": "1913"},
+                            _work("W4", "Use of platelet-rich fibrin in regenerative dentistry: a systematic review", 2017, authors=(("Richard J. Miron", None),)))
+    # an entry that prints no title, by what it prints
+    assert openalex.cites_by_place_in_print({"text": "Geissler J, Stevanovic M, Injury 2019, 50, S64."}, "geissler", "2019", "50", "S64")
+    assert not openalex.cites_by_place_in_print({"text": "Geissler J, Stevanovic M, Injury 2019, 50, S64."}, "geissler", "2019", "51", "S64")  # another volume
+    assert not openalex.cites_by_place_in_print({"text": "Geissler J, Injury 2019, 50, S64."}, "geissler", "2019", "50", None)  # no page known: no match
     assert not openalex.matches({**entry, "text": entry["text"].replace("Kantaros", "Lyon")}, w)  # another first author
     assert not openalex.matches({**entry, "text": "Kantaros A. 3D printing-assisted design. 2016"}, w)  # part of the title is not the title
     assert openalex.ident(w) == "openalex:W900" and openalex.ident(_work("W1", "t", 2020, doi="10.1/X", pmid="5")) == "pmid:5"
@@ -535,6 +546,12 @@ def test_what_to_read_next_is_what_the_papers_cite_most(lib):
     conn.commit()
     order = [r["cand_id"] for r in graph.next_to_read(conn)]
     assert order == [ids["10.5/twice"], ids["10.5/once-old"], ids["10.5/once-new"]]  # cited here, then cited anywhere; never what was set aside or waits for a person
+    # among works cited as often, one that can be read now first: an open XML, or open with a PMCID —
+    # a PMCID alone is no promise (PMC shows papers it may not give out)
+    conn.execute("UPDATE candidates SET has_xml = 1 WHERE cand_id = ?", (ids["10.5/once-new"],))
+    conn.execute("UPDATE candidates SET pmcid = 'PMC9' WHERE cand_id = ?", (ids["10.5/once-old"],))
+    conn.commit()
+    assert [r["cand_id"] for r in graph.next_to_read(conn)] == [ids["10.5/twice"], ids["10.5/once-new"], ids["10.5/once-old"]]
     assert [r["cand_id"] for r in graph.next_to_read(conn, min_cited=2)] == [ids["10.5/twice"]]
     assert len(graph.next_to_read(conn, most=1)) == 1
     conn.close()
@@ -565,3 +582,84 @@ def test_expand_runs_a_round_then_fetches_what_is_cited_most(tmp_path, monkeypat
         conn.close()
     finally:
         c.close()
+
+
+def test_a_merge_keeps_what_links_the_entries(tmp_path):
+    """The lists a round kept are what lines a PDF's entries up with their works; a merge that left
+    them behind would leave those entries unlinked for good, since the round is marked asked."""
+    from litrag_parser import projects
+
+    src = create_library(tmp_path, "Source")
+    conn = open_store(src.store_path)
+    graph.ensure_schema(conn)
+    refs = [{"text": "Lyon R, Kishore V. Fibres. J Tissue Eng. 2019;5:1-9.", "year": "2019", "first_author": "Lyon"}]
+    a = _paper(conn, doi="10.1/a", title="A PDF read into a tree", year=2020, refs=refs)
+    cid, _ = acquire.upsert_candidate(conn, {"pmid": "222", "title": "Fibres", "year": "2019"}, query="cited by a", now="t", round=2)
+    conn.execute("INSERT INTO ref_lists (paper, source, ord, ident, title, year, first_author) VALUES (?, 'europepmc', 1, 'pmid:222', 'Fibres', '2019', 'Lyon R, Kishore V')", (a,))
+    conn.execute("INSERT INTO harvests VALUES (?, 'references', 't', 1)", (a,))
+    conn.commit()
+    graph.sync(conn)
+    assert _q(conn, "SELECT ref_no, how FROM ref_works") == [(1, "europepmc")]
+    conn.close()
+    projects.merge(tmp_path, ["source"], "Merged")
+    conn = open_store(tmp_path / "merged" / "store.sqlite")
+    # the rebuild that follows a merge reads the entries again
+    save_refs(conn, a, [SimpleNamespace(ref_no=1, node_id="n", ref_id=None, text=refs[0]["text"], doi=None, pmid=None, year="2019", first_author="Lyon", title=None)], [])
+    graph.sync(conn)
+    here = _q(conn, "SELECT cand_id FROM candidates WHERE pmid = '222'")[0][0]
+    assert _q(conn, "SELECT ref_no, work, how FROM ref_works") == [(1, f"cand:{here}", "europepmc")]
+    conn.close()
+
+
+def test_the_links_of_a_pdf_are_measured_against_its_jats(tmp_path):
+    truth_lib, test_lib = create_library(tmp_path, "Truth"), create_library(tmp_path, "Test")
+    truth = open_store(truth_lib.store_path)
+    _paper(truth, doi="10.1/a", title="The paper", year=2020, refs=[
+        {"doi": "10.5/right", "first_author": "Lyon", "year": "2019", "text": "Lyon R. Right. 2019."},
+        {"pmid": "777", "first_author": "Onck", "year": "2005", "text": "Onck PR. Never reached. 2005."},
+        {"doi": "10.5/third", "first_author": "Smith", "year": "2001", "text": "Smith J. Third. 2001."},
+    ])
+    test = open_store(test_lib.store_path)
+    graph.ensure_schema(test)
+    a = _paper(test, doi="10.1/a", title="The paper", year=2020, refs=[
+        {"text": "Lyon R, Kishore V. Right. J Tissue Eng. 2019.", "year": "2019", "first_author": "Lyon"},
+        {"text": "Gautieri A. Not what Europe PMC put at this place. 2011.", "year": "2011", "first_author": "Gautieri"},
+    ])
+    for doi, title in (("10.5/right", "Right"), ("10.5/wrong", "Wrong")):
+        acquire.upsert_candidate(test, {"doi": doi, "title": title}, query="q", now="t", round=2)
+    test.executemany("INSERT INTO ref_lists (paper, source, ord, ident, title, year, first_author) VALUES (?, 'europepmc', ?, ?, ?, ?, ?)", [
+        (a, 1, "doi:10.5/right", "Right", "2019", "Lyon R"), (a, 2, "doi:10.5/wrong", "Wrong", "2011", "Gautieri A")])
+    test.commit()
+    out = graph.measure_links(test, truth, show=5)
+    t = out["totals"]
+    assert (t["linked"], t["right"], t["right_entry"], t["wrong"]) == (2, 1, 1, 1) and t["precision"] == 0.5
+    assert (t["reached"], t["gold"]) == (1, 3) and t["by"]["europepmc"]["wrong"] == 1
+    assert out["shown"][0]["verdict"] == "wrong" and out["shown"][0]["title"] == "Wrong"
+    truth.close()
+    test.close()
+
+
+
+def test_a_doi_read_off_a_pdf_is_trusted_only_once_a_source_knows_it(openalex_on, lib):
+    """Measured on six papers read both ways: every wrong link came from a DOI the PDF's line breaks
+    had mangled ("10.1158/00085472…" for 0008-5472). Such a DOI is filed only when Europe PMC or
+    OpenAlex knows it; else the entry is left to the lists, which here put the right work at its place."""
+    epmc = openalex_on
+    conn = open_store(lib.store_path)
+    a = _paper(conn, doi="10.1/a", title="A PDF", year=2020, refs=[
+        {"doi": "10.1158/00085472.CAN-09-0099", "first_author": "Lu", "year": "2009", "text": "Lu J, Steeg PS. Breast Cancer Metastasis. Cancer Res. 2009. https://doi.org/10.1158/00085472.CAN-09-0099"},
+        {"doi": "10.9/real-but-not-in-pubmed", "first_author": "Kantaros", "year": "2015", "text": "Kantaros A. 3D printing-assisted design. 2015."},
+    ])
+    # the paper's own record gives its PMID, so Europe PMC's list of its references can be asked
+    epmc.routes["/rest/search"] = _search([_core("111", "A PDF", 2020, doi="10.1/a"), _core("19470768", "Breast Cancer Metastasis", 2009, doi="10.1158/0008-5472.can-09-0099", authors=(("Lu", "J", None),))])
+    epmc.json("/rest/MED/111/references", {"hitCount": 1, "referenceList": {"reference": [
+        {"source": "MED", "id": "19470768", "title": "Breast Cancer Metastasis", "authorString": "Lu J, Steeg PS.", "pubYear": 2009, "citedOrder": 1, "match": "Y"}]}})
+    _OpenAlex(epmc, [_work("W5", "3D printing-assisted design", 2015, doi="10.9/real-but-not-in-pubmed", authors=(("Antreas Kantaros", None),))])
+    out = graph.harvest(lib, conn, openalex=True)
+    assert _q(conn, "SELECT pmid FROM papers WHERE key = ?", a) == [("111",)]
+    assert out["unverified"] == 1  # the mangled DOI: no candidate under it
+    dois = {d for (d,) in _q(conn, "SELECT doi FROM candidates")}
+    assert "10.1158/00085472.can-09-0099" not in dois and {"10.1158/0008-5472.can-09-0099", "10.9/real-but-not-in-pubmed"} <= dois
+    links = dict((n, how) for n, _w, how in _q(conn, "SELECT ref_no, work, how FROM ref_works WHERE paper = ?", a))
+    assert links == {1: "europepmc", 2: "doi"}  # the first by its place in Europe PMC's list; the second by its DOI, which OpenAlex knows
+    conn.close()

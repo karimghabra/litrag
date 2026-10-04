@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+- **The links tested, and what the test fixed** (Karim, 2026-10-04: "test this feature"). Six open
+  papers from six publishers read twice, as PDF and as JATS, the JATS's identifiers the truth:
+  `python -m litrag_parser.graph --lib … --truth …` (new) scores one library's entry links against
+  the other's. First try: precision 0.944 (10 wrong), recall 0.67, the Wiley paper 0 of 47. Fixed:
+  a DOI read off a PDF is filed only once Europe PMC or OpenAlex knows it (every wrong link was a
+  DOI the line breaks had mangled: "00085472" for 0008-5472, "j.cell" for j.cell.2013.11.029); a
+  DOI broken after a dot, a hyphen or inside a bracket is joined back (`citations.entry_doi`); PDF
+  entries' printed PMIDs are read ("PMID: …", "[PubMed: …]"); "[1]." is a printed number; a held
+  paper's own PMID and PMCID are looked up so Europe PMC's list of its references can be asked;
+  titles match with accents folded and spaces and hyphens squeezed out, against any year the entry
+  prints within one; an entry printing no title matches by first author, year, volume and first
+  page (`ref_lists.volume`, `first_page`, new); a merge carries the kept lists (it had dropped
+  them, and the links with them). Now: precision 1.0 (0 wrong of 232 verifiable), recall 0.92
+  (231 of 252), the Wiley paper 44 of 47. A rebuild with the network cut and a merge each give
+  back all 246 links. Expand: "readable" now means an open XML or an open paper with a PMCID (a
+  PMCID alone chose papers PMC may not give out), and a paper read without a title of its own
+  takes its record's.
 - **Passages linked to the works they cite, and Expand** (Karim, 2026-10-04: "expand on corpuses
   by grabbing references cited by the corpus' papers … link chunks that cite specific references
   to these new citations"). Every entry of a held paper's reference list is linked to the work it

@@ -23,6 +23,7 @@ import json
 import os
 import re
 import time
+import unicodedata
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -32,7 +33,7 @@ from .acquire import USER_AGENT, plain_text
 
 OPENALEX = "https://api.openalex.org"
 #: The fields a round reads of a work, and no more (`select`): a smaller answer, sooner.
-FIELDS = ("id", "doi", "ids", "title", "publication_year", "publication_date", "authorships", "primary_location",
+FIELDS = ("id", "doi", "ids", "title", "publication_year", "publication_date", "authorships", "primary_location", "biblio",
           "cited_by_count", "open_access", "type", "referenced_works")
 BATCH = 100  # ids ORed into one filter: OpenAlex's own limit
 GAP = 0.05  # between requests: one at a time, far under its 100 a second
@@ -217,28 +218,56 @@ def hit(w: dict[str, Any]) -> dict[str, Any]:
 
 
 def _norm(s: Any) -> str:
-    return " ".join(re.sub(r"[^a-z0-9]+", " ", str(s or "").lower()).split())
+    """Lowercase letters and digits, accents folded ("García" is "garcia"), everything else a space."""
+    folded = "".join(ch for ch in unicodedata.normalize("NFKD", str(s or "")) if not unicodedata.combining(ch))
+    return " ".join(re.sub(r"[^a-z0-9]+", " ", folded.lower()).split())
 
 
 #: A title shorter than this is too common to stand for one work found inside an entry's words.
 MATCH_TITLE_WORDS = 4
+#: …nor one this short once squeezed, which is how a title is looked for: a PDF's line break takes a
+#: hyphen or a space out of a title ("plateletrich plasma"), so spaces and marks count for nothing
+MATCH_TITLE_CHARS = 24
+_YEARS = re.compile(r"\b(1[89]\d{2}|20\d{2})\b")
+
+
+def year_agrees(entry: dict[str, Any], year: Any) -> bool:
+    """Whether an entry's year can be this one: any year it prints within one of it (an article
+    online in one year is often in an issue of the next), or it prints none. Any year, since the
+    first four digits of an entry are as often a page ("1913-1927") or a journal's ("Periodontology
+    2000") as its year."""
+    known = str(year or "").strip()[:4]
+    if not known.isdigit():
+        return True
+    printed = {int(y) for y in _YEARS.findall(f"{entry.get('text') or ''} {entry.get('year') or ''}")}
+    return not printed or any(abs(y - int(known)) <= 1 for y in printed)
 
 
 def names(entry: dict[str, Any], title: Any, year: Any = None, family: Any = None) -> bool:
     """Whether a reference entry names a work of this title, year and first author: the whole
-    title inside the entry's words (at least four words of it), the years within one of each other
-    when both are known (an article online in one year is often in an issue of the next), and the
-    first author's family name in the entry when it is known. Anything less is no match."""
+    title inside the entry's words (at least four words and 24 letters of it, spaces and marks
+    aside), a year the entry prints within one of its own (`year_agrees`), and the first author's
+    family name in the entry when it is known. Anything less is no match."""
     text = f" {_norm(entry.get('text'))} {_norm(entry.get('title'))} "
     title = _norm(title)
-    if len(title.split()) < MATCH_TITLE_WORDS or f" {title} " not in text:
+    squeezed = title.replace(" ", "")
+    if len(title.split()) < MATCH_TITLE_WORDS or len(squeezed) < MATCH_TITLE_CHARS or squeezed not in text.replace(" ", ""):
         return False
-    printed = str(entry.get("year") or "").strip()[:4]
-    known = str(year or "").strip()[:4]
-    if printed.isdigit() and known.isdigit() and abs(int(printed) - int(known)) > 1:
+    if not year_agrees(entry, year):
         return False
     family = _norm(family)
     return not family or f" {family} " in text
+
+
+def cites_by_place_in_print(entry: dict[str, Any], family: Any, year: Any, volume: Any, first_page: Any) -> bool:
+    """Whether an entry that prints no title ("Geissler J, Stevanovic M, Injury 2019, 50, S64.")
+    names a work by what it does print: the first author's family name, a year within one, and the
+    volume and first page, each a whole token of the entry. All four, or no match."""
+    text = f" {_norm(entry.get('text'))} "
+    family, volume, page = _norm(family), _norm(volume), _norm(first_page)
+    if not family or not volume or not page or f" {family} " not in text:
+        return False
+    return year_agrees(entry, year) and f" {volume} " in text and f" {page} " in text
 
 
 def first_author(w: dict[str, Any]) -> str | None:

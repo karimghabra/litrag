@@ -808,11 +808,15 @@ class Worker:
         filed = self.do_ingest({"id": req_id, "op": "ingest", "lib": lib.id, "paths": paths, "known": known}) if paths else {}
         conn = open_store(lib.store_path)
         try:
-            # a file filed is its candidate's paper, whatever identifiers it printed of itself
+            # a file filed is its candidate's paper, whatever identifiers it printed of itself; and a
+            # reading that found no title of its own (filed under its file's name) takes the record's
             for g in got:
                 key = filed.get(g.get("path") or "")
                 if key:
                     conn.execute("UPDATE candidates SET status = 'ingested', paper_key = ?, error = NULL, updated_at = ? WHERE cand_id = ?", (key, now_iso(), g["cand_id"]))
+                    stem = Path(g["path"]).stem
+                    conn.execute("UPDATE papers SET title = (SELECT title FROM candidates WHERE cand_id = ?) WHERE key = ? AND title IN (?, ?, ?)"
+                                 " AND (SELECT title FROM candidates WHERE cand_id = ?) IS NOT NULL", (g["cand_id"], key, stem, key, _safe(key), g["cand_id"]))
             conn.commit()
             acquire.reconcile(conn)
             for g in got:
