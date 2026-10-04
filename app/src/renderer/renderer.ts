@@ -9,6 +9,7 @@
 
 import * as pdfjs from 'pdfjs-dist';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
+import { initLabels, openLabelling } from './labels.ts';
 import { BANDS, SORT_KEYS, bandOf, countBy, filterPapers, sortPapers, validFilters, type SortKey } from './papers.ts';
 import { initProjects, renderProjects } from './projects.ts';
 import { initQuery } from './query.ts';
@@ -726,16 +727,30 @@ async function loadEdges(n: Node, into: HTMLElement) {
   // the same test edges.py applies: a results paragraph, or a discussion paragraph that cites a figure, of eight words or more
   const words = n.text.split(/\s+/).filter(Boolean).length;
   const isFinding = n.type === 'paragraph' && words >= 8 && (n.role === 'results' || n.role === 'results-discussion' || (n.role === 'discussion' && /\b(fig(ure)?s?|tables?|schemes?)\.?\s*S?\d/i.test(n.text)));
+  // a finding's "Measured by" says which method a person would name: the labelling editor, on this one finding
+  const labelAction = () => {
+    const b = el('button', 'ghost small label-act', 'Label');
+    b.title = 'Say which of the paper’s methods this finding was measured by: the truth the links are measured against';
+    b.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      void openLabelling({ finding: n.node_id, onClose: () => void (state.selectedNode === n.node_id && renderDetail(n)) }).catch((e) => log('error', `label: ${(e as Error).message}`));
+    });
+    return b;
+  };
   if (isFinding && !measuredBy.length) {
     const why = r.candidates === 0 ? 'the paper has no methods section to link to' : r.candidates === 1 ? 'the methods have one part, which only a pointer could name' : 'no pointer, no term only one method owns, nothing in a cited caption';
     const box = el('div', 'links edges');
-    box.append(el('div', 'links-head', `Measured by — no method found: ${why}`));
+    const head = el('div', 'links-head', `Measured by — no method found: ${why}`);
+    if (r.candidates > 0) head.append(labelAction());
+    box.append(head);
     into.append(box);
   }
   for (const [title, rows] of groups) {
     if (!rows.length) continue;
     const box = el('div', 'links edges');
-    box.append(el('div', 'links-head', `${title} (${rows.length})`));
+    const head = el('div', 'links-head', `${title} (${rows.length})`);
+    if (title === 'Measured by' && isFinding) head.append(labelAction());
+    box.append(head);
     for (const e of rows) {
       const row = el('div', 'link go');
       const tag = el('span', 'tag', e.evidence);
@@ -1018,6 +1033,7 @@ function wire() {
   initSearch();
   initTypes();
   initQuery();
+  initLabels();
   onProjectChange(() => {
     state.selectedPaper = null;
     state.tree = null;

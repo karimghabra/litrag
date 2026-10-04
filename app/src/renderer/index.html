@@ -104,6 +104,7 @@
               <div class="spacer"></div>
               <button id="add" class="primary small">Add papers…</button>
               <button id="reparse" class="ghost small" title="Read every paper again with Docling">Reparse all</button>
+              <button id="label-links" class="ghost small" title="Say which method each finding was measured by: the truth the finding→method links are measured against">Label links</button>
             </div>
             <div id="papers-tools" class="tools" hidden>
               <label class="field"><span>Sort</span><select id="papers-sort" title="The order of the list"></select></label>
@@ -192,6 +193,28 @@
   </footer>
 
   <div id="drop-overlay" hidden><div>Drop to ingest</div></div>
+
+  <!-- the labelling panel: which method a finding was measured by (labels.ts) -->
+  <div id="label-panel" class="modal" role="dialog" aria-modal="true" aria-labelledby="label-title" hidden>
+    <div class="card label-card" tabindex="-1">
+      <div class="label-head">
+        <h2 id="label-title">Label links</h2>
+        <span id="label-pos" class="muted"></span>
+        <div class="spacer"></div>
+        <button id="label-close" class="ghost small" title="Close (Esc); Label links comes back to this finding">Close</button>
+      </div>
+      <div id="label-truth" class="label-truth"></div>
+      <div id="label-body" class="label-body"></div>
+      <div class="label-foot">
+        <div class="label-keys muted"><b>1</b>–<b>9</b>, <b>0</b> toggle a method (<b>⇧1</b>… the eleventh on) · <b>N</b> no method · <b>Enter</b> save · <b>S</b> skip · <b>Esc</b> close</div>
+        <div id="label-hint" class="label-hint"></div>
+        <div id="label-error" class="label-error" role="alert"></div>
+        <div class="spacer"></div>
+        <button id="label-skip" class="ghost">Skip</button>
+        <button id="label-save" class="primary">Save &amp; next</button>
+      </div>
+    </div>
+  </div>
   <script type="module" src="renderer.js"></script>
 </body>
 </html>

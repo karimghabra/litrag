@@ -319,3 +319,50 @@ h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: v
 .detail .link .who { font-weight: 600; flex: none; }
 .detail .link .what { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .detail .link .doi, .detail .links .doi { color: var(--muted); font-size: 11px; flex: none; }
+
+/* the labelling panel: which of a paper's methods a finding was measured by (labels.ts) */
+#papers-pane .pane-head { flex-wrap: wrap; }
+.modal { position: fixed; inset: 0; background: rgba(31, 35, 40, .28); display: flex; align-items: flex-start; justify-content: center; padding: 5vh 16px; z-index: 20; }
+.modal[hidden] { display: none; }
+.label-card { width: min(840px, 100%); max-height: 90vh; display: flex; flex-direction: column; box-shadow: 0 10px 40px rgba(0, 0, 0, .18); overflow: hidden; }
+.label-head { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+.label-truth { padding: 7px 14px; background: var(--soft); border-bottom: 1px solid var(--line); font-size: 12px; font-variant-numeric: tabular-nums; }
+.label-truth:empty { display: none; }
+.label-body { padding: 12px 14px; overflow: auto; flex: 1; min-height: 0; }
+.label-paper { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
+.label-paper .ptitle { font-weight: 600; line-height: 1.3; }
+.label-paper button { margin-left: auto; }
+.label-body .crumbs { color: var(--muted); font-size: 12px; margin-bottom: 6px; }
+.label-finding { line-height: 1.5; font-size: 13.5px; padding: 8px 10px; border-left: 3px solid var(--results); background: var(--hover); border-radius: 0 4px 4px 0; white-space: pre-wrap; max-height: 30vh; overflow: auto; }
+.label-note { font-size: 12px; margin-top: 6px; }
+.label-q { margin: 12px 0 6px; font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+.label-cands { display: flex; flex-direction: column; gap: 3px; }
+.cand { border: 1px solid var(--line); border-radius: 6px; background: var(--panel); }
+.cand.on { border-color: var(--methods); background: #f1f8f4; }
+.cand.extra .cand-name { font-style: italic; }
+.cand.none { border-style: dashed; margin-top: 4px; }
+.cand.none.on { border-style: solid; border-color: var(--failed); background: #fdf0ee; }
+.cand-line { display: flex; align-items: baseline; gap: 8px; padding: 5px 8px; cursor: pointer; min-width: 0; }
+.cand-line input { margin: 0; position: relative; top: 2px; flex: none; }
+.cand .key { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; min-width: 24px; text-align: center; color: var(--muted); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; background: #fff; flex: none; }
+.cand-name { font-weight: 600; }
+.cand-detail { color: var(--muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1; }
+.cand .twist { margin-left: auto; flex: none; padding: 0 8px; font-size: 11px; color: var(--muted); }
+.cand-paras { padding: 2px 8px 8px 40px; display: flex; flex-direction: column; gap: 3px; }
+.cand-paras .para { font-size: 12px; line-height: 1.4; padding: 4px 8px; border: 1px solid var(--line); border-radius: 4px; cursor: pointer; background: #fff; color: var(--muted); }
+.cand-paras .para:hover { background: var(--hover); color: var(--ink); }
+.cand-paras .para.on { border-color: var(--methods); color: var(--ink); box-shadow: inset 3px 0 0 var(--methods); }
+.ev { font-size: 10px; text-transform: uppercase; letter-spacing: .05em; padding: 0 6px; border-radius: 10px; border: 1px solid currentColor; flex: none; }
+.ev-pointer { color: var(--accent); }
+.ev-terms { color: var(--methods); }
+.ev-caption { color: var(--results-discussion); }
+.ev-similarity { color: var(--abstract); }
+.ev-unlinked { color: var(--muted); }
+.label-foot { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-top: 1px solid var(--line); flex-wrap: wrap; }
+.label-keys { font-size: 11px; }
+.label-keys b { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-weight: 600; color: var(--ink); }
+.label-hint { font-size: 12px; color: var(--warn); }
+.label-error { font-size: 12px; color: var(--failed); }
+.label-hint:empty, .label-error:empty { display: none; }
+.detail .links-head .label-act { margin-left: 8px; padding: 0 8px; font-size: 11px; font-weight: 500; }
+.label-card:focus { outline: none; }
