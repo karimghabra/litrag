@@ -939,23 +939,44 @@ def passages_citing(conn: sqlite3.Connection, work: str, limit: int = 200) -> li
     return out
 
 
-def next_to_read(conn: sqlite3.Connection, most: int = 20, min_cited: int = 1) -> list[dict[str, Any]]:
+def next_to_read(conn: sqlite3.Connection, most: int | None = 20, min_cited: int = 1) -> list[dict[str, Any]]:
     """The candidates the papers held cite most and the library has not read: cited (or citing) by
     at least `min_cited` held papers, not yet fetched, dismissed or given up on — the most cited
-    here first; among those cited as often, one that can be read now (an open XML, or an open paper
-    with a PMCID the PDF routes ask by — a PMCID alone is no promise: PMC shows many papers it may
-    not give out, measured 2026-10-04) before one that would wait for a person; then the most cited anywhere,
-    then the newest — at most `most`."""
+    here first; among those cited as often, the likelier to be read first (`readable`: 2 an open
+    XML Europe PMC hosts, which never failed in the scale test; 1 an NIH author manuscript NCBI may
+    give out, about two in five did; 0 nothing open on record, which never came, 74 of 74); then
+    the most cited anywhere, then the newest. At most `most` (None: all of them)."""
     sync(conn)
-    return [dict(r) for r in conn.execute(
+    rows = [dict(r) for r in conn.execute(
         """SELECT w.cand_id, w.work, w.title, w.year, w.first_author, w.status, w.cited_by,
                   (SELECT COUNT(DISTINCT x.citing) FROM cites x WHERE x.cited = w.work AND x.citing IN (SELECT key FROM papers))
                 + (SELECT COUNT(DISTINCT x.cited) FROM cites x WHERE x.citing = w.work AND x.cited IN (SELECT key FROM papers)) AS held_links,
-                  (c.has_xml = 1 OR (c.is_open_access = 1 AND c.pmcid IS NOT NULL)) AS readable
+                  CASE WHEN c.has_xml = 1 AND c.is_open_access = 1 THEN 2 WHEN c.has_xml = 1 THEN 1 ELSE 0 END AS readable,
+                  c.oa_url
            FROM works w JOIN candidates c ON c.cand_id = w.cand_id
            WHERE w.state = 'candidate' AND w.status IN ('found', 'failed')
            ORDER BY held_links DESC, readable DESC, COALESCE(w.cited_by, 0) DESC, COALESCE(w.year, 0) DESC, w.cand_id""").fetchall()
-        if r["held_links"] >= max(1, int(min_cited))][: max(0, int(most))]
+        if r["held_links"] >= max(1, int(min_cited))]
+    return rows if most is None else rows[: max(0, int(most))]
+
+
+def expansion(order: list[dict[str, Any]], want: int, tried: set[int]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """From the works in `next_to_read`'s order, the next to fetch for an expansion that wants
+    `want` more papers read: the first `want` that can be read (not tried before), and the ones that
+    cannot that rank above the last of them — passed over, to be marked for a person to collect
+    rather than spent from the `want`. At most `want` of those."""
+    take: list[dict[str, Any]] = []
+    passed: list[dict[str, Any]] = []
+    for r in order:
+        if len(take) >= want:
+            break
+        if r["cand_id"] in tried:
+            continue
+        if r["readable"]:
+            take.append(r)
+        elif len(passed) < want:
+            passed.append(r)
+    return take, passed
 
 
 # ---------------------------------------------------------------- how right the links are

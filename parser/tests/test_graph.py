@@ -557,32 +557,48 @@ def test_what_to_read_next_is_what_the_papers_cite_most(lib):
     conn.close()
 
 
-def test_expand_runs_a_round_then_fetches_what_is_cited_most(tmp_path, monkeypatch):
+def test_expand_reads_what_can_be_read_and_marks_the_rest_for_a_person(tmp_path, monkeypatch):
+    """Measured at scale (2026-10-04): an expansion that spent its count on the most cited works read
+    19 of 100, since the most cited of a grown library are mostly classics nothing open is on record
+    for (74 of 74 such fetches failed). The count is spent on what can be read; what is passed over
+    on the way is fetched too, which marks it for Collect PDFs."""
     c = Canned()
     try:
         for env, path in (("LITRAG_EPMC_URL", "rest"), ("LITRAG_EPMC_PDF_URL", "oa"), ("LITRAG_NCBI_URL", "ncbi"), ("LITRAG_PMC_CLOUD_URL", "cloud")):
             monkeypatch.setenv(env, f"{c.url}/{path}")
         c.json("/rest/MED/111/references", {"hitCount": 2, "referenceList": {"reference": [{"source": "MED", "id": "222", "citedOrder": 1}, {"source": "MED", "id": "333", "citedOrder": 2}]}})
-        c.routes["/rest/search"] = _search([_core("222", "First cited", 2019), _core("333", "Second cited", 2005)])
-        events = talk(tmp_path, [{"id": "1", "op": "init", "name": "Tendon"}])
+        c.json("/rest/MED/112/references", {"hitCount": 1, "referenceList": {"reference": [{"source": "MED", "id": "333", "citedOrder": 1}]}})
+        # 333: cited by both papers, nothing open on record; 222: cited by one, open XML in Europe PMC
+        c.routes["/rest/search"] = _search([_core("222", "Open", 2019, pmcid="PMC222"), _core("333", "A classic, closed", 1995)])
+        talk(tmp_path, [{"id": "1", "op": "init", "name": "Tendon"}])
         conn = open_store(tmp_path / "tendon" / "store.sqlite")
-        _paper(conn, pmid="111", doi="10.1/a", title="A paper held", year=2020)
+        _paper(conn, pmid="111", doi="10.1/a", title="One", year=2020)
+        _paper(conn, pmid="112", doi="10.1/b", title="Two", year=2021)
         conn.close()
-        from litrag_parser.worker import Worker, emit as _emit  # noqa: F401
+        from litrag_parser.worker import Worker
 
         seen = []
         monkeypatch.setattr("litrag_parser.worker.emit", seen.append)
         Worker(tmp_path).do_expand({"id": "x", "op": "expand", "lib": "tendon", "most": 1})
         done = [e for e in seen if e.get("event") == "done" and e.get("op") == "expand"][0]
-        assert done["round"]["added"] == 2 and len(done["chosen"]) == 1 and done["read"] == [] and done["passages"] == 0
-        assert [e for e in seen if e.get("event") == "done" and e.get("op") == "fetch"]  # the chosen one, fetched like any
         conn = open_store(tmp_path / "tendon" / "store.sqlite")
-        statuses = dict(_q(conn, "SELECT pmid, status FROM candidates"))
-        assert sorted(statuses.values()) == ["found", "needs-pdf"]  # one asked for: nothing open in the canned services
+        by_pmid = {pmid: cid for pmid, cid in _q(conn, "SELECT pmid, cand_id FROM candidates")}
+        assert [r["cand_id"] for r in done["chosen"]] == [by_pmid["222"]]  # the one that could be read
+        assert [r["cand_id"] for r in done["passed"]] == [by_pmid["333"]] and done["for_a_person"] == 1  # the more cited, for a person
+        assert done["read"] == [] and done["round"]["added"] == 2  # the open one was refused by the canned services
+        assert dict(_q(conn, "SELECT pmid, status FROM candidates")) == {"222": "needs-pdf", "333": "needs-pdf"}
+        assert [e for e in seen if e.get("event") == "done" and e.get("op") == "fetch"]
         conn.close()
     finally:
         c.close()
 
+
+def test_an_expansion_takes_the_readable_and_passes_over_the_rest():
+    order = [{"cand_id": 1, "readable": 0}, {"cand_id": 2, "readable": 2}, {"cand_id": 3, "readable": 0}, {"cand_id": 4, "readable": 1}, {"cand_id": 5, "readable": 2}]
+    take, passed = graph.expansion(order, 2, set())
+    assert [r["cand_id"] for r in take] == [2, 4] and [r["cand_id"] for r in passed] == [1, 3]
+    take, passed = graph.expansion(order, 2, {2, 4, 1, 3})  # the next try, further down
+    assert [r["cand_id"] for r in take] == [5] and passed == []
 
 def test_a_merge_keeps_what_links_the_entries(tmp_path):
     """The lists a round kept are what lines a PDF's entries up with their works; a merge that left

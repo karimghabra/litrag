@@ -157,10 +157,11 @@ export function initGraph(): void {
       }
     } else if (ev['op'] === 'expand') {
       activity.hide();
-      const e = ev as { chosen?: { first_author?: string | null; year?: number | null }[]; read?: string[]; passages?: number };
+      const e = ev as { chosen?: unknown[]; read?: string[]; passages?: number; for_a_person?: number };
       const chosen = e.chosen ?? [];
-      log('stage', chosen.length
-        ? `Expanded: ${e.read?.length ?? 0} of the ${chosen.length} works the papers cite most read; ${e.passages ?? 0} passages of the papers held now lead to them`
+      const person = e.for_a_person ?? 0;
+      log('stage', chosen.length || person
+        ? `Expanded: ${e.read?.length ?? 0} papers read of ${chosen.length} that looked readable; ${e.passages ?? 0} passages of the papers held now lead to them${person ? `. ${person} more cited ones have nothing open on record: Collect PDFs walks them` : ''}`
         : 'Expanded: nothing left to read — no candidate the papers cite that has not been fetched or set aside');
       if (ctx.view === 'graph') void loadGraph();
     } else if ((ev['op'] === 'fetch' || ev['op'] === 'ingest') && ctx.view === 'graph') {

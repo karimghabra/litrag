@@ -851,34 +851,63 @@ class Worker:
 
     def do_expand(self, req: dict[str, Any]) -> None:
         """The library grown by what its papers cite: a citation round for the papers not asked yet,
-        then the `most` works linked to the most held papers fetched and read like any fetch — the
-        next round. Once read, every passage that cites one of them leads to it (`passage_cites`)."""
+        then papers fetched and read, the most cited first, until `most` are read or none that can
+        be is left (`graph.expansion`). A work that cannot be read automatically is never what the
+        `most` is spent on: the ones passed over on the way are fetched too, which marks them
+        `needs-pdf` for Collect PDFs. Once read, every passage that cites one leads to it."""
         from . import graph
 
         lib = self._lib(req)
         req_id = req.get("id")
         say = lambda e: emit({**e, "id": req_id, "lib": lib.id})  # noqa: E731
+        want = max(1, int(req.get("most") or 10))
+        min_cited = int(req.get("min_cited") or 1)
         conn = open_store(lib.store_path)
         try:
             found = graph.harvest(lib, conn, None, citations=bool(req.get("citations")),
                                   openalex=None if req.get("openalex") is None else bool(req.get("openalex")), on_progress=say)
-            chosen = graph.next_to_read(conn, most=int(req.get("most") or 10), min_cited=int(req.get("min_cited") or 1))
         finally:
             conn.close()
-        emit({"event": "stage", "id": req_id, "lib": lib.id, "stage": "expand",
-              "message": f"Round: {found['added']} new candidates. Reading the {len(chosen)} the papers cite most: "
-                         + "; ".join(f"{c['first_author'] or '?'} {c['year'] or ''} (cited by {c['held_links']})" for c in chosen[:5]) + ("…" if len(chosen) > 5 else "")})
-        if chosen:
-            self.do_fetch({"id": req_id, "op": "fetch", "lib": lib.id, "ids": [c["cand_id"] for c in chosen]})
+        tried: set[int] = set()
+        chosen: list[dict[str, Any]] = []
+        passed: list[dict[str, Any]] = []
+        read: list[str] = []
+        for _ in range(6):  # a readable-looking paper can still be refused: try again further down, a few times
+            conn = open_store(lib.store_path)
+            try:
+                take, skip = graph.expansion(graph.next_to_read(conn, most=None, min_cited=min_cited), want - len(read), tried)
+            finally:
+                conn.close()
+            skip = [r for r in skip if r["cand_id"] not in tried][: max(0, want - len(passed))]
+            if not take and not skip:
+                break
+            chosen += take
+            passed += skip
+            batch = [r["cand_id"] for r in take + skip]
+            tried |= set(batch)
+            emit({"event": "stage", "id": req_id, "lib": lib.id, "stage": "expand",
+                  "message": f"Reading {len(take)} of the works the papers cite most"
+                             + (f", and marking {len(skip)} more cited ones that nothing open is on record for, for Collect PDFs" if skip else "")
+                             + ": " + "; ".join(f"{c['first_author'] or '?'} {c['year'] or ''} (cited by {c['held_links']})" for c in take[:4]) + ("…" if len(take) > 4 else "")})
+            self.do_fetch({"id": req_id, "op": "fetch", "lib": lib.id, "ids": batch})
+            conn = open_store(lib.store_path)
+            try:
+                ids = [r["cand_id"] for r in take]
+                read += [r[0] for r in conn.execute(f"SELECT paper_key FROM candidates WHERE cand_id IN ({','.join('?' * len(ids))}) AND paper_key IN (SELECT key FROM papers)", ids)] if ids else []
+            finally:
+                conn.close()
+            if len(read) >= want or not take:
+                break
         conn = open_store(lib.store_path)
         try:
             graph.sync(conn)
-            ids = [c["cand_id"] for c in chosen]
-            read = [r["paper_key"] for r in conn.execute(f"SELECT paper_key FROM candidates WHERE cand_id IN ({','.join('?' * len(ids))}) AND paper_key IN (SELECT key FROM papers)", ids)] if ids else []
             passages = conn.execute(f"SELECT COUNT(DISTINCT node_id) FROM passage_cites WHERE work IN ({','.join('?' * len(read))})", read).fetchone()[0] if read else 0
+            wanting = [dict(r) for r in conn.execute(
+                f"SELECT cand_id, status FROM candidates WHERE cand_id IN ({','.join('?' * len(passed))})", [r["cand_id"] for r in passed])] if passed else []
         finally:
             conn.close()
-        emit({"event": "done", "id": req_id, "op": "expand", "lib": lib.id, "round": found, "chosen": chosen, "read": read, "passages": passages})
+        emit({"event": "done", "id": req_id, "op": "expand", "lib": lib.id, "round": found, "chosen": chosen, "read": read, "passages": passages,
+              "passed": passed, "for_a_person": sum(1 for w in wanting if w["status"] == "needs-pdf")})
 
     def do_merge(self, req: dict[str, Any]) -> None:
         """Several projects' libraries into one (projects.merge), then its rows derived again from
