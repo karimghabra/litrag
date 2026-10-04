@@ -59,7 +59,7 @@ test.beforeAll(async () => {
   root = mkdtempSync(join(tmpdir(), 'litrag-studio-'));
   app = await electron.launch({
     args: [APP_DIR, '--no-sandbox'],
-    env: { ...process.env, LITRAG_ROOT: root, LITRAG_EPMC_URL: fixture.url, LITRAG_EPMC_PDF_URL: fixture.pdfUrl, LITRAG_NCBI_URL: fixture.ncbiUrl, LITRAG_DOI_RESOLVER: fixture.doiUrl },
+    env: { ...process.env, LITRAG_ROOT: root, LITRAG_EPMC_URL: fixture.url, LITRAG_EPMC_PDF_URL: fixture.pdfUrl, LITRAG_NCBI_URL: fixture.ncbiUrl, LITRAG_PMC_CLOUD_URL: fixture.cloudUrl, LITRAG_DOI_RESOLVER: fixture.doiUrl },
   });
   page = await app.firstWindow();
   await page.waitForLoadState('domcontentloaded');
@@ -135,6 +135,7 @@ test('3. Fetch & read: the XML, then the open PDF; the closed paper is marked as
   expect(byDoi.get('10.3390/mi15070851')!.paper_key).toBe('doi:10.3390/mi15070851');
   expect(byDoi.get('10.1016/j.actbio.2017.05.058')!.paper_key).toMatch(/actbio\.2017\.05\.058/i);
   expect(fixture.requests.some((r) => r.includes('/PMC11278924/fullTextXML'))).toBe(true);
+  expect(fixture.requests.some((r) => r.startsWith('/cloud/?') && r.includes('prefix=PMC9000001.'))).toBe(true); // the PMC Cloud Service first
   expect(fixture.requests.some((r) => r.includes('/PMC9000001.zip'))).toBe(true);
   await expect(page.locator('#candidates .pill.st-needs-pdf')).toHaveCount(1, { timeout: 30_000 });
   await expect(page.locator('#candidates .pill.st-ingested')).toHaveCount(2);

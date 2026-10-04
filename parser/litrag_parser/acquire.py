@@ -10,20 +10,24 @@ Fetching goes the way the pairs taught: the JATS full text from the REST service
 it is the paper's own structure; else PMC's own XML from NCBI, by PMCID, which serves what the
 REST service will not — an NIH author manuscript is in PMC but not in the open-access subset,
 and `fullTextXML` answers 500 for it (2026-09-30: 23 of the pilot's 28 PDFs in PMC are these);
-else the publisher's PDF from EBI's bulk open-access area
+else the publisher's PDF: from NLM's PMC Cloud Service first
+(`pmc-oa-opendata.s3.amazonaws.com`, the open-access subset as files, one folder per version of
+an article, a JSON beside each naming its PDF and that PDF's MD5 — the successor NCBI named when
+it retired its OA web service and FTP packages, 2026-08), then from EBI's bulk open-access area
 (`ftp.ebi.ac.uk/pub/databases/pmc/pdf/OA/PMCxxxx<block>/<PMCID>.zip`, the same place the corpus
-scripts fetch from — the website's `?pdf=render` links sit behind a bot check and are left
-alone); else the candidate `needs-pdf`, with the links a person can follow to get it by hand
-and drop it into the app. With an XML, the bulk area's PDF of the same paper is fetched too where
-it has one: the XML names its figures but holds none, and the PDF is kept beside it to read them
-(figures.py). What is fetched lands in the library's inbox; the worker's `ingest`
+scripts fetch from, which misses many papers the Cloud Service holds — the websites' `?pdf=render`
+links sit behind a bot check and are left alone); else the candidate `needs-pdf`, with the links
+a person can follow to get it by hand and drop it into the app. With an XML, the same paper's PDF
+is fetched too where either holds one: the XML names its figures but holds none, and the PDF is
+kept beside it to read them (figures.py). What is fetched lands in the library's inbox; the worker's `ingest`
 files it (DOI, then PMID, then hash) and `reconcile` marks the candidate `ingested`.
 
-The only hosts asked are Europe PMC's (EBI's) and NCBI's E-utilities, and NCBI is only ever
-sent a PMCID: an identifier out, the article in. Every base can be pointed elsewhere, for tests
-and the end-to-end harness: `LITRAG_EPMC_URL` for the REST base, `LITRAG_EPMC_PDF_URL` for the
-bulk PDF base, `LITRAG_NCBI_URL` for E-utilities (`LITRAG_NCBI_EMAIL` and `LITRAG_NCBI_API_KEY`,
-when set, go with each NCBI request as its usage policy asks; neither is ever filled in for you).
+The only hosts asked are Europe PMC's (EBI's), NCBI's E-utilities and NLM's PMC Cloud Service,
+and the last two are only ever sent a PMCID: an identifier out, the article in. Every base can be
+pointed elsewhere, for tests and the end-to-end harness: `LITRAG_EPMC_URL` for the REST base,
+`LITRAG_EPMC_PDF_URL` for the bulk PDF base, `LITRAG_NCBI_URL` for E-utilities
+(`LITRAG_NCBI_EMAIL` and `LITRAG_NCBI_API_KEY`, when set, go with each NCBI request as its usage
+policy asks; neither is ever filled in for you), `LITRAG_PMC_CLOUD_URL` for the Cloud Service.
 
     python -m litrag_parser.acquire --lib DIR --search "hydrogel cartilage" [--size 25]
     python -m litrag_parser.acquire --lib DIR --fetch 1 2 3
@@ -33,6 +37,7 @@ when set, go with each NCBI request as its usage policy asks; neither is ever fi
 from __future__ import annotations
 
 import argparse
+import hashlib
 import html
 import io
 import json
@@ -54,6 +59,7 @@ from .library import Library, now_iso, safe_key
 REST = "https://www.ebi.ac.uk/europepmc/webservices/rest"
 BULK_PDF = "https://ftp.ebi.ac.uk/pub/databases/pmc/pdf/OA"
 NCBI = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
+PMC_CLOUD = "https://pmc-oa-opendata.s3.amazonaws.com"
 USER_AGENT = "litrag (local research tool; one request at a time)"
 NCBI_GAP = 0.34  # E-utilities ask for at most three requests a second without an API key
 
@@ -99,6 +105,10 @@ def pdf_base(base: str | None = None) -> str:
 
 def ncbi_base(base: str | None = None) -> str:
     return (base or os.environ.get("LITRAG_NCBI_URL") or NCBI).rstrip("/")
+
+
+def pmc_cloud_base(base: str | None = None) -> str:
+    return (base or os.environ.get("LITRAG_PMC_CLOUD_URL") or PMC_CLOUD).rstrip("/")
 
 
 def _get(url: str, timeout: float, retries: int = 3) -> bytes:
@@ -457,6 +467,38 @@ def _pdf_from(data: bytes, pmcid: str) -> bytes | None:
     return None
 
 
+_VERSION = r"<Prefix>{}\.(\d+)/</Prefix>"
+_S3 = re.compile(r"^s3://[^/]+/([^?#]+)(?:\?md5=([0-9a-fA-F]{32}))?")
+
+
+def pmc_cloud_pdf(pmcid: str, timeout: float, base: str | None = None) -> tuple[bytes | None, str]:
+    """A paper's PDF from the PMC Cloud Service, by PMCID: `(pdf, "")`, or `(None, why not)`.
+    The bucket lists an article's versions as folders (`PMC11278924.1/`); the latest one's JSON
+    names its PDF (`pdf_url`, an `s3://` address carrying the PDF's MD5), and the PDF is taken
+    only if it is one and its MD5 holds. An author manuscript is there as XML and text, with no
+    PDF; a paper outside the open-access datasets is not there at all."""
+    pmcid = pmcid.upper()
+    b = pmc_cloud_base(base)
+    listing = _get(f"{b}/?{urllib.parse.urlencode({'list-type': 2, 'prefix': f'{pmcid}.', 'delimiter': '/'})}", timeout)
+    versions = [int(v) for v in re.findall(_VERSION.format(re.escape(pmcid)), listing.decode("utf-8", "replace"))]
+    if not versions:
+        return None, "not in its open-access datasets"
+    v = max(versions)
+    try:
+        meta = json.loads(_get(f"{b}/{pmcid}.{v}/{pmcid}.{v}.json", timeout))
+    except ValueError:
+        return None, "its record would not read"
+    m = _S3.match(str(meta.get("pdf_url") or ""))
+    if m is None:
+        return None, "no PDF (an author manuscript)" if meta.get("is_manuscript") else "no PDF"
+    body = _get(f"{b}/{m.group(1)}", timeout)
+    if body[:4] != b"%PDF":
+        return None, "not a PDF in the answer"
+    if m.group(2) and hashlib.md5(body).hexdigest() != m.group(2).lower():
+        return None, "the PDF failed its MD5"
+    return body, ""
+
+
 def _save(dest: Path, data: bytes) -> None:
     dest.parent.mkdir(parents=True, exist_ok=True)
     tmp = dest.with_name(dest.name + ".part")
@@ -470,19 +512,25 @@ def _update(conn: sqlite3.Connection, cid: int, **cols: Any) -> None:
         conn.execute(f"UPDATE candidates SET {', '.join(f'{k} = ?' for k in cols)} WHERE cand_id = ?", (*cols.values(), cid))
 
 
-def _figures_pdf(lib: Library, pmcid: str | None, name: str, pdf: str | None, timeout: float, say: Callable[[dict[str, Any]], None], cand_id: int) -> str | None:
-    """After the XML, the same paper's PDF from the bulk open-access area, for its figures: the XML
-    names its figures but holds none, and a PDF draws them (figures.py). The same host the PDF
-    route asks; only open PDFs are filed there, so a miss is no failure and says nothing of the
-    XML. Off with `LITRAG_FIGURES=off`."""
+def _figures_pdf(lib: Library, pmcid: str | None, name: str, pdf: str | None, cloud: str | None, timeout: float) -> str | None:
+    """After the XML, the same paper's PDF, for its figures: the XML names its figures but holds
+    none, and a PDF draws them (figures.py). The PMC Cloud Service first, then the bulk
+    open-access area, the hosts the PDF route asks; only open PDFs are filed there, so a miss is
+    no failure and says nothing of the XML. Off with `LITRAG_FIGURES=off`."""
     from .figures import enabled
 
     if not pmcid or not enabled():
         return None
+    body = None
     try:
-        body = _pdf_from(_get(pdf_url(pmcid, pdf), timeout), pmcid)
+        body, _ = pmc_cloud_pdf(pmcid, timeout, cloud)
     except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, OSError):
-        return None
+        pass
+    if body is None:
+        try:
+            body = _pdf_from(_get(pdf_url(pmcid, pdf), timeout), pmcid)
+        except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, OSError):
+            return None
     if body is None:
         return None
     dest = lib.inbox_dir / f"{name}.pdf"
@@ -491,10 +539,11 @@ def _figures_pdf(lib: Library, pmcid: str | None, name: str, pdf: str | None, ti
 
 
 def fetch_one(lib: Library, conn: sqlite3.Connection, cand_id: int, *, timeout: float = 90, base: str | None = None,
-              pdf: str | None = None, ncbi: str | None = None, on_progress: Callable[[dict[str, Any]], None] | None = None) -> dict[str, Any]:
-    """One candidate: its JATS from Europe PMC, else PMC's XML from NCBI, else its bulk PDF,
-    else `needs-pdf`. With an XML, its bulk PDF as well where there is one, for its figures
-    (`figures` in the answer: the PDF's path, or None). Never raises for the candidate; what went
+              pdf: str | None = None, ncbi: str | None = None, cloud: str | None = None,
+              on_progress: Callable[[dict[str, Any]], None] | None = None) -> dict[str, Any]:
+    """One candidate: its JATS from Europe PMC, else PMC's XML from NCBI, else its PDF from the
+    PMC Cloud Service or the bulk area, else `needs-pdf`. With an XML, its PDF as well where
+    there is one, for its figures (`figures` in the answer: the PDF's path, or None). Never raises for the candidate; what went
     wrong is the answer's `error` and the row's."""
     say = on_progress or (lambda e: None)
     row = _row(conn, cand_id)
@@ -525,7 +574,7 @@ def fetch_one(lib: Library, conn: sqlite3.Connection, cand_id: int, *, timeout: 
                     _update(conn, cand_id, status="fetched", file=dest.name, error=None)
                     say({"event": "candidate", "cand_id": cand_id, "status": "fetched", "format": "jats", "source": "europepmc", "path": str(dest)})
                     return {"cand_id": cand_id, "status": "fetched", "path": str(dest), "format": "jats", "source": "europepmc", "error": None,
-                            "figures": _figures_pdf(lib, pmcid, name, pdf, timeout, say, cand_id)}
+                            "figures": _figures_pdf(lib, pmcid, name, pdf, cloud, timeout)}
                 tried.append("full text XML: not an article")
             except urllib.error.HTTPError as e:
                 tried.append(f"full text XML: HTTP {e.code}")
@@ -545,15 +594,33 @@ def fetch_one(lib: Library, conn: sqlite3.Connection, cand_id: int, *, timeout: 
                     _update(conn, cand_id, status="fetched", file=dest.name, error=None)
                     say({"event": "candidate", "cand_id": cand_id, "status": "fetched", "format": "jats", "source": "ncbi", "path": str(dest)})
                     return {"cand_id": cand_id, "status": "fetched", "path": str(dest), "format": "jats", "source": "ncbi", "error": None,
-                            "figures": _figures_pdf(lib, pmcid, name, pdf, timeout, say, cand_id)}
+                            "figures": _figures_pdf(lib, pmcid, name, pdf, cloud, timeout)}
                 tried.append("NCBI PMC XML: no full text in the answer")
             except urllib.error.HTTPError as e:
                 tried.append(f"NCBI PMC XML: HTTP {e.code}")  # 400: PMC holds it, NCBI may not give it out
             except (urllib.error.URLError, TimeoutError, OSError) as e:
                 tried.append(f"NCBI PMC XML: {e}")
                 unreachable = True
+        if pmcid:
+            # Asked of every PMCID, like NCBI: its listing says at once whether it holds the paper,
+            # and Europe PMC's flags are not the open-access subset's.
+            say({"event": "candidate", "cand_id": cand_id, "status": "fetching", "format": "pdf", "source": "pmc-cloud"})
+            try:
+                body, why = pmc_cloud_pdf(pmcid, timeout, cloud)
+                if body is not None:
+                    dest = lib.inbox_dir / f"{name}.pdf"
+                    _save(dest, body)
+                    _update(conn, cand_id, status="fetched", file=dest.name, error=None)
+                    say({"event": "candidate", "cand_id": cand_id, "status": "fetched", "format": "pdf", "source": "pmc-cloud", "path": str(dest)})
+                    return {"cand_id": cand_id, "status": "fetched", "path": str(dest), "format": "pdf", "source": "pmc-cloud", "error": None}
+                tried.append(f"PMC Cloud: {why}")
+            except urllib.error.HTTPError as e:
+                tried.append(f"PMC Cloud: HTTP {e.code}")
+            except (urllib.error.URLError, TimeoutError, OSError) as e:
+                tried.append(f"PMC Cloud: {e}")
+                unreachable = True
         if pmcid and (row.get("is_open_access") or row.get("has_pdf")):
-            say({"event": "candidate", "cand_id": cand_id, "status": "fetching", "format": "pdf"})
+            say({"event": "candidate", "cand_id": cand_id, "status": "fetching", "format": "pdf", "source": "europepmc"})
             try:
                 body = _pdf_from(_get(pdf_url(pmcid, pdf), timeout), pmcid)
                 if body is not None:
@@ -586,15 +653,16 @@ def fetch_one(lib: Library, conn: sqlite3.Connection, cand_id: int, *, timeout: 
 
 def fetch(lib: Library, conn: sqlite3.Connection, cand_ids: Iterable[int] | None = None,
           on_progress: Callable[[dict[str, Any]], None] | None = None, *, timeout: float = 90,
-          base: str | None = None, pdf: str | None = None, ncbi: str | None = None) -> list[dict[str, Any]]:
-    """Fetch candidates into the inbox, XML first (Europe PMC's, then NCBI's), then PDF, else
+          base: str | None = None, pdf: str | None = None, ncbi: str | None = None, cloud: str | None = None) -> list[dict[str, Any]]:
+    """Fetch candidates into the inbox, XML first (Europe PMC's, then NCBI's), then PDF (the PMC
+    Cloud Service's, then the bulk area's), else
     `needs-pdf`: `[{cand_id, status, path, format, source, error}]`. With no ids, every `staged`
     candidate. The worker files the returned paths with its `ingest`, then calls `reconcile`."""
     ensure_schema(conn)
     lib.inbox_dir.mkdir(parents=True, exist_ok=True)
     if cand_ids is None:
         cand_ids = [r[0] for r in conn.execute("SELECT cand_id FROM candidates WHERE status = 'staged' ORDER BY cand_id")]
-    return [fetch_one(lib, conn, int(cid), timeout=timeout, base=base, pdf=pdf, ncbi=ncbi, on_progress=on_progress) for cid in cand_ids]
+    return [fetch_one(lib, conn, int(cid), timeout=timeout, base=base, pdf=pdf, ncbi=ncbi, cloud=cloud, on_progress=on_progress) for cid in cand_ids]
 
 
 # ---------------------------------------------------------------- manual use

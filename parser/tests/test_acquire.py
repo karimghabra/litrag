@@ -1,7 +1,8 @@
-"""acquire.py against a canned Europe PMC and NCBI on 127.0.0.1: search, candidates once, XML
-first (Europe PMC's, then NCBI's), then the bulk PDF, else needs-pdf. Nothing here touches the
-network."""
+"""acquire.py against a canned Europe PMC, NCBI and PMC Cloud Service on 127.0.0.1: search,
+candidates once, XML first (Europe PMC's, then NCBI's), then the PDF (the Cloud Service's, then
+the bulk area's), else needs-pdf. Nothing here touches the network."""
 
+import hashlib
 import io
 import json
 import threading
@@ -49,7 +50,8 @@ CORE = {
 
 
 class Canned:
-    """A tiny Europe PMC: routes by path, every request remembered."""
+    """A tiny Europe PMC: routes by path, every request remembered. Under `/cloud/`, a listing
+    (`?list-type=2&prefix=...&delimiter=/`) is answered as S3 answers one, from the routes there."""
 
     def __init__(self):
         self.routes: dict[str, tuple[int, str, bytes]] = {}
@@ -59,8 +61,12 @@ class Canned:
         class Handler(BaseHTTPRequestHandler):
             def do_GET(self):  # noqa: N802
                 outer.seen.append(self.path)
-                path = urllib.parse.urlsplit(self.path).path
-                status, ctype, body = outer.routes.get(path, (404, "text/html", b"<html>not found</html>"))
+                split = urllib.parse.urlsplit(self.path)
+                path, q = split.path, urllib.parse.parse_qs(split.query)
+                if path == "/cloud/" and q.get("list-type") == ["2"]:
+                    status, ctype, body = 200, "application/xml", outer.listing(q["prefix"][0])
+                else:
+                    status, ctype, body = outer.routes.get(path, (404, "text/html", b"<html>not found</html>"))
                 self.send_response(status)
                 self.send_header("Content-Type", ctype)
                 self.send_header("Content-Length", str(len(body)))
@@ -78,6 +84,26 @@ class Canned:
     def json(self, path, obj, status=200):
         self.routes[path] = (status, "application/json", json.dumps(obj).encode())
 
+    def listing(self, prefix):
+        folders = sorted({k.removeprefix("/cloud/").split("/")[0] for k in self.routes if k.startswith(f"/cloud/{prefix}")})
+        common = "".join(f"<CommonPrefixes><Prefix>{f}/</Prefix></CommonPrefixes>" for f in folders)
+        return (f'<?xml version="1.0" encoding="UTF-8"?>\n<ListBucketResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/">'
+                f"<Name>pmc-oa-opendata</Name><Prefix>{prefix}</Prefix><KeyCount>{len(folders)}</KeyCount><Delimiter>/</Delimiter>"
+                f"<IsTruncated>false</IsTruncated>{common}</ListBucketResult>").encode()
+
+    def cloud(self, pmcid, version=1, pdf=b"%PDF-1.5 from the cloud", manuscript=False, md5=None):
+        """An article in the Cloud Service, shaped like a live record (PMC11278924.1 and, for an
+        author manuscript, PMC5653421.1, checked 2026-10-04): a PDF with its MD5 in `pdf_url`;
+        a manuscript with XML and text and no PDF."""
+        v = f"{pmcid}.{version}"
+        meta = {"pmcid": pmcid, "version": version, "is_pmc_openaccess": not manuscript, "is_manuscript": manuscript,
+                "license_code": "TDM" if manuscript else "CC BY", "xml_url": f"s3://pmc-oa-opendata/{v}/{v}.xml",
+                "text_url": f"s3://pmc-oa-opendata/{v}/{v}.txt"}
+        if not manuscript:
+            meta["pdf_url"] = f"s3://pmc-oa-opendata/{v}/{v}.pdf?md5={md5 or hashlib.md5(pdf).hexdigest()}"
+            self.routes[f"/cloud/{v}/{v}.pdf"] = (200, "application/pdf", pdf)
+        self.json(f"/cloud/{v}/{v}.json", meta)
+
     def close(self):
         self.server.shutdown()
         self.server.server_close()
@@ -89,6 +115,7 @@ def epmc(monkeypatch):
     monkeypatch.setenv("LITRAG_EPMC_URL", f"{c.url}/rest")
     monkeypatch.setenv("LITRAG_EPMC_PDF_URL", f"{c.url}/oa")
     monkeypatch.setenv("LITRAG_NCBI_URL", f"{c.url}/ncbi")
+    monkeypatch.setenv("LITRAG_PMC_CLOUD_URL", f"{c.url}/cloud")
     monkeypatch.delenv("LITRAG_NCBI_EMAIL", raising=False)
     monkeypatch.delenv("LITRAG_NCBI_API_KEY", raising=False)
     monkeypatch.setattr(acquire, "NCBI_GAP", 0)
@@ -140,6 +167,50 @@ def test_with_an_xml_the_bulk_pdf_is_fetched_beside_it_for_its_figures(epmc, lib
     conn.commit()
     again = acquire.fetch_one(lib, conn, ids[0])
     assert again["status"] == "fetched" and again["format"] == "jats" and again["figures"] is None
+    conn.close()
+
+
+def test_a_pdf_from_the_pmc_cloud_service_before_the_bulk_area(epmc, lib):
+    epmc.cloud("PMC100002", version=1, pdf=b"%PDF-1.5 version one")
+    epmc.cloud("PMC100002", version=2, pdf=b"%PDF-1.5 version two")  # an article corrected: the latest
+    epmc.routes["/oa/PMCxxxx11/PMC100002.zip"] = (200, "application/zip", _zip("PMC100002"))
+    conn = open_store(lib.store_path)
+    ids = _cands(lib, conn)
+    events = []
+    (b,) = acquire.fetch(lib, conn, [ids[1]], on_progress=events.append)
+    assert b["status"] == "fetched" and b["format"] == "pdf" and b["source"] == "pmc-cloud"
+    assert Path(b["path"]).read_bytes() == b"%PDF-1.5 version two"
+    assert {"status": "fetched", "source": "pmc-cloud"}.items() <= events[-1].items()
+    assert not any(p.startswith("/oa/") for p in epmc.seen)  # had: the bulk area is not asked
+    cloud = [p for p in epmc.seen if p.startswith("/cloud/")]
+    assert cloud == ["/cloud/?list-type=2&prefix=PMC100002.&delimiter=%2F", "/cloud/PMC100002.2/PMC100002.2.json", "/cloud/PMC100002.2/PMC100002.2.pdf"]
+    conn.close()
+
+
+def test_what_the_cloud_service_cannot_give_falls_through_to_the_bulk_area(epmc, lib):
+    conn = open_store(lib.store_path)
+    ids = acquire.record_search(lib, conn, "q", [
+        {"pmcid": "PMC5653421", "doi": "10.1/manuscript", "title": "an author manuscript", "is_open_access": True},
+        {"pmcid": "PMC11278924", "doi": "10.1/corrupt", "title": "a PDF whose MD5 does not hold", "is_open_access": True},
+    ])["cand_ids"]
+    epmc.cloud("PMC5653421", manuscript=True)  # XML and text, no PDF
+    epmc.cloud("PMC11278924", md5="0" * 32)
+    epmc.routes["/oa/PMCxxxx1128/PMC11278924.zip"] = (200, "application/pdf", b"%PDF-1.7 from the bulk area")
+    one, two = acquire.fetch(lib, conn, ids)
+    assert one["status"] == "needs-pdf" and "PMC Cloud: no PDF (an author manuscript)" in one["error"]
+    assert two["status"] == "fetched" and two["source"] == "europepmc" and Path(two["path"]).read_bytes() == b"%PDF-1.7 from the bulk area"
+    assert not list(lib.inbox_dir.glob("*.part"))
+    conn.close()
+
+
+def test_with_an_xml_the_figures_pdf_comes_from_the_cloud_service_first(epmc, lib):
+    epmc.routes["/rest/PMC100001/fullTextXML"] = (200, "application/xml", (FIXTURES / "PMC11278924.xml").read_bytes())
+    epmc.cloud("PMC100001", pdf=b"%PDF-1.5 the paper, from the cloud")
+    conn = open_store(lib.store_path)
+    ids = _cands(lib, conn)
+    a = acquire.fetch_one(lib, conn, ids[0])
+    assert a["format"] == "jats" and Path(a["figures"]).read_bytes() == b"%PDF-1.5 the paper, from the cloud"
+    assert not any(p.startswith("/oa/") for p in epmc.seen)
     conn.close()
 
 
@@ -254,10 +325,12 @@ def test_fetch_xml_first_then_the_bulk_pdf_else_needs_pdf(epmc, lib):
     d = by[ids[3]]
     assert d["status"] == "needs-pdf" and d["links"]["europepmc"] == "https://europepmc.org/article/MED/444"
     assert not any("PMC" not in p and "444" in p for p in epmc.seen)  # nothing asked for a paper with no PMCID
-    # NCBI is asked only for what Europe PMC's XML did not give, and before the PDF is
+    # NCBI is asked only for what Europe PMC's XML did not give, and before the PDF is; the
+    # Cloud Service before the bulk area
     assert _ncbi_asked(epmc.seen) == ["100002", "100003"]
     order = [p for p in epmc.seen if "100002" in p]
-    assert [p.split("/")[1] for p in order] == ["rest", "ncbi", "oa"]
+    assert [p.split("/")[1] for p in order] == ["rest", "ncbi", "cloud", "oa"]
+    assert "PMC Cloud: not in its open-access datasets" in c["error"]
 
     rows = {r["cand_id"]: r for r in acquire.candidates(conn)}
     assert rows[ids[0]]["file"] == "doi_10.1_xml.xml" and rows[ids[0]]["status"] == "fetched"
@@ -365,6 +438,7 @@ def test_unreachable_is_failed_not_needs_pdf(lib, monkeypatch):
     monkeypatch.setenv("LITRAG_EPMC_URL", "http://127.0.0.1:9/rest")
     monkeypatch.setenv("LITRAG_EPMC_PDF_URL", "http://127.0.0.1:9/oa")
     monkeypatch.setenv("LITRAG_NCBI_URL", "http://127.0.0.1:9/ncbi")
+    monkeypatch.setenv("LITRAG_PMC_CLOUD_URL", "http://127.0.0.1:9/cloud")
     conn = open_store(lib.store_path)
     ids = acquire.record_search(lib, conn, "q", [{"pmcid": "PMC7", "doi": "10.1/x", "title": "t", "has_xml": True, "is_open_access": True}])["cand_ids"]
     (out,) = acquire.fetch(lib, conn, ids, timeout=2)

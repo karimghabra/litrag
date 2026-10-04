@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- **Open PDFs from NLM's PMC Cloud Service** (Karim, 2026-10-04: "yes, add the PMC Cloud
+  Service"; one more host for invariant 1, sent a PMCID and nothing else). NCBI retired its OA
+  web service and FTP packages in August 2026 and named the `pmc-oa-opendata` bucket the
+  successor; EBI's bulk area, the only PDF source until now, misses many papers it holds (the
+  Advanced Healthcare Materials paper among them). `fetch` now asks it for every PMCID with no
+  open XML, and for the PDF beside an XML for its figures, before the bulk area: the article's
+  versions are listed, the newest one's JSON names its PDF and that PDF's MD5, and the PDF is
+  kept only if the MD5 holds. An author manuscript there has XML and text and no PDF, said so in
+  the candidate's error. `source` is `pmc-cloud`; `LITRAG_PMC_CLOUD_URL` points it elsewhere
+  (the tests and the end-to-end fixture do, so nothing in them reaches NLM).
 - **An XML paper's figures, from a PDF of it** (Karim, 2026-10-04: "if we only ever retrieve an
   xml … we end up missing a bunch of figures?"). JATS names its figures and holds none, so the
   XML stays the paper and a PDF of the same paper is kept beside it for its charts

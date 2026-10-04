@@ -4,7 +4,8 @@
  * `fullTextXML` of an open paper, and the bulk area's open-access PDF. The worker is pointed at
  * it with LITRAG_EPMC_URL and LITRAG_EPMC_PDF_URL, so the suite exercises the real fetch path
  * without the network; LITRAG_NCBI_URL points NCBI's E-utilities here too, where every `efetch`
- * is not found, so no PMCID in the suite is ever asked of the real NCBI.
+ * is not found, and LITRAG_PMC_CLOUD_URL points the PMC Cloud Service here, whose every listing is
+ * empty, so no PMCID in the suite is ever asked of the real NCBI or NLM.
  *
  * Three papers, one for each way a paper can be had:
  *   - open XML: the repository's JATS fixture (PMC11278924);
@@ -37,6 +38,7 @@ export interface Fixture {
   pdfUrl: string;
   doiUrl: string;
   ncbiUrl: string;
+  cloudUrl: string;
   requests: string[];
   close(): Promise<void>;
 }
@@ -85,6 +87,11 @@ export async function startFixture(papers: FixturePaper[]): Promise<Fixture> {
       else send(404, 'not found', 'text/plain');
       return;
     }
+    if (url.pathname === '/cloud/' && url.searchParams.get('list-type') === '2') {
+      const prefix = url.searchParams.get('prefix') ?? '';
+      send(200, `<?xml version="1.0" encoding="UTF-8"?>\n<ListBucketResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Name>pmc-oa-opendata</Name><Prefix>${prefix}</Prefix><KeyCount>0</KeyCount><Delimiter>/</Delimiter><IsTruncated>false</IsTruncated></ListBucketResult>`, 'application/xml');
+      return;
+    }
     // a publisher's page for a paper, by DOI (LITRAG_DOI_RESOLVER points the collect window here),
     // with a link to its PDF — which, served as an attachment, is what a person's click downloads
     const landing = /^\/doi\/(.+)$/.exec(url.pathname);
@@ -112,6 +119,7 @@ export async function startFixture(papers: FixturePaper[]): Promise<Fixture> {
     pdfUrl: `http://127.0.0.1:${port}/pdf`,
     doiUrl: `http://127.0.0.1:${port}/doi/`,
     ncbiUrl: `http://127.0.0.1:${port}/ncbi`,
+    cloudUrl: `http://127.0.0.1:${port}/cloud`,
     requests,
     close: () => new Promise<void>((resolve) => server.close(() => resolve())),
   };

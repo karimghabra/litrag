@@ -89,14 +89,23 @@ when it turns out durable. Mark inference as inference.
 
 ## Short-term memory
 
+- **2026-10-04: the PMC Cloud Service is a source** — Karim: "yes, add the PMC Cloud Service".
+  Invariant 1 now names it; `fetch` asks it (by PMCID only) before EBI's bulk area, for a paper's
+  PDF and for the PDF beside an XML. Checked live: the MDPI paper (PMC11278924, 2.8 MB) and
+  PMC11457099 came with their MD5s holding, in about a second each; the author manuscript
+  PMC5653421 has XML and text and no PDF; the closed deposit PMC9469745 is not there. The bucket
+  also holds author manuscripts' XML, a second road if NCBI's `efetch` ever goes the way of
+  `oa.fcgi` — not used. Its terms: say the data is NLM's, no PMC logo, no implied endorsement
+  (README says so).
+
 - **2026-10-04: where figures (and papers) can come from** — a survey for Karim ("see if there are
   alternative publishers or platforms"), probed from the cloud container; full report kept out
   of the repo. What is true now:
   - **NCBI retired the PMC OA web service (`oa.fcgi`), its FTP packages and the old cloud files
     on 2026-08-24.** The successor is the **PMC Cloud Service**, a public S3 bucket
     (`pmc-oa-opendata.s3.amazonaws.com`): per article version `.xml`, `.txt`, `.json` (licence,
-    `is_manuscript`, `pdf_url`), and for the open-access subset the PDF and figures. Not asked by
-    litrag: a new host is Karim's to allow. It held the MDPI test paper's PDF; EBI's bulk PDF
+    `is_manuscript`, `pdf_url`), and for the open-access subset the PDF and figures. Asked by
+    litrag since Karim allowed it (entry above). It held the MDPI test paper's PDF; EBI's bulk PDF
     area — what the fetch asks now — did not (`PMCxxxx1128/` lists no such file).
   - **NIH author manuscripts** (most Acta Biomaterialia papers in PMC) have XML and text only,
     everywhere open: their PDF and figures come from the publisher (Elsevier's API with an

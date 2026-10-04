@@ -117,7 +117,7 @@ Five tabs over one project at a time, picked at the top:
 | Tab | What it is for |
 |---|---|
 | Projects | every project as a card: papers by format and type, how many are read, the searches run, the candidates waiting for a PDF, the passages embedded; **New project**; **Merge libraries…** files every paper of several projects once in a new one |
-| Search | a Europe PMC query (or one the local model drafts from the project's description); each hit with what can be had of it — open XML, an open PDF, nothing open — kept as a candidate; **Fetch & read** takes the XML first (Europe PMC's, else NCBI's for an NIH author manuscript), the PDF second, and lists the rest with their links |
+| Search | a Europe PMC query (or one the local model drafts from the project's description); each hit with what can be had of it — open XML, an open PDF, nothing open — kept as a candidate; **Fetch & read** takes the XML first (Europe PMC's, else NCBI's for an NIH author manuscript), the PDF second (NLM's PMC Cloud Service, else EBI's bulk area), and lists the rest with their links |
 | Papers | the three panes below; the tree pane's **Canonical** face re-hangs the paper under its type's structure, each section tagged with the mechanism that placed it |
 | Types | the kinds of paper the project holds, each kind's canonical structure (its slots in order, how often its papers have each), and any paper drawn onto it: a line from each printed section to its slot, coloured by the vocabulary, the catalogue, the embedder, a built heading or the outline judge; the slots it lacks drawn empty |
 | Query | a question, and the passages that answer it, each hydrated from its tree: the headings above it, the paragraphs either side, the methods a finding was measured by (the paragraph it rests on, where the method is described in another paper, statistics and materials apart), the findings a method measured, the figures and references it cites — a figure with the numbers read from its charts; **Open in the tree** lands on it |
@@ -628,10 +628,21 @@ charts: each page that prints a figure's caption is read, an image there whole
 at its own resolution and the rest with the page's text layer, and every plot
 is pinned to the caption under it — "Figure 2." to the XML's figure 2 (a
 sentence that begins "Figure 2 shows" is no caption). The PDF comes three
-ways: a fetch takes EBI's open-access PDF of the paper beside its XML where
-that area has one; a PDF dropped into a project whose paper is already its XML
-is kept for the figures instead of being set aside; and **Collect PDFs** lists
-the XML papers whose figures want one, after the papers with no copy at all.
+ways: a fetch takes the paper's open-access PDF beside its XML, from the PMC
+Cloud Service or else EBI's bulk area; a PDF dropped into a project whose
+paper is already its XML is kept for the figures instead of being set aside;
+and **Collect PDFs** lists the XML papers whose figures want one, after the
+papers with no copy at all.
+
+**Where an open PDF comes from.** The PMC Cloud Service
+(`pmc-oa-opendata.s3.amazonaws.com`) is the National Library of Medicine's
+copy of PMC's open-access articles as files, the successor NCBI named when
+it retired its OA web service in August 2026: it is asked by PMCID alone,
+its newest version of the article taken, and the PDF kept only when the MD5
+NLM lists for it holds. The articles are NLM's data, each under its own
+licence; NLM does not endorse this tool. EBI's bulk area is asked after it,
+for what the Cloud Service lacks. An NIH author manuscript is there as XML
+and text, never as a PDF.
 
 ## Citations
 

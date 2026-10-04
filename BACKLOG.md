@@ -6,10 +6,9 @@ wants as they are voiced.
 ## Named priorities
 
 - **More sources for PDFs and figures** (Karim to decide, 2026-10-04; NOTES.md has the survey) —
-  each a new host for invariant 1. Open, no licence: the PMC Cloud Service bucket
-  (`pmc-oa-opendata.s3.amazonaws.com`, the successor of the retired `oa.fcgi`: the PDF of every
-  open-access PMC paper, by PMCID — would replace EBI's bulk area as the PDF beside an XML);
-  OpenAlex (`api.openalex.org`, free key: open copies outside PMC); Crossref (licences and the
+  each a new host for invariant 1. ~~The PMC Cloud Service bucket~~ (*built 2026-10-04*: asked
+  before EBI's bulk area for every open PDF, an XML paper's figures PDF included). Still open, no
+  licence: OpenAlex (`api.openalex.org`, free key: open copies outside PMC); Crossref (licences and the
   publishers' TDM links); full-size figures from PLOS, eLife, Frontiers and MDPI's CDN. Licensed:
   Elsevier's API (personal key + the university's subscription) for Acta Biomaterialia and
   Biomaterials, then Wiley's TDM API.
