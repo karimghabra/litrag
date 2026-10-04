@@ -231,16 +231,60 @@ MATCH_TITLE_CHARS = 24
 _YEARS = re.compile(r"\b(1[89]\d{2}|20\d{2})\b")
 
 
-def year_agrees(entry: dict[str, Any], year: Any) -> bool:
+class Entry:
+    """A reference entry made ready for matching once: its words normalised, squeezed (no spaces),
+    as a set, and the years it prints. Matching an entry against a list of works asks these over
+    and over; preparing them once is what keeps a library of thousands of entries quick."""
+
+    __slots__ = ("text", "squeezed", "tokens", "years")
+
+    def __init__(self, entry: dict[str, Any]):
+        self.text = f" {_norm(entry.get('text'))} {_norm(entry.get('title'))} "
+        self.squeezed = self.text.replace(" ", "")
+        self.tokens = set(self.text.split())
+        self.years = {int(y) for y in _YEARS.findall(f"{entry.get('text') or ''} {entry.get('year') or ''}")}
+
+    def has(self, phrase: str) -> bool:
+        return bool(phrase) and f" {phrase} " in self.text
+
+
+class Work:
+    """A work of a list made ready for matching once: its title squeezed, its year, its first
+    author's family name, volume and first page, normalised."""
+
+    __slots__ = ("title", "words", "year", "family", "volume", "page")
+
+    def __init__(self, title: Any, year: Any = None, family: Any = None, volume: Any = None, first_page: Any = None):
+        t = _norm(title)
+        self.words = len(t.split())
+        self.title = t.replace(" ", "")
+        y = str(year or "").strip()[:4]
+        self.year = int(y) if y.isdigit() else None
+        self.family, self.volume, self.page = _norm(family), _norm(volume), _norm(first_page)
+
+
+def year_agrees(entry: dict[str, Any] | Entry, year: Any) -> bool:
     """Whether an entry's year can be this one: any year it prints within one of it (an article
     online in one year is often in an issue of the next), or it prints none. Any year, since the
     first four digits of an entry are as often a page ("1913-1927") or a journal's ("Periodontology
     2000") as its year."""
-    known = str(year or "").strip()[:4]
-    if not known.isdigit():
-        return True
-    printed = {int(y) for y in _YEARS.findall(f"{entry.get('text') or ''} {entry.get('year') or ''}")}
-    return not printed or any(abs(y - int(known)) <= 1 for y in printed)
+    e = entry if isinstance(entry, Entry) else Entry(entry)
+    known = year if isinstance(year, int) else (int(str(year).strip()[:4]) if str(year or "").strip()[:4].isdigit() else None)
+    return known is None or not e.years or any(abs(y - known) <= 1 for y in e.years)
+
+
+def names_prepared(e: Entry, w: Work) -> bool:
+    """`names`, on an entry and a work prepared once."""
+    if w.words < MATCH_TITLE_WORDS or len(w.title) < MATCH_TITLE_CHARS or w.title not in e.squeezed:
+        return False
+    return year_agrees(e, w.year) and (not w.family or e.has(w.family))
+
+
+def by_print_prepared(e: Entry, w: Work) -> bool:
+    """`cites_by_place_in_print`, on an entry and a work prepared once."""
+    if not w.family or not w.volume or not w.page or not e.has(w.family):
+        return False
+    return year_agrees(e, w.year) and w.volume in e.tokens and w.page in e.tokens
 
 
 def names(entry: dict[str, Any], title: Any, year: Any = None, family: Any = None) -> bool:
@@ -248,26 +292,14 @@ def names(entry: dict[str, Any], title: Any, year: Any = None, family: Any = Non
     title inside the entry's words (at least four words and 24 letters of it, spaces and marks
     aside), a year the entry prints within one of its own (`year_agrees`), and the first author's
     family name in the entry when it is known. Anything less is no match."""
-    text = f" {_norm(entry.get('text'))} {_norm(entry.get('title'))} "
-    title = _norm(title)
-    squeezed = title.replace(" ", "")
-    if len(title.split()) < MATCH_TITLE_WORDS or len(squeezed) < MATCH_TITLE_CHARS or squeezed not in text.replace(" ", ""):
-        return False
-    if not year_agrees(entry, year):
-        return False
-    family = _norm(family)
-    return not family or f" {family} " in text
+    return names_prepared(Entry(entry), Work(title, year, family))
 
 
 def cites_by_place_in_print(entry: dict[str, Any], family: Any, year: Any, volume: Any, first_page: Any) -> bool:
     """Whether an entry that prints no title ("Geissler J, Stevanovic M, Injury 2019, 50, S64.")
     names a work by what it does print: the first author's family name, a year within one, and the
     volume and first page, each a whole token of the entry. All four, or no match."""
-    text = f" {_norm(entry.get('text'))} "
-    family, volume, page = _norm(family), _norm(volume), _norm(first_page)
-    if not family or not volume or not page or f" {family} " not in text:
-        return False
-    return year_agrees(entry, year) and f" {volume} " in text and f" {page} " in text
+    return by_print_prepared(Entry(entry), Work(None, year, family, volume, first_page))
 
 
 def first_author(w: dict[str, Any]) -> str | None:

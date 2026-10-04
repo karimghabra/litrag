@@ -303,7 +303,7 @@ def _at_its_place(entry: dict[str, Any], row: dict[str, Any]) -> bool:
 
 
 #: How entries are matched to works: raised whenever that changes, so libraries linked before are linked again.
-LINKER = 2
+LINKER = 3
 
 
 def link_refs(conn: sqlite3.Connection) -> int:
@@ -319,7 +319,7 @@ def link_refs(conn: sqlite3.Connection) -> int:
     The stamp folds in the linker's own version, so a change to how entries are matched reaches a
     library linked before it."""
     from .lineage import _Library
-    from .openalex import cites_by_place_in_print, names
+    from .openalex import Entry, Work, by_print_prepared, names_prepared
 
     changed, stamp = _stamp(conn, "refs-linked",
                             f"SELECT {LINKER}, COUNT(*), MAX(rowid), GROUP_CONCAT(parsed_at), TOTAL(length(doi)), TOTAL(length(pmid)), TOTAL(length(title)) FROM papers"
@@ -334,6 +334,18 @@ def link_refs(conn: sqlite3.Connection) -> int:
     lists: dict[str, list[dict[str, Any]]] = {}
     for r in conn.execute("SELECT * FROM ref_lists ORDER BY paper, source, ord"):
         lists.setdefault(r["paper"], []).append(dict(r))
+    # each list's works prepared once, filed by the last word of their first author's family name
+    by_family: dict[str, dict[str, list[tuple[dict[str, Any], Work]]]] = {}
+    no_family: dict[str, list[tuple[dict[str, Any], Work]]] = {}
+    for paper, rows_of in lists.items():
+        for r in rows_of:
+            if not r["ident"] or r["source"] == "openalex-search":
+                continue
+            pw = Work(r["title"], r["year"], _fold_family(r["first_author"]), r.get("volume"), r.get("first_page"))
+            if pw.family:
+                by_family.setdefault(paper, {}).setdefault(pw.family.split()[-1], []).append((r, pw))
+            else:
+                no_family.setdefault(paper, []).append((r, pw))
     resolver = _Library(conn)
 
     def work(ident: str | None) -> str | None:
@@ -357,14 +369,21 @@ def link_refs(conn: sqlite3.Connection) -> int:
                 w, how = work(placed[e["ref_no"]]["ident"]), "europepmc"
             if w is None and e["ref_no"] in searched:
                 w, how = work(searched[e["ref_no"]]["ident"]), "openalex-search"
-            for match in (lambda r: names(e, r["title"], r["year"], _fold_family(r["first_author"])),
-                          lambda r: cites_by_place_in_print(e, _fold_family(r["first_author"]), r["year"], r["volume"], r["first_page"])):
-                if w is not None:
-                    break
-                named = {r["ident"]: r["source"] for r in rows if r["ident"] and r["source"] != "openalex-search" and match(r)}
-                if len({work(i) for i in named} - {None}) == 1:
-                    ident = next(i for i in named if work(i))
-                    w, how = work(ident), named[ident]
+            if w is None:
+                pe = Entry(e)
+                # only the works whose first author the entry names can be it (and those with no
+                # author on record, for the title alone): a handful of the list, not all of it
+                near = [x for fam in pe.tokens & by_family.get(key, {}).keys() for x in by_family[key][fam]] + no_family.get(key, [])
+                near.sort(key=lambda x: (x[0]["source"], x[0]["ord"]))  # a work both lists name is credited to the same one every time
+                for match in (names_prepared, by_print_prepared):
+                    named: dict[str, str] = {}
+                    for x in near:
+                        if match(pe, x[1]):
+                            named.setdefault(x[0]["ident"], x[0]["source"])
+                    if len({work(i) for i in named} - {None}) == 1:
+                        ident = next(i for i in named if work(i))
+                        w, how = work(ident), named[ident]
+                        break
             if w and w != key:
                 links.append((key, e["ref_no"], w, how))
     with conn:

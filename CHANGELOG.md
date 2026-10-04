@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **Entry linking at scale** (Karim, 2026-10-04: "we need to test this at scale"). On a library of
+  25 PDFs with 2,406 candidates and 4,895 kept list rows, linking every entry from scratch took
+  24 s — and a `SELECT`, the Graph tab or a paper's references wait on it after any round or fetch:
+  each entry's words were normalised again for every work of its list (525,000 times). Entries and
+  works are now prepared once (`openalex.Entry`, `Work`), and an entry is compared only with the
+  works whose first author it names: 0.45 s, the same 2,373 links (a work both lists name is now
+  credited to the same list every time). The linker's version is part of its stamp, so a library
+  linked before is linked again once.
 - **The links tested, and what the test fixed** (Karim, 2026-10-04: "test this feature"). Six open
   papers from six publishers read twice, as PDF and as JATS, the JATS's identifiers the truth:
   `python -m litrag_parser.graph --lib … --truth …` (new) scores one library's entry links against
