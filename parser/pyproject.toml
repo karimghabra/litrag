@@ -1,6 +1,6 @@
 [project]
 name = "litrag-parser"
-version = "0.3.1"
+version = "0.3.2"
 description = "litrag's parsing worker: Docling over PDFs and JATS into one node tree, spoken to over JSON lines."
 requires-python = ">=3.11"
 dependencies = [

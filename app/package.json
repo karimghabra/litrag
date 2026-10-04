@@ -1,6 +1,6 @@
 {
   "name": "litrag-app",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "private": true,
   "description": "litrag's desktop: watch papers being ingested and their trees being built.",
   "author": "Karim Ghabra",
