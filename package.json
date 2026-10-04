@@ -1,6 +1,6 @@
 {
   "name": "litrag",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "One library of papers per project. A desktop app watches Docling read each paper into a tree; a Python worker owns the parsing and the store; the `lit` CLI is the earlier retrieval loop, kept until the app replaces its verbs.",
   "type": "module",
   "license": "MIT",

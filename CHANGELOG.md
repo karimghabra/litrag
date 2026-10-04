@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 0.3.2 — 2026-10-04
+
+Installable from a release, author manuscripts from NCBI, and torch chosen by name.
+
+**Upgrading a checkout on Windows with an NVIDIA card:** run `uv sync --project parser --extra
+cu130` once — a plain `uv sync` now takes CPU torch there (below).
+
 - **Installable from a release** (Karim, 2026-09-30: "a bat script that installs dependencies,
   followed by the software itself, which is relatively small"). Each published release gets
   `litrag-<version>-win-x64.zip` (~135 MB) and `litrag-<version>-linux-x64.tar.gz` (~110 MB):
