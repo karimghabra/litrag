@@ -367,19 +367,38 @@ def edges_of(conn: sqlite3.Connection, node_id: str) -> dict[str, list[dict[str,
     return {"out": out, "in": inc, "candidates": int(subs or paras)}
 
 
+#: The work an entry names (graph.py's `ref_works`), when the library has linked it: the paper
+#: held (`work_paper`) or the candidate (`work_cand`), with its title, year and status.
+_WORK_COLS = """, rw.work, rw.how, COALESCE(wp.title, wc.title) AS work_title, COALESCE(wp.year, wc.year) AS work_year,
+                  wp.key AS work_paper, wc.cand_id AS work_cand, COALESCE(wp.status, wc.status) AS work_status"""
+_WORK_JOIN = """ LEFT JOIN ref_works rw ON rw.paper = r.paper AND rw.ref_no = r.ref_no
+                 LEFT JOIN papers wp ON wp.key = rw.work
+                 LEFT JOIN candidates wc ON rw.work LIKE 'cand:%' AND wc.cand_id = CAST(substr(rw.work, 6) AS INTEGER)"""
+
+
+def _linked(conn: sqlite3.Connection) -> bool:
+    return conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'ref_works'").fetchone() is not None
+
+
 def refs_of(conn: sqlite3.Connection, key: str) -> list[dict[str, Any]]:
-    """A paper's reference list, each entry with the nodes that cite it."""
+    """A paper's reference list, each entry with the nodes that cite it, and the work it names when
+    the library has linked it (`work`, `how`, `work_title`, `work_year`, `work_paper` for a paper
+    held, `work_cand` for a candidate, `work_status`)."""
     cited: dict[int, list[str]] = {}
     for r in conn.execute("SELECT ref_no, node_id FROM citations WHERE paper = ? ORDER BY ref_no, node_id", (key,)):
         cited.setdefault(r["ref_no"], []).append(r["node_id"])
-    return [{**dict(r), "cited_by": cited.get(r["ref_no"], [])} for r in conn.execute("SELECT ref_no, node_id, ref_id, text, doi, pmid, year, first_author, title FROM refs WHERE paper = ? ORDER BY ref_no", (key,))]
+    linked = _linked(conn)
+    rows = conn.execute(f"""SELECT r.ref_no, r.node_id, r.ref_id, r.text, r.doi, r.pmid, r.year, r.first_author, r.title{_WORK_COLS if linked else ''}
+                            FROM refs r{_WORK_JOIN if linked else ''} WHERE r.paper = ? ORDER BY r.ref_no""", (key,))
+    return [{**dict(r), "cited_by": cited.get(r["ref_no"], [])} for r in rows]
 
 
 def cites_of(conn: sqlite3.Connection, node_id: str) -> list[dict[str, Any]]:
-    """The entries one node cites, with the marker that named each."""
+    """The entries one node cites, with the marker that named each and, when linked, the work."""
+    linked = _linked(conn)
     return [dict(r) for r in conn.execute(
-        """SELECT c.ref_no, c.marker, r.node_id, r.text, r.doi, r.pmid, r.year, r.first_author, r.title
-           FROM citations c JOIN refs r ON r.paper = c.paper AND r.ref_no = c.ref_no
+        f"""SELECT c.ref_no, c.marker, r.node_id, r.text, r.doi, r.pmid, r.year, r.first_author, r.title{_WORK_COLS if linked else ''}
+           FROM citations c JOIN refs r ON r.paper = c.paper AND r.ref_no = c.ref_no{_WORK_JOIN if linked else ''}
            WHERE c.node_id = ? ORDER BY c.ref_no""", (node_id,))]
 
 

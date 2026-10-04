@@ -251,6 +251,11 @@ h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: v
 #graph-detail .neighbour { cursor: pointer; padding: 2px 0; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #graph-detail .neighbour.candidate { color: var(--muted); }
 #graph-detail .neighbour:hover { color: var(--accent); }
+#graph-detail .passage { cursor: pointer; padding: 4px 0; border-bottom: 1px solid var(--line); font-size: 12px; }
+#graph-detail .passage .where { color: var(--muted); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#graph-detail .passage .quote { line-height: 1.35; }
+#graph-detail .passage:hover .quote { color: var(--accent); }
+.view-head input.narrow { width: 56px; }
 .sql-col .searchbar { padding: 8px 12px; }
 .sql-col textarea { font-size: 12px; }
 #sql-results { padding: 0 12px 10px; }
@@ -298,6 +303,9 @@ table.sql-table tr.linked:hover td { background: var(--soft); }
 .side-item { font-size: 12px; line-height: 1.45; padding: 6px 8px; border: 1px solid var(--line); border-radius: 5px; margin-bottom: 6px; background: #fff; }
 .side-item .h { font-weight: 600; margin-bottom: 2px; }
 .side-item .ev { color: var(--muted); font-size: 11px; }
+.side-item.go { cursor: pointer; }
+.side-item.go:hover { border-color: var(--accent); }
+.side-item .held { color: var(--accent); font-size: 11px; }
 .ranks { color: var(--muted); font-size: 11px; margin-left: auto; }
 .qhit-foot { display: flex; gap: 8px; padding: 8px 14px; border-top: 1px solid var(--line); }
 
@@ -349,6 +357,10 @@ table.sql-table tr.linked:hover td { background: var(--soft); }
 .detail .link .who { font-weight: 600; flex: none; }
 .detail .link .what { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .detail .link .doi, .detail .links .doi { color: var(--muted); font-size: 11px; flex: none; }
+.detail .link .work, .detail .names .work { font-size: 11px; color: var(--muted); flex: none; white-space: nowrap; }
+.detail .link .work.held, .detail .names .work.held { color: var(--accent); cursor: pointer; }
+.detail .link .work.held:hover, .detail .names .work.held:hover { text-decoration: underline; }
+.detail .names { font-size: 12px; margin: 2px 0 6px; }
 .side-item .elsewhere { margin-top: 6px; padding: 5px 7px; border-left: 2px solid var(--accent); background: var(--soft); border-radius: 0 4px 4px 0; }
 .side-item.general .h { font-weight: 500; color: var(--muted); }
 

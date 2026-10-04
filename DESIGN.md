@@ -969,6 +969,19 @@ round files every identified work there, with the round that reached it,
 so the graph, the Search tab and `fetch` share one list, and a candidate
 read becomes its paper in `cites` too. Unidentified entries make no row.
 
+*2026-10-04, passages to works (Karim: "link chunks that cite specific
+references to these new citations").* The finest edge is a passage to the
+work it cites: `citations` (a node and the entry its marker names, made as
+the paper is read) joined to `ref_works` (the work each entry names). An
+entry is linked by what the paper itself printed (its DOI, its PMID, a held
+paper's whole title) or by a source's list — and a source's list is kept as
+rows (`ref_lists`), not used once and thrown away, so that the link is
+derived offline like every other row: a reread or a rebuild changes the
+entries, and the links follow without asking the network again. A list is
+lined up with the paper's own by place only when the first author and the
+year agree too, since a list read from a PDF can run out of step with the
+printed one; otherwise by the whole title. No guess fills the rest.
+
 ## 6b. Compared with the lab's own pipeline
 
 Dr. D'Lima's scripts (September 2026) run the same loop in Python: PubMed

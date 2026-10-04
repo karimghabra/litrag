@@ -106,6 +106,30 @@ interface Ref {
   first_author: string | null;
   title: string | null;
   cited_by: string[];
+  /** the work the entry names, once the library has linked it (graph.py's ref_works) */
+  work?: string | null;
+  how?: string | null;
+  work_title?: string | null;
+  work_year?: string | null;
+  /** the paper held it is, or the candidate */
+  work_paper?: string | null;
+  work_cand?: number | null;
+  work_status?: string | null;
+}
+
+/** What an entry is linked to: the paper held (opened on a click) or the candidate and its state. */
+function workOf(ref: Ref | undefined): HTMLElement | null {
+  if (!ref?.work) return null;
+  const held = !!ref.work_paper;
+  const w = el('span', `work${held ? ' held' : ''}`, held ? '→ in the library' : `→ ${ref.work_status ?? 'candidate'}`);
+  w.title = `${ref.work_title ?? ref.work}${ref.work_year ? ` (${ref.work_year})` : ''} — linked by ${ref.how}${held ? '; click to open it' : '; a candidate: fetch it from the Graph or Search tab'}`;
+  if (held) {
+    w.addEventListener('click', (e) => {
+      e.stopPropagation();
+      void openPaper(ref.work_paper!);
+    });
+  }
+  return w;
 }
 
 interface Tree {
@@ -677,6 +701,8 @@ function renderDetail(n: Node) {
       row.append(el('span', 'who', ref ? `${ref.first_author ?? '?'} ${ref.year ?? ''}`.trim() : ''));
       row.append(el('span', 'what', ref ? (ref.title ?? ref.text) : '(entry not found)'));
       if (ref?.doi) row.append(el('span', 'doi', ref.doi));
+      const linked = workOf(ref);
+      if (linked) row.append(linked);
       if (ref?.node_id) {
         row.classList.add('go');
         row.title = 'open the entry';
@@ -692,6 +718,12 @@ function renderDetail(n: Node) {
     const citing = ref?.cited_by ?? [];
     box.append(el('div', 'links-head', citing.length ? `Entry [${n.ref_no}] — cited by ${citing.length} node${citing.length === 1 ? '' : 's'}` : `Entry [${n.ref_no}] — never cited in the text`));
     if (ref?.doi) box.append(el('div', 'doi', `doi:${ref.doi}${ref.pmid ? ` · pmid:${ref.pmid}` : ''}`));
+    const linked = workOf(ref);
+    if (linked) {
+      const names = el('div', 'names', `Names ${ref!.work_title ?? ref!.work}${ref!.work_year ? ` (${ref!.work_year})` : ''} `);
+      names.append(linked);
+      box.append(names);
+    }
     for (const id of citing) {
       const citer = state.nodesById.get(id);
       const row = el('div', 'link go');

@@ -224,25 +224,39 @@ def _norm(s: Any) -> str:
 MATCH_TITLE_WORDS = 4
 
 
-def matches(entry: dict[str, Any], w: dict[str, Any]) -> bool:
-    """Whether a reference entry names this work: the work's whole title inside the entry's words
-    (at least four words of it), the years within one of each other when the entry prints one (an
-    article online in one year is often in an issue of the next), and its first author's family
-    name in the entry when it has authors. Anything less is no match."""
+def names(entry: dict[str, Any], title: Any, year: Any = None, family: Any = None) -> bool:
+    """Whether a reference entry names a work of this title, year and first author: the whole
+    title inside the entry's words (at least four words of it), the years within one of each other
+    when both are known (an article online in one year is often in an issue of the next), and the
+    first author's family name in the entry when it is known. Anything less is no match."""
     text = f" {_norm(entry.get('text'))} {_norm(entry.get('title'))} "
-    title = _norm(w.get("title"))
+    title = _norm(title)
     if len(title.split()) < MATCH_TITLE_WORDS or f" {title} " not in text:
         return False
-    year = str(entry.get("year") or "").strip()
-    if year.isdigit() and w.get("publication_year") and abs(int(year) - int(w["publication_year"])) > 1:
-        return False  # a year apart is the online date against the issue's, as often as not
+    printed = str(entry.get("year") or "").strip()[:4]
+    known = str(year or "").strip()[:4]
+    if printed.isdigit() and known.isdigit() and abs(int(printed) - int(known)) > 1:
+        return False
+    family = _norm(family)
+    return not family or f" {family} " in text
+
+
+def first_author(w: dict[str, Any]) -> str | None:
+    """An OpenAlex work's first author, as it shows the name."""
     first = next(iter(w.get("authorships") or []), None)
-    if first:
-        name = _norm((first.get("author") or {}).get("display_name") or first.get("raw_author_name"))
-        family = name.split()[-1] if name else ""
-        if family and f" {family} " not in text:
-            return False
-    return True
+    return plain_text(((first or {}).get("author") or {}).get("display_name") or (first or {}).get("raw_author_name"))
+
+
+def first_family(w: dict[str, Any]) -> str | None:
+    """An OpenAlex work's first author's family name: the last word of the name it shows."""
+    first = next(iter(w.get("authorships") or []), None)
+    name = _norm(((first or {}).get("author") or {}).get("display_name") or (first or {}).get("raw_author_name"))
+    return name.split()[-1] if name else None
+
+
+def matches(entry: dict[str, Any], w: dict[str, Any]) -> bool:
+    """Whether a reference entry names this OpenAlex work (`names`)."""
+    return names(entry, w.get("title"), w.get("publication_year"), first_family(w))
 
 
 def match(entry: dict[str, Any], *, timeout: float = 30, url: str | None = None) -> dict[str, Any] | None:

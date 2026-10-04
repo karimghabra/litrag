@@ -342,11 +342,28 @@ def lookup(idents: Iterable[str], *, timeout: float = 60, base: str | None = Non
             missed.extend(batch)
             continue
         wanted = set(batch)
+        orphans = 0
         for h in (data.get("resultList") or {}).get("result") or []:
             hit = normalise_hit(h)
-            for ident in (f"pmid:{hit['pmid']}" if hit["pmid"] else None, f"doi:{hit['doi']}" if hit["doi"] else None, f"pmcid:{hit['pmcid']}" if hit["pmcid"] else None):
-                if ident in wanted and ident not in out:
-                    out[ident] = hit
+            named = [i for i in (f"pmid:{hit['pmid']}" if hit["pmid"] else None, f"doi:{hit['doi']}" if hit["doi"] else None, f"pmcid:{hit['pmcid']}" if hit["pmcid"] else None) if i in wanted]
+            orphans += not named
+            for ident in named:
+                out.setdefault(ident, hit)
+        if orphans:
+            # A record can answer a DOI without carrying it (a PMC article Europe PMC filed with no
+            # DOI: PMC5445871, 2026-10-04): in a batch it cannot be told which DOI it answers, so each
+            # DOI no record named is asked alone, and a single record is that DOI's.
+            for ident in (i for i in batch if i.startswith("doi:") and i not in out):
+                params = urllib.parse.urlencode({"query": f'DOI:"{ident[4:]}"', "resultType": "core", "format": "json", "pageSize": 2})
+                try:
+                    one = json.loads(_get(f"{rest_base(base)}/search?{params}", timeout).decode("utf-8"))
+                except (urllib.error.URLError, TimeoutError, OSError, json.JSONDecodeError):
+                    continue
+                results = (one.get("resultList") or {}).get("result") or []
+                if len(results) == 1:
+                    hit = normalise_hit(results[0])
+                    if not hit["doi"] or hit["doi"] == ident[4:]:
+                        out[ident] = {**hit, "doi": hit["doi"] or ident[4:]}
     return out, missed
 
 

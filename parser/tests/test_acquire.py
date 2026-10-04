@@ -496,3 +496,21 @@ def test_cli_search(epmc, lib, capsys):
 def test_pdf_url_blocks_of_ten_thousand():
     assert acquire.pdf_url("PMC11457099", "https://x/OA") == "https://x/OA/PMCxxxx1146/PMC11457099.zip"
     assert acquire.pdf_url("pmc10000", "https://x/OA") == "https://x/OA/PMCxxxx1/PMC10000.zip"
+
+
+def test_a_record_that_answers_a_doi_without_carrying_it_is_asked_for_alone(epmc):
+    # PMC5445871 (checked 2026-10-04): DOI:"10.3390/ma3031863" finds it, and its record has no DOI
+    pmc_only = {"id": "PMC5445871", "source": "PMC", "pmcid": "PMC5445871", "title": "Collagen-Based Biomaterials for Tissue Engineering Applications",
+                "isOpenAccess": "Y", "inEPMC": "Y", "inPMC": "Y", "hasPDF": "Y", "pubYear": "2010"}
+    other = {"id": "1", "source": "MED", "pmid": "1", "doi": "10.1/other", "title": "Another"}
+
+    def search(q):
+        query = q["query"][0]
+        hits = ([pmc_only] if "ma3031863" in query else []) + ([other] if "10.1/other" in query else [])
+        return 200, "application/json", json.dumps({"hitCount": len(hits), "resultList": {"result": hits}}).encode()
+
+    epmc.routes["/rest/search"] = search
+    found, missed = acquire.lookup(["doi:10.3390/ma3031863", "doi:10.1/other", "doi:10.9/unknown"])
+    assert missed == [] and set(found) == {"doi:10.3390/ma3031863", "doi:10.1/other"}
+    assert found["doi:10.3390/ma3031863"]["pmcid"] == "PMC5445871" and found["doi:10.3390/ma3031863"]["doi"] == "10.3390/ma3031863"
+    assert found["doi:10.3390/ma3031863"]["has_xml"]  # open, in Europe PMC: a fetch can have its XML

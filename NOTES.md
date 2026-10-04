@@ -89,6 +89,18 @@ when it turns out durable. Mark inference as inference.
 
 ## Short-term memory
 
+- **2026-10-04: passages linked to the works they cite; Expand** — Karim: "expand on corpuses by
+  grabbing references cited by the corpus' papers … link chunks that cite specific references to
+  these new citations". Built `ref_lists`, `ref_works`, `passage_cites`, the `expand` and
+  `passages` ops. Live, from the Micromachines fixture alone: all 61 of its entries linked (46 by
+  PMID, 14 by DOI, 1 through OpenAlex's list); Expand read the three most cited works that could be
+  read (Kishore 2011 Biomaterials, Younesi 2014 AFM, Chen 2018 Nanomaterials) in 43 s, after which
+  8 of its passages led to them — and the papers read cite each other too (Kishore 2011 is cited
+  by 7 passages across two papers). The first live try chose three classics no one can fetch
+  (Engler 2006 Cell, Murphy 2014, and an open MDPI paper whose Europe PMC record answers its DOI
+  without carrying it, so the batched lookup dropped it and it had no PMCID): fixed both — a DOI
+  no record named is asked alone, and among works cited as often the readable go first.
+
 - **2026-10-04: OpenAlex in the rounds** — Karim: "we can use it in parallel with what we've got.
   implement it." Invariant 1 names it. OpenAlex's terms as of 2026-10 (its docs): one work by id is
   free and unlimited; a filtered list $0.0001, a search $0.001; **no key = $0.10/day shared by every

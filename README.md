@@ -709,6 +709,28 @@ where state = 'candidate' order by cited_here desc, year desc;
   makes the lists one-by-one (slower, still free) and leaves what needs it
   — what cites a paper, the title searches — for the next round, said in
   the log. `LITRAG_OPENALEX=off` turns it off.
+- **Every entry linked to its work, every passage with it.** A paper's
+  reference list is linked entry by entry to the works the rounds found
+  (`ref_works`): by the entry's own DOI or PMID, by a held paper's whole
+  title in it, by Europe PMC's entry at the same place in the list when its
+  first author and year agree, or by the one work of OpenAlex's list whose
+  whole title, year and first author the entry carries. An entry none of
+  these names stays unlinked. Since every in-text marker already names its
+  entry (`citations`), every passage that cites is joined to the work it
+  cites — `passage_cites`, a view: `select * from passage_cites where work =
+  'doi:10.1016/…'` is every chunk of the library that cites that paper. The
+  lists each source gave are kept as rows (`ref_lists`), so a paper read
+  again is linked again without asking anything. On the Graph tab a work's
+  detail lists **Cited in the text** — each passage, its paper and heading,
+  the sentence around the marker, a click from the passage in its tree; an
+  edge knows how many passages it stands for. In the Papers tab an entry
+  says what it names (→ in the library, a click away; → found, a
+  candidate), and in Query a passage's citations lead to the papers held.
+- **Expand: read the most cited** runs a round, then fetches and reads the
+  works the papers held cite most (linked to the most of them, then the
+  most cited anywhere; at most the number beside it, 10 by default) — the
+  next round of the library in one click. Each paper takes a minute or so to
+  read; once read, every passage that cited it leads to it.
 - **The next round is a choice.** Any query's rows that are candidates can
   be ticked and fetched and read from the SQL pane (**Fetch & read
   selected**), which is the next round of the library; a paper read later

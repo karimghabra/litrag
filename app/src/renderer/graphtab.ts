@@ -120,6 +120,7 @@ export function initGraph(): void {
   });
   $('sql-fetch').addEventListener('click', () => void fetchPicked());
   $('round-run').addEventListener('click', () => void runRound(null));
+  $('expand-run').addEventListener('click', () => void runExpand());
   for (const id of ['graph-cands', 'graph-min']) $(id).addEventListener('change', () => void loadGraph());
   $<HTMLSelectElement>('graph-colour').addEventListener('change', () => state.view?.setColourBy($<HTMLSelectElement>('graph-colour').value as 'round' | 'year' | 'state'));
   $<HTMLInputElement>('graph-find').addEventListener('input', () => {
@@ -154,6 +155,14 @@ export function initGraph(): void {
         $<HTMLTextAreaElement>('sql-q').value = PRESETS[1]!.sql();
         void runSql();
       }
+    } else if (ev['op'] === 'expand') {
+      activity.hide();
+      const e = ev as { chosen?: { first_author?: string | null; year?: number | null }[]; read?: string[]; passages?: number };
+      const chosen = e.chosen ?? [];
+      log('stage', chosen.length
+        ? `Expanded: ${e.read?.length ?? 0} of the ${chosen.length} works the papers cite most read; ${e.passages ?? 0} passages of the papers held now lead to them`
+        : 'Expanded: nothing left to read — no candidate the papers cite that has not been fetched or set aside');
+      if (ctx.view === 'graph') void loadGraph();
     } else if ((ev['op'] === 'fetch' || ev['op'] === 'ingest') && ctx.view === 'graph') {
       void loadGraph();
     }
@@ -217,6 +226,20 @@ async function runRound(papers: string[] | null): Promise<void> {
   } catch (e) {
     activity.hide();
     log('error', `round: ${(e as Error).message}`);
+  }
+}
+
+/** The library grown by what its papers cite: a round, then the most cited works fetched and read. */
+async function runExpand(): Promise<void> {
+  if (!ctx.lib) return;
+  const most = Math.max(1, Math.min(200, Number($<HTMLInputElement>('expand-most').value) || 10));
+  try {
+    activity.show(`Expanding: the ${most} works the papers cite most`);
+    await request('expand', { lib: ctx.lib, most, citations: $<HTMLInputElement>('round-citing').checked, openalex: $<HTMLInputElement>('round-openalex').checked });
+    log('stage', `Expanding: a citation round, then the ${most} works the papers cite most fetched and read (each takes a minute or so to read)`);
+  } catch (e) {
+    activity.hide();
+    log('error', `expand: ${(e as Error).message}`);
   }
 }
 
@@ -384,6 +407,8 @@ async function renderDetail(): Promise<void> {
   } catch (e) {
     authors.append(el('div', 'muted', (e as Error).message));
   }
+  // the passages of the papers held whose citations lead to it
+  await renderPassages(box, n);
   // its neighbours in the graph
   const data = state.data;
   if (!data) return;
@@ -408,4 +433,51 @@ async function renderDetail(): Promise<void> {
     }
     box.append(list);
   }
+}
+
+interface Passage {
+  paper: string;
+  paper_title: string | null;
+  paper_year: string | null;
+  node_id: string;
+  ref_no: number;
+  marker: string;
+  how: string;
+  role: string;
+  ancestry: string[];
+  text: string;
+}
+
+/** Where the library's own text cites a work: each passage, its paper and place, a click away. */
+async function renderPassages(box: HTMLElement, n: GraphNode): Promise<void> {
+  const lib = ctx.lib;
+  try {
+    const r = await request<{ passages: Passage[] }>('passages', { lib, work: n.id });
+    if (ctx.lib !== lib || state.selected?.id !== n.id || !r.passages.length) return;
+    const head = el('h3', undefined, `Cited in the text (${r.passages.length})`);
+    head.title = 'The passages of the papers held whose citations name this work, and how each entry was linked to it';
+    box.append(head);
+    const list = el('div', 'neighbours');
+    for (const p of r.passages) {
+      const item = el('div', 'passage');
+      const where = [p.paper_title ?? p.paper, p.paper_year].filter(Boolean).join(', ');
+      item.append(el('div', 'where', `${p.marker} · ${where}${p.ancestry.length ? ` · ${p.ancestry.join(' › ')}` : ''}`));
+      item.append(el('div', 'quote', quoteAround(p.text, p.marker)));
+      item.title = `Open it in the paper (entry [${p.ref_no}], linked by ${p.how})`;
+      item.addEventListener('click', () => hooks.openPaper(p.paper, p.node_id));
+      list.append(item);
+    }
+    box.append(list);
+  } catch (e) {
+    log('error', `passages: ${(e as Error).message}`);
+  }
+}
+
+/** The words around a marker in a passage: the sentence that cites, not the whole paragraph. */
+export function quoteAround(text: string, marker: string, width = 220): string {
+  const at = marker ? text.indexOf(marker) : -1;
+  if (at < 0 || text.length <= width) return text.length > width ? `${text.slice(0, width)}…` : text;
+  const start = Math.max(0, at - Math.floor(width * 0.6));
+  const end = Math.min(text.length, start + width);
+  return `${start > 0 ? '…' : ''}${text.slice(start, end)}${end < text.length ? '…' : ''}`;
 }

@@ -106,8 +106,13 @@ the last, its list of references (and, asked, of citing papers), looks every
 identified work up in Europe PMC twenty to a request (OpenAlex's record for
 a work Europe PMC does not know), and files it as a candidate of the next round —
 `candidates.round`, `cites` rows, `authors` rows, the `works` view. Nothing
-is fetched until a person picks what to read, by a click or by a `SELECT`
-over `works`; a paper read is due its own round.
+is fetched until a person picks what to read, by a click, by a `SELECT`
+over `works`, or by **Expand** (the `expand` op: a round, then the works the
+papers cite most fetched and read); a paper read is due its own round. Each
+entry of a reference list is linked to the work it names (`ref_works`,
+derived offline from the entry, the papers held and the lists the rounds
+kept in `ref_lists`), so every passage that cites is joined to the work it
+cites (`passage_cites`).
 
 `invariants.py` asks the same kind of question as `confidence.py` and answers
 with a **place** rather than a share: thirteen checks (conservation, no text

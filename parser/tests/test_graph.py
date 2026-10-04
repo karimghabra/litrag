@@ -193,7 +193,7 @@ def test_the_picture_keeps_the_candidates_several_papers_cite(lib):
     now = "t"
     c_both, _ = acquire.upsert_candidate(conn, {"doi": "10.5/both", "title": "Cited by both", "year": "2010"}, query="q", now=now, round=2)
     c_one, _ = acquire.upsert_candidate(conn, {"doi": "10.5/one", "title": "Cited by one", "year": "2011"}, query="q", now=now, round=2)
-    conn.executemany("INSERT INTO cites VALUES (?, ?, 'refs', NULL)", [(p1, f"cand:{c_both}"), (p2, f"cand:{c_both}"), (p1, f"cand:{c_one}")])
+    conn.executemany("INSERT INTO cites VALUES (?, ?, 'europepmc', NULL)", [(p1, f"cand:{c_both}"), (p2, f"cand:{c_both}"), (p1, f"cand:{c_one}")])
     conn.commit()
     g = graph.graph(conn, candidates="cited", min_cited=2)
     assert {n["id"] for n in g["nodes"]} == {p1, p2, f"cand:{c_both}"} and g["hidden"] == 1
@@ -404,7 +404,8 @@ def test_an_entry_naming_nothing_is_matched_only_by_its_whole_title(openalex_on,
     assert out["openalex"]["searches"] == 2 and out["openalex"]["matched"] == 1  # "Collagen" is too short a title to stand for one work
     assert oa.searched[0][1] == "publication_year:2015-2017"
     assert _q(conn, "SELECT doi FROM candidates") == [("10.1007/s00170-015-7386-6",)]
-    assert _q(conn, "SELECT citing, origin, ref_no FROM cites") == [(pdf, "openalex", 1)]
+    assert sorted(_q(conn, "SELECT citing, origin, ref_no FROM cites")) == [(pdf, "openalex", 1), (pdf, "refs", 1)]  # the entry, linked to what its words found
+    assert _q(conn, "SELECT ref_no, how FROM ref_works") == [(1, "openalex-search")]
     assert out["unidentified"] == 1
     conn.close()
 
@@ -437,3 +438,130 @@ def test_one_work_under_two_dois_is_one_candidate(openalex_on, lib):
     assert _q(conn, "SELECT pmid, doi, openalex FROM candidates") == [("11041601", "10.1302/0301-620x.82b7.9892", "W9")]
     assert sorted(_q(conn, "SELECT origin FROM cites WHERE citing = ?", a)) == [("europepmc",), ("openalex",)]
     conn.close()
+
+
+# ---------------------------------------------------------------- passages that cite a work
+
+
+def _passage(conn, key, n, text, cites, role="results", heading="3. Results"):
+    """A paragraph of a held paper and the entries its markers name (`citations`)."""
+    node_id = f"{key}#p{n}"
+    conn.execute("INSERT INTO nodes(node_id, paper, parent, ordinal, depth, type, label, role, heading, ancestry, text, page) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                  (node_id, key, None, n, 2, "paragraph", "text", role, heading, json.dumps([heading]), text, 3))
+    conn.executemany("INSERT INTO citations(paper, node_id, ref_no, marker) VALUES (?,?,?,?)", [(key, node_id, r, f"[{r}]") for r in cites])
+    conn.commit()
+    return node_id
+
+
+def test_each_entry_is_linked_to_its_work_and_each_passage_with_it(openalex_on, lib):
+    epmc = openalex_on
+    conn = open_store(lib.store_path)
+    held = _paper(conn, doi="10.1/held", title="Electrochemical alignment of collagen into threads", year=2008)
+    a = _paper(conn, pmid="111", doi="10.1/a", title="A PDF read into a tree", year=2020, refs=[
+        {"doi": "10.1/held", "text": "Cheng X. Electrochemical alignment of collagen into threads. 2008.", "year": "2008", "first_author": "Cheng"},
+        {"text": "Lyon R, Kishore V. Cited by both lists, by its place. J Tissue Eng. 2019;5:1-9.", "year": "2019", "first_author": "Lyon"},
+        {"text": "Gautieri A, Buehler MJ. Hierarchical structure and nanomechanics of collagen microfibrils. Nano Lett. 2011;11:757.", "year": "2011", "first_author": "Gautieri"},
+        {"text": "Onck PR. A place Europe PMC fills with another paper. 2004.", "year": "2004", "first_author": "Onck"},
+    ])
+    epmc.json("/rest/MED/111/references", {"hitCount": 3, "referenceList": {"reference": [
+        {"source": "MED", "id": "222", "title": "Cited by both lists, by its place", "authorString": "Lyon R, Kishore V.", "pubYear": 2019, "citedOrder": 2, "match": "Y"},
+        {"source": "MED", "id": "444", "title": "Something else entirely", "authorString": "Smith J.", "pubYear": 2004, "citedOrder": 4, "match": "Y"},  # its place, not its author
+    ]}})
+    epmc.routes["/rest/search"] = _search([_core("222", "Cited by both lists, by its place", 2019), _core("444", "Something else entirely", 2004)])
+    _OpenAlex(epmc, [_work("W1", "A PDF read into a tree", 2020, doi="10.1/a", pmid="111", refs=("W3",)),
+                     _work("W3", "Hierarchical structure and nanomechanics of collagen microfibrils", 2011, doi="10.1021/nl103943u", authors=(("Alfonso Gautieri", None),))])
+    p1 = _passage(conn, a, 1, "Threads were aligned as before [1], and stiffen as fibrils do [2,3].", [1, 2, 3])
+    p2 = _passage(conn, a, 2, "Another lab reports the same [3]; a fourth disagrees [4].", [3, 4])
+    graph.harvest(lib, conn)
+    links = {r[0]: r[1:] for r in _q(conn, "SELECT ref_no, work, how FROM ref_works WHERE paper = ?", a)}
+    c222 = _q(conn, "SELECT cand_id FROM candidates WHERE pmid = '222'")[0][0]
+    c_nano = _q(conn, "SELECT cand_id FROM candidates WHERE doi = '10.1021/nl103943u'")[0][0]
+    assert links[1] == (held, "doi")  # the held paper, by its DOI before its title
+    assert links[2] == (f"cand:{c222}", "europepmc")  # Europe PMC's entry at its place, author and year agreeing
+    assert links[3] == (f"cand:{c_nano}", "openalex")  # a work of OpenAlex's list, its whole title in the entry
+    assert 4 not in links  # Europe PMC's entry at that place names another first author: unlinked
+    # the passages that cite each work
+    assert sorted(_q(conn, "SELECT node_id, work FROM passage_cites WHERE work = ?", f"cand:{c_nano}")) == [(p1, f"cand:{c_nano}"), (p2, f"cand:{c_nano}")]
+    got = graph.passages_citing(conn, f"cand:{c_nano}")
+    assert [(g["node_id"], g["marker"], g["how"]) for g in got] == [(p1, "[3]", "openalex"), (p2, "[3]", "openalex")]
+    assert got[0]["ancestry"] == ["3. Results"] and got[0]["paper_title"] == "A PDF read into a tree"
+    # the edges carry how many passages cite
+    edges = {(e["src"], e["dst"]): e for e in graph.graph(conn, candidates="all")["edges"]}
+    assert edges[(a, f"cand:{c_nano}")]["passages"] == 2 and edges[(a, held)]["passages"] == 1
+    # a node's citations and a paper's entries lead to the works
+    from litrag_parser.store import cites_of, refs_of
+
+    by_ref = {c["ref_no"]: c for c in cites_of(conn, p1)}
+    assert by_ref[1]["work_paper"] == held and by_ref[3]["work_cand"] == c_nano and by_ref[3]["work_status"] == "found"
+    assert {r["ref_no"]: r["work_title"] for r in refs_of(conn, a)}[2] == "Cited by both lists, by its place"
+    # read again: linked again from the kept lists, nothing asked
+    asked = len(epmc.seen)
+    conn.execute("UPDATE papers SET parsed_at = '2026-10-05T00:00:00' WHERE key = ?", (a,))
+    conn.commit()
+    graph.sync(conn)
+    assert {r[0] for r in _q(conn, "SELECT ref_no FROM ref_works WHERE paper = ?", a)} == {1, 2, 3} and len(epmc.seen) == asked
+    conn.close()
+
+
+def test_a_candidate_read_is_where_its_citing_passages_lead(lib):
+    conn = open_store(lib.store_path)
+    a = _paper(conn, doi="10.1/a", title="Citing", year=2020, refs=[{"doi": "10.5/cited", "text": "Lyon R. The cited paper. 2010."}])
+    graph.ensure_schema(conn)
+    cid, _ = acquire.upsert_candidate(conn, {"doi": "10.5/cited", "title": "The cited paper", "year": "2010"}, query="cited by a", now="t", round=2)
+    conn.commit()
+    node = _passage(conn, a, 1, "As shown before [1].", [1])
+    graph.sync(conn)
+    assert _q(conn, "SELECT work, how FROM passage_cites") == [(f"cand:{cid}", "doi")]
+    assert [n["cand_id"] for n in graph.next_to_read(conn)] == [cid]
+    # fetched and read
+    k = _paper(conn, doi="10.5/cited", title="The cited paper", year=2010)
+    acquire.reconcile(conn)
+    graph.sync(conn)
+    assert _q(conn, "SELECT node_id, work FROM passage_cites") == [(node, k)]
+    assert graph.next_to_read(conn) == []
+    conn.close()
+
+
+def test_what_to_read_next_is_what_the_papers_cite_most(lib):
+    conn = open_store(lib.store_path)
+    p1, p2 = _paper(conn, doi="10.1/p1", title="One", year=2020), _paper(conn, doi="10.1/p2", title="Two", year=2021)
+    graph.ensure_schema(conn)
+    ids = {}
+    for doi, cited, status in (("10.5/twice", 3, "found"), ("10.5/once-old", 900, "found"), ("10.5/once-new", 5, "failed"), ("10.5/dismissed", 1, "dismissed"), ("10.5/wanting", 1, "needs-pdf")):
+        ids[doi], _ = acquire.upsert_candidate(conn, {"doi": doi, "title": doi, "year": "2015", "cited_by": cited}, query="q", now="t", status=status, round=2)
+    rows = [(p1, f"cand:{ids['10.5/twice']}"), (p2, f"cand:{ids['10.5/twice']}")]
+    rows += [(p1, f"cand:{ids[d]}") for d in ("10.5/once-old", "10.5/once-new", "10.5/dismissed", "10.5/wanting")]
+    conn.executemany("INSERT INTO cites VALUES (?, ?, 'europepmc', NULL)", rows)
+    conn.commit()
+    order = [r["cand_id"] for r in graph.next_to_read(conn)]
+    assert order == [ids["10.5/twice"], ids["10.5/once-old"], ids["10.5/once-new"]]  # cited here, then cited anywhere; never what was set aside or waits for a person
+    assert [r["cand_id"] for r in graph.next_to_read(conn, min_cited=2)] == [ids["10.5/twice"]]
+    assert len(graph.next_to_read(conn, most=1)) == 1
+    conn.close()
+
+
+def test_expand_runs_a_round_then_fetches_what_is_cited_most(tmp_path, monkeypatch):
+    c = Canned()
+    try:
+        for env, path in (("LITRAG_EPMC_URL", "rest"), ("LITRAG_EPMC_PDF_URL", "oa"), ("LITRAG_NCBI_URL", "ncbi"), ("LITRAG_PMC_CLOUD_URL", "cloud")):
+            monkeypatch.setenv(env, f"{c.url}/{path}")
+        c.json("/rest/MED/111/references", {"hitCount": 2, "referenceList": {"reference": [{"source": "MED", "id": "222", "citedOrder": 1}, {"source": "MED", "id": "333", "citedOrder": 2}]}})
+        c.routes["/rest/search"] = _search([_core("222", "First cited", 2019), _core("333", "Second cited", 2005)])
+        events = talk(tmp_path, [{"id": "1", "op": "init", "name": "Tendon"}])
+        conn = open_store(tmp_path / "tendon" / "store.sqlite")
+        _paper(conn, pmid="111", doi="10.1/a", title="A paper held", year=2020)
+        conn.close()
+        from litrag_parser.worker import Worker, emit as _emit  # noqa: F401
+
+        seen = []
+        monkeypatch.setattr("litrag_parser.worker.emit", seen.append)
+        Worker(tmp_path).do_expand({"id": "x", "op": "expand", "lib": "tendon", "most": 1})
+        done = [e for e in seen if e.get("event") == "done" and e.get("op") == "expand"][0]
+        assert done["round"]["added"] == 2 and len(done["chosen"]) == 1 and done["read"] == [] and done["passages"] == 0
+        assert [e for e in seen if e.get("event") == "done" and e.get("op") == "fetch"]  # the chosen one, fetched like any
+        conn = open_store(tmp_path / "tendon" / "store.sqlite")
+        statuses = dict(_q(conn, "SELECT pmid, status FROM candidates"))
+        assert sorted(statuses.values()) == ["found", "needs-pdf"]  # one asked for: nothing open in the canned services
+        conn.close()
+    finally:
+        c.close()

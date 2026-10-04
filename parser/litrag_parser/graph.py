@@ -59,9 +59,29 @@ CREATE TABLE IF NOT EXISTS authors (
 CREATE INDEX IF NOT EXISTS authors_person ON authors(person);
 CREATE INDEX IF NOT EXISTS candidates_paper ON candidates(paper_key);
 CREATE TABLE IF NOT EXISTS graph_state (name TEXT PRIMARY KEY, value TEXT);
+CREATE TABLE IF NOT EXISTS ref_lists (
+  paper TEXT NOT NULL,     -- the held paper whose reference list it is
+  source TEXT NOT NULL,    -- europepmc | openalex | openalex-search
+  ord INTEGER NOT NULL,    -- europepmc: the entry's place in the list (citedOrder); openalex: OpenAlex's order, no place;
+                           -- openalex-search: the entry (ref_no) whose words found it
+  ident TEXT,              -- the work it names, when the source knew: pmid:… | doi:… | pmcid:… | openalex:W…
+  title TEXT, year TEXT, first_author TEXT,
+  PRIMARY KEY (paper, source, ord)
+);
+CREATE TABLE IF NOT EXISTS ref_works (
+  paper TEXT NOT NULL,     -- the citing paper held
+  ref_no INTEGER NOT NULL, -- the entry of its reference list (refs)
+  work TEXT NOT NULL,      -- the work the entry names: a papers.key, or 'cand:<id>'
+  how TEXT NOT NULL,       -- doi | pmid | title (a held paper's whole title in it) | europepmc (Europe PMC's entry
+                           -- at its place, first author and year agreeing) | openalex (a work of OpenAlex's list, its
+                           -- whole title, year and first author in it) | openalex-search (found by its own words)
+  PRIMARY KEY (paper, ref_no)
+);
+CREATE INDEX IF NOT EXISTS ref_works_work ON ref_works(work);
 CREATE TABLE IF NOT EXISTS harvests (
   paper TEXT NOT NULL,     -- the held paper asked about
-  kind TEXT NOT NULL,      -- references | citations | local (its list linked to the papers held, as of `at`: its reading's time)
+  kind TEXT NOT NULL,      -- references | citations | openalex-references | openalex-citations | local (its list
+                           -- linked, as of `at`: its reading's time)
   at TEXT NOT NULL,
   found INTEGER,           -- the works it named that could be identified
   PRIMARY KEY (paper, kind)
@@ -96,13 +116,23 @@ WHERE c.paper_key IS NULL OR c.paper_key NOT IN (SELECT key FROM papers)
 """
 
 
+#: Every passage that cites a work: the in-text citation (`citations`: a node and the entry it
+#: names) joined to the work that entry names (`ref_works`).
+PASSAGES_VIEW = """
+CREATE VIEW passage_cites AS
+SELECT c.paper, c.node_id, c.ref_no, c.marker, r.work, r.how
+FROM citations c JOIN ref_works r ON r.paper = c.paper AND r.ref_no = c.ref_no
+"""
+
+
 def ensure_schema(conn: sqlite3.Connection) -> None:
     acquire.ensure_schema(conn)
     conn.executescript(SCHEMA)
-    have = conn.execute("SELECT sql FROM sqlite_master WHERE type = 'view' AND name = 'works'").fetchone()
-    if have is None or " ".join(str(have[0]).split()) != " ".join(WORKS_VIEW.split()):
-        conn.execute("DROP VIEW IF EXISTS works")
-        conn.execute(WORKS_VIEW.strip())
+    for name, sql in (("works", WORKS_VIEW), ("passage_cites", PASSAGES_VIEW)):
+        have = conn.execute("SELECT sql FROM sqlite_master WHERE type = 'view' AND name = ?", (name,)).fetchone()
+        if have is None or " ".join(str(have[0]).split()) != " ".join(sql.split()):
+            conn.execute(f"DROP VIEW IF EXISTS {name}")
+            conn.execute(sql.strip())
     conn.commit()
 
 
@@ -188,8 +218,8 @@ def _author_rows(work: str, listed: Any, string: str | None) -> list[tuple[Any, 
 def sync(conn: sqlite3.Connection) -> dict[str, int]:
     """Bring the derived rows up to what papers and candidates say: a candidate that became a
     held paper is that paper in `cites` (its rows moved to the paper's key); every held paper's
-    authors from its own record; a candidate's from its record; the citations among the papers
-    held. Each part is done again only when what it reads has changed, so a `SELECT` that calls
+    authors from its own record; a candidate's from its record; every reference entry linked to the
+    work it names (`link_refs`). Each part is done again only when what it reads has changed, so a `SELECT` that calls
     this first costs a few aggregate queries. Running it twice changes nothing."""
     ensure_schema(conn)
     moved = 0
@@ -207,7 +237,7 @@ def sync(conn: sqlite3.Connection) -> dict[str, int]:
         if held:
             conn.execute("DELETE FROM cites WHERE citing = cited")
     authors = _sync_authors(conn)
-    linked = link_held(conn)
+    linked = link_refs(conn)
     return {"moved": moved, "authors": authors, "linked": linked}
 
 
@@ -245,35 +275,90 @@ def _sync_authors(conn: sqlite3.Connection) -> int:
     return len(rows)
 
 
-def link_held(conn: sqlite3.Connection) -> int:
-    """Every reference entry that names a paper the library holds, a `cites` row to it — no
-    network, no candidate: the citations among the papers held, there as soon as both are read.
-    Done again only when the papers or their readings change; a paper read again loses the rows
-    its old list made (and is due another round)."""
-    from .lineage import _Library
+def _fold_family(name: Any) -> str | None:
+    """The first author's family name of an author string ("Onck PR, Koeman T" → "onck"), folded."""
+    first = str(name or "").split(",")[0].strip()
+    family = split_name(first)[0] if first else None
+    return " ".join(re.sub(r"[^a-z0-9]+", " ", _fold(family)).split()) if family else None
 
-    changed, stamp = _stamp(conn, "linked",
+
+def _at_its_place(entry: dict[str, Any], row: dict[str, Any]) -> bool:
+    """Whether Europe PMC's entry at the same place in the list is this entry: its first author's
+    family name in the entry's words, and the years equal when both are known. A list read from a
+    PDF can run out of step with the printed one; these keep a place from being taken on trust."""
+    from .openalex import _norm
+
+    family = _fold_family(row.get("first_author"))
+    if not family or f" {family} " not in f" {_norm(entry.get('text'))} ":
+        return False
+    printed, known = str(entry.get("year") or "")[:4], str(row.get("year") or "")[:4]
+    return not (printed.isdigit() and known.isdigit() and printed != known)
+
+
+def link_refs(conn: sqlite3.Connection) -> int:
+    """Every entry of every held paper's reference list linked to the work it names (`ref_works`),
+    and a `cites` row (origin `refs`) for each: no network — from the entry's own identifiers, a
+    held paper's whole title in it, and the lists the rounds kept (`ref_lists`): Europe PMC's entry
+    at the same place when its first author and year agree, else the one work of either list whose
+    whole title, year and first author the entry carries. An entry none of these names stays
+    unlinked (invariant 5). Done again whenever the papers, their lists, the candidates or the
+    lists change, so a reread or a rebuild is linked again without asking anything."""
+    from .lineage import _Library
+    from .openalex import names
+
+    changed, stamp = _stamp(conn, "refs-linked",
                             "SELECT COUNT(*), MAX(rowid), GROUP_CONCAT(parsed_at), TOTAL(length(doi)), TOTAL(length(pmid)), TOTAL(length(title)) FROM papers"
-                            " UNION ALL SELECT COUNT(*), MAX(rowid), NULL, NULL, NULL, NULL FROM refs")
+                            " UNION ALL SELECT COUNT(*), MAX(rowid), NULL, NULL, NULL, NULL FROM refs"
+                            " UNION ALL SELECT COUNT(*), MAX(cand_id), COUNT(paper_key), TOTAL(length(doi)), TOTAL(length(pmid)), TOTAL(length(openalex)) FROM candidates"
+                            " UNION ALL SELECT COUNT(*), MAX(rowid), NULL, NULL, NULL, NULL FROM ref_lists")
     if not changed:
         return 0
-    papers = [dict(r) for r in conn.execute("SELECT key, parsed_at FROM papers")]
-    seen = {p: at for p, at in conn.execute("SELECT paper, at FROM harvests WHERE kind = 'local'")}
+    held = _held_index(conn)
+    held_cands = {c: k for c, k in conn.execute("SELECT cand_id, paper_key FROM candidates WHERE paper_key IN (SELECT key FROM papers)")}
+    work_of = {ident: held_cands.get(cid, f"cand:{cid}") for ident, cid in _cand_index(conn).items()}
+    lists: dict[str, list[dict[str, Any]]] = {}
+    for r in conn.execute("SELECT * FROM ref_lists ORDER BY paper, source, ord"):
+        lists.setdefault(r["paper"], []).append(dict(r))
     resolver = _Library(conn)
-    n = 0
+
+    def work(ident: str | None) -> str | None:
+        return (held.get(ident) or work_of.get(ident)) if ident else None
+
+    links: list[tuple[str, int, str, str]] = []
+    for key, in conn.execute("SELECT key FROM papers").fetchall():
+        rows = lists.get(key, [])
+        placed = {r["ord"]: r for r in rows if r["source"] == "europepmc"}
+        searched = {r["ord"]: r for r in rows if r["source"] == "openalex-search"}
+        for e in conn.execute("SELECT ref_no, text, doi, pmid, year, first_author, title FROM refs WHERE paper = ? ORDER BY ref_no", (key,)).fetchall():
+            e = dict(e)
+            hit, how = resolver.resolve(e, key)
+            w = hit["key"] if hit is not None else None
+            if w is None:
+                for kind, ident in (("pmid", acquire.ident_of(pmid=e["pmid"])), ("doi", acquire.ident_of(doi=e["doi"]))):
+                    if work(ident):
+                        w, how = work(ident), kind
+                        break
+            if w is None and e["ref_no"] in placed and _at_its_place(e, placed[e["ref_no"]]):
+                w, how = work(placed[e["ref_no"]]["ident"]), "europepmc"
+            if w is None and e["ref_no"] in searched:
+                w, how = work(searched[e["ref_no"]]["ident"]), "openalex-search"
+            if w is None:
+                named = {r["ident"]: r["source"] for r in rows if r["ident"] and r["source"] != "openalex-search"
+                         and names(e, r["title"], r["year"], _fold_family(r["first_author"]))}
+                if len({work(i) for i in named} - {None}) == 1:
+                    ident = next(i for i in named if work(i))
+                    w, how = work(ident), named[ident]
+            if w and w != key:
+                links.append((key, e["ref_no"], w, how))
     with conn:
-        for p in papers:
-            if p["key"] in seen and seen[p["key"]] != (p["parsed_at"] or ""):
-                # read again: its old list's rows go, and its references are due another round
-                conn.execute("DELETE FROM cites WHERE citing = ? AND origin = 'refs'", (p["key"],))
-                conn.execute("DELETE FROM harvests WHERE paper = ? AND kind = 'references'", (p["key"],))
-            for ref in conn.execute("SELECT ref_no, text, doi, pmid, year, first_author, title FROM refs WHERE paper = ?", (p["key"],)).fetchall():
-                hit, _how = resolver.resolve(dict(ref), p["key"])
-                if hit is not None:
-                    n += conn.execute("INSERT OR IGNORE INTO cites VALUES (?, ?, 'refs', ?)", (p["key"], hit["key"], ref["ref_no"])).rowcount
-            conn.execute("INSERT OR REPLACE INTO harvests VALUES (?, 'local', ?, NULL)", (p["key"], p["parsed_at"] or ""))
-        conn.execute("INSERT OR REPLACE INTO graph_state VALUES ('linked', ?)", (stamp,))
-    return n
+        conn.execute("DELETE FROM ref_works")
+        conn.executemany("INSERT OR IGNORE INTO ref_works VALUES (?, ?, ?, ?)", links)
+        before = conn.execute("SELECT COUNT(*) FROM cites WHERE origin = 'refs'").fetchone()[0]
+        conn.execute("DELETE FROM cites WHERE origin = 'refs'")
+        conn.execute("INSERT OR IGNORE INTO cites SELECT paper, work, 'refs', MIN(ref_no) FROM ref_works GROUP BY paper, work")
+        after = conn.execute("SELECT COUNT(*) FROM cites WHERE origin = 'refs'").fetchone()[0]
+        conn.execute("INSERT OR REPLACE INTO graph_state VALUES ('refs-linked', ?)", (stamp,))
+    return max(0, after - before)
 
 
 def round_of(conn: sqlite3.Connection, key: str) -> int:
@@ -412,6 +497,7 @@ def harvest(lib: Library, conn: sqlite3.Connection, keys: Iterable[str] | None =
                              "openalex": {"on": use_oa, "asked": 0, "works": 0, "matched": 0, "searches": 0, "spent": False}}
     oas = stats["openalex"]
     w_refs: dict[str, list[str]] = {}  # a held paper's references, as OpenAlex ids, to fetch once for all papers
+    kept: dict[tuple[str, str], list[tuple[Any, ...]]] = {}  # (paper, source) -> its list, kept as `ref_lists` rows
     w_of: dict[str, str] = {}  # a held paper's own OpenAlex id
 
     def note(ident: str, paper_round: int, query: str, seen: dict[str, Any]) -> None:
@@ -495,7 +581,11 @@ def harvest(lib: Library, conn: sqlite3.Connection, keys: Iterable[str] | None =
                 note(ident, r, f"cited by {key}", {"title": ref["title"], "year": ref["year"], "authors": ref["first_author"], "doi": ref["doi"]})
                 edges.append((key, ident, "refs", "cited", ref["ref_no"], "references"))
                 n_found += 1
-            # Europe PMC's list of it
+            # Europe PMC's list of it, kept: its places line its entries up with the paper's own
+            if epmc_refs is not None:
+                kept[(key, "europepmc")] = [(key, "europepmc", int(x.get("citedOrder") or n + 1), _epmc_ident(x), acquire.plain_text(x.get("title")),
+                                             str(x.get("pubYear") or "") or None, str(x.get("authorString") or "").rstrip(".") or None)
+                                            for n, x in enumerate(epmc_refs)]
             for x in epmc_refs or []:
                 stats["entries"] += 1
                 ident = _epmc_ident(x)
@@ -532,6 +622,7 @@ def harvest(lib: Library, conn: sqlite3.Connection, keys: Iterable[str] | None =
                         stats["unidentified"] += epmc_refs is None
                         continue
                     oas["matched"] += 1
+                    kept.setdefault((key, "openalex-search"), []).append((key, "openalex-search", ref["ref_no"], ident, w.get("title"), str(w.get("publication_year") or "") or None, oa.first_author(w)))  # type: ignore[union-attr]
                     if ident in held:
                         if held[ident] != key:
                             direct.add((key, held[ident], "openalex", ref["ref_no"]))
@@ -593,6 +684,8 @@ def harvest(lib: Library, conn: sqlite3.Connection, keys: Iterable[str] | None =
             for key, ids in w_refs.items():
                 r = round_of(conn, key)
                 n = 0
+                kept[(key, "openalex")] = [(key, "openalex", i, oa.ident(got[w_id]), got[w_id].get("title"), str(got[w_id].get("publication_year") or "") or None,
+                                            oa.first_author(got[w_id])) for i, w_id in enumerate(ids, start=1) if w_id in got]
                 for w_id in ids:
                     w = got.get(w_id)
                     ident = oa.ident(w) if w else None
@@ -656,9 +749,16 @@ def harvest(lib: Library, conn: sqlite3.Connection, keys: Iterable[str] | None =
     acquire.reconcile(conn)
     with conn:
         conn.executemany("INSERT OR REPLACE INTO harvests VALUES (?, ?, ?, ?)", done)
+        for (paper, source), rows_kept in kept.items():
+            conn.execute("DELETE FROM ref_lists WHERE paper = ? AND source = ?", (paper, source))
+            conn.executemany("INSERT OR REPLACE INTO ref_lists VALUES (?, ?, ?, ?, ?, ?, ?)", rows_kept)
+        # a `refs` citation is an entry linked to its work, which `link_refs` derives from these rows
         for citing, cited, origin, ref_no in direct:
-            conn.execute("INSERT OR IGNORE INTO cites VALUES (?, ?, ?, ?)", (citing, cited, origin, ref_no))
+            if origin != "refs":
+                conn.execute("INSERT OR IGNORE INTO cites VALUES (?, ?, ?, ?)", (citing, cited, origin, ref_no))
         for a, b, origin, side, ref_no, _kind in edges:
+            if origin == "refs":
+                continue
             if side == "cited":
                 citing, cited = a, _work_of(conn, ident_cand[b])
             else:
@@ -680,7 +780,8 @@ def graph(conn: sqlite3.Connection, candidates: str = "cited", min_cited: int = 
     candidates — `none`, those cited (or citing) at least `min_cited` held papers (`cited`), or
     `all`. Each node `{id, paper, cand_id, state, status, title, label, year, first_author,
     journal, round, cited_here, cites_here, type}`; each edge `{src, dst, origin}`, src citing
-    dst, `origin` every source that names it, joined: "europepmc+openalex+refs"."""
+    dst, `origin` every source that names it, joined ("europepmc+openalex+refs"), `passages` how
+    many of src's passages cite dst in their text (`passage_cites`)."""
     sync(conn)
     nodes = [dict(r) for r in conn.execute("SELECT * FROM works")]
     held = {n["work"] for n in nodes if n["state"] == "held"}
@@ -713,6 +814,48 @@ def graph(conn: sqlite3.Connection, candidates: str = "cited", min_cited: int = 
                           "title": n["title"], "label": f"{who} {n['year']}" if n["year"] else who, "year": n["year"],
                           "first_author": n["first_author"], "journal": n["journal"], "round": n["round"],
                           "cited_here": n["cited_here"], "cites_here": n["cites_here"], "type": n["type"]})
-    out_edges = [{"src": a, "dst": b, "origin": "+".join(sorted(o))} for (a, b), o in sorted(pairs.items()) if a in ids and b in ids]
+    passages = {(a, b): n for a, b, n in conn.execute("SELECT paper, work, COUNT(DISTINCT node_id) FROM passage_cites GROUP BY paper, work")}
+    out_edges = [{"src": a, "dst": b, "origin": "+".join(sorted(o)), "passages": passages.get((a, b), 0)}
+                 for (a, b), o in sorted(pairs.items()) if a in ids and b in ids]
     return {"nodes": out_nodes, "edges": out_edges,
             "hidden": sum(1 for n in nodes if n["work"] not in ids)}
+
+
+# ---------------------------------------------------------------- the passages, and the next papers to read
+
+
+def passages_citing(conn: sqlite3.Connection, work: str, limit: int = 200) -> list[dict[str, Any]]:
+    """Every passage of the papers held that cites `work` in its text — the node, where it sits,
+    its words, the marker that named the work and how the entry was linked to it: the chunks a
+    paper read later is cited by, from the papers read before it."""
+    sync(conn)
+    rows = conn.execute(
+        """SELECT pc.paper, p.title AS paper_title, p.year AS paper_year, pc.node_id, pc.ref_no, pc.marker, pc.how,
+                  n.role, n.ancestry, n.page, n.text
+           FROM passage_cites pc JOIN nodes n ON n.node_id = pc.node_id JOIN papers p ON p.key = pc.paper
+           WHERE pc.work = ? ORDER BY p.year, pc.paper, n.depth, n.ordinal LIMIT ?""", (work, int(limit))).fetchall()
+    out = []
+    for r in rows:
+        d = dict(r)
+        d["ancestry"] = json.loads(d["ancestry"] or "[]")
+        d["text"] = (d["text"] or "")[:600]
+        out.append(d)
+    return out
+
+
+def next_to_read(conn: sqlite3.Connection, most: int = 20, min_cited: int = 1) -> list[dict[str, Any]]:
+    """The candidates the papers held cite most and the library has not read: cited (or citing) by
+    at least `min_cited` held papers, not yet fetched, dismissed or given up on — the most cited
+    here first; among those cited as often, one that can be read now (an open XML, or a PMCID the
+    PDF routes can ask by) before one that would wait for a person; then the most cited anywhere,
+    then the newest — at most `most`."""
+    sync(conn)
+    return [dict(r) for r in conn.execute(
+        """SELECT w.cand_id, w.work, w.title, w.year, w.first_author, w.status, w.cited_by,
+                  (SELECT COUNT(DISTINCT x.citing) FROM cites x WHERE x.cited = w.work AND x.citing IN (SELECT key FROM papers))
+                + (SELECT COUNT(DISTINCT x.cited) FROM cites x WHERE x.citing = w.work AND x.cited IN (SELECT key FROM papers)) AS held_links,
+                  (c.has_xml = 1 OR c.pmcid IS NOT NULL) AS readable
+           FROM works w JOIN candidates c ON c.cand_id = w.cand_id
+           WHERE w.state = 'candidate' AND w.status IN ('found', 'failed')
+           ORDER BY held_links DESC, readable DESC, COALESCE(w.cited_by, 0) DESC, COALESCE(w.year, 0) DESC, w.cand_id""").fetchall()
+        if r["held_links"] >= max(1, int(min_cited))][: max(0, int(most))]

@@ -195,6 +195,8 @@
           <span id="graph-summary" class="muted"></span>
           <label class="check" title="Also ask what cites each paper, not only what it cites"><input type="checkbox" id="round-citing" /> and what cites them</label>
           <label class="check" title="Ask OpenAlex too, beside Europe PMC: works outside PubMed, reference lists for any DOI, and entries with no identifier matched by their title. Free within a daily budget; a free key (LITRAG_OPENALEX_KEY) raises it tenfold"><input type="checkbox" id="round-openalex" checked /> OpenAlex too</label>
+          <label class="field" title="How many of the works the papers cite most to fetch and read"><input id="expand-most" class="narrow" type="number" min="1" max="200" value="10" /></label>
+          <button id="expand-run" class="ghost" title="A citation round, then the works the papers cite most (cited by the most papers held) fetched and read: the next round of the library. Every passage that cites one of them then leads to it.">Expand: read the most cited</button>
           <button id="round-run" class="primary" title="Ask what each paper read since the last round cites — its own reference list, Europe PMC's and OpenAlex's — and file every work found as a candidate of the next round. Nothing is fetched.">Citation round</button>
         </div>
         <div class="graph-layout">

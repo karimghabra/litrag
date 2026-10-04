@@ -360,6 +360,8 @@ class Worker:
                     self.do_figures(req)
                 elif op == "round":
                     self.do_round(req)
+                elif op == "expand":
+                    self.do_expand(req)
             except Exception as e:  # never let one paper kill the worker
                 emit({"event": "error", "id": req.get("id"), "op": req.get("op"), "lib": req.get("lib"), "message": str(e), "trace": traceback.format_exc()})
             finally:
@@ -843,6 +845,37 @@ class Worker:
                          + (f"; OpenAlex: {o['works']} works in its lists, {o['matched']} of {o['searches']} entries matched by title{', its daily budget spent' if o['spent'] else ''}" if o["on"] else "")})
         emit({"event": "done", "id": req_id, "op": "round", "lib": lib.id, **out})
 
+    def do_expand(self, req: dict[str, Any]) -> None:
+        """The library grown by what its papers cite: a citation round for the papers not asked yet,
+        then the `most` works linked to the most held papers fetched and read like any fetch — the
+        next round. Once read, every passage that cites one of them leads to it (`passage_cites`)."""
+        from . import graph
+
+        lib = self._lib(req)
+        req_id = req.get("id")
+        say = lambda e: emit({**e, "id": req_id, "lib": lib.id})  # noqa: E731
+        conn = open_store(lib.store_path)
+        try:
+            found = graph.harvest(lib, conn, None, citations=bool(req.get("citations")),
+                                  openalex=None if req.get("openalex") is None else bool(req.get("openalex")), on_progress=say)
+            chosen = graph.next_to_read(conn, most=int(req.get("most") or 10), min_cited=int(req.get("min_cited") or 1))
+        finally:
+            conn.close()
+        emit({"event": "stage", "id": req_id, "lib": lib.id, "stage": "expand",
+              "message": f"Round: {found['added']} new candidates. Reading the {len(chosen)} the papers cite most: "
+                         + "; ".join(f"{c['first_author'] or '?'} {c['year'] or ''} (cited by {c['held_links']})" for c in chosen[:5]) + ("…" if len(chosen) > 5 else "")})
+        if chosen:
+            self.do_fetch({"id": req_id, "op": "fetch", "lib": lib.id, "ids": [c["cand_id"] for c in chosen]})
+        conn = open_store(lib.store_path)
+        try:
+            graph.sync(conn)
+            ids = [c["cand_id"] for c in chosen]
+            read = [r["paper_key"] for r in conn.execute(f"SELECT paper_key FROM candidates WHERE cand_id IN ({','.join('?' * len(ids))}) AND paper_key IN (SELECT key FROM papers)", ids)] if ids else []
+            passages = conn.execute(f"SELECT COUNT(DISTINCT node_id) FROM passage_cites WHERE work IN ({','.join('?' * len(read))})", read).fetchone()[0] if read else 0
+        finally:
+            conn.close()
+        emit({"event": "done", "id": req_id, "op": "expand", "lib": lib.id, "round": found, "chosen": chosen, "read": read, "passages": passages})
+
     def do_merge(self, req: dict[str, Any]) -> None:
         """Several projects' libraries into one (projects.merge), then its rows derived again from
         the saved readings — Docling only for a paper that came without one."""
@@ -926,9 +959,12 @@ class Worker:
                 elif op == "query":
                     from . import retrieve
 
+                    from . import graph
+
                     lib = self._lib(req)
                     conn = open_store(lib.store_path)
                     try:
+                        graph.sync(conn)  # a passage's citations lead to the works as they are now
                         t = time.time()
                         out = retrieve.query(conn, str(req.get("question") or ""), retrieve.OllamaEmbedder(), k=int(req.get("k") or 8))
                         out["seconds"] = round(time.time() - t, 3)
@@ -1006,7 +1042,7 @@ class Worker:
                     emit({"event": "retrieval", "id": req_id, "lib": lib.id, **retrieve.status(conn, retrieve.OllamaEmbedder())})
                 finally:
                     conn.close()
-            elif op in ("fetch", "merge", "embed", "model_label", "figures", "round"):
+            elif op in ("fetch", "merge", "embed", "model_label", "figures", "round", "expand"):
                 if op != "merge":
                     self._lib(req)  # fail fast on a bad library
                 self.ingest_queue.put(req)
@@ -1055,6 +1091,15 @@ class Worker:
                     emit({"event": "rows", "id": req_id, **run_select(conn, str(req["sql"]), min(int(req.get("limit", 200)), 5000))})
                 finally:
                     conn.close()
+            elif op == "passages":
+                from . import graph
+
+                lib = self._lib(req)
+                conn = open_store(lib.store_path)
+                try:
+                    emit({"event": "passages", "id": req_id, "lib": lib.id, "work": str(req["work"]), "passages": graph.passages_citing(conn, str(req["work"]))})
+                finally:
+                    conn.close()
             elif op == "graph":
                 from . import graph
 
@@ -1073,10 +1118,15 @@ class Worker:
                     raise ValueError(f"No file for {req.get('key')!r}")
                 emit({"event": "file", "id": req_id, "path": str(lib.papers_dir / row["file"]), "format": row["format"], "raw": str(lib.parsed_dir / f"{_safe(str(req['key']))}.docling.json")})
             elif op == "refs":
+                from . import graph
+
                 lib = self._lib(req)
                 conn = open_store(lib.store_path)
-                rows = refs_of(conn, str(req["key"]))
-                conn.close()
+                try:
+                    graph.sync(conn)  # each entry's work as the papers and candidates are now
+                    rows = refs_of(conn, str(req["key"]))
+                finally:
+                    conn.close()
                 emit({"event": "refs", "id": req_id, "paper": str(req["key"]), "refs": rows})
             elif op == "edges":
                 # a node's edges both ways: what a finding was measured by, what was measured here, what cites a figure

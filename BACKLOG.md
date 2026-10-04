@@ -5,7 +5,7 @@ wants as they are voiced.
 
 ## Named priorities
 
-- **The rounds, further** (after Karim, 2026-10-04) — a citation round files what the papers cite
+- **The rounds, further** (after Karim, 2026-10-04; *passages linked to the works they cite and Expand built the same day*) — a citation round files what the papers cite
   and what cites them (`graph.py`, the Graph tab), from Europe PMC and OpenAlex side by side
   (*2026-10-04*: a reference with no DOI or PMID matched in OpenAlex by its whole title, year and
   first author). Next: a round's candidates scored for the project (the description's embedding against

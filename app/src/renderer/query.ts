@@ -69,7 +69,7 @@ export interface QHit {
   findings?: QFindings | null;
   described_in?: QElsewhere[];
   figures?: { node_id: string; text: string; caption?: string; label?: string; data?: Plot[] }[];
-  cites?: { ref_no: number; first_author?: string | null; year?: string | null; title?: string | null; doi?: string | null; text?: string }[];
+  cites?: { ref_no: number; first_author?: string | null; year?: string | null; title?: string | null; doi?: string | null; text?: string; work_paper?: string | null; work_status?: string | null; work_title?: string | null }[];
   also?: string[];
 }
 
@@ -270,7 +270,19 @@ function hitCard(h: QHit, question: string): HTMLElement {
   }
   if (h.cites?.length) {
     side.append(el('div', 'side-h', `Cites (${h.cites.length})`));
-    for (const c of h.cites.slice(0, 6)) side.append(el('div', 'side-item', `[${c.ref_no}] ${[c.first_author, c.year].filter(Boolean).join(' ')} — ${c.title ?? c.text ?? ''}${c.doi ? ` · doi:${c.doi}` : ''}`));
+    for (const c of h.cites.slice(0, 6)) {
+      const item = el('div', 'side-item', `[${c.ref_no}] ${[c.first_author, c.year].filter(Boolean).join(' ')} — ${c.title ?? c.work_title ?? c.text ?? ''}${c.doi ? ` · doi:${c.doi}` : ''}`);
+      if (c.work_paper) {
+        // the cited paper is in the library: the passage leads to it
+        item.classList.add('go');
+        item.append(el('span', 'held', ' → in the library'));
+        item.title = 'Open the cited paper';
+        item.addEventListener('click', () => hooks.openPaper(c.work_paper!));
+      } else if (c.work_status) {
+        item.append(el('span', 'muted', ` → ${c.work_status}`));
+      }
+      side.append(item);
+    }
   }
   if (h.section) {
     side.append(el('div', 'side-h', 'Section'));

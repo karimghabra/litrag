@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+- **Passages linked to the works they cite, and Expand** (Karim, 2026-10-04: "expand on corpuses
+  by grabbing references cited by the corpus' papers … link chunks that cite specific references
+  to these new citations"). Every entry of a held paper's reference list is linked to the work it
+  names (`ref_works`): by its own DOI or PMID, a held paper's whole title in it, Europe PMC's entry
+  at the same place when its first author and year agree, or the one work of OpenAlex's list whose
+  whole title, year and first author it carries; else it stays unlinked. The lists each source
+  gave are kept (`ref_lists`), so the links are derived offline and follow a reread or a rebuild.
+  `passage_cites` (a view) joins every in-text citation to its work: the chunks that cite a paper,
+  as a `SELECT`. The `passages` op lists them, the `refs` op and a query's `cites` carry each
+  entry's work, and `cites` rows of origin `refs` are now the entries' links. The `expand` op runs
+  a round, then fetches and reads the works the papers held cite most (`graph.next_to_read`): the
+  Graph tab's **Expand: read the most cited**. A work's detail there lists **Cited in the text**,
+  each passage a click from its tree; an edge counts its passages; the Papers tab says what an
+  entry names (→ in the library, a click away); Query's citations lead to the papers held.
+  Two things the live run showed: a Europe PMC record can answer a DOI without carrying it (a PMC
+  article filed with no DOI), which a batched lookup threw away and left the work with no PMCID to
+  fetch by — such a DOI is now asked alone; and among works cited as often, one that can be read
+  now comes before one that would wait for a person.
 - **OpenAlex beside Europe PMC in the citation rounds** (Karim, 2026-10-04: "we can use it in
   parallel with what we've got"; one more host for invariant 1, sent identifiers, and for an entry
   naming none its own words). `openalex.py` asks for a held paper's work by DOI, PMID or PMCID

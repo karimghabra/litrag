@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { PRESETS, authorQuery, fetchableCand, sqlString, worksOf } from '../src/renderer/graphtab';
+import { PRESETS, authorQuery, fetchableCand, quoteAround, sqlString, worksOf } from '../src/renderer/graphtab';
 
 describe('the rows a query returns, as works', () => {
   it('reads a work column, else a candidate id, else a paper key', () => {
@@ -33,5 +33,17 @@ describe('the questions to start from', () => {
     const byAuthor = PRESETS.find((p) => p.label === 'By an author')!;
     expect(byAuthor.sql("D'Amore")).toContain("a.family = 'D''Amore'");
     expect(PRESETS.find((p) => p.label === 'Held, oldest first')!.sql()).toMatch(/order by year, published/);
+  });
+});
+
+describe('a passage that cites, quoted', () => {
+  it('keeps the words around the marker, not the whole paragraph', () => {
+    const text = `${'Earlier work set the scene. '.repeat(10)}Threads stiffen as fibrils do [12], which we confirm. ${'More follows. '.repeat(10)}`;
+    const q = quoteAround(text, '[12]', 120);
+    expect(q).toContain('[12]');
+    expect(q.startsWith('…') && q.endsWith('…')).toBe(true);
+    expect(q.length).toBeLessThanOrEqual(122);
+    expect(quoteAround('Short [1].', '[1]')).toBe('Short [1].');
+    expect(quoteAround('x'.repeat(300), '[9]', 100)).toBe(`${'x'.repeat(100)}…`); // no marker found: the start
   });
 });

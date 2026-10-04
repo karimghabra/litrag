@@ -52,8 +52,8 @@ export const TERMINAL = new Set([
   'label_queue', 'labelled', 'labels', 'truth',
   // the numbers read from a figure, or every figure of a paper
   'charts',
-  // the works and the citations between them
-  'graph',
+  // the works and the citations between them, and the passages that cite one
+  'graph', 'passages',
 ]);
 
 /** `tree` answers a `tree` request and also streams during ingest; only the former closes a request. */
