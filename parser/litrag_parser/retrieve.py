@@ -48,10 +48,7 @@ from .edges import FINDING_LANES, _terms as terms_of
 from .meaning import DEFAULT_MODEL, QUERY, Oracle
 from .store import cites_of, node as node_row, open_store
 
-try:
-    from .lineage import described_elsewhere
-except ImportError:  # lineage.py lands with the cross-paper work; until then nothing is followed
-    described_elsewhere = None
+from .lineage import described_elsewhere
 
 DOCUMENT = "search_document: "  # nomic's task prefix for what is searched; QUERY is the question's
 RECIPE = "doc1"  # names what doc_text builds; part of the model key, so a new recipe never meets old vectors
@@ -669,8 +666,7 @@ def _methods(conn: sqlite3.Connection, hit: sqlite3.Row, anchor: sqlite3.Row, se
             if len(general) < GENERAL_SHOWN:
                 general.append(m)
         elif len(methods) < limit:
-            if described_elsewhere is not None:
-                m["described_in"] = described_elsewhere(conn, dst, limit=ELSEWHERE_SHOWN)
+            m["described_in"] = described_elsewhere(conn, dst, limit=ELSEWHERE_SHOWN)
             methods.append(m)
     return methods, general
 
@@ -762,7 +758,7 @@ def hydrate(conn: sqlite3.Connection, node_id: str, before: int = 1, after: int 
     # a hit in the methods is asked the other way round: what was measured by the method it is
     # part of, and where its own procedure is described when it says "as previously described"
     out["findings"] = _findings_measured(conn, r) if r["role"] == "methods" else None
-    out["described_in"] = described_elsewhere(conn, node_id, limit=ELSEWHERE_SHOWN) if r["role"] == "methods" and described_elsewhere is not None else []
+    out["described_in"] = described_elsewhere(conn, node_id, limit=ELSEWHERE_SHOWN) if r["role"] == "methods" else []
     out["figures"] = [
         {"node_id": f["dst"], "type": f["type"], "label": f["detail"], "caption": _cut(_caption_of(conn, f["dst"]), CAPTION_CHARS)}
         for f in conn.execute(

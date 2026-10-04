@@ -253,12 +253,12 @@ def test_measure_reports_every_number_on_a_hand_made_label_set(tmp_path):
     assert m["misses"]["count"] == 1 and m["misses"]["findings"][0]["finding"] == f["vague"] and m["misses"]["findings"][0]["methods"] == ["2.2 Mechanical testing"]
     assert m["false_links"]["count"] == 1 and m["false_links"]["findings"][0]["edges"] == [{"method": "2.4 Cell viability", "evidence": "caption", "detail": next(e.detail for e in link_edges(tree, key) if e.src == f["fig"] and e.kind == "measured_by")}]
     assert m["astray"] == 1 and m["outside"] == 1 and m["none"] == 1
-    assert m["paragraph"] == {"named": 2, "right": 2, "accuracy": 1.0, "chooser": "first_paragraph"}
+    assert m["paragraph"] == {"named": 2, "right": 2, "accuracy": 1.0, "chooser": "first_paragraph", "first_paragraph": 1.0}
 
     def last_paragraph(c, finding, method):
         return None
 
-    assert truth.measure(conn, choose_paragraph=last_paragraph)["paragraph"] == {"named": 2, "right": 0, "accuracy": 0.0, "chooser": "last_paragraph"}
+    assert truth.measure(conn, choose_paragraph=last_paragraph)["paragraph"] == {"named": 2, "right": 0, "accuracy": 0.0, "chooser": "last_paragraph", "first_paragraph": 1.0}
     seen = []
     truth.measure(conn, choose_paragraph=lambda c, finding, method: seen.append((finding, method)))
     assert sorted(seen) == sorted([(f["point"], s["2.2"]), (f["live"], s["2.4"])])

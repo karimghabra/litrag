@@ -120,7 +120,7 @@ Five tabs over one project at a time, picked at the top:
 | Search | a Europe PMC query (or one the local model drafts from the project's description); each hit with what can be had of it — open XML, an open PDF, nothing open — kept as a candidate; **Fetch & read** takes the XML first (Europe PMC's, else NCBI's for an NIH author manuscript), the PDF second, and lists the rest with their links |
 | Papers | the three panes below; the tree pane's **Canonical** face re-hangs the paper under its type's structure, each section tagged with the mechanism that placed it |
 | Types | the kinds of paper the project holds, each kind's canonical structure (its slots in order, how often its papers have each), and any paper drawn onto it: a line from each printed section to its slot, coloured by the vocabulary, the catalogue, the embedder, a built heading or the outline judge; the slots it lacks drawn empty |
-| Query | a question, and the passages that answer it, each hydrated from its tree: the headings above it, the paragraphs either side, the methods a finding was measured by, the figures and references it cites; **Open in the tree** lands on it |
+| Query | a question, and the passages that answer it, each hydrated from its tree: the headings above it, the paragraphs either side, the methods a finding was measured by (the paragraph it rests on, where the method is described in another paper, statistics and materials apart), the findings a method measured, the figures and references it cites; **Open in the tree** lands on it |
 
 The Papers tab:
 
@@ -515,6 +515,53 @@ thirteen and resemblance three in five, on thirteen pointers in all: a
 truth set too small to trust either alone, which is why every edge carries
 the evidence that made it, the window shows it, and resemblance is off by
 default. NOTES.md has the numbers.
+
+Each edge has a strength as well as a kind. A pointer scores 1.0; terms
+score between 0.80 and 0.95, a caption between 0.70 and 0.80 and
+resemblance between 0.60 and 0.70, each higher within its band the more
+marks it rests on (a word pair counts two, a word one). The kinds never
+overlap, so the order is still the evidence's; inside a kind, the edge
+with more behind it comes first. A library read before this needs
+`rebuild` for the new scores.
+
+**In a query** the link is followed both ways, every piece a row
+(`retrieve.hydrate`):
+
+- A finding shows the methods it was measured by, strongest first, and of
+  each method **the paragraph** the finding rests on rather than the
+  subsection's opening: the one its marks name, else the one sharing the
+  finding's rarer words, else, when no paragraph stands out, the first.
+  Statistics and materials — the methods every finding leans on — are kept
+  apart under "Also used", so they never take the place of the method
+  that measured it. A finding with only those still gets its figure's
+  methods, then its section's.
+- A hit inside a methods subsection shows **the findings its method
+  measured**, the reverse walk over the same edges.
+- **Described elsewhere.** "Electrocompacted as previously described [14]"
+  says nothing of how. `lineage.py` reads such sentences in a closed
+  vocabulary of cues (a pointer inside the paper, a supplier's protocol or
+  a figure's credit is none), takes the entries they cite, and looks for
+  each among the library's papers by DOI, then PMID, then title. When the
+  library holds the paper, the method shown is that paper's own
+  subsection — the one the sentence's marks name, else its whole methods
+  section, never a guess between subsections; when it does not, the entry
+  is named, with the candidate that would fetch it. `python -m
+  litrag_parser.lineage --lib DIR` counts all of it over a library.
+
+**The truth set.** Thirteen pointers cannot say how often the edges are
+right, so the window collects the truth: **Label links** on the Papers tab
+steps through a queue of findings spread across papers and publishers,
+linked and unlinked mixed (`label_queue`), and for each one a person
+checks the methods it was measured by, or "no method", and may mark the
+paragraph inside it (number keys, N, Enter). A finding's own **Label**
+button, under "Measured by", opens it alone. The labels are rows of the
+library (`link_labels`), a person's work rather than the paper's, so a
+rebuild or a merge keeps them; each finds its finding again by id, else by
+its words. `truth` (the op, or `python -m litrag_parser.truth --lib DIR
+--measure`) scores the edges against them: precision by kind of evidence,
+recall, the misses, the false links, and how often hydration's paragraph
+is the one the person marked, beside the method's first paragraph.
+Resemblance stays off until it scores 0.9 there.
 
 ## Citations
 

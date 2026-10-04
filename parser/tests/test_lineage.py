@@ -405,6 +405,27 @@ def test_the_survey_counts_methods_only(lib, capsys):
     assert s["timing"]["calls"] > 20 and len(s["examples"]) == 4
 
 
+def test_query_hydration_carries_it_both_ways(lib):
+    """A finding measured by a method that says "as previously described" shows where; a hit in
+    that method shows it too, and the finding it measured."""
+    from litrag_parser import retrieve
+
+    conn, keys, sec = lib
+    prep = sec["2.1 Preparation of ELAC threads"]
+    finding = sec["3 Results"].children[0]
+    with conn:
+        conn.execute("INSERT INTO edges(paper, src, dst, kind, evidence, detail, score) VALUES (?,?,?,?,?,?,?)",
+                     (keys["A"], finding.node_id, prep.node_id, "measured_by", "terms", "crosslinked threads", 0.9))
+    h = retrieve.hydrate(conn, finding.node_id)
+    m = h["methods"][0]
+    assert m["node_id"] == prep.node_id and h["described_in"] == [] and h["findings"] is None
+    assert [(a["ref_no"], a["paper"]["key"]) for a in m["described_in"]] == [(1, keys["B"]), (2, keys["C"])]  # two shown of three
+    assert m["described_in"][0]["method"]["heading"] == "2.1 Electrochemical compaction of collagen"
+    p = retrieve.hydrate(conn, prep.children[0].node_id)
+    assert p["described_in"] == described_elsewhere(conn, prep.children[0].node_id, limit=retrieve.ELSEWHERE_SHOWN)
+    assert [f["node_id"] for f in p["findings"]["findings"]] == [finding.node_id] and p["findings"]["method"] == prep.node_id
+
+
 def test_the_command_line_reads_a_library(tmp_path, capsys):
     lib_dir = tmp_path / "lib"
     conn = open_store(lib_dir / "store.sqlite")

@@ -26,7 +26,8 @@ edges are scored against what was said.
   an edge reaches (recall); the findings with a `yes` method and no edge (misses); the
   findings labelled `none` that got an edge anyway (false links); and, where a paragraph was
   named, how often a paragraph chooser names the same one — the method's first paragraph
-  unless another chooser is given.
+  unless another chooser is given; the command line and the worker's `truth` op give query
+  hydration's (`retrieve.best_paragraph`) — with the first paragraph's score beside it.
 
     uv run --project parser python -m litrag_parser.truth --lib DIR [--lib …] --measure [--json]
     uv run --project parser python -m litrag_parser.truth --lib DIR [--lib …] --export labels.jsonl
@@ -469,6 +470,14 @@ def _ratio(a: int, b: int) -> float | None:
     return round(a / b, 3) if b else None
 
 
+def _hydration_chooser() -> ParagraphChooser:
+    """The paragraph query hydration shows for a finding and a method (`retrieve.best_paragraph`),
+    which the labels' paragraphs measure."""
+    from .retrieve import best_paragraph
+
+    return best_paragraph
+
+
 def measure(conn: sqlite3.Connection | Iterable[sqlite3.Connection], choose_paragraph: ParagraphChooser | None = None) -> dict[str, Any]:
     """The linker against the labels of one library or several (see the module's docstring).
 
@@ -487,7 +496,7 @@ def measure(conn: sqlite3.Connection | Iterable[sqlite3.Connection], choose_para
     papers_seen: set[tuple[int, str]] = set()
     misses: list[dict[str, Any]] = []
     false_links: list[dict[str, Any]] = []
-    para_named = para_right = 0
+    para_named = para_right = para_first = 0
     for ci, c in enumerate(conns):
         papers = _Papers(c)
         groups: dict[str, dict[str, Any]] = {}
@@ -544,6 +553,7 @@ def measure(conn: sqlite3.Connection | Iterable[sqlite3.Connection], choose_para
                 if para:
                     para_named += 1
                     para_right += int(choose(c, fid, m) == para)
+                    para_first += int(first_paragraph(c, fid, m) == para)  # the baseline beside it: the method's opening
     by_kind = {k: {"edges": judged[k], "right": right[k], "precision": _ratio(right[k], judged[k]), "unjudged": unjudged[k]} for k in EVIDENCE}
     by_kind["all"] = {"edges": sum(judged.values()), "right": sum(right.values()), "precision": _ratio(sum(right.values()), sum(judged.values())), "unjudged": sum(unjudged.values())}
     return {
@@ -559,7 +569,8 @@ def measure(conn: sqlite3.Connection | Iterable[sqlite3.Connection], choose_para
         "astray": astray,  # a method labelled yes, and edges only to others
         "outside": outside,  # labelled, every candidate no: the method is not among the candidates
         "none": none_total,
-        "paragraph": {"named": para_named, "right": para_right, "accuracy": _ratio(para_right, para_named), "chooser": getattr(choose, "__name__", type(choose).__name__)},
+        "paragraph": {"named": para_named, "right": para_right, "accuracy": _ratio(para_right, para_named), "chooser": getattr(choose, "__name__", type(choose).__name__),
+                      "first_paragraph": _ratio(para_first, para_named)},
     }
 
 
@@ -669,7 +680,7 @@ def main(argv: list[str] | None = None) -> int:
                         n += 1
             print(f"{n} labels written to {args.export}")
         if args.measure:
-            r = measure(list(conns.values()))
+            r = measure(list(conns.values()), choose_paragraph=_hydration_chooser())
             if args.json:
                 print(json.dumps(r, ensure_ascii=False, indent=1))
             else:

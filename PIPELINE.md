@@ -24,6 +24,7 @@ sync's `--extra` would swap for PyPI's (README, Quick start).
 | `npm run harness`, `npm run audit` | current | judging a change to the reader on whole libraries |
 | `python -m litrag_parser.headings`, `.meaning`, `.paper_type`, `.edges`, `.judge`, `.boundary` | maintenance | regenerating the shipped centroids, measuring a kind or the type before it decides, fetching Europe PMC records, running or calibrating the opt-in judges |
 | `python -m litrag_parser.pairs`, `.confidence --calibrate` | measurement | a PDF's reading against the XML's of the same paper, from two libraries; the confidence score against those pairs. The truth every change to the reader or to the score is judged on |
+| `python -m litrag_parser.truth --lib DIR --measure`, `.lineage --lib DIR` | measurement | the finding→method links against the labels a person gave in **Label links** (precision per evidence, recall, misses, false links, the paragraph hydration shows against the method's first); the methods a library says are described elsewhere, and how many of the cited papers it holds |
 | `python -m litrag_parser.outline --pdf-lib DIR --xml-lib DIR --model M` | measurement | the outline judge (a local model reading the whole paper) scored on the pairs: faithful before and after, per model |
 | `src/` and `tests/`, the `lit` CLI (`npm run lit`, `bin/lit.js`) | deprecated | nothing new: it searches and fetches from Europe PMC and retrieves over `lit.sqlite`; its verbs are to be ported to `store.sqlite` one at a time and struck from `src/` (`BACKLOG.md`) |
 | `AGENT.md` §1–5, `DESIGN.md` "Revision 1" | describe the deprecated CLI | background; revision 2 overruled its reader (R2.1): pdf.js text with heading patterns, and sections cut into 250-word chunks |
@@ -74,7 +75,10 @@ ingest` cuts chunks into `lit.sqlite`, never a tree.
    where the reader missed a boundary (its lane by the reader's rule, not
    the model's), never the depth; the answer is a row a rebuild replays.
 5. **Linked.** In-text citations to the reference list (`citations.py`),
-   and findings to the methods that produced them (`edges.py`).
+   and findings to the methods that produced them (`edges.py`), each edge
+   with its evidence and a strength. A query follows them both ways and,
+   for a method "as previously described [14]", on to the cited paper's
+   own method when the library holds it (`retrieve.py`, `lineage.py`).
 6. **Typed.** `paper_type.py` names the kind of paper from the record, the
    file, its subject line, the title, the printed label, and last the
    tree's own shape. Where two of them disagree, a note says so.

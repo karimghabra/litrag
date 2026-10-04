@@ -945,7 +945,7 @@ class Worker:
                     elif op == "labels":
                         emit({"event": "labels", "id": req_id, "lib": lib.id, "labels": truth.labels(conn)})
                     else:
-                        emit({"event": "truth", "id": req_id, "lib": lib.id, **truth.measure(conn)})
+                        emit({"event": "truth", "id": req_id, "lib": lib.id, **truth.measure(conn, choose_paragraph=truth._hydration_chooser())})
                 finally:
                     conn.close()
             elif op == "audit":

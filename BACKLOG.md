@@ -5,6 +5,14 @@ wants as they are voiced.
 
 ## Named priorities
 
+- **Label the finding→method truth set** (Karim, 2026-10-04) — ~100 findings across 20–25 papers
+  in **Label links** (Papers tab), drawn by `label_queue` across papers and publishers, linked
+  and unlinked mixed; then `python -m litrag_parser.truth --lib … --measure`. It decides three
+  things waiting on it: whether similarity (`LITRAG_EDGES_SIMILARITY=on`) earns its place (gate:
+  precision ≥ 0.9 on the labels), whether hydration's paragraph beats the method's first, and
+  which evidence kind drops weak marks. Labels survive rebuilds and merges; `--export`/`--import`
+  carry them between machines. Still not built after it: the parameter miner over a method's
+  chosen paragraph, and following "as previously described" further than one paper.
 - **Measure the port from `claude/ingestion-generalization`** (2026-09-30) — citations
   (e55e3d9), the type (b97151c, 80ec4d0) and `_tight` (a6c7353) are on `main` since PR #25,
   with tests but no corpus numbers: the corpora were not where the port was done, and it was

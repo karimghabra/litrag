@@ -89,6 +89,31 @@ when it turns out durable. Mark inference as inference.
 
 ## Short-term memory
 
+- **2026-10-04: finding→method hydration, the truth set, and methods described elsewhere** —
+  Karim asked how findings reach methods and then "Implement these": a labelled truth set first,
+  the cheap hydration wins, "as previously described [14]" across papers, similarity still off.
+  Built on `claude/epic-knuth-1dlvv9` (two in worktrees, one here). What is true now:
+  - **Link strength**: same edges, new scores — pointer 1.0, terms 0.80–0.95, caption 0.70–0.80,
+    similarity 0.60–0.70, higher in a band the more marks (a pair 2, a word 1, full at 6). On the
+    demo library (4 papers, rebuilt) the 49 terms edges went from a flat 0.9 to 0.85–0.95
+    (29 · 7 · 1 · 12 at 0.85 · 0.9 · 0.875 · 0.95), the 3 captions to 0.733–0.8. Old libraries
+    keep 0.9 until a `rebuild`.
+  - **The paragraph hydration shows**: of the 52 edges, 39 reach a method of several paragraphs;
+    for 25 of those the paragraph chosen is not the method's first. Unmeasured: whether it is the
+    *right* one is what the labels' paragraphs will say (`truth` reports it beside the first
+    paragraph's score, the baseline). The marks themselves can be weak — "provide sufficient"
+    decided one edge — which is the linker's problem, and the truth set's to count.
+  - **Statistics and materials apart** ("Also used"): none on the demo library, because no
+    finding there had an edge to one. The catalogue's canonical names decide it, not the heading.
+  - **Described elsewhere** (`lineage.py`): on the demo library 6 of 53 methods paragraphs carry
+    a cue, 8 entries leaned on, none in the library, 6 of them candidates already — so the window
+    offers the fetch. A call takes 0.3 ms mean, 1.5 ms max (93 methods nodes); X's synthetic
+    store of 4,231 nodes is in its tests. Followed only by DOI, PMID or a whole title; a method
+    picked inside the cited paper only when its marks say so, else its whole methods section.
+  - **The truth set** is built and empty: **Label links** on the Papers tab, `label_queue` /
+    `label` / `labels` / `truth`, `python -m litrag_parser.truth`. The labelling is Karim's —
+    about 100 findings across 20–25 papers — and similarity stays off until it scores 0.9 there.
+
 - **2026-09-30: installable by a script** — Karim: "the installation should essentially be a bat
   script that installs dependencies, followed by the software itself". Built in three worktrees
   against one contract (per-user root `%LOCALAPPDATA%\litrag` with `app\ venv\ uv\`; the

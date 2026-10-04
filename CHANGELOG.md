@@ -2,6 +2,33 @@
 
 ## Unreleased
 
+From a finding to the method that produced it, followed further — and a way to know how often
+it is right (Karim, 2026-10-04: "Implement these").
+
+- **Link strength.** `measured_by` edges keep their evidence and gain a score that orders them:
+  a pointer 1.0, terms 0.80–0.95, a caption 0.70–0.80, resemblance 0.60–0.70, each higher in its
+  band the more marks it rests on. The same edges as before; a library read before needs
+  `rebuild` for the scores (until then its terms edges stay at 0.9).
+- **Query hydration, both ways.** A finding's methods come strongest first, at most three, each
+  with **the paragraph** inside it the finding rests on — the one its marks name, else the one
+  sharing its rarer words, else the first — instead of the subsection's first 1,500 characters.
+  Statistics and materials (by canonical heading) go apart, under "Also used", so they never
+  take a method's place; a finding with only those still gets its figure's methods, then its
+  section's. A hit inside a methods subsection lists **the findings its method measured**.
+- **Methods described elsewhere** (`lineage.py`). "As previously described [14]", in a closed
+  vocabulary of cues, is followed to the entry it cites and, when the library holds that paper
+  (by DOI, then PMID, then title), to its own method — the subsection the sentence's marks name,
+  else its methods section; when it does not, the entry is named with the candidate that would
+  fetch it. On each hydrated method and on a methods hit (`described_in`); `python -m
+  litrag_parser.lineage --lib DIR` surveys a library. Pure reads, no model, about a millisecond.
+- **The truth set.** **Label links** on the Papers tab, and **Label** under a finding's "Measured
+  by": per finding, which methods it was measured by, or none, and the paragraph if it is
+  known (number keys, N, Enter, S). Ops `label_queue`, `label`, `labels`, `truth`; table
+  `link_labels`, kept through rebuilds and merges. `truth` scores the edges against the labels —
+  precision per evidence, recall, misses, false links — and hydration's paragraph against the
+  method's first; `python -m litrag_parser.truth --lib DIR --measure | --export | --import`.
+  Resemblance stays off until it scores 0.9 there.
+
 ## 0.3.2 — 2026-10-04
 
 Installable from a release, author manuscripts from NCBI, and torch chosen by name.
