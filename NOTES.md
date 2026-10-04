@@ -89,6 +89,18 @@ when it turns out durable. Mark inference as inference.
 
 ## Short-term memory
 
+- **2026-10-04: open copies fetched** — Karim: "yes, fetch the open copies too" (invariant 1 amended:
+  the host of an open copy OpenAlex names, sent only the request for it). Asked last, after every
+  service of ours; filed only when the first three pages print the DOI or the whole title, not under
+  a supplement's name. From this cloud container, on the big library's 100 links outside PMC: 5
+  came (OSTI ×3, JCI, arXiv — every one the right paper), 77 bot checks (Cell Press all 35, doi.org
+  → publishers 11, NEJM, OUP, Wiley, SAGE, Hindawi, RSC, PNAS…), 14 refused outright (MDPI 8,
+  ScienceDirect 2, eScholarship, a handle), 2 IOP pages leading nowhere, 1 right paper refused for
+  its record's spelling ("tumours" against the PDF's "Tumors": a person's). A datacenter address is
+  what bot checks are tuned against; the rate from Karim's machine is the number that matters and
+  is not measured yet. Bot checks are left to the person's browser — never a headless browser, a
+  borrowed user agent, or anything else that gets round one.
+
 - **2026-10-04: the scale test** — Karim: "i know it wouldnt be more, but we need to test this at
   scale". Grown from the six-paper link-test library by Expand in this container (Europe PMC, NCBI,
   the PMC Cloud bucket; OpenAlex's free one-by-one path, its keyless budget spent). Expand 50 at

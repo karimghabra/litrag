@@ -1,6 +1,7 @@
-"""acquire.py against a canned Europe PMC, NCBI and PMC Cloud Service on 127.0.0.1: search,
-candidates once, XML first (Europe PMC's, then NCBI's), then the PDF (the Cloud Service's, then
-the bulk area's), else needs-pdf. Nothing here touches the network."""
+"""acquire.py against a canned Europe PMC, NCBI, PMC Cloud Service and publisher's site on
+127.0.0.1: search, candidates once, XML first (Europe PMC's, then NCBI's), then the PDF (the Cloud
+Service's, then the bulk area's, then the open copy OpenAlex names), else needs-pdf. Nothing here
+touches the network."""
 
 import hashlib
 import io
@@ -65,11 +66,13 @@ class Canned:
                 split = urllib.parse.urlsplit(self.path)
                 path, q = split.path, urllib.parse.parse_qs(split.query)
                 if path == "/cloud/" and q.get("list-type") == ["2"]:
-                    status, ctype, body = 200, "application/xml", outer.listing(q["prefix"][0])
+                    status, ctype, body, extra = 200, "application/xml", outer.listing(q["prefix"][0]), []
                 else:
                     route = outer.routes.get(path, (404, "text/html", b"<html>not found</html>"))
-                    status, ctype, body = route(q) if callable(route) else route  # a route that answers by its query
+                    status, ctype, body, *extra = route(q) if callable(route) else route  # a route that answers by its query
                 self.send_response(status)
+                for k, v in (extra[0] if extra else {}).items():  # a route's own headers, when it has any
+                    self.send_header(k, v)
                 self.send_header("Content-Type", ctype)
                 self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
@@ -514,3 +517,133 @@ def test_a_record_that_answers_a_doi_without_carrying_it_is_asked_for_alone(epmc
     assert missed == [] and set(found) == {"doi:10.3390/ma3031863", "doi:10.1/other"}
     assert found["doi:10.3390/ma3031863"]["pmcid"] == "PMC5445871" and found["doi:10.3390/ma3031863"]["doi"] == "10.3390/ma3031863"
     assert found["doi:10.3390/ma3031863"]["has_xml"]  # open, in Europe PMC: a fetch can have its XML
+
+
+# ---------------------------------------------------------------- the open copy OpenAlex names
+
+
+def tiny_pdf(*lines: str) -> bytes:
+    """A one-page PDF that prints `lines` in Helvetica: enough for pdfium to read its text."""
+    text = " ".join(f"({ln.replace('(', '[').replace(')', ']')}) Tj 0 -16 Td" for ln in lines)
+    content = f"BT /F1 11 Tf 72 720 Td {text} ET"
+    objs = ["<< /Type /Catalog /Pages 2 0 R >>", "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>",
+            f"<< /Length {len(content)} >>\nstream\n{content}\nendstream", "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"]
+    out, offsets = b"%PDF-1.4\n", []
+    for i, o in enumerate(objs, 1):
+        offsets.append(len(out))
+        out += f"{i} 0 obj\n{o}\nendobj\n".encode()
+    xref = len(out)
+    out += f"xref\n0 {len(objs) + 1}\n0000000000 65535 f \n".encode() + b"".join(f"{o:010d} 00000 n \n".encode() for o in offsets)
+    return out + f"trailer\n<< /Size {len(objs) + 1} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n".encode()
+
+
+TITLE = "Tissue architecture: the ultimate regulator of breast epithelial function"
+PAPER = tiny_pdf("Tissue architecture: the ultimate regulator of breast", "epithelial func-", "tion",
+                 "Mina J Bissell, Aylin Rizki and Saira Mian", "Lawrence Berkeley National Laboratory")
+
+
+@pytest.fixture
+def open_copies(epmc, monkeypatch):
+    monkeypatch.setenv("LITRAG_OPEN_COPIES", "on")
+    return epmc
+
+
+def _open_cands(lib, conn, url, *more):
+    """Candidates OpenAlex found with an open copy at `url` (and `more`, each a (title, doi, url)):
+    no PMCID, so no service of ours is asked first."""
+    hits = [{"source": "openalex", "doi": "10.1016/j.ceb.2003.10.016", "title": TITLE, "oa_url": url, "is_open_access": True}]
+    hits += [{"source": "openalex", "doi": d, "title": t, "oa_url": u, "is_open_access": True} for t, d, u in more]
+    return acquire.record_search(lib, conn, "q", hits)["cand_ids"]
+
+
+def test_an_open_copy_s_pdf_is_fetched_when_it_names_the_paper(open_copies, lib):
+    open_copies.routes["/repo/ceb.pdf"] = (200, "application/pdf", PAPER)
+    conn = open_store(lib.store_path)
+    (cid,) = _open_cands(lib, conn, f"{open_copies.url}/repo/ceb.pdf")
+    events = []
+    (one,) = acquire.fetch(lib, conn, [cid], on_progress=events.append)
+    assert one["status"] == "fetched" and one["source"] == "open-copy" and one["host"] == "127.0.0.1"
+    assert Path(one["path"]).read_bytes() == PAPER and Path(one["path"]).name == "doi_10.1016_j.ceb.2003.10.016.pdf"
+    assert any(e.get("source") == "open-copy" and e["status"] == "fetching" for e in events)
+    conn.close()
+
+
+def test_a_landing_page_is_followed_to_the_pdf_it_names(open_copies, lib):
+    # Elsevier's linking hub refreshes to the article's page; the page names its PDF for indexers
+    open_copies.routes["/hub/retrieve"] = (200, "text/html", b"""<html><head><title>Redirecting</title>
+        <meta HTTP-EQUIV="REFRESH" content="2; url='/article/S0955?via=hub&amp;x=1'"/></head></html>""")
+    open_copies.routes["/article/S0955"] = (200, "text/html", b"""<html><head>
+        <meta content="/article/S0955/pdf" name="citation_pdf_url"><meta name="citation_title" content="Tissue architecture"></head></html>""")
+    open_copies.routes["/article/S0955/pdf"] = (200, "application/pdf", PAPER)
+    conn = open_store(lib.store_path)
+    (cid,) = _open_cands(lib, conn, f"{open_copies.url}/hub/retrieve")
+    (one,) = acquire.fetch(lib, conn, [cid])
+    assert one["status"] == "fetched" and Path(one["path"]).read_bytes() == PAPER
+    assert [p for p in open_copies.seen] == ["/hub/retrieve", "/article/S0955?via=hub&x=1", "/article/S0955/pdf"]
+    conn.close()
+
+
+def test_a_bot_check_is_left_to_a_person_never_got_round(open_copies, lib):
+    challenge = b"<!DOCTYPE html><html><head><title>Just a moment...</title></head><body>Enable JavaScript and cookies to continue</body></html>"
+    open_copies.routes["/cf/paper.pdf"] = (403, "text/html", challenge)
+    open_copies.routes["/waf/record/1"] = (202, "text/html", b"", {"x-amzn-waf-action": "challenge"})
+    open_copies.routes["/sn/paper.pdf"] = (200, "text/html", b"<html><head><title>Client Challenge</title></head></html>")
+    # an article's own page that loads a captcha for its comments still names its PDF, and is followed
+    open_copies.routes["/art/1"] = (200, "text/html", b'<html><head><meta name="citation_pdf_url" content="/art/1.pdf"><script src="/recaptcha/api.js"></script></head></html>')
+    open_copies.routes["/art/1.pdf"] = (200, "application/pdf", tiny_pdf("A fourth paper whose page loads a captcha", "doi: 10.1/art"))
+    conn = open_store(lib.store_path)
+    ids = _open_cands(lib, conn, f"{open_copies.url}/cf/paper.pdf",
+                      ("The second paper of three, behind a firewall", "10.1/waf", f"{open_copies.url}/waf/record/1"),
+                      ("The third paper of three, behind another check", "10.1/sn", f"{open_copies.url}/sn/paper.pdf"),
+                      ("A fourth paper whose page loads a captcha", "10.1/art", f"{open_copies.url}/art/1"))
+    *out, fourth = acquire.fetch(lib, conn, ids)
+    assert fourth["status"] == "fetched" and fourth["source"] == "open-copy"
+    for o in out:
+        assert o["status"] == "needs-pdf" and acquire.BOT_CHECK in o["error"]
+        assert o["links"]["open"].startswith(open_copies.url)  # Collect PDFs opens it in the person's browser
+    assert open_copies.seen[:3] == ["/cf/paper.pdf", "/waf/record/1", "/sn/paper.pdf"]  # each asked once, and left there
+    assert [p.name for p in lib.inbox_dir.iterdir()] == [Path(fourth["path"]).name]
+    conn.close()
+
+
+def test_a_pdf_that_is_not_the_paper_is_not_filed(open_copies, lib):
+    open_copies.routes["/repo/other.pdf"] = (200, "application/pdf", tiny_pdf("Some other paper entirely about bone", "A. Nother"))
+    open_copies.routes["/repo/supp.pdf"] = (200, "application/pdf", tiny_pdf("Supplementary information for", TITLE, "Figure S1"))
+    open_copies.routes["/repo/page"] = (200, "text/html", b"<html><body>An item record with no PDF named</body></html>")
+    conn = open_store(lib.store_path)
+    ids = _open_cands(lib, conn, f"{open_copies.url}/repo/other.pdf")
+    first = acquire.fetch(lib, conn, ids)[0]
+    assert first["status"] == "needs-pdf" and "name neither its DOI nor its title" in first["error"]
+    conn.execute("UPDATE candidates SET status = 'found', oa_url = ? WHERE cand_id = ?", (f"{open_copies.url}/repo/supp.pdf", ids[0]))
+    second = acquire.fetch(lib, conn, ids)[0]
+    assert second["status"] == "needs-pdf" and "a supplement, not the paper" in second["error"]
+    conn.execute("UPDATE candidates SET status = 'found', oa_url = ? WHERE cand_id = ?", (f"{open_copies.url}/repo/page", ids[0]))
+    third = acquire.fetch(lib, conn, ids)[0]
+    assert third["status"] == "needs-pdf" and "a page naming no PDF" in third["error"]
+    assert not list(lib.inbox_dir.iterdir())  # nothing left in the inbox to be filed as the paper
+    conn.close()
+
+
+def test_open_copies_off_and_pmc_s_own_pages_are_not_asked(epmc, lib, monkeypatch):
+    epmc.routes["/repo/ceb.pdf"] = (200, "application/pdf", PAPER)
+    conn = open_store(lib.store_path)
+    (cid,) = _open_cands(lib, conn, f"{epmc.url}/repo/ceb.pdf")
+    monkeypatch.setenv("LITRAG_OPEN_COPIES", "off")
+    assert acquire.fetch(lib, conn, [cid])[0]["status"] == "needs-pdf" and not epmc.seen
+    monkeypatch.setenv("LITRAG_OPEN_COPIES", "on")
+    conn.execute("UPDATE candidates SET status = 'found', oa_url = 'https://www.ncbi.nlm.nih.gov/pmc/articles/3683711' WHERE cand_id = ?", (cid,))
+    assert acquire.fetch(lib, conn, [cid])[0]["status"] == "needs-pdf"  # its services were asked by PMCID; its pages are a bot check
+    assert not acquire._askable("https://europepmc.org/articles/PMC1/pdf") and not acquire._askable("ftp://x/y.pdf")
+    conn.close()
+
+
+def test_names_the_paper_by_its_doi_or_its_whole_title():
+    row = {"doi": "10.1103/PhysRevE.68.061907", "title": "Distinct regimes of elastic response and deformation modes of cross-linked cytoskeletal networks"}
+    # pdfium's text: the title broken over lines, its hyphen gone with the break
+    assert acquire.names_the_paper("arXiv:cond-mat/0308275v2\nDistinct regimes of elastic response and deformation modes of cross-\nlinked\ncytoskeletal networks\nD.A. Head", row) is None
+    assert acquire.names_the_paper("Phys. Rev. E 68, 061907 (2003) DOI: 10.1103/PhysRevE.68.061907 Some title", row) is None
+    assert acquire.names_the_paper("Garc\u00eda-L\u00f3pez: \u00e9tude of a scaffold\u2019s \ufb01bres", {"title": "Garcia-Lopez: etude of a scaffold's fibres"}) is None  # accents, a ligature
+    assert acquire.names_the_paper("Cell migration\nA review", {"title": "Cell migration"}) is not None  # too short to stand for one paper
+    assert acquire.names_the_paper("Putting Tumors in Context", {"title": "Putting tumours in context", "doi": "10.1038/35094059"}) is not None
+    assert acquire.names_the_paper("", row) == "no text to tell it by"

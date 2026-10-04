@@ -38,8 +38,10 @@ Invariants:
    open-access paper's PDF by PMCID, the same way — Karim, 2026-10-04),
    and OpenAlex (`api.openalex.org`, for citation rounds beside Europe PMC:
    identifiers out, and for a reference entry naming none its own words,
-   never a paper's text — Karim, 2026-10-04). Nothing reads a paper for a
-   cloud service.
+   never a paper's text — Karim, 2026-10-04), and the host of an open copy
+   OpenAlex names (a publisher's or a repository's: the request for that
+   PDF and nothing else, a bot check left to a person — Karim, 2026-10-04).
+   Nothing reads a paper for a cloud service.
 2. **Two languages, one wire.** Python owns parsing and the store; TypeScript
    owns the window. They meet only on the JSON-lines protocol in
    `parser/litrag_parser/worker.py` and `app/src/main/protocol.ts`. No

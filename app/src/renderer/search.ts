@@ -251,7 +251,7 @@ function linkRow(c: Candidate): HTMLElement | null {
   if (c.doi) links.push(['publisher', `https://doi.org/${c.doi}`]);
   if (c.pmid) links.push(['Europe PMC', `https://europepmc.org/article/MED/${c.pmid}`]);
   else if (c.pmcid) links.push(['Europe PMC', `https://europepmc.org/article/PMC/${c.pmcid}`]);
-  if (c.oa_url) links.push(['open copy', c.oa_url]); // where OpenAlex says one is, outside PMC: a person follows it
+  if (c.oa_url) links.push(['open copy', c.oa_url]); // where OpenAlex says one is, outside PMC: a fetch asks it last, a person follows it
   if (!links.length) return null;
   const row = el('span', 'row');
   for (const [label, href] of links) {

@@ -51,7 +51,8 @@ export function fileNameFor(p: CollectPaper, ext: string): string {
 /** The page a person opens to get the paper: an open copy OpenAlex knows of (measured 2026-10-04: 56 of
  *  99 papers no service would give out had one), else its DOI, else PubMed, else Europe PMC.
  *  `LITRAG_DOI_RESOLVER` stands another resolver in for doi.org (the end-to-end suite serves one on
- *  127.0.0.1). The person opens it and clicks; nothing is fetched from it unasked. */
+ *  127.0.0.1). A fetch asked the open copy already and was refused it (a bot check, most often): the
+ *  person's browser is let in where a program is not. */
 export function linkFor(p: CollectPaper, env: NodeJS.ProcessEnv = process.env): string | null {
   const resolver = (env['LITRAG_DOI_RESOLVER'] || 'https://doi.org/').replace(/\/?$/, '/');
   if (p.open && /^https?:\/\//.test(p.open)) return p.open;

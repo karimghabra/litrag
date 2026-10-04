@@ -892,7 +892,7 @@ class Worker:
             self.do_fetch({"id": req_id, "op": "fetch", "lib": lib.id, "ids": batch})
             conn = open_store(lib.store_path)
             try:
-                ids = [r["cand_id"] for r in take]
+                ids = [r["cand_id"] for r in take + skip]  # one passed over is read too when its open copy came
                 read += [r[0] for r in conn.execute(f"SELECT paper_key FROM candidates WHERE cand_id IN ({','.join('?' * len(ids))}) AND paper_key IN (SELECT key FROM papers)", ids)] if ids else []
             finally:
                 conn.close()

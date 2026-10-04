@@ -27,10 +27,10 @@ wants as they are voiced.
 - **More sources for PDFs and figures** (Karim to decide, 2026-10-04; NOTES.md has the survey) —
   each a new host for invariant 1. ~~The PMC Cloud Service bucket~~ (*built 2026-10-04*: asked
   before EBI's bulk area for every open PDF, an XML paper's figures PDF included). Still open, no
-  licence: OpenAlex's open copies outside PMC (its API is a host since 2026-10-04, for rounds only; the
-  copies sit on publishers' and repositories' hosts, so fetching them is a wider grant than the
-  others — at scale 56 of the 99 papers no service gave out had one, which Collect PDFs now opens
-  for a person); Crossref (licences and the
+  licence: ~~OpenAlex's open copies outside PMC~~ (*built 2026-10-04*, Karim: "yes, fetch the open
+  copies too": asked last, filed only when the first pages name the paper; from a cloud container 5
+  in 100 came, 77 were bot checks — next, measured from Karim's machine, and `best_oa_location`'s own
+  `pdf_url` and `version` kept beside `oa_url`, so a preprint is known as one); Crossref (licences and the
   publishers' TDM links); full-size figures from PLOS, eLife, Frontiers and MDPI's CDN. Licensed:
   Elsevier's API (personal key + the university's subscription) for Acta Biomaterialia and
   Biomaterials, then Wiley's TDM API.

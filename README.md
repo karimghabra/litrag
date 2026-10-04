@@ -117,7 +117,7 @@ Six tabs over one project at a time, picked at the top:
 | Tab | What it is for |
 |---|---|
 | Projects | every project as a card: papers by format and type, how many are read, the searches run, the candidates waiting for a PDF, the passages embedded; **New project**; **Merge libraries…** files every paper of several projects once in a new one |
-| Search | a Europe PMC query (or one the local model drafts from the project's description); each hit with what can be had of it — open XML, an open PDF, nothing open — kept as a candidate; **Fetch & read** takes the XML first (Europe PMC's, else NCBI's for an NIH author manuscript), the PDF second (NLM's PMC Cloud Service, else EBI's bulk area), and lists the rest with their links |
+| Search | a Europe PMC query (or one the local model drafts from the project's description); each hit with what can be had of it — open XML, an open PDF, nothing open — kept as a candidate; **Fetch & read** takes the XML first (Europe PMC's, else NCBI's for an NIH author manuscript), the PDF second (NLM's PMC Cloud Service, else EBI's bulk area, else the open copy OpenAlex names when it prints the paper's DOI or title), and lists the rest with their links |
 | Papers | the three panes below; the tree pane's **Canonical** face re-hangs the paper under its type's structure, each section tagged with the mechanism that placed it |
 | Types | the kinds of paper the project holds, each kind's canonical structure (its slots in order, how often its papers have each), and any paper drawn onto it: a line from each printed section to its slot, coloured by the vocabulary, the catalogue, the embedder, a built heading or the outline judge; the slots it lacks drawn empty |
 | Query | a question, and the passages that answer it, each hydrated from its tree: the headings above it, the paragraphs either side, the methods a finding was measured by (the paragraph it rests on, where the method is described in another paper, statistics and materials apart), the findings a method measured, the figures and references it cites — a figure with the numbers read from its charts; **Open in the tree** lands on it |
@@ -645,6 +645,21 @@ licence; NLM does not endorse this tool. EBI's bulk area is asked after it,
 for what the Cloud Service lacks. An NIH author manuscript is there as XML
 and text, never as a PDF.
 
+**An open copy, last.** When neither has it, the open copy OpenAlex names
+(a repository's author manuscript, a preprint, the publisher's free PDF)
+is asked of its own host: the PDF itself, or a page followed to the PDF it
+names for indexers (`citation_pdf_url`) or the page it refreshes to. It is
+filed only when its first pages print the paper's DOI or its whole title,
+and not under a supplement's name; anything else is left in Collect PDFs,
+with its link. A site that answers with a bot check ("Just a moment…") is
+left to a person's browser, never got round. Measured from a cloud
+container on 100 such links: 5 taken (OSTI, JCI, arXiv), each the right
+paper; 77 bot checks (Cell Press's 35 among them), 14 refused outright
+(MDPI's 8), 2 pages leading nowhere, and one right paper refused for its
+record's spelling ("tumours", the PDF's "Tumors"). Not yet measured from a
+home or university address, where the publishers' checks may be gentler.
+`LITRAG_OPEN_COPIES=off` stops it.
+
 ## Citations
 
 Every entry in a paper's reference list is a row (`refs`: number, first
@@ -695,8 +710,8 @@ where state = 'candidate' order by cited_here desc, year desc;
   deposited one. On three papers Europe PMC had already been asked about,
   its lists named 183 works and added 95 candidates, 18 of them unknown to
   Europe PMC (Ceramics International, J Mech Phys Solids…), and 28 with an
-  open copy outside PMC (the candidate's **open** link — for a person to
-  follow; nothing is fetched from it). A work Europe PMC knows is filed with
+  open copy outside PMC (the candidate's **open** link — asked last by a
+  fetch, and followed by a person when its site will not answer one). A work Europe PMC knows is filed with
   Europe PMC's record, since that is what a fetch needs; one it does not,
   with OpenAlex's. For a paper neither has a list for (a PDF with no DOI), an
   entry naming no identifier is searched in OpenAlex by its words and taken

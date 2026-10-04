@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- **Open copies fetched** (Karim, 2026-10-04: "yes, fetch the open copies too"; invariant 1 names
+  the hosts). After Europe PMC, NCBI, the PMC Cloud Service and EBI's bulk area, a fetch asks the
+  open copy OpenAlex named (`candidates.oa_url`) of its own host: the PDF, or a page followed — a
+  few hops at most — to the PDF its `citation_pdf_url` names or the page its refresh goes to
+  (`acquire.open_copy_pdf`). It is filed only when its first three pages print the paper's DOI or
+  its whole title, and not under a supplement's name (`acquire.names_the_paper`); otherwise it is
+  deleted, never filed as the paper. A bot check — Cloudflare's "Just a moment…", Springer
+  Nature's "Client Challenge", AWS's empty 202 — is left to a person's browser in Collect PDFs,
+  never got round; PMC's and Europe PMC's own pages are never asked this way, and a host that
+  cannot be reached leaves the paper `needs-pdf`, not `failed`. `LITRAG_OPEN_COPIES=off` stops it
+  (and the tests run with it off unless a test turns it on against a canned site). Expand counts an
+  open copy read for a work it passed over. From this cloud container, on 100 such links: 5 taken,
+  each the right paper (OSTI, JCI, arXiv), 77 bot checks, 14 refused outright.
 - **Expand at scale** (Karim, 2026-10-04: "we need to test this at scale"). A 44-paper library
   expanded by 100 read 19: the most cited works of a grown library are mostly classics nothing
   open is on record for, and readability only broke ties between works cited as often. Of every

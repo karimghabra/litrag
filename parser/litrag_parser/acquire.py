@@ -16,14 +16,20 @@ an article, a JSON beside each naming its PDF and that PDF's MD5 — the success
 it retired its OA web service and FTP packages, 2026-08), then from EBI's bulk open-access area
 (`ftp.ebi.ac.uk/pub/databases/pmc/pdf/OA/PMCxxxx<block>/<PMCID>.zip`, the same place the corpus
 scripts fetch from, which misses many papers the Cloud Service holds — the websites' `?pdf=render`
-links sit behind a bot check and are left alone); else the candidate `needs-pdf`, with the links
-a person can follow to get it by hand and drop it into the app. With an XML, the same paper's PDF
+links sit behind a bot check and are left alone); else the open copy OpenAlex names, from the
+publisher's or the repository's own host (`candidates.oa_url`: a PDF, or a page whose
+`citation_pdf_url` names one), taken only when its first pages name the paper — its DOI or its
+whole title — and are not a supplement's; else the candidate `needs-pdf`, with the links a person
+can follow to get it by hand and drop it into the app (a site that answers with a bot check is one:
+it is left to a person's browser, never got round). With an XML, the same paper's PDF
 is fetched too where either holds one: the XML names its figures but holds none, and the PDF is
 kept beside it to read them (figures.py). What is fetched lands in the library's inbox; the worker's `ingest`
 files it (DOI, then PMID, then hash) and `reconcile` marks the candidate `ingested`.
 
-The only hosts asked are Europe PMC's (EBI's), NCBI's E-utilities and NLM's PMC Cloud Service,
-and the last two are only ever sent a PMCID: an identifier out, the article in. Every base can be
+The hosts asked are Europe PMC's (EBI's), NCBI's E-utilities and NLM's PMC Cloud Service, the
+last two only ever sent a PMCID: an identifier out, the article in; and, for an open copy, the
+host OpenAlex names, sent nothing but the request for it (`LITRAG_OPEN_COPIES=off` stops it;
+PMC's and Europe PMC's own pages are never asked this way). Every base can be
 pointed elsewhere, for tests and the end-to-end harness: `LITRAG_EPMC_URL` for the REST base,
 `LITRAG_EPMC_PDF_URL` for the bulk PDF base, `LITRAG_NCBI_URL` for E-utilities
 (`LITRAG_NCBI_EMAIL` and `LITRAG_NCBI_API_KEY`, when set, go with each NCBI request as its usage
@@ -39,6 +45,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import html
+import http.client
 import io
 import json
 import math
@@ -47,6 +54,7 @@ import re
 import sqlite3
 import time
 import sys
+import unicodedata
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -84,7 +92,7 @@ CREATE TABLE IF NOT EXISTS candidates (
   published TEXT,                   -- Europe PMC's first publication date, YYYY-MM-DD
   author_list TEXT,                 -- JSON [{name, family, given, initials, orcid}], from the record's author list
   openalex TEXT,                    -- OpenAlex's id of the work (W…), when a round found it there (openalex.py)
-  oa_url TEXT                       -- where OpenAlex says an open copy is, for a person to follow
+  oa_url TEXT                       -- where OpenAlex says an open copy is: a fetch asks it last, a person follows it when that fails
 );
 CREATE UNIQUE INDEX IF NOT EXISTS candidates_doi ON candidates(doi) WHERE doi IS NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS candidates_pmid ON candidates(pmid) WHERE pmid IS NOT NULL;
@@ -505,7 +513,7 @@ def links(row: dict[str, Any]) -> dict[str, str]:
     elif row.get("pmcid"):
         out["europepmc"] = f"https://europepmc.org/article/PMC/{row['pmcid']}"
     if row.get("oa_url"):
-        out["open"] = str(row["oa_url"])  # an open copy OpenAlex knows of, outside PMC: for a person to follow, never fetched
+        out["open"] = str(row["oa_url"])  # an open copy OpenAlex knows of, outside PMC: asked by a fetch, and for a person when the site would not answer one
     return out
 
 
@@ -668,6 +676,139 @@ def pmc_cloud_pdf(pmcid: str, timeout: float, base: str | None = None) -> tuple[
     return body, ""
 
 
+#: An open copy is never asked of these: PMC's and Europe PMC's pages sit behind a bot check, and
+#: their services were asked already, by PMCID.
+_ASKED_BY_SERVICE = re.compile(r"(?:^|\.)(?:ncbi\.nlm\.nih\.gov|europepmc\.org|ebi\.ac\.uk)$", re.I)
+#: No paper's PDF is larger; what is, is not taken.
+OPEN_COPY_MOST = 100 * 2**20
+_CITATION_PDF = (re.compile(rb"""<meta\s[^>]*name\s*=\s*["']citation_pdf_url["'][^>]*content\s*=\s*["']([^"']+)["']""", re.I),
+                 re.compile(rb"""<meta\s[^>]*content\s*=\s*["']([^"']+)["'][^>]*name\s*=\s*["']citation_pdf_url["']""", re.I))
+#: A page that asks for a browser rather than answering: a bot check, left to a person.
+_CHALLENGE = re.compile(rb"just a moment\.\.\.|enable javascript and cookies|client challenge|cf-chl|captcha|are you a robot|verify you are human", re.I)
+_REFRESH = re.compile(rb"""<meta\s[^>]*http-equiv\s*=\s*["']?refresh["']?[^>]*content\s*=\s*(?:"([^"]*)"|'([^']*)')""", re.I)
+_REFRESH_URL = re.compile(r"url\s*=\s*['\"]?([^'\"]+)", re.I)
+BOT_CHECK = "the site asks for a browser (a bot check)"
+
+
+def open_copies() -> bool:
+    """Whether a fetch takes the open copy OpenAlex names, unless `LITRAG_OPEN_COPIES=off`."""
+    return os.environ.get("LITRAG_OPEN_COPIES", "on").strip().lower() not in ("off", "0", "false", "no")
+
+
+def _askable(url: str) -> bool:
+    parts = urllib.parse.urlsplit(url)
+    return parts.scheme in ("http", "https") and bool(parts.hostname) and not _ASKED_BY_SERVICE.search(parts.hostname or "")
+
+
+def _get_page(opener: urllib.request.OpenerDirector, url: str, timeout: float) -> tuple[bytes, str, bool]:
+    """One GET of an open copy, through the redirects and cookies a publisher's site sets on the
+    way: `(body, the address it ended at, whether it is a bot check)`, at most `OPEN_COPY_MOST`
+    bytes. A bot check is an error page that says so, or an empty answer a firewall gives in
+    place of a challenge (AWS's: 202, `x-amzn-waf-action`)."""
+    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, "Accept": "application/pdf, text/html;q=0.9, */*;q=0.5"})
+    try:
+        with opener.open(req, timeout=timeout) as resp:
+            body = resp.read(OPEN_COPY_MOST + 1)
+            if len(body) > OPEN_COPY_MOST:
+                raise ValueError("larger than any paper")
+            check = bool(resp.headers.get("x-amzn-waf-action")) or (resp.status == 202 and not body.strip()) or bool(_CHALLENGE.search(body[:65536]))
+            return body, resp.geturl(), check and not _is_pdf(body)
+    except urllib.error.HTTPError as e:
+        page = e.read(65536) if e.fp is not None else b""
+        if e.headers.get("x-amzn-waf-action") or _CHALLENGE.search(page):
+            return page, url, True
+        raise
+
+
+def _is_pdf(body: bytes) -> bool:
+    return b"%PDF" in body[:1024]
+
+
+def _next_address(body: bytes, refresh: bool = True) -> str | None:
+    """Where a page sends a reader for the paper: the PDF its `citation_pdf_url` names (the tag
+    publishers and repositories set for indexers), else, with `refresh`, where its meta refresh goes."""
+    for rx in _CITATION_PDF:
+        if m := rx.search(body):
+            return html.unescape(m.group(1).decode("utf-8", "replace")).strip()
+    if refresh and (m := _REFRESH.search(body[:65536])):
+        if u := _REFRESH_URL.search(html.unescape((m.group(1) or m.group(2) or b"").decode("utf-8", "replace"))):
+            return u.group(1).strip()
+    return None
+
+
+def open_copy_pdf(url: str, timeout: float) -> tuple[bytes | None, str]:
+    """The PDF at an open copy's address: `(pdf, "")`, or `(None, why not)`. The address is
+    OpenAlex's and is the PDF or a page; a page is followed, a few times at most, to the PDF it
+    names or the page its refresh goes to. A bot check ends it: that is for a person's browser."""
+    if not _askable(url):
+        return None, "not an address asked this way"
+    opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor())
+    seen: set[str] = set()
+    for _ in range(4):
+        seen.add(url)
+        body, at, check = _get_page(opener, url, timeout)
+        if _is_pdf(body):
+            return body, ""
+        # an article's page that names its PDF is followed, whatever else it mentions; a bot
+        # check's own refresh (back to itself, with a token) is not
+        named = _next_address(body, refresh=not check)
+        if named is None and check:
+            return None, BOT_CHECK
+        if not body.strip():
+            return None, "an empty answer"
+        if named is None:
+            return None, "a page naming no PDF"
+        url = urllib.parse.urljoin(at, named)
+        if url in seen or not _askable(url):
+            return None, "a page leading nowhere asked this way"
+    return None, "pages leading to pages, never a PDF"
+
+
+def _squeezed(s: Any) -> str:
+    folded = "".join(ch for ch in unicodedata.normalize("NFKD", str(s or "")) if not unicodedata.combining(ch))
+    return re.sub(r"[^a-z0-9]+", "", folded.lower())
+
+
+#: How a supplement names itself above the title it repeats.
+_SUPPLEMENT = re.compile(r"supplementa|supportinginformation|supplementinformation|additionalfile|appendix")
+#: A title shorter than this, squeezed, is too common to stand for the paper on a page.
+_TITLE_CHARS = 24
+
+
+def names_the_paper(text: str, row: dict[str, Any]) -> str | None:
+    """Whether the first pages of a PDF are the candidate's paper: None if they print its DOI or
+    its whole title (spaces, marks, line breaks and accents counting for nothing) and the title
+    is not under a supplement's name; else why not. Unassignable beats misassigned: a PDF that
+    names neither is left to a person, never filed as the paper."""
+    page = _squeezed(text)
+    if not page:
+        return "no text to tell it by"
+    title = _squeezed(row.get("title"))
+    at = page.find(title) if len(title) >= _TITLE_CHARS else -1
+    if at >= 0 and _SUPPLEMENT.search(page[max(0, at - 300):at]):
+        return "a supplement, not the paper"
+    doi = _squeezed(row.get("doi"))
+    if at >= 0 or (doi and len(doi) >= 8 and doi in page):
+        return None
+    return "its first pages name neither its DOI nor its title"
+
+
+def _first_pages(path: Path, pages: int = 3) -> str:
+    """The text of a PDF's first pages, pdfium's, or "" when it has none to give."""
+    from .recover import clean, open_pdf
+
+    try:
+        with open_pdf(path) as pdf:
+            out = []
+            for i in range(min(pages, len(pdf))):
+                page = pdf[i]
+                tp = page.get_textpage()
+                out.append(clean(tp.get_text_range()))
+            return "\n".join(out)
+    except Exception:  # noqa: BLE001 — a PDF pdfium will not open names nothing
+        return ""
+
+
 def _save(dest: Path, data: bytes) -> None:
     dest.parent.mkdir(parents=True, exist_ok=True)
     tmp = dest.with_name(dest.name + ".part")
@@ -804,6 +945,28 @@ def fetch_one(lib: Library, conn: sqlite3.Connection, cand_id: int, *, timeout: 
             except (urllib.error.URLError, TimeoutError, OSError) as e:
                 tried.append(f"open-access PDF: {e}")
                 unreachable = True
+        if row.get("oa_url") and open_copies() and _askable(str(row["oa_url"])):
+            # A host of OpenAlex's naming, not a service of ours: one that cannot be reached, or
+            # will not answer a program, is a link for a person, not a failure to try again.
+            host = urllib.parse.urlsplit(str(row["oa_url"])).hostname
+            say({"event": "candidate", "cand_id": cand_id, "status": "fetching", "format": "pdf", "source": "open-copy", "host": host})
+            try:
+                body, why = open_copy_pdf(str(row["oa_url"]), timeout)
+                if body is not None:
+                    # read under a name ingest never takes, and named the paper's only once it is
+                    dest = lib.inbox_dir / f"{name}.pdf"
+                    unchecked = dest.with_name(dest.name + ".unchecked")
+                    _save(unchecked, body)
+                    why = names_the_paper(_first_pages(unchecked), row) or ""
+                    if not why:
+                        os.replace(unchecked, dest)
+                        _update(conn, cand_id, status="fetched", file=dest.name, error=None)
+                        say({"event": "candidate", "cand_id": cand_id, "status": "fetched", "format": "pdf", "source": "open-copy", "host": host, "path": str(dest)})
+                        return {"cand_id": cand_id, "status": "fetched", "path": str(dest), "format": "pdf", "source": "open-copy", "host": host, "error": None}
+                    unchecked.unlink(missing_ok=True)
+                tried.append(f"open copy at {host}: {why}")
+            except (urllib.error.URLError, TimeoutError, OSError, ValueError, http.client.HTTPException) as e:
+                tried.append(f"open copy at {host}: {e}")
     except Exception as e:  # noqa: BLE001 — one bad candidate never costs the rest
         _update(conn, cand_id, status="failed", error=f"{type(e).__name__}: {e}"[:400])
         say({"event": "candidate", "cand_id": cand_id, "status": "failed"})
