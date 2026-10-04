@@ -29,6 +29,12 @@ edges are scored against what was said.
   unless another chooser is given; the command line and the worker's `truth` op give query
   hydration's (`retrieve.best_paragraph`) — with the first paragraph's score beside it.
 
+- **The model's labels** (`model_labels`, `labeller.py`): the local model answers the same
+  question for the findings the queue would offer; the queue offers them first, never saying
+  what it answered, so a person's labels on them are its audit (`agreement`). Once `AUDIT_MIN`
+  are audited at `AGREEMENT_GATE`, `report` measures the edges again with them for the
+  findings no person labelled; until then they are compared, never counted.
+
     uv run --project parser python -m litrag_parser.truth --lib DIR [--lib …] --measure [--json]
     uv run --project parser python -m litrag_parser.truth --lib DIR [--lib …] --export labels.jsonl
     uv run --project parser python -m litrag_parser.truth --lib DIR [--lib …] --import labels.jsonl
@@ -64,6 +70,8 @@ TEXT_CHARS = 200  # what a label keeps of a finding, a method paragraph or a cho
 PER_PAPER = 5  # findings a paper gives the queue, those already labelled included
 RESEMBLANCE, RESEMBLANCE_MARGIN = 0.9, 0.05  # a label found again by resemblance: near enough, and clearly nearer than the next
 COLUMNS = ("paper", "finding", "finding_text", "method", "method_heading", "paragraph", "paragraph_text", "verdict", "by", "at")
+TABLES = ("link_labels", "model_labels")  # a person's labels; the local model's (labeller.py), the same shape
+AUDIT_MIN, AGREEMENT_GATE = 25, 0.9  # the model's labels stand once a person has labelled this many of its findings and agrees on this share
 
 ParagraphChooser = Callable[[sqlite3.Connection, str, str], "str | None"]
 
@@ -232,7 +240,7 @@ def _turns(p: _Paper, seed: int) -> list[Node]:
 
 
 def queue(conn: sqlite3.Connection, n: int = 100, seed: int = 0, per_paper: int = PER_PAPER, finding: str | None = None) -> dict[str, Any]:
-    """The next findings to label: `{items, labelled, papers}`, each item
+    """The next findings to label: `{items, labelled, papers, audit}`, each item
     `{paper, title, doi, prefix, evidence, finding: {node_id, text, ancestry, page, role},
     candidates: [{node_id, type, heading, text, paragraphs: [{node_id, text}], edge, extra?}],
     edges: [{dst, evidence, detail}], labels: [{method, verdict, paragraph}]}` — the candidates
@@ -240,8 +248,10 @@ def queue(conn: sqlite3.Connection, n: int = 100, seed: int = 0, per_paper: int 
 
     Papers are visited one prefix after another (the prefixes and each prefix's papers in an
     order the seed fixes), each giving up to `per_paper` findings — its labelled ones counted
-    — until there are `n`. `finding` asks for that one finding's item instead, labelled or not,
-    with the labels it has."""
+    — until there are `n`. The findings the local model labelled and no person has come first
+    (`audit` of them), so a person's first labels are its audit; an item never says what the
+    model answered. `finding` asks for that one finding's item instead, labelled or not, with
+    the labels it has."""
     papers = _Papers(conn)
     anchored = anchor(conn, papers)
     labelled: dict[str, list[dict[str, Any]]] = {}
@@ -252,7 +262,35 @@ def queue(conn: sqlite3.Connection, n: int = 100, seed: int = 0, per_paper: int 
         p = papers.get(row["paper"]) if row else None
         if p is None or finding not in p.by_id:
             raise ValueError(f"no node {finding!r}")
-        return {"items": [_item(p, p.by_id[finding], _labels_now(labelled.get(finding, [])))], "labelled": len(labelled), "papers": 1}
+        return {"items": [_item(p, p.by_id[finding], _labels_now(labelled.get(finding, [])))], "labelled": len(labelled), "papers": 1, "audit": 0}
+    audit = _audit_first(conn, papers, labelled, n)
+    drawn = audit + (draw(papers, n - len(audit), seed, per_paper, labelled, skip={f.node_id for _, f in audit}) if len(audit) < n else [])
+    return {"items": [_item(p, f, []) for p, f in drawn], "labelled": len(labelled), "papers": len({p.key for p, _ in drawn}), "audit": len(audit)}
+
+
+def _audit_first(conn: sqlite3.Connection, papers: _Papers, labelled: dict[str, Any], n: int) -> list[tuple[_Paper, Node]]:
+    """The findings the local model labelled and no person has, in the order it labelled them
+    (the queue's own order), so that a person's first labels are its audit."""
+    out: list[tuple[_Paper, Node]] = []
+    seen: set[str] = set()
+    for a in anchor(conn, papers, table="model_labels"):
+        fid = a["finding_now"]
+        if fid is None or fid in labelled or fid in seen or len(out) >= n:
+            continue
+        seen.add(fid)
+        p = papers.get(a["paper"])
+        if p is not None and p.candidates and fid in p.by_id:
+            out.append((p, p.by_id[fid]))
+    return out
+
+
+def draw(papers: _Papers, n: int, seed: int = 0, per_paper: int = PER_PAPER, labelled: dict[str, Any] | None = None, skip: set[str] | None = None) -> list[tuple[_Paper, Node]]:
+    """The queue's draw: up to `n` findings, papers visited one prefix after another, each giving
+    up to `per_paper` findings in `_turns` order. A finding in `labelled` (its rows, by finding)
+    is left out and counted against its paper's cap; one in `skip` is only left out. With
+    nothing labelled, the findings a person would be offered from scratch — what the model labels."""
+    labelled = labelled or {}
+    skip = skip or set()
     done: Counter[str] = Counter()
     for fid, rows in labelled.items():
         done[rows[0]["paper"]] += 1
@@ -266,8 +304,7 @@ def queue(conn: sqlite3.Connection, n: int = 100, seed: int = 0, per_paper: int 
         rng.shuffle(strata[prefix])
     rng.shuffle(order)
     pending = {prefix: list(strata[prefix]) for prefix in order}
-    items: list[dict[str, Any]] = []
-    shown: list[str] = []
+    items: list[tuple[_Paper, Node]] = []
     while len(items) < n and any(pending.values()):
         for prefix in order:
             if len(items) >= n:
@@ -279,11 +316,10 @@ def queue(conn: sqlite3.Connection, n: int = 100, seed: int = 0, per_paper: int 
             p = papers.get(key) if room > 0 else None
             if p is None or not p.candidates:
                 continue
-            fresh = [f for f in _turns(p, seed) if f.node_id not in labelled][:room]
-            if fresh:
-                shown.append(key)
-                items.extend(_item(p, f, []) for f in fresh)
-    return {"items": items[:n], "labelled": len(labelled), "papers": len(shown)}
+            room -= sum(f.node_id in skip for f in p.findings)  # offered already: they count against the cap too
+            fresh = [f for f in _turns(p, seed) if f.node_id not in labelled and f.node_id not in skip][: max(room, 0)]
+            items.extend((p, f) for f in fresh)
+    return items[:n]
 
 
 def _labels_now(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -346,14 +382,15 @@ def save_labels(conn: sqlite3.Connection, finding: str, labels: list[dict[str, A
     return [dict(zip(COLUMNS, r)) for r in rows.values()]
 
 
-def _write(conn: sqlite3.Connection, p: _Paper | None, finding: str, rows: list[tuple[Any, ...]], papers: _Papers, key: str | None = None) -> None:
+def _write(conn: sqlite3.Connection, p: _Paper | None, finding: str, rows: list[tuple[Any, ...]], papers: _Papers, key: str | None = None, table: str = "link_labels") -> None:
     """One finding's label rows in place of the ones it had — under this id, or under an id a
     rebuild has since moved to it."""
+    assert table in TABLES
     key = p.key if p is not None else key
-    stale = {finding} | {a["finding"] for a in anchor(conn, papers, paper=key) if a["finding_now"] == finding}
+    stale = {finding} | {a["finding"] for a in anchor(conn, papers, paper=key, table=table) if a["finding_now"] == finding}
     with conn:
-        conn.executemany("DELETE FROM link_labels WHERE paper = ? AND finding = ?", [(key, s) for s in stale])
-        conn.executemany(f"INSERT OR REPLACE INTO link_labels({', '.join(COLUMNS)}) VALUES ({', '.join('?' * len(COLUMNS))})", rows)
+        conn.executemany(f"DELETE FROM {table} WHERE paper = ? AND finding = ?", [(key, s) for s in stale])
+        conn.executemany(f"INSERT OR REPLACE INTO {table}({', '.join(COLUMNS)}) VALUES ({', '.join('?' * len(COLUMNS))})", rows)
 
 
 def labels(conn: sqlite3.Connection) -> list[dict[str, Any]]:
@@ -421,10 +458,12 @@ def _find_method(p: _Paper, node_id: str, heading: str) -> str | None:
     return None
 
 
-def anchor(conn: sqlite3.Connection, papers: _Papers | None = None, paper: str | None = None) -> list[dict[str, Any]]:
-    """Every label row (or one paper's) with its finding, method and paragraph as they are now."""
+def anchor(conn: sqlite3.Connection, papers: _Papers | None = None, paper: str | None = None, table: str = "link_labels") -> list[dict[str, Any]]:
+    """Every label row (or one paper's) with its finding, method and paragraph as they are now:
+    a person's, or with `table="model_labels"` the local model's."""
+    assert table in TABLES
     papers = papers or _Papers(conn)
-    q = f"SELECT {', '.join(COLUMNS)} FROM link_labels" + (" WHERE paper = ?" if paper else "") + " ORDER BY at, paper, finding, method"
+    q = f"SELECT {', '.join(COLUMNS)} FROM {table}" + (" WHERE paper = ?" if paper else "") + " ORDER BY at, paper, finding, method"
     out: list[dict[str, Any]] = []
     for r in conn.execute(q, (paper,) if paper else ()):
         row = dict(r)
@@ -478,8 +517,27 @@ def _hydration_chooser() -> ParagraphChooser:
     return best_paragraph
 
 
-def measure(conn: sqlite3.Connection | Iterable[sqlite3.Connection], choose_paragraph: ParagraphChooser | None = None) -> dict[str, Any]:
-    """The linker against the labels of one library or several (see the module's docstring).
+SOURCES = ("person", "model", "both")
+
+
+def _rows(c: sqlite3.Connection, papers: _Papers, source: str) -> list[dict[str, Any]]:
+    """The label rows a measure reads: a person's; the model's; or a person's where a finding has
+    them and the model's for the rest."""
+    if source not in SOURCES:
+        raise ValueError(f"labels come from {', '.join(SOURCES)}, not {source!r}")
+    if source == "person":
+        return anchor(c, papers)
+    model = anchor(c, papers, table="model_labels")
+    if source == "model":
+        return model
+    person = anchor(c, papers)
+    theirs = {(a["paper"], a["finding_now"] or a["finding"]) for a in person}
+    return person + [a for a in model if (a["paper"], a["finding_now"] or a["finding"]) not in theirs]
+
+
+def measure(conn: sqlite3.Connection | Iterable[sqlite3.Connection], choose_paragraph: ParagraphChooser | None = None, source: str = "person") -> dict[str, Any]:
+    """The linker against the labels of one library or several (see the module's docstring):
+    a person's (`source`), the model's, or both — a person's where a finding has them.
 
     Precision counts an edge right when its method is labelled `yes`, wrong when labelled
     `no` or when the finding is labelled `none`, and leaves out (`unjudged`) an edge to a
@@ -501,7 +559,7 @@ def measure(conn: sqlite3.Connection | Iterable[sqlite3.Connection], choose_para
         papers = _Papers(c)
         groups: dict[str, dict[str, Any]] = {}
         seen_lost: set[tuple[str, str]] = set()
-        for a in anchor(c, papers):
+        for a in _rows(c, papers, source):
             rows_total += 1
             verdicts[a["verdict"]] += 1
             if a["finding_now"] is None:
@@ -557,6 +615,7 @@ def measure(conn: sqlite3.Connection | Iterable[sqlite3.Connection], choose_para
     by_kind = {k: {"edges": judged[k], "right": right[k], "precision": _ratio(right[k], judged[k]), "unjudged": unjudged[k]} for k in EVIDENCE}
     by_kind["all"] = {"edges": sum(judged.values()), "right": sum(right.values()), "precision": _ratio(sum(right.values()), sum(judged.values())), "unjudged": sum(unjudged.values())}
     return {
+        "source": source,
         "labels": rows_total,
         "verdicts": {v: verdicts[v] for v in VERDICTS},
         "findings": labelled,
@@ -572,6 +631,91 @@ def measure(conn: sqlite3.Connection | Iterable[sqlite3.Connection], choose_para
         "paragraph": {"named": para_named, "right": para_right, "accuracy": _ratio(para_right, para_named), "chooser": getattr(choose, "__name__", type(choose).__name__),
                       "first_paragraph": _ratio(para_first, para_named)},
     }
+
+
+def _groups(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """Label rows by the finding they are on now: its methods labelled yes (each with its
+    paragraph), those labelled no, and whether it was labelled `none`. A row that cannot be
+    found again is left out."""
+    out: dict[str, dict[str, Any]] = {}
+    for a in rows:
+        if a["finding_now"] is None:
+            continue
+        g = out.setdefault(a["finding_now"], {"paper": a["paper"], "text": a["finding_text"], "by": a["by"], "yes": {}, "no": set(), "none": False})
+        if a["verdict"] == "none":
+            g["none"] = True
+        elif a["method_now"]:
+            if a["verdict"] == "yes":
+                g["yes"][a["method_now"]] = a["paragraph_now"]
+            else:
+                g["no"].add(a["method_now"])
+    return out
+
+
+def agreement(conn: sqlite3.Connection | Iterable[sqlite3.Connection]) -> dict[str, Any]:
+    """The local model's labels against a person's, on the findings both labelled — the audit.
+
+    A finding agrees when both name the same methods, `none` and "every candidate no" both
+    naming none. Per method, of every method either judged: both yes, both no, the model's yes
+    alone, the person's alone. Per paragraph, where both named one in the same method. The
+    model's labels `stand` once `AUDIT_MIN` findings are audited and `AGREEMENT_GATE` of them
+    agree; until then they are compared, never counted."""
+    conns = [conn] if isinstance(conn, sqlite3.Connection) else list(conn)
+    audited = agree = both_yes = both_no = model_only = person_only = para_both = para_same = labelled = 0
+    models: Counter[str] = Counter()
+    disagreements: list[dict[str, Any]] = []
+    for c in conns:
+        papers = _Papers(c)
+        model = _groups(anchor(c, papers, table="model_labels"))
+        labelled += len(model)
+        models.update(g["by"] or "" for g in model.values())
+        for fid, pg in _groups(anchor(c, papers)).items():
+            mg = model.get(fid)
+            if mg is None:
+                continue
+            audited += 1
+            mine, its = set(pg["yes"]), set(mg["yes"])
+            agree += int(mine == its)
+            judged = mine | its | pg["no"] | mg["no"]
+            both_yes, person_only, model_only = both_yes + len(mine & its), person_only + len(mine - its), model_only + len(its - mine)
+            both_no += len(judged - mine - its)
+            for m in mine & its:
+                if pg["yes"][m] and mg["yes"][m]:
+                    para_both += 1
+                    para_same += int(pg["yes"][m] == mg["yes"][m])
+            if mine != its:
+                p = papers.get(pg["paper"])
+
+                def said(g: dict[str, Any]) -> list[str]:
+                    return [_method_label(p.by_id[m]) if p and m in p.by_id else m for m in g["yes"]] or (["no method in this paper"] if g["none"] else ["none of these"])
+
+                disagreements.append({"finding": fid, "paper": pg["paper"], "text": pg["text"], "person": said(pg), "model": said(mg)})
+    rate = _ratio(agree, audited)
+    return {
+        "labelled": labelled,  # findings the model labelled
+        "models": dict(models),
+        "audited": audited,
+        "agree": agree,
+        "agreement": rate,
+        "methods": {"both_yes": both_yes, "both_no": both_no, "model_only": model_only, "person_only": person_only,
+                    "agreement": _ratio(both_yes + both_no, both_yes + both_no + model_only + person_only)},
+        "paragraphs": {"both": para_both, "same": para_same, "agreement": _ratio(para_same, para_both)},
+        "disagreements": disagreements,
+        "needed": AUDIT_MIN,
+        "gate": AGREEMENT_GATE,
+        "stands": audited >= AUDIT_MIN and rate is not None and rate >= AGREEMENT_GATE,
+    }
+
+
+def report(conn: sqlite3.Connection | Iterable[sqlite3.Connection], choose_paragraph: ParagraphChooser | None = None) -> dict[str, Any]:
+    """What the `truth` op and `--measure` answer: the linker against a person's labels, and,
+    when the local model has labelled findings, `model` — its agreement with the person, and
+    once its labels stand, the linker measured again with them (`measure`, `source="both"`)."""
+    conns = [conn] if isinstance(conn, sqlite3.Connection) else list(conn)
+    out = measure(conns, choose_paragraph)
+    a = agreement(conns)
+    out["model"] = {**a, "measure": measure(conns, choose_paragraph, source="both") if a["stands"] else None} if a["labelled"] else None
+    return out
 
 
 # -- a label set outside the library ----------------------------------------------------------------------
@@ -646,7 +790,24 @@ def _show(r: dict[str, Any]) -> None:
         print(f"not among the candidates: {r['outside']} findings with every candidate labelled no")
     pg = r["paragraph"]
     if pg["named"]:
-        print(f"paragraph ({pg['chooser']}): the paragraph named {frac(pg['right'], pg['named'])}")
+        print(f"paragraph ({pg['chooser']}): the paragraph named {frac(pg['right'], pg['named'])}"
+              + (f"; the method's first paragraph {pg['first_paragraph']:.2f}" if pg.get("first_paragraph") is not None else ""))
+    m = r.get("model")
+    if m:
+        who = ", ".join(f"{k} {v}" for k, v in m["models"].items())
+        print(f"\nthe local model labelled {m['labelled']} findings ({who}); a person has labelled {m['audited']} of them"
+              + (f", agreeing on {frac(m['agree'], m['audited'])}" if m["audited"] else ""))
+        mm = m["methods"]
+        if m["audited"]:
+            print(f"  per method: both yes {mm['both_yes']}, both no {mm['both_no']}, the model's yes alone {mm['model_only']}, the person's alone {mm['person_only']}"
+                  + (f"; paragraphs {frac(m['paragraphs']['same'], m['paragraphs']['both'])}" if m["paragraphs"]["both"] else ""))
+        for d in m["disagreements"][:10]:
+            print(f"  - {d['text'][:90]}…\n      person: {'; '.join(d['person'])}\n      model:  {'; '.join(d['model'])}")
+        if m["stands"]:
+            print(f"its labels stand ({m['audited']} audited, agreement at least {m['gate']}); with them, for every finding either labelled:")
+            _show(m["measure"])
+        else:
+            print(f"its labels are compared, not counted, until {m['needed']} are audited at {m['gate']} agreement")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -680,7 +841,7 @@ def main(argv: list[str] | None = None) -> int:
                         n += 1
             print(f"{n} labels written to {args.export}")
         if args.measure:
-            r = measure(list(conns.values()), choose_paragraph=_hydration_chooser())
+            r = report(list(conns.values()), choose_paragraph=_hydration_chooser())
             if args.json:
                 print(json.dumps(r, ensure_ascii=False, indent=1))
             else:

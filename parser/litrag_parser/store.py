@@ -158,6 +158,23 @@ CREATE TABLE IF NOT EXISTS link_labels (
   PRIMARY KEY(paper, finding, method)
 );
 
+-- The local model's word on the same question (labeller.py), the shape of link_labels and kept
+-- apart from it: a person's labels on the same findings are its audit, and only once the two
+-- agree does truth.py count these for the findings no person labelled. `by` names the model.
+CREATE TABLE IF NOT EXISTS model_labels (
+  paper TEXT NOT NULL,
+  finding TEXT NOT NULL,
+  finding_text TEXT NOT NULL,
+  method TEXT NOT NULL,
+  method_heading TEXT NOT NULL DEFAULT '',
+  paragraph TEXT,
+  paragraph_text TEXT,
+  verdict TEXT NOT NULL CHECK (verdict IN ('yes', 'no', 'none')),
+  by TEXT,
+  at TEXT NOT NULL,
+  PRIMARY KEY(paper, finding, method)
+);
+
 CREATE TABLE IF NOT EXISTS events (
   id INTEGER PRIMARY KEY,
   paper TEXT NOT NULL,

@@ -28,6 +28,15 @@ it is right (Karim, 2026-10-04: "Implement these").
   precision per evidence, recall, misses, false links — and hydration's paragraph against the
   method's first; `python -m litrag_parser.truth --lib DIR --measure | --export | --import`.
   Resemblance stays off until it scores 0.9 there.
+- **The local model labels, a person audits** (Karim, 2026-10-04: a person need not label a
+  hundred findings). **Let the model label** in the panel (op `model_label`, `python -m
+  litrag_parser.labeller`) has the local model (`qwen3:14b`, or `LITRAG_LABEL_MODEL`, through
+  Ollama on 127.0.0.1) label the findings the queue would offer, by the rule the panel now shows
+  beside the question; its answers go to `model_labels`, apart from a person's. The queue offers
+  them first, never saying what the model answered, so a person's labels on them are its audit;
+  `truth` reports the agreement and every disagreement, and once 25 are audited at 0.9 agreement,
+  measures the edges again with the model's labels for the findings no person labelled. Merges
+  carry them; running it twice asks nothing twice.
 
 ## 0.3.2 — 2026-10-04
 

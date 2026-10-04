@@ -66,8 +66,31 @@ export interface Truth {
   outside: number;
   none: number;
   unanchored: { findings: number; methods: number; paragraphs: number };
-  paragraph: { named: number; right: number; accuracy: number | null; chooser: string };
+  paragraph: { named: number; right: number; accuracy: number | null; chooser: string; first_paragraph?: number | null };
+  /** the local model's labels against a person's, when it has labelled any */
+  model?: ModelReport | null;
 }
+
+/** the local model's labels (parser/litrag_parser/labeller.py) against a person's: the audit */
+export interface ModelReport {
+  /** findings the model labelled */
+  labelled: number;
+  models: Record<string, number>;
+  /** of those, the ones a person has labelled too */
+  audited: number;
+  agree: number;
+  agreement: number | null;
+  needed: number;
+  gate: number;
+  /** enough audited, and enough agreeing: its labels count for the findings no person labelled */
+  stands: boolean;
+  /** the linker measured with a person's labels and the model's for the rest, once it stands */
+  measure: Truth | null;
+}
+
+/** The rule beside the question, for a person as for the model (labeller.py's RULE says the same). */
+export const LABEL_RULE =
+  'Tick the procedures that produced what the finding reports — several if it rests on several. Leave the preparation of the material and the statistics out unless the finding reports them.';
 
 /** What the editor holds for one finding: the methods checked, the paragraph marked in each, or "no method in this paper". */
 export interface Choice {
@@ -160,4 +183,14 @@ export function truthLine(t: Truth): string {
     t.false_links.count ? `${t.false_links.count} false link${t.false_links.count === 1 ? '' : 's'}` : '',
   ];
   return parts.filter(Boolean).join(' · ');
+}
+
+/** The line under it about the local model: how far its labels are audited, how often a person agrees, and once they stand, the measure with them. Empty when it has labelled nothing. */
+export function modelLine(t: Truth): string {
+  const m = t.model;
+  if (!m || !m.labelled) return '';
+  const who = Object.keys(m.models).join(', ') || 'the model';
+  const agrees = m.audited ? ` · you agree on ${m.agree} (${(m.agreement ?? 0).toFixed(2)})` : '';
+  if (m.stands && m.measure) return `${who}’s labels stand (${m.agree} of ${m.audited} audited agree): with them, ${truthLine(m.measure)}`;
+  return `${who} labelled ${m.labelled} · ${Math.min(m.audited, m.needed)} of ${m.needed} audited${agrees} — its labels count once ${m.needed} are audited at ${m.gate} agreement`;
 }

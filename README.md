@@ -563,6 +563,19 @@ recall, the misses, the false links, and how often hydration's paragraph
 is the one the person marked, beside the method's first paragraph.
 Resemblance stays off until it scores 0.9 there.
 
+A person need not label all of it. **Let the model label** (in the same
+panel, or `python -m litrag_parser.labeller --lib DIR`) has the local model
+(`qwen3:14b` through Ollama, on this machine) answer the same question, by
+the same rule, for the hundred findings the queue would offer (twenty
+seconds a finding with `qwen3:1.7b` on four CPU cores; the 14B model on a
+GPU is untried). Its
+answers are rows of their own (`model_labels`), never mixed with a
+person's. The queue then offers the model's findings first, without saying
+what it answered, so the person's next labels are its audit: once 25 are
+audited and the person agrees on 90 % of them, its labels count for the
+rest, and `truth` measures the edges again with them. Until then they are
+only compared, finding by finding, with every disagreement listed.
+
 ## Citations
 
 Every entry in a paper's reference list is a row (`refs`: number, first

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { candidateName, initialChoice, keyIndex, keyLabel, labelsOf, markParagraph, toggle, toggleNone, truthLine, type LabelItem, type Truth } from '../src/renderer/truth';
+import { candidateName, initialChoice, keyIndex, keyLabel, labelsOf, markParagraph, modelLine, toggle, toggleNone, truthLine, type LabelItem, type Truth } from '../src/renderer/truth';
 
 const cand = (id: string, heading: string | null, edge: string | null = null, paragraphs: string[] = []) => ({
   node_id: id, type: heading ? 'section' : 'paragraph', heading, text: heading ? '' : 'Compressive modulus was measured on an Instron at 1 mm/min.',
@@ -78,5 +78,13 @@ describe('the labelling editor', () => {
     };
     expect(truthLine(t)).toBe('12 labelled · precision so far by evidence: pointer 1.00 (2/2) · terms 0.80 (8/10) · recall 0.71 (10/14) · 3 missed · 1 false link');
     expect(truthLine({ ...t, findings: 0 })).toMatch(/^Nothing labelled yet/);
+
+    // the local model: audited so far, and once its labels stand, the measure with them
+    expect(modelLine(t)).toBe('');
+    const model = { labelled: 100, models: { 'qwen3:14b': 100 }, audited: 12, agree: 11, agreement: 0.917, needed: 25, gate: 0.9, stands: false, measure: null };
+    expect(modelLine({ ...t, model })).toBe('qwen3:14b labelled 100 · 12 of 25 audited · you agree on 11 (0.92) — its labels count once 25 are audited at 0.9 agreement');
+    expect(modelLine({ ...t, model: { ...model, audited: 0, agree: 0, agreement: null } })).toBe('qwen3:14b labelled 100 · 0 of 25 audited — its labels count once 25 are audited at 0.9 agreement');
+    const stands = { ...model, audited: 26, agree: 24, agreement: 0.923, stands: true, measure: { ...t, findings: 102 } };
+    expect(modelLine({ ...t, model: stands })).toBe('qwen3:14b’s labels stand (24 of 26 audited agree): with them, 102 labelled · precision so far by evidence: pointer 1.00 (2/2) · terms 0.80 (8/10) · recall 0.71 (10/14) · 3 missed · 1 false link');
   });
 });

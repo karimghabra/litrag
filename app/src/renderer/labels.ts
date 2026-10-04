@@ -8,8 +8,8 @@
  * toggle the candidates, N "no method", Enter saves and moves on, S skips, Esc closes.
  */
 
-import { $, ctx, el, hooks, log, request } from './shared.ts';
-import { candidateName, initialChoice, keyIndex, keyLabel, labelsOf, markParagraph, toggle, toggleNone, truthLine, type Choice, type LabelItem, type Truth } from './truth.ts';
+import { $, activity, ctx, el, hooks, log, onWorkerEvent, request } from './shared.ts';
+import { candidateName, initialChoice, keyIndex, keyLabel, LABEL_RULE, labelsOf, markParagraph, modelLine, toggle, toggleNone, truthLine, type Choice, type LabelItem, type Truth } from './truth.ts';
 
 const panel = {
   items: [] as LabelItem[],
@@ -24,6 +24,8 @@ const panel = {
   resume: null as { items: LabelItem[]; at: number } | null,
   onClose: null as (() => void) | null,
   saving: false,
+  /** the model labelled findings since the queue was drawn: the next step draws again, its findings first */
+  stale: false,
 };
 
 const open = (): boolean => !$('label-panel').hidden;
@@ -109,6 +111,7 @@ function show(): void {
   body.append(el('div', 'label-finding', it.finding.text));
   if (it.labels.length) body.append(el('div', 'muted label-note', `Labelled before${it.labels[0]?.by ? ` by ${it.labels[0].by}` : ''}${it.labels[0]?.at ? `, ${it.labels[0].at.slice(0, 10)}` : ''}: saving replaces it.`));
   body.append(el('div', 'label-q', 'Which of the paper’s methods was this finding measured by?'));
+  body.append(el('div', 'muted label-rule', LABEL_RULE));
   body.append(el('div', 'label-cands'));
   renderCandidates();
 }
@@ -209,7 +212,10 @@ async function save(): Promise<void> {
 
 async function next(): Promise<void> {
   panel.at += 1;
-  if (panel.at >= panel.items.length && panel.lib) await draw(panel.lib); // what is left once these are labelled
+  if ((panel.stale || panel.at >= panel.items.length) && panel.lib) {
+    panel.stale = false;
+    await draw(panel.lib); // what is left once these are labelled, the model's findings first
+  }
   show();
 }
 
@@ -218,6 +224,7 @@ async function refreshTruth(): Promise<void> {
   try {
     const t = await request<Truth>('truth', { lib: panel.lib });
     $('label-truth').textContent = truthLine(t);
+    $('label-model-truth').textContent = modelLine(t);
   } catch (e) {
     $('label-truth').textContent = `The measure is not available: ${(e as Error).message}`;
   }
@@ -257,8 +264,41 @@ function onKey(e: KeyboardEvent): void {
   }
 }
 
+/** The local model labels the findings the queue would offer (the worker's `model_label`, queued behind any reading). */
+async function modelLabel(): Promise<void> {
+  const lib = panel.lib ?? ctx.lib;
+  if (!lib) return;
+  $('label-error').textContent = '';
+  $<HTMLButtonElement>('label-model').disabled = true;
+  try {
+    activity.show('The local model is labelling findings');
+    await request('model_label', { lib, n: 100 });
+    log('stage', 'the local model is labelling a hundred findings; the queue offers them first once it is done');
+  } catch (e) {
+    activity.hide();
+    $<HTMLButtonElement>('label-model').disabled = false;
+    $('label-error').textContent = `The model did not start: ${(e as Error).message}`;
+  }
+}
+
 export function initLabels(): void {
   $('label-links').addEventListener('click', () => void openLabelling().catch((e) => log('error', `label links: ${(e as Error).message}`)));
+  $('label-model').addEventListener('click', () => void modelLabel());
+  onWorkerEvent((ev) => {
+    if (ev['op'] !== 'model_label') return;
+    if (ev['event'] === 'done') {
+      $<HTMLButtonElement>('label-model').disabled = false;
+      log('stage', `${ev['model']} labelled ${ev['labelled'] ?? 0} findings${ev['already'] ? `, ${ev['already']} it had already` : ''}${ev['unreadable'] ? `, ${ev['unreadable']} answers it could not read` : ''}`);
+      if (ev['lib'] === panel.lib) {
+        if (open() && !panel.single) panel.stale = true;
+        else panel.items = [];
+      }
+      void refreshTruth();
+    } else if (ev['event'] === 'error') {
+      $<HTMLButtonElement>('label-model').disabled = false;
+      $('label-error').textContent = `The model stopped: ${ev['message']}`;
+    }
+  });
   $('label-close').addEventListener('click', close);
   $('label-skip').addEventListener('click', () => void next());
   $('label-save').addEventListener('click', () => void save());

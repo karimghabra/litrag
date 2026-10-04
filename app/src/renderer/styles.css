@@ -337,6 +337,7 @@ h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: v
 .label-body .crumbs { color: var(--muted); font-size: 12px; margin-bottom: 6px; }
 .label-finding { line-height: 1.5; font-size: 13.5px; padding: 8px 10px; border-left: 3px solid var(--results); background: var(--hover); border-radius: 0 4px 4px 0; white-space: pre-wrap; max-height: 30vh; overflow: auto; }
 .label-note { font-size: 12px; margin-top: 6px; }
+.label-rule { margin: -2px 0 8px; font-size: 12px; }
 .label-q { margin: 12px 0 6px; font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
 .label-cands { display: flex; flex-direction: column; gap: 3px; }
 .cand { border: 1px solid var(--line); border-radius: 6px; background: var(--panel); }

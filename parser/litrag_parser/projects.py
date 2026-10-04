@@ -288,20 +288,22 @@ def _merge_paper(src: Library, sconn: sqlite3.Connection, s_tables: set[str], ta
 
 
 def _merge_labels(sconn: sqlite3.Connection, s_tables: set[str], tconn: sqlite3.Connection, t_tables: set[str], key: str, tkey: str) -> None:
-    """A person's finding→method labels (truth.py) go with the paper, the target's own kept where
-    both have one. Node ids under another key are moved to it; where the target reads the paper
-    differently, truth.anchor finds them again by their words."""
-    if "link_labels" not in s_tables or "link_labels" not in t_tables:
-        return
+    """A person's finding→method labels (truth.py), and the local model's (labeller.py), go with
+    the paper, the target's own kept where both have one. Node ids under another key are moved
+    to it; where the target reads the paper differently, truth.anchor finds them again by their
+    words."""
 
     def move(node_id: str | None) -> str | None:
         return tkey + node_id[len(key):] if node_id and tkey != key and node_id.startswith(key + "#") else node_id
 
-    for r in sconn.execute("SELECT finding, finding_text, method, method_heading, paragraph, paragraph_text, verdict, by, at FROM link_labels WHERE paper = ?", (key,)):
-        tconn.execute(
-            "INSERT OR IGNORE INTO link_labels(paper, finding, finding_text, method, method_heading, paragraph, paragraph_text, verdict, by, at) VALUES (?,?,?,?,?,?,?,?,?,?)",
-            (tkey, move(r["finding"]), r["finding_text"], move(r["method"]) or "", r["method_heading"], move(r["paragraph"]), r["paragraph_text"], r["verdict"], r["by"], r["at"]),
-        )
+    for table in ("link_labels", "model_labels"):
+        if table not in s_tables or table not in t_tables:
+            continue
+        for r in sconn.execute(f"SELECT finding, finding_text, method, method_heading, paragraph, paragraph_text, verdict, by, at FROM {table} WHERE paper = ?", (key,)):
+            tconn.execute(
+                f"INSERT OR IGNORE INTO {table}(paper, finding, finding_text, method, method_heading, paragraph, paragraph_text, verdict, by, at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                (tkey, move(r["finding"]), r["finding_text"], move(r["method"]) or "", r["method_heading"], move(r["paragraph"]), r["paragraph_text"], r["verdict"], r["by"], r["at"]),
+            )
 
 
 def _merge_candidates(sconn: sqlite3.Connection, tconn: sqlite3.Connection, now: str) -> int:

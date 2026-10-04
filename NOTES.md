@@ -111,8 +111,19 @@ when it turns out durable. Mark inference as inference.
     store of 4,231 nodes is in its tests. Followed only by DOI, PMID or a whole title; a method
     picked inside the cited paper only when its marks say so, else its whole methods section.
   - **The truth set** is built and empty: **Label links** on the Papers tab, `label_queue` /
-    `label` / `labels` / `truth`, `python -m litrag_parser.truth`. The labelling is Karim's —
-    about 100 findings across 20–25 papers — and similarity stays off until it scores 0.9 there.
+    `label` / `labels` / `truth`, `python -m litrag_parser.truth`. Similarity stays off until it
+    scores 0.9 there.
+  - **Karim chose not to label a hundred himself** ("I don't have to do this labeling do i?" —
+    then option 3 of three: fewer labels, someone else, or the local model labels and he audits).
+    Built: `labeller.py`, `model_labels`, **Let the model label**; the queue offers the model's
+    findings first and blind; its labels count once 25 are audited at 0.9 agreement. The rule
+    beside the question (the procedures that produced what the finding reports; preparation and
+    statistics only when the finding reports them) is mine, written so a person and the model
+    answer the same question — Karim may want it otherwise.
+  - **The model, tried** on the demo library with `qwen3:1.7b` on 4 CPUs (the only model this
+    container could hold): 6 findings, 6 answers readable, 20 s each, ~3,000 prompt tokens each.
+    It over-ticks — the crosslinking subsection on five of six, cell culture for an elongation —
+    so a model that small would not pass the audit. `qwen3:14b` on Karim's GPU is untried.
 
 - **2026-09-30: installable by a script** — Karim: "the installation should essentially be a bat
   script that installs dependencies, followed by the software itself". Built in three worktrees

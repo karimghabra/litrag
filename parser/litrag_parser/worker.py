@@ -353,6 +353,8 @@ class Worker:
                     self.do_merge(req)
                 elif op == "embed":
                     self.do_embed(req)
+                elif op == "model_label":
+                    self.do_model_label(req)
             except Exception as e:  # never let one paper kill the worker
                 emit({"event": "error", "id": req.get("id"), "op": req.get("op"), "lib": req.get("lib"), "message": str(e), "trace": traceback.format_exc()})
             finally:
@@ -747,6 +749,22 @@ class Worker:
             conn.close()
         emit({"event": "done", "id": req_id, "op": "embed", "lib": lib.id, **out})
 
+    def do_model_label(self, req: dict[str, Any]) -> None:
+        """The local model labels the findings a person would be offered (labeller.py), for a
+        person to audit; a finding it has labelled is not asked again."""
+        from . import labeller, truth
+
+        lib = self._lib(req)
+        req_id = req.get("id")
+        conn = open_store(lib.store_path)
+        try:
+            out = labeller.label(conn, n=int(req.get("n") or 100), seed=int(req.get("seed") or 0), per_paper=int(req.get("per_paper") or truth.PER_PAPER),
+                                 model=req.get("model") or None, on_progress=lambda done, total, label: emit(
+                                     {"event": "progress", "id": req_id, "op": "model_label", "lib": lib.id, "done": done, "total": total, "label": label}))
+        finally:
+            conn.close()
+        emit({"event": "done", "id": req_id, "op": "model_label", "lib": lib.id, **out})
+
     def answer_async(self, req: dict[str, Any]) -> None:
         """A read that waits on something slow — Europe PMC, the local model, the embedder — on
         its own thread, so the window can go on browsing trees meanwhile."""
@@ -861,7 +879,7 @@ class Worker:
                     emit({"event": "retrieval", "id": req_id, "lib": lib.id, **retrieve.status(conn, retrieve.OllamaEmbedder())})
                 finally:
                     conn.close()
-            elif op in ("fetch", "merge", "embed"):
+            elif op in ("fetch", "merge", "embed", "model_label"):
                 if op != "merge":
                     self._lib(req)  # fail fast on a bad library
                 self.ingest_queue.put(req)
@@ -945,7 +963,7 @@ class Worker:
                     elif op == "labels":
                         emit({"event": "labels", "id": req_id, "lib": lib.id, "labels": truth.labels(conn)})
                     else:
-                        emit({"event": "truth", "id": req_id, "lib": lib.id, **truth.measure(conn, choose_paragraph=truth._hydration_chooser())})
+                        emit({"event": "truth", "id": req_id, "lib": lib.id, **truth.report(conn, choose_paragraph=truth._hydration_chooser())})
                 finally:
                     conn.close()
             elif op == "audit":
