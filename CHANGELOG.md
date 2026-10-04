@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+- **The library as a graph, and citation rounds** (Karim, 2026-10-04: "a second round of searches,
+  based on the citations in the first round … a graphical representation of the literature which
+  connects papers together, much like the graph in something like obsidian … ordered searches,
+  and searches of the corpus by author … these queries should be able to prompt further rounds
+  of ingestion"). `graph.py` keeps paper-to-paper citations as rows (`cites`: between works, a
+  paper held or a candidate, `origin` refs or europepmc), every work's authors as rows
+  (`authors`, with family name, initials, ORCID and a `person` key that joins one person across
+  works) and a `works` view over papers and candidates alike (year, first publication date,
+  first author, `round`, `cited_here`, `cites_here`). A reference naming a paper held is a
+  citation the moment both are read. The `round` op asks Europe PMC what each paper read since
+  the last round cites (its `/references`; with `citations`, its `/citations` too), looks every
+  identified work up twenty to a query, and files it as a candidate of the next round
+  (`candidates.round`, `published`, `author_list` — new columns), never fetched; an entry naming
+  no identifier is counted, not guessed. The `graph` op returns the picture; `sql` now runs on a
+  `query_only` handle (the regex was the only guard) after bringing those rows up to date. A new
+  **Graph** tab draws the papers and the candidates several of them cite as a force-directed
+  graph — by round, year or held-or-not, neighbours lit on hover, a work's authors, citing and
+  cited works a click away — beside a SQL pane with ready questions (held oldest first, the next
+  round, by an author, authors here, who cites whom, rounds) whose candidate rows can be ticked
+  and fetched and read: the next round. An author opens their other works here, or a Europe PMC
+  search for them. On two papers, a round filed 117 works (46 with open XML) in nine seconds.
 - **Open PDFs from NLM's PMC Cloud Service** (Karim, 2026-10-04: "yes, add the PMC Cloud
   Service"; one more host for invariant 1, sent a PMCID and nothing else). NCBI retired its OA
   web service and FTP packages in August 2026 and named the `pmc-oa-opendata` bucket the

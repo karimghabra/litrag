@@ -231,6 +231,36 @@ h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: v
 .type-tab .n { font-size: 18px; font-weight: 650; font-variant-numeric: tabular-nums; }
 .type-tab .l { color: var(--muted); font-size: 12px; }
 .types-split { grid-template-columns: minmax(320px, 1fr) 2fr; }
+
+/* graph tab: the graph and a work's detail side by side, SQL under both */
+.graph-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(260px, 340px); grid-template-rows: minmax(260px, 3fr) minmax(180px, 2fr); gap: 12px; padding: 0 18px 12px; min-height: 0; flex: 1; }
+.graph-col { grid-column: 1; grid-row: 1; }
+.graph-side { grid-column: 2; grid-row: 1; }
+.sql-col { grid-column: 1 / 3; grid-row: 2; }
+.graph-host { position: relative; flex: 1; min-height: 0; overflow: hidden; }
+.graph-host > .empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center; padding: 24px; }
+.graph-col input.narrow { width: 56px; }
+.graph-col input.find { width: 200px; }
+#graph-detail { padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; }
+#graph-detail .detail-title { font-weight: 600; line-height: 1.35; }
+#graph-detail h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 10px 0 2px; }
+#graph-detail .actions { display: flex; gap: 6px; flex-wrap: wrap; }
+#graph-detail .author { display: flex; align-items: center; gap: 6px; padding: 1px 0; }
+#graph-detail .author .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#graph-detail .author .orcid { font-size: 10px; font-weight: 700; color: #6b9a1f; border: 1px solid currentColor; border-radius: 50%; width: 16px; height: 16px; display: inline-flex; align-items: center; justify-content: center; flex: none; cursor: help; }
+#graph-detail .neighbour { cursor: pointer; padding: 2px 0; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#graph-detail .neighbour.candidate { color: var(--muted); }
+#graph-detail .neighbour:hover { color: var(--accent); }
+.sql-col .searchbar { padding: 8px 12px; }
+.sql-col textarea { font-size: 12px; }
+#sql-results { padding: 0 12px 10px; }
+table.sql-table { border-collapse: collapse; font-size: 12px; width: 100%; }
+table.sql-table th, table.sql-table td { border-bottom: 1px solid var(--line); padding: 3px 6px; text-align: left; vertical-align: top; max-width: 420px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+table.sql-table th { position: sticky; top: 0; background: var(--panel); font-weight: 600; }
+table.sql-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
+table.sql-table td.pick { width: 18px; }
+table.sql-table tr.linked { cursor: pointer; }
+table.sql-table tr.linked:hover td { background: var(--soft); }
 .skel-slot { display: grid; grid-template-columns: 12px 1fr 90px; gap: 4px 10px; align-items: center; padding: 8px 12px; border-bottom: 1px solid var(--line); }
 .skel-slot .sw { width: 12px; height: 12px; border-radius: 3px; }
 .skel-slot .nm { font-weight: 600; }
@@ -381,3 +411,32 @@ table.chart-table th, table.chart-table td { border: 1px solid var(--line); padd
 table.chart-table tr:first-child th { background: var(--soft); text-align: center; }
 table.chart-table th:first-child { text-align: left; font-weight: 500; }
 .side-item .chart { margin-top: 6px; }
+
+/* ---- the citation graph (graphview.ts) ------------------------------------------------------------
+   Its own tokens, which the canvas reads at draw time. The window has no dark theme yet, so neither
+   has the graph: when it gets one, its steps go here, beside these. Any two discs can sit side by side, so the series are the
+   first three of a validated categorical order (every pair passes, in either scheme) and rounds past
+   the third fold into one grey; years are a one-hue ramp, light to dark (dark to light on a dark ground). */
+.graphview {
+  --graph-bg: var(--panel); --graph-ink: var(--ink); --graph-muted: var(--muted); --graph-line: var(--line); --graph-edge: #8a8f98;
+  --graph-r1: #2a78d6; --graph-r2: #eb6834; --graph-r3: #1baf7a; --graph-r4: #9aa3ad; --graph-none: #c9c4b8;
+  --graph-year-lo: #86b6ef; --graph-year-mid: #2a78d6; --graph-year-hi: #0d366b;
+  --graph-held: #2a78d6; --graph-candidate: #eb6834;
+  position: relative; flex: 1; width: 100%; height: 100%; min-width: 0; min-height: 0; overflow: hidden; background: var(--graph-bg);
+}
+.graphview-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; cursor: grab; outline: none; }
+.graphview-canvas:focus-visible { box-shadow: inset 0 0 0 2px var(--accent); }
+.graphview-legend { position: absolute; left: 10px; bottom: 10px; display: flex; flex-direction: column; gap: 4px; padding: 6px 9px; max-width: calc(100% - 20px); border: 1px solid var(--graph-line); border-radius: 6px; background: color-mix(in srgb, var(--graph-bg) 90%, transparent); color: var(--graph-muted); font-size: 11px; pointer-events: none; }
+.graphview-legend[hidden] { display: none; }
+.graphview-legend .gv-key { display: flex; flex-wrap: wrap; align-items: center; gap: 3px 12px; }
+.graphview-legend .gv-item, .graphview-legend .gv-ramp-row { display: inline-flex; align-items: center; gap: 4px; }
+.graphview-legend b { color: var(--graph-ink); font-weight: 500; font-variant-numeric: tabular-nums; }
+.graphview-legend i { display: inline-block; width: 9px; height: 9px; border-radius: 50%; flex: none; }
+.graphview-legend i.gv-disc { background: var(--graph-muted); }
+.graphview-legend i.gv-ring { border: 1.5px solid var(--graph-muted); background: var(--graph-bg); }
+.graphview-legend i.gv-ramp { width: 84px; height: 8px; border-radius: 4px; }
+.graphview-tip { position: absolute; left: 0; top: 0; max-width: 340px; padding: 7px 10px; border: 1px solid var(--graph-line); border-radius: 6px; background: var(--graph-bg); color: var(--graph-ink); box-shadow: 0 4px 16px rgba(0, 0, 0, .14); font-size: 12px; line-height: 1.4; pointer-events: none; z-index: 2; }
+.graphview-tip[hidden] { display: none; }
+.graphview-tip .gv-tip-title { font-weight: 600; margin-bottom: 3px; }
+.graphview-tip .gv-tip-meta { color: var(--graph-muted); font-size: 11px; }
+.graphview-tip .gv-tip-hint { color: var(--graph-muted); font-size: 11px; font-style: italic; margin-top: 3px; }

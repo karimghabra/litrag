@@ -13,6 +13,7 @@ import { renderPlots, type Plot } from './charts.ts';
 import { initLabels, openLabelling } from './labels.ts';
 import { BANDS, SORT_KEYS, bandOf, countBy, filterPapers, sortPapers, validFilters, type SortKey } from './papers.ts';
 import { initProjects, renderProjects } from './projects.ts';
+import { initGraph } from './graphtab.ts';
 import { initQuery } from './query.ts';
 import { initSearch, loadCandidates } from './search.ts';
 import { $, ROLES, activity, ctx, dispatch, el, escapeHtml, hooks, log, onProjectChange, onViewShown, rejectionText, rememberedProject, request, roleColor, setProject, setStatus, showView, showWorkerProblem, type ProjectSummary } from './shared.ts';
@@ -1084,6 +1085,7 @@ function wire() {
   initSearch();
   initTypes();
   initQuery();
+  initGraph();
   initLabels();
   onProjectChange(() => {
     state.selectedPaper = null;
@@ -1116,7 +1118,7 @@ function wire() {
     const kept = window.localStorage.getItem('litrag.papers.sort');
     if (kept && SORT_KEYS.some((k) => k.key === kept)) state.sort = kept as SortKey;
     const view = window.localStorage.getItem('litrag.view');
-    if (view && ['projects', 'search', 'papers', 'types', 'query'].includes(view)) startView = view;
+    if (view && ['projects', 'search', 'papers', 'types', 'query', 'graph'].includes(view)) startView = view;
   } catch {
     // no storage: the list starts in the order the papers were added, on the Projects tab
   }

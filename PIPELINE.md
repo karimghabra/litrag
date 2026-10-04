@@ -17,7 +17,7 @@ sync's `--extra` would swap for PyPI's (README, Quick start).
 
 | Part | Status | Use it for |
 |---|---|---|
-| `app/`, the window (`npm run app`) | current | five tabs over one project at a time: **Projects** (make one, describe it, merge several), **Search** (Europe PMC, XML first — Europe PMC's, else NCBI's for an author manuscript — then open PDFs, the PMC Cloud Service's before EBI's, the rest listed to download by hand), **Papers** (trees, pages, citations, edges, the canonical face; **Reparse all**), **Types** (each kind of paper's canonical structure, a paper's mapping onto it), **Query** (passages retrieved and hydrated from the tree) |
+| `app/`, the window (`npm run app`) | current | six tabs over one project at a time: **Projects** (make one, describe it, merge several), **Search** (Europe PMC, XML first — Europe PMC's, else NCBI's for an author manuscript — then open PDFs, the PMC Cloud Service's before EBI's, the rest listed to download by hand), **Papers** (trees, pages, citations, edges, the canonical face; **Reparse all**), **Types** (each kind of paper's canonical structure, a paper's mapping onto it), **Query** (passages retrieved and hydrated from the tree), **Graph** (the papers and their citations drawn; citation rounds; SQL over works, authors and citations) |
 | `npm run e2e:studio` | current | the window end to end: a search against Europe PMC stood in on 127.0.0.1, a fetch, two real PDFs through Docling, types, a hydrated query through the embedder, a merge — the harness a change to the product has to pass |
 | `npm run gate:ingestion -- --pairs A:B … [--min 0.95]`, `python -m litrag_parser.bench` | measurement | the reader judged in the unit retrieval returns (a paragraph node in the right lane, against the XML twin); retrieval judged on questions with a known answering passage, the tree beside the `lit` CLI |
 | `parser/`, the worker (`uv run --project parser --no-sync litrag-parser`) | current | what the window does, and the ops it has no button for, among them `rebuild`, `judge`, `audit` and `sql` |
@@ -78,7 +78,10 @@ ingest` cuts chunks into `lit.sqlite`, never a tree.
    and findings to the methods that produced them (`edges.py`), each edge
    with its evidence and a strength. A query follows them both ways and,
    for a method "as previously described [14]", on to the cited paper's
-   own method when the library holds it (`retrieve.py`, `lineage.py`).
+   own method when the library holds it (`retrieve.py`, `lineage.py`). A
+   reference naming another paper held is a `cites` row between the two
+   papers (`graph.py`); what the paper cites beyond the library waits for a
+   citation round (below).
 6. **Typed.** `paper_type.py` names the kind of paper from the record, the
    file, its subject line, the title, the printed label, and last the
    tree's own shape. Where two of them disagree, a note says so.
@@ -95,6 +98,15 @@ ingest` cuts chunks into `lit.sqlite`, never a tree.
 9. **Saved.** Rows in `store.sqlite`: `papers`, `pages`, `nodes` with
    `nodes_fts`, `refs`, `citations`, `edges`, `charts`, `chart_values`, `judgments`, `events`. The
    audit (`audit.py`) reads them when asked.
+
+**Rounds.** A library grows in rounds (`graph.py`, the `round` op, the
+Graph tab): round 1 is what searches found and people dropped in; a citation
+round asks Europe PMC, for each paper read since the last, its list of
+references (and, asked, of citing papers), looks every identified work up
+twenty to a request, and files it as a candidate of the next round —
+`candidates.round`, `cites` rows, `authors` rows, the `works` view. Nothing
+is fetched until a person picks what to read, by a click or by a `SELECT`
+over `works`; a paper read is due its own round.
 
 `invariants.py` asks the same kind of question as `confidence.py` and answers
 with a **place** rather than a share: thirteen checks (conservation, no text

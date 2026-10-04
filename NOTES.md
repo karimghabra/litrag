@@ -89,6 +89,21 @@ when it turns out durable. Mark inference as inference.
 
 ## Short-term memory
 
+- **2026-10-04: citation rounds, the graph, SQL over works** — Karim asked for a second round of
+  searches from the first round's citations, an Obsidian-like graph, ordered and by-author
+  searches in SQL that prompt further ingestion. What existed: every reference list was already
+  rows (`refs`, `citations`), JATS entries with DOI/PMID, PDF entries with a DOI when printed;
+  nothing followed them out of the library, and the old CLI's `snowball` (backward only) was
+  never ported. Built: `graph.py` (`cites`, `authors`, `works`, `harvests`), the `round` and
+  `graph` ops, the Graph tab. Checked live on the Micromachines paper and the PDGF-BB suture
+  paper: Europe PMC matched all 46 + 44 references to PMIDs, 27 citing papers came back, 117
+  candidates in 8.6 s, 46 with open XML; the two works both papers cite came first. Europe PMC
+  facts used: `/MED/<pmid>/references` gives `id`/`source` per matched entry and no DOI;
+  `(EXT_ID:n AND SRC:MED) OR DOI:"…"` looks twenty up in one `core` query; `core` records carry
+  `authorList` with ORCIDs and `firstPublicationDate`. Not done: title-only entries (most PDF
+  lists without DOIs) are not looked up by title — Europe PMC's own list covers any paper with a
+  PMID; OpenAlex would cover the rest and is a new host (Karim's call).
+
 - **2026-10-04: the PMC Cloud Service is a source** — Karim: "yes, add the PMC Cloud Service".
   Invariant 1 now names it; `fetch` asks it (by PMCID only) before EBI's bulk area, for a paper's
   PDF and for the PDF beside an XML. Checked live: the MDPI paper (PMC11278924, 2.8 MB) and

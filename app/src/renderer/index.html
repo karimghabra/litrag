@@ -31,6 +31,7 @@
       <button data-view="papers" title="The papers of this project, each read into a tree">Papers</button>
       <button data-view="types" title="The kinds of paper, their canonical structures, and how each paper maps onto one">Types</button>
       <button data-view="query" title="Ask the library: retrieve passages and hydrate them with their context">Query</button>
+      <button data-view="graph" title="The papers and the citations between them; citation rounds; SQL over works, authors and citations">Graph</button>
     </nav>
 
     <main id="views">
@@ -183,6 +184,53 @@
         </form>
         <div id="query-meta" class="summary"></div>
         <div id="query-results" class="scroll results"></div>
+      </section>
+
+      <!-- graph: the papers, the citations between them, the rounds, and SQL over them -->
+      <section id="view-graph" class="view" hidden>
+        <div class="view-head">
+          <h1>Graph</h1>
+          <span id="graph-project" class="muted"></span>
+          <div class="spacer"></div>
+          <span id="graph-summary" class="muted"></span>
+          <label class="check" title="Also ask Europe PMC what cites each paper, not only what it cites"><input type="checkbox" id="round-citing" /> and what cites them</label>
+          <button id="round-run" class="primary" title="Ask what each paper read since the last round cites — its own reference list and Europe PMC's — and file every work found as a candidate of the next round. Nothing is fetched.">Citation round</button>
+        </div>
+        <div class="graph-layout">
+          <div class="col graph-col">
+            <div class="col-head">
+              <label class="field"><span>Candidates</span><select id="graph-cands" title="Which works not held to draw beside the papers held">
+                <option value="none">none</option><option value="cited" selected>cited by at least</option><option value="all">all</option>
+              </select></label>
+              <input id="graph-min" class="narrow" type="number" min="1" value="2" title="How many papers held must cite (or be cited by) a candidate for it to be drawn" />
+              <label class="field"><span>Colour</span><select id="graph-colour">
+                <option value="round">round</option><option value="year">year</option><option value="state">held or not</option>
+              </select></label>
+              <div class="spacer"></div>
+              <input id="graph-find" class="find" placeholder="Find a paper, an author…" />
+              <button id="graph-fit" class="ghost small" title="Show the whole graph">Fit</button>
+            </div>
+            <div id="graph-host" class="graph-host"><div id="graph-empty" class="empty" hidden>No papers yet. Search and fetch, or drop PDFs on the window; then a citation round finds what they cite.</div></div>
+          </div>
+          <div class="col graph-side">
+            <div class="col-head"><h2 id="graph-detail-title">A work</h2></div>
+            <div id="graph-detail" class="scroll"></div>
+          </div>
+          <div class="col sql-col">
+            <div class="col-head">
+              <h2>Ask in SQL</h2>
+              <div id="sql-presets" class="chips"></div>
+              <div class="spacer"></div>
+              <span id="sql-meta" class="muted"></span>
+              <button id="sql-fetch" class="primary small" disabled title="Fetch and read the candidates ticked below: the next round of the library">Fetch &amp; read selected</button>
+            </div>
+            <form id="sql-form" class="searchbar">
+              <textarea id="sql-q" class="mono" rows="3" spellcheck="false" title="One SELECT over works, authors, cites, papers, candidates, refs, nodes… (Ctrl+Enter runs it)"></textarea>
+              <button type="submit" class="primary">Run</button>
+            </form>
+            <div id="sql-results" class="scroll"></div>
+          </div>
+        </div>
       </section>
     </main>
   </div>

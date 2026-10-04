@@ -5,6 +5,13 @@ wants as they are voiced.
 
 ## Named priorities
 
+- **The rounds, further** (after Karim, 2026-10-04) — a citation round files what the papers cite
+  and what cites them (`graph.py`, the Graph tab). Next: a reference with no DOI or PMID looked up
+  by its title (Europe PMC first, exact title and year agreeing; OpenAlex would find more and is
+  a new host); a round's candidates scored for the project (the description's embedding against
+  their abstracts) beside `cited_here`, so a large round can be read top-down; co-citation and
+  bibliographic coupling as `SELECT`s in the presets; authors joined by ORCID where both works
+  have one, before family name and initial.
 - **More sources for PDFs and figures** (Karim to decide, 2026-10-04; NOTES.md has the survey) —
   each a new host for invariant 1. ~~The PMC Cloud Service bucket~~ (*built 2026-10-04*: asked
   before EBI's bulk area for every open PDF, an XML paper's figures PDF included). Still open, no
@@ -52,8 +59,8 @@ wants as they are voiced.
   embedded once with their headings, words and meaning fused, every hit
   hydrated with its neighbours and its methods; on 14 proxy questions the
   answer is in the top 3 for 14 with its context, against 8 for `lit query`).
-  Left: the graph walk (HippoRAG's personalised PageRank over `refs` and
-  `edges`), the miner and the model stage over `nodes`, and Karim's own bench
+  Left: the graph walk (HippoRAG's personalised PageRank over `cites`, now
+  rows between papers, and `edges`), the miner and the model stage over `nodes`, and Karim's own bench
   questions; then strike `src/chunk.ts`, `sections.ts`, `pdf.ts`.
 - **Node summaries** (PageIndex's idea) — one line per section from the
   model stage, stored on the node, so an assistant navigates a chosen paper
@@ -143,8 +150,9 @@ Each one wants a fixture or a test before its fix, as the spot-check does.
   to the exact sentence, as the 2026 schema-constrained biomedical
   extraction paper does. `parameters.sentence` already carries the miner's
   sentence; the model's rows carry `context` in the model's words.
-- **Forward citations** via Europe PMC's `citations` endpoint; `snowball`
-  only walks backward today.
+- ~~**Forward citations** via Europe PMC's `citations` endpoint; `snowball`
+  only walks backward today.~~ *Built 2026-10-04*: the `round` op walks both
+  ways (`graph.py`), and `lit snowball` is ported.
 - **Section-aware chunk sizes** as in the lab's own scripts: conclusions
   kept whole, methods grouped by adjacent paragraphs, ~450-token target.
   Worth an A/B on the test set before copying.

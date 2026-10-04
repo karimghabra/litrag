@@ -112,7 +112,7 @@ published release, installs each once on a clean runner, and attaches them.
 
 ## What you see
 
-Five tabs over one project at a time, picked at the top:
+Six tabs over one project at a time, picked at the top:
 
 | Tab | What it is for |
 |---|---|
@@ -121,6 +121,7 @@ Five tabs over one project at a time, picked at the top:
 | Papers | the three panes below; the tree pane's **Canonical** face re-hangs the paper under its type's structure, each section tagged with the mechanism that placed it |
 | Types | the kinds of paper the project holds, each kind's canonical structure (its slots in order, how often its papers have each), and any paper drawn onto it: a line from each printed section to its slot, coloured by the vocabulary, the catalogue, the embedder, a built heading or the outline judge; the slots it lacks drawn empty |
 | Query | a question, and the passages that answer it, each hydrated from its tree: the headings above it, the paragraphs either side, the methods a finding was measured by (the paragraph it rests on, where the method is described in another paper, statistics and materials apart), the findings a method measured, the figures and references it cites — a figure with the numbers read from its charts; **Open in the tree** lands on it |
+| Graph | the papers and the citations between them, drawn as a graph with the works they cite most beside them; **Citation round** files what the papers cite (and what cites them) as the next round's candidates; SQL over `works`, `authors` and `cites`, its candidates fetched and read from the results |
 
 The Papers tab:
 
@@ -655,6 +656,52 @@ lists both, each a click away. `select n.role, r.first_author, r.year,
 r.doi from citations c join nodes n using(node_id) join refs r on
 r.paper=c.paper and r.ref_no=c.ref_no` is the shape of the question this
 answers: which chunk leans on which paper.
+
+## The library as a graph, and the rounds it grows by
+
+Papers cite papers, and the store keeps that as rows too (`graph.py`). A
+*work* is a paper the project holds or a candidate it does not hold yet;
+`cites` is one row per citation between two works, `authors` one row per
+author of every work, and `works` is a view over both, so a question about
+the literature is a `SELECT`:
+
+```sql
+-- the papers held, in the order they were published
+select year, first_author, title from works where state = 'held' order by year, published;
+-- everything one author wrote that the project knows of, held or not
+select w.year, w.title, w.state from authors a join works w using (work)
+where a.family = 'Akkus' order by w.year;
+-- what to read next: the works the project's papers cite most, not held yet
+select cited_here, year, first_author, title, work from works
+where state = 'candidate' order by cited_here desc, year desc;
+```
+
+- **Among the papers held**, a reference naming another held paper — by
+  DOI, PMID, or its whole title and year — is a citation as soon as both
+  are read; nothing is asked of the network.
+- **A citation round** (**Citation round** on the Graph tab, the `round`
+  op) asks, for each paper read since the last round, what it cites: its
+  own reference list and Europe PMC's list of it; ticked, also what cites
+  it. Every work it can identify (a DOI or PMID) is looked up in Europe PMC
+  — twenty to a request — and filed as a candidate of the next round:
+  round 1 is what a search found or a person dropped in, round 2 what those
+  cite, and so on. Nothing is fetched. An entry naming no identifier is
+  counted and left, never guessed onto a paper. On two papers, 46 and 27
+  references and 27 citing papers came back as 117 candidates, 46 of them
+  with open XML, in about nine seconds.
+- **The next round is a choice.** Any query's rows that are candidates can
+  be ticked and fetched and read from the SQL pane (**Fetch & read
+  selected**), which is the next round of the library; a paper read later
+  is due its own citation round. An author in a work's detail opens the
+  project's other works of theirs, or a Europe PMC search for them
+  (`AUTH:"Akkus O"`) — a new round from a person rather than a paper.
+- **The Graph tab** draws it like a note graph: the papers held as filled
+  discs, the candidates cited by at least two of them (or none, or all) as
+  hollow ones, each the larger the more works here cite it, coloured by
+  round, by year, or held-or-not; hover lights a paper's neighbours, a click
+  shows its detail (its authors with ORCIDs where Europe PMC has them, what
+  it cites and what cites it), a double click opens a held paper. A query's
+  rows are lit in the graph, and a row clicked is found in it.
 
 ## The harness and the end-to-end suite
 

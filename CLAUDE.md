@@ -18,9 +18,10 @@ Where things are:
   `tree.py` turns a Docling document into the node tree; `store.py` is the
   SQLite schema and its reads; `worker.py` speaks JSON lines over stdio.
 - `app/` — Electron, TypeScript, built with esbuild. `src/main` spawns the
-  worker and relays its events; `src/renderer` is the window: five tabs
+  worker and relays its events; `src/renderer` is the window: six tabs
   over one project — Projects, Search, Papers (tree, page with boxes,
-  canonical face), Types, Query — and the log.
+  canonical face), Types, Query, Graph (citations, rounds, SQL) — and the
+  log.
 - `src/`, `tests/` — the `lit` CLI (Node): Europe PMC, chunks, embeddings,
   hybrid retrieval. Not yet wired to the tree store, and deprecated: kept
   until its verbs are ported to it (`BACKLOG.md`).

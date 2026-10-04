@@ -6,7 +6,7 @@
  * is listed with its links, and a PDF dropped on the window is filed against it.
  */
 
-import { $, activity, ctx, el, log, onProjectChange, onViewShown, onWorkerEvent, projectName, queryText, request } from './shared.ts';
+import { $, activity, ctx, el, hooks, log, onProjectChange, onViewShown, onWorkerEvent, projectName, queryText, request, showView } from './shared.ts';
 import { collectLabel, collectList, type CollectEntry, type FiguresWanted } from './collectlist.ts';
 
 export interface Candidate {
@@ -27,7 +27,12 @@ export interface Candidate {
   paper_key?: string | null;
   error?: string | null;
   links?: Record<string, string>;
+  /** 1 for a search's hit; n + 1 for a work a citation round found through a round-n paper (graph.py) */
+  round?: number | null;
 }
+
+/** A citation round's find no one has acted on yet: listed on the Graph tab, not among a search's candidates. */
+export const fromRound = (c: Candidate): boolean => (c.round ?? 1) > 1 && c.status === 'found';
 
 const state = {
   query: '',
@@ -44,6 +49,11 @@ const state = {
 };
 
 export function initSearch(): void {
+  hooks.search = (q) => {
+    showView('search');
+    $<HTMLInputElement>('search-q').value = q;
+    void runSearch(q, false);
+  };
   $<HTMLFormElement>('search-form').addEventListener('submit', (e) => {
     e.preventDefault();
     void runSearch($<HTMLInputElement>('search-q').value.trim(), false);
@@ -349,9 +359,10 @@ function renderCandidates(): void {
   // shows that search's, so an earlier, broader query's papers do not read as this one's
   const ids = new Set(state.hits.map((h) => h.cand_id));
   const scoped = state.scope === 'search' && ids.size > 0;
-  const pool = scoped ? state.candidates.filter((c) => ids.has(c.cand_id)) : state.candidates;
+  const rounds = state.candidates.filter((c) => fromRound(c) && !ids.has(c.cand_id)).length;
+  const pool = scoped ? state.candidates.filter((c) => ids.has(c.cand_id)) : state.candidates.filter((c) => !fromRound(c) || ids.has(c.cand_id));
   if (ids.size) {
-    for (const [scope, label, n] of [['search', 'this search', state.candidates.filter((c) => ids.has(c.cand_id)).length], ['all', 'every search', state.candidates.length]] as const) {
+    for (const [scope, label, n] of [['search', 'this search', state.candidates.filter((c) => ids.has(c.cand_id)).length], ['all', 'every search', state.candidates.filter((c) => !fromRound(c) || ids.has(c.cand_id)).length]] as const) {
       const chip = el('span', `chip scope${state.scope === scope ? ' on' : ''}`, `${label} ${n}`);
       chip.dataset['scope'] = scope;
       chip.title = scope === 'search' ? 'Only the papers the search on the left found' : 'Every paper any search of this project has found';
@@ -362,6 +373,12 @@ function renderCandidates(): void {
       chips.append(chip);
     }
     chips.append(el('span', 'sep'));
+  }
+  if (rounds && !scoped) {
+    const chip = el('span', 'chip', `${rounds} from citation rounds →`);
+    chip.title = 'Works a citation round found and no one has fetched: listed, ranked and fetched on the Graph tab';
+    chip.addEventListener('click', () => showView('graph'));
+    chips.append(chip, el('span', 'sep'));
   }
   const counts = new Map<string, number>();
   for (const c of pool) counts.set(c.status, (counts.get(c.status) ?? 0) + 1);
