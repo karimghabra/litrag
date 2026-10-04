@@ -336,8 +336,12 @@ def _merge_candidates(sconn: sqlite3.Connection, tconn: sqlite3.Connection, now:
     """A source's candidates into the target's, once each. A fetch's file stayed in the source's
     inbox, so a fetched candidate is found again here, to be fetched again if wanted; an ingested
     one is `ingested` here only when `reconcile` finds its paper in the target."""
+    from . import graph
+
     added = 0
     rows = sconn.execute("SELECT * FROM candidates ORDER BY cand_id").fetchall()
+    graph.ensure_schema(tconn)
+    as_here: dict[str, str] = {}
     with tconn:
         for r in rows:
             d = dict(r)
@@ -346,8 +350,17 @@ def _merge_candidates(sconn: sqlite3.Connection, tconn: sqlite3.Connection, now:
             status = d.get("status") or "found"
             if status in ("fetching", "fetched", "ingested"):
                 status = "found"  # the file is not carried, and whether it is held here is reconcile's to say
-            cid, new = acquire.upsert_candidate(tconn, hit, query=d.get("query"), now=d.get("found_at") or now, status=status)
+            cid, new = acquire.upsert_candidate(tconn, hit, query=d.get("query"), now=d.get("found_at") or now, status=status, round=int(d.get("round") or 1))
+            as_here[f"cand:{d['cand_id']}"] = f"cand:{cid}"
             if new:
                 added += 1
                 tconn.execute("UPDATE candidates SET error = ?, updated_at = ? WHERE cand_id = ?", (d.get("error"), now, cid))
+        # the citations a round found, between the same works here (a paper's key is the same in every library)
+        tables = {t for (t,) in sconn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+        if "cites" in tables:
+            for citing, cited, origin, ref_no in sconn.execute("SELECT citing, cited, origin, ref_no FROM cites"):
+                tconn.execute("INSERT OR IGNORE INTO cites VALUES (?, ?, ?, ?)", (as_here.get(citing, citing), as_here.get(cited, cited), origin, ref_no))
+        if "harvests" in tables:
+            for paper, kind, at, found in sconn.execute("SELECT paper, kind, at, found FROM harvests WHERE kind != 'local'"):
+                tconn.execute("INSERT OR IGNORE INTO harvests VALUES (?, ?, ?, ?)", (paper, kind, at, found))
     return added

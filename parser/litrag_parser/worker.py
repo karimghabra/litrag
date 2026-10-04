@@ -358,6 +358,8 @@ class Worker:
                     self.do_model_label(req)
                 elif op == "figures":
                     self.do_figures(req)
+                elif op == "round":
+                    self.do_round(req)
             except Exception as e:  # never let one paper kill the worker
                 emit({"event": "error", "id": req.get("id"), "op": req.get("op"), "lib": req.get("lib"), "message": str(e), "trace": traceback.format_exc()})
             finally:
@@ -819,6 +821,25 @@ class Worker:
             conn.close()
         emit({"event": "done", "id": req_id, "op": "fetch", "lib": lib.id, "fetched": got})
 
+    def do_round(self, req: dict[str, Any]) -> None:
+        """A citation round (graph.py): what the held papers cite — and, asked for, what cites
+        them — filed as candidates of the next round and `cites` rows. Nothing is fetched."""
+        from . import graph
+
+        lib = self._lib(req)
+        req_id = req.get("id")
+        conn = open_store(lib.store_path)
+        try:
+            papers = req.get("papers")
+            out = graph.harvest(lib, conn, [str(k) for k in papers] if papers else None, references=bool(req.get("references", True)),
+                                citations=bool(req.get("citations")), again=bool(req.get("again")),
+                                on_progress=lambda e: emit({**e, "id": req_id, "lib": lib.id}))
+        finally:
+            conn.close()
+        emit({"event": "stage", "id": req_id, "lib": lib.id, "stage": "round",
+              "message": f"{out['papers']} papers: {out['added']} new candidates, {out['held']} citations between papers held, {out['unidentified']} entries naming no identifier"})
+        emit({"event": "done", "id": req_id, "op": "round", "lib": lib.id, **out})
+
     def do_merge(self, req: dict[str, Any]) -> None:
         """Several projects' libraries into one (projects.merge), then its rows derived again from
         the saved readings — Docling only for a paper that came without one."""
@@ -982,7 +1003,7 @@ class Worker:
                     emit({"event": "retrieval", "id": req_id, "lib": lib.id, **retrieve.status(conn, retrieve.OllamaEmbedder())})
                 finally:
                     conn.close()
-            elif op in ("fetch", "merge", "embed", "model_label", "figures"):
+            elif op in ("fetch", "merge", "embed", "model_label", "figures", "round"):
                 if op != "merge":
                     self._lib(req)  # fail fast on a bad library
                 self.ingest_queue.put(req)
@@ -1021,10 +1042,23 @@ class Worker:
                 conn.close()
                 emit({"event": "events", "id": req_id, "paper": req["key"], "events": rows})
             elif op == "sql":
+                from . import graph
+
                 lib = self._lib(req)
                 conn = open_store(lib.store_path)
                 try:
-                    emit({"event": "rows", "id": req_id, **run_select(conn, str(req["sql"]), int(req.get("limit", 200)))})
+                    graph.sync(conn)  # `works`, `cites` and `authors` as the papers and candidates are now
+                    conn.execute("PRAGMA query_only = ON")  # the statement reads; the regex in run_select is only the first guard
+                    emit({"event": "rows", "id": req_id, **run_select(conn, str(req["sql"]), min(int(req.get("limit", 200)), 5000))})
+                finally:
+                    conn.close()
+            elif op == "graph":
+                from . import graph
+
+                lib = self._lib(req)
+                conn = open_store(lib.store_path)
+                try:
+                    emit({"event": "graph", "id": req_id, "lib": lib.id, **graph.graph(conn, candidates=str(req.get("candidates") or "cited"), min_cited=int(req.get("min_cited") or 2))})
                 finally:
                     conn.close()
             elif op == "file":

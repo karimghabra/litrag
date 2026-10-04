@@ -50,8 +50,9 @@ CORE = {
 
 
 class Canned:
-    """A tiny Europe PMC: routes by path, every request remembered. Under `/cloud/`, a listing
-    (`?list-type=2&prefix=...&delimiter=/`) is answered as S3 answers one, from the routes there."""
+    """A tiny Europe PMC: routes by path (a callable route answers by the query), every request
+    remembered. Under `/cloud/`, a listing (`?list-type=2&prefix=...&delimiter=/`) is answered as
+    S3 answers one, from the routes there."""
 
     def __init__(self):
         self.routes: dict[str, tuple[int, str, bytes]] = {}
@@ -66,7 +67,8 @@ class Canned:
                 if path == "/cloud/" and q.get("list-type") == ["2"]:
                     status, ctype, body = 200, "application/xml", outer.listing(q["prefix"][0])
                 else:
-                    status, ctype, body = outer.routes.get(path, (404, "text/html", b"<html>not found</html>"))
+                    route = outer.routes.get(path, (404, "text/html", b"<html>not found</html>"))
+                    status, ctype, body = route(q) if callable(route) else route  # a route that answers by its query
                 self.send_response(status)
                 self.send_header("Content-Type", ctype)
                 self.send_header("Content-Length", str(len(body)))
@@ -227,6 +229,7 @@ def test_search_normalises_a_core_answer(epmc):
         "authors": "Chen P, Lu W, Wang H", "journal": "ACS biomaterials science & engineering", "year": "2026",
         "abstract": "Engineering hydrogels that simultaneously provide pores.", "is_open_access": False, "in_pmc": False,
         "in_epmc": False, "has_pdf": False, "has_xml": False, "cited_by": 0, "pub_types": ["Journal Article"],
+        "published": None, "author_list": None,  # a hit without them; a `core` record's are read below
     }
     assert review["has_xml"] and review["has_pdf"] and review["is_open_access"] and review["in_pmc"]
     assert review["pub_types"] == ["review-article", "Review", "Journal Article"] and review["abstract"] == "Background: MSC-hydrogel composite systems."
@@ -234,6 +237,22 @@ def test_search_normalises_a_core_answer(epmc):
     assert preprint["journal"] == "bioRxiv" and preprint["pub_types"] == ["preprint"] and preprint["cited_by"] == 2
     assert preprint["pmcid"] == "PMC13572800" and preprint["has_xml"] is False
     assert preprint["title"] == "In Vivo cartilage & bone"
+
+
+def test_a_core_record_s_authors_and_first_publication_date():
+    # shaped like PMC11278924's record (checked 2026-10-04): an ORCID on some authors, a consortium
+    hit = acquire.normalise_hit({"id": "39064362", "source": "MED", "pmid": "39064362", "firstPublicationDate": "2024-06-29",
+                                 "authorList": {"author": [
+                                     {"fullName": "Lin S", "firstName": "Shuang", "lastName": "Lin", "initials": "S"},
+                                     {"fullName": "Zhai Y", "firstName": "Yuxin", "lastName": "Zhai", "initials": "Y", "authorId": {"type": "ORCID", "value": "0009-0000-9880-9825"}},
+                                     {"collectiveName": "The Tendon Consortium"}]}})
+    assert hit["published"] == "2024-06-29"
+    assert hit["author_list"] == [
+        {"name": "Lin S", "family": "Lin", "given": "Shuang", "initials": "S", "orcid": None},
+        {"name": "Zhai Y", "family": "Zhai", "given": "Yuxin", "initials": "Y", "orcid": "0009-0000-9880-9825"},
+        {"name": "The Tendon Consortium", "family": None, "given": None, "initials": None, "orcid": None},
+    ]
+    assert acquire.normalise_hit({"firstPublicationDate": "June 2024"})["published"] is None  # not a date: none rather than a wrong one
 
 
 def test_last_page_has_no_cursor(epmc):

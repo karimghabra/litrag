@@ -483,7 +483,8 @@ def section(conn: sqlite3.Connection, key: str, role: str) -> list[dict[str, Any
 
 
 def run_select(conn: sqlite3.Connection, sql: str, limit: int = 200) -> dict[str, Any]:
-    """One SELECT (or WITH … SELECT), and only that, against a read-only handle."""
+    """One SELECT (or WITH … SELECT), and only that. The worker runs it on a handle set to
+    `query_only`, so the shape test here is the first guard and not the only one."""
     statement = sql.strip().rstrip(";")
     import re
 

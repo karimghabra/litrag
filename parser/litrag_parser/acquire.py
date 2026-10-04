@@ -79,7 +79,10 @@ CREATE TABLE IF NOT EXISTS candidates (
   file TEXT,                        -- the inbox file a fetch wrote
   error TEXT,
   found_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL
+  updated_at TEXT NOT NULL,
+  round INTEGER,                    -- how the library reached it: 1 a search, n+1 the citations of a round-n paper (graph.py)
+  published TEXT,                   -- Europe PMC's first publication date, YYYY-MM-DD
+  author_list TEXT                  -- JSON [{name, family, given, initials, orcid}], from the record's author list
 );
 CREATE UNIQUE INDEX IF NOT EXISTS candidates_doi ON candidates(doi) WHERE doi IS NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS candidates_pmid ON candidates(pmid) WHERE pmid IS NOT NULL;
@@ -88,7 +91,10 @@ CREATE INDEX IF NOT EXISTS candidates_status ON candidates(status);
 """
 
 #: The columns a hit fills, in the order they are inserted.
-_FIELDS = ("pmid", "pmcid", "doi", "title", "authors", "journal", "year", "abstract", "pub_types", "cited_by", "is_open_access", "has_xml", "has_pdf")
+_FIELDS = ("pmid", "pmcid", "doi", "title", "authors", "journal", "year", "abstract", "pub_types", "cited_by", "is_open_access", "has_xml", "has_pdf",
+           "published", "author_list")
+#: Columns added since the table was first made, for a library made before them.
+_ADDED = (("round", "INTEGER"), ("published", "TEXT"), ("author_list", "TEXT"))
 
 
 class AcquireError(RuntimeError):
@@ -169,6 +175,7 @@ def normalise_hit(h: dict[str, Any]) -> dict[str, Any]:
         cited = int(h.get("citedByCount") or 0)
     except (TypeError, ValueError):
         cited = 0
+    published = str(h.get("firstPublicationDate") or "").strip()
     return {
         "source": "europepmc",
         "epmc_source": h.get("source"),
@@ -188,7 +195,27 @@ def normalise_hit(h: dict[str, Any]) -> dict[str, Any]:
         "has_xml": bool(pmcid and ((in_epmc and oa) or author_ms)),
         "cited_by": cited,
         "pub_types": list(types),
+        "published": published if re.fullmatch(r"\d{4}(-\d{2}){0,2}", published) else None,
+        "author_list": author_list(h),
     }
+
+
+def author_list(h: dict[str, Any]) -> list[dict[str, Any]] | None:
+    """A `core` record's authors, each as the record splits them: `{name, family, given,
+    initials, orcid}` (a consortium is a name alone). None when the record lists none — a
+    `lite` record never does; its `authorString` is all there is."""
+    out: list[dict[str, Any]] = []
+    for a in ((h.get("authorList") or {}).get("author") or []):
+        if not isinstance(a, dict):
+            continue
+        orcid = (a.get("authorId") or {}) if isinstance(a.get("authorId"), dict) else {}
+        family = plain_text(a.get("lastName"))
+        name = plain_text(a.get("fullName")) or plain_text(a.get("collectiveName")) or family
+        if not name:
+            continue
+        out.append({"name": name, "family": family, "given": plain_text(a.get("firstName")), "initials": plain_text(a.get("initials")),
+                    "orcid": str(orcid.get("value") or "").strip() or None if str(orcid.get("type") or "").upper() == "ORCID" else None})
+    return out or None
 
 
 def search(query: str, page_size: int = 25, cursor: str = "*", timeout: float = 20, *, base: str | None = None) -> dict[str, Any]:
@@ -215,11 +242,114 @@ def search(query: str, page_size: int = 25, cursor: str = "*", timeout: float = 
     return {"hits": hits, "next_cursor": nxt, "total": int(data.get("hitCount") or 0)}
 
 
+# ---------------------------------------------------------------- citations
+
+
+def _listing(kind: str, pmid: str | None, pmcid: str | None, timeout: float, base: str | None, most: int) -> list[dict[str, Any]] | None:
+    """Europe PMC's list of a paper's references or citations, by PMID (`MED`), else PMCID
+    (`PMC`), a thousand to a page: None when the paper has neither, or the service has no list."""
+    if pmid:
+        src, ident = "MED", str(pmid)
+    elif pmcid:
+        src, ident = "PMC", str(pmcid).upper()
+    else:
+        return None
+    field, item = ("referenceList", "reference") if kind == "references" else ("citationList", "citation")
+    out: list[dict[str, Any]] = []
+    page = 1
+    while len(out) < most:
+        url = f"{rest_base(base)}/{src}/{ident}/{kind}?{urllib.parse.urlencode({'format': 'json', 'pageSize': 1000, 'page': page})}"
+        try:
+            data = json.loads(_get(url, timeout).decode("utf-8"))
+        except urllib.error.HTTPError as e:
+            if e.code == 404:
+                return None
+            raise
+        except json.JSONDecodeError as e:
+            raise AcquireError(f"Europe PMC's {kind} of {src}/{ident} are not JSON") from e
+        got = (data.get(field) or {}).get(item) or []
+        out.extend(x for x in got if isinstance(x, dict))
+        if len(got) < 1000 or len(out) >= int(data.get("hitCount") or 0):
+            break
+        page += 1
+    return out[:most]
+
+
+def references_of(pmid: str | None, pmcid: str | None = None, *, timeout: float = 30, base: str | None = None) -> list[dict[str, Any]] | None:
+    """What a paper cites, as Europe PMC matched its reference list: each entry with `id` and
+    `source` (`MED`: a PMID) where it found the cited paper, its title, authors and year as
+    printed, `citedOrder` its place in the list."""
+    return _listing("references", pmid, pmcid, timeout, base, 10000)
+
+
+def citations_of(pmid: str | None, pmcid: str | None = None, *, timeout: float = 30, base: str | None = None, most: int = 1000) -> list[dict[str, Any]] | None:
+    """What cites a paper, as Europe PMC knows it, newest first, at most `most`."""
+    return _listing("citations", pmid, pmcid, timeout, base, most)
+
+
+def ident_of(*, doi: Any = None, pmid: Any = None, pmcid: Any = None) -> str | None:
+    """A paper's identity for a lookup: `pmid:…`, else `doi:…` (lowercased), else `pmcid:…`."""
+    if pmid and str(pmid).strip().isdigit():
+        return f"pmid:{str(pmid).strip()}"
+    if doi and str(doi).strip():
+        return f"doi:{str(doi).strip().lower()}"
+    if pmcid and re.fullmatch(r"(?i)pmc\d+", str(pmcid).strip()):
+        return f"pmcid:{str(pmcid).strip().upper()}"
+    return None
+
+
+_LOOKUP_BATCH = 20  # identifiers ORed into one query: well inside the service's query length
+
+
+def lookup(idents: Iterable[str], *, timeout: float = 60, base: str | None = None,
+           on_batch: Callable[[int, int], None] | None = None) -> tuple[dict[str, dict[str, Any]], list[str]]:
+    """Europe PMC's `core` record of each identity (`pmid:…`, `doi:…`, `pmcid:…`), twenty to a
+    query: `({ident: hit}, missed)` — a hit for each it knows, taken only for the identity it
+    carries back (a PMID asked as `EXT_ID` names its source, `SRC:MED`: a bare number once
+    fetched a different article, NOTES.md); `missed` the identities of a batch that could not be
+    asked (unreachable, timed out twice, refused), which say nothing about the works."""
+    idents = list(dict.fromkeys(i for i in idents if i))
+    out: dict[str, dict[str, Any]] = {}
+    missed: list[str] = []
+    batches = [idents[i:i + _LOOKUP_BATCH] for i in range(0, len(idents), _LOOKUP_BATCH)]
+    for n, batch in enumerate(batches):
+        if on_batch:
+            on_batch(n, len(batches))
+        terms = []
+        for ident in batch:
+            kind, value = ident.split(":", 1)
+            terms.append(f"(EXT_ID:{value} AND SRC:MED)" if kind == "pmid" else f'DOI:"{value}"' if kind == "doi" else f"PMCID:{value}")
+        params = urllib.parse.urlencode({"query": " OR ".join(terms), "resultType": "core", "format": "json", "pageSize": 100})
+        data = None
+        for attempt in range(2):  # a busy answer is asked again by _get; a slow one once more here
+            try:
+                data = json.loads(_get(f"{rest_base(base)}/search?{params}", timeout).decode("utf-8"))
+                break
+            except (urllib.error.URLError, TimeoutError, OSError, json.JSONDecodeError) as e:
+                if isinstance(e, urllib.error.HTTPError) or attempt:
+                    break
+                time.sleep(2)
+        if data is None:
+            missed.extend(batch)
+            continue
+        wanted = set(batch)
+        for h in (data.get("resultList") or {}).get("result") or []:
+            hit = normalise_hit(h)
+            for ident in (f"pmid:{hit['pmid']}" if hit["pmid"] else None, f"doi:{hit['doi']}" if hit["doi"] else None, f"pmcid:{hit['pmcid']}" if hit["pmcid"] else None):
+                if ident in wanted and ident not in out:
+                    out[ident] = hit
+    return out, missed
+
+
 # ---------------------------------------------------------------- the table
 
 
 def ensure_schema(conn: sqlite3.Connection) -> None:
     conn.executescript(SCHEMA)
+    have = {r[1] for r in conn.execute("PRAGMA table_info(candidates)")}
+    for col, kind in _ADDED:
+        if col not in have:
+            conn.execute(f"ALTER TABLE candidates ADD COLUMN {col} {kind}")
     conn.commit()
 
 
@@ -236,6 +366,8 @@ def _row(conn: sqlite3.Connection, cand_id: int) -> dict[str, Any] | None:
 def _values(hit: dict[str, Any]) -> dict[str, Any]:
     v = {k: hit.get(k) for k in _FIELDS}
     v["pub_types"] = "; ".join(hit.get("pub_types") or []) or None
+    al = hit.get("author_list")
+    v["author_list"] = (al if isinstance(al, str) else json.dumps(al, ensure_ascii=False)) if al else None  # a row's own JSON, or a record's list
     for k in ("is_open_access", "has_xml", "has_pdf"):
         v[k] = 1 if hit.get(k) else 0
     v["doi"] = (v["doi"] or "").lower() or None
@@ -256,15 +388,17 @@ def _existing(conn: sqlite3.Connection, v: dict[str, Any]) -> int | None:
     return None
 
 
-def upsert_candidate(conn: sqlite3.Connection, hit: dict[str, Any], *, query: str | None, now: str, status: str = "found") -> tuple[int, bool]:
+def upsert_candidate(conn: sqlite3.Connection, hit: dict[str, Any], *, query: str | None, now: str, status: str = "found", round: int = 1) -> tuple[int, bool]:
     """A hit as a candidate, once. Returns `(cand_id, added)`. A candidate already seen keeps its
-    status and its query; what it lacked is filled, and nothing it has is replaced."""
+    status and its query; what it lacked is filled, and nothing it has is replaced — but for its
+    round, which is the earliest that reached it."""
     v = _values(hit)
     cid = _existing(conn, v)
     if cid is None:
-        cols = ("query", *_FIELDS, "status", "found_at", "updated_at")
-        cur = conn.execute(f"INSERT INTO candidates({', '.join(cols)}) VALUES ({', '.join('?' * len(cols))})", (query, *(v[k] for k in _FIELDS), status, now, now))
+        cols = ("query", *_FIELDS, "status", "found_at", "updated_at", "round")
+        cur = conn.execute(f"INSERT INTO candidates({', '.join(cols)}) VALUES ({', '.join('?' * len(cols))})", (query, *(v[k] for k in _FIELDS), status, now, now, round))
         return int(cur.lastrowid), True
+    conn.execute("UPDATE candidates SET round = ? WHERE cand_id = ? AND round > ?", (round, cid, round))  # NULL, from before rounds, is a search's: 1
     for col in _FIELDS:
         if v.get(col) is None:
             continue
