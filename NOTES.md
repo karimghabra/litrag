@@ -99,7 +99,11 @@ when it turns out durable. Mark inference as inference.
   its record's spelling ("tumours" against the PDF's "Tumors": a person's). A datacenter address is
   what bot checks are tuned against; the rate from Karim's machine is the number that matters and
   is not measured yet. Bot checks are left to the person's browser — never a headless browser, a
-  borrowed user agent, or anything else that gets round one.
+  borrowed user agent, or anything else that gets round one. Live, through the worker's `fetch` in a
+  fresh library: all five fetched and read in 6 min (one NCBI XML with them), each filed under its
+  own DOI; the two bot checks and the "tumours" refusal went to needs-pdf with every route's reason.
+  What the reader made of them is BACKLOG's reading faults (4): an affiliation read as a title, an
+  arXiv preprint with no references found.
 
 - **2026-10-04: the scale test** — Karim: "i know it wouldnt be more, but we need to test this at
   scale". Grown from the six-paper link-test library by Expand in this container (Europe PMC, NCBI,

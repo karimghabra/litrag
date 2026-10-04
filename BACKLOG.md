@@ -16,6 +16,12 @@ wants as they are voiced.
   read as "EDITED BY Jianxun Ding, Chinese Academy of Sciences (CAS), China" (the front page's
   editor box), and the Micromachines PDF's introduction opens with "Academic Editor: Dmitry
   Volodkin" joined into its first paragraph — MDPI's and Frontiers' first-page boxes, read as text.
+  (4) Open copies (2026-10-04, five repository and preprint PDFs read): an OSTI author manuscript's
+  title read as its affiliation line ("*Department of Cell Biology, 240, Longwood Ave…",
+  doi:10.1038/ncb0901-785), though the record's title is printed above it and the fetch checked
+  exactly that; the arXiv preprint (doi:10.1103/physreve.68.061907) read with 0 references; the
+  JCI PDF with 15% of its prose in the reference list, an OSTI review with 90% of its body under
+  its introduction. The reader's own confidence flags the last two (0.39, 0.3).
 - **The rounds, further** (after Karim, 2026-10-04; *passages linked to the works they cite and Expand built the same day*) — a citation round files what the papers cite
   and what cites them (`graph.py`, the Graph tab), from Europe PMC and OpenAlex side by side
   (*2026-10-04*: a reference with no DOI or PMID matched in OpenAlex by its whole title, year and
