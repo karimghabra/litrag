@@ -319,3 +319,5 @@ h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: v
 .detail .link .who { font-weight: 600; flex: none; }
 .detail .link .what { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .detail .link .doi, .detail .links .doi { color: var(--muted); font-size: 11px; flex: none; }
+.side-item .elsewhere { margin-top: 6px; padding: 5px 7px; border-left: 2px solid var(--accent); background: var(--soft); border-radius: 0 4px 4px 0; }
+.side-item.general .h { font-weight: 500; color: var(--muted); }

@@ -44,9 +44,14 @@ from typing import Any, Callable, Iterable, Protocol
 
 import numpy as np
 
-from .edges import FINDING_LANES
+from .edges import FINDING_LANES, _terms as terms_of
 from .meaning import DEFAULT_MODEL, QUERY, Oracle
 from .store import cites_of, node as node_row, open_store
+
+try:
+    from .lineage import described_elsewhere
+except ImportError:  # lineage.py lands with the cross-paper work; until then nothing is followed
+    described_elsewhere = None
 
 DOCUMENT = "search_document: "  # nomic's task prefix for what is searched; QUERY is the question's
 RECIPE = "doc1"  # names what doc_text builds; part of the model key, so a new recipe never meets old vectors
@@ -59,6 +64,11 @@ ANCESTRY_CHARS = 400
 METHOD_CHARS = 1500
 CAPTION_CHARS = 800
 CITE_CHARS = 300
+FINDING_CHARS = 300
+METHODS_SHOWN, GENERAL_SHOWN, FINDINGS_SHOWN, ELSEWHERE_SHOWN = 3, 2, 5, 2
+#: the methods parts every finding of a paper shares, named by the heading catalogue (headings.py):
+#: real, and shown, but in their own place, so the method that measured the finding comes first
+GENERAL_METHODS = frozenset({"Statistical analysis", "Materials"})
 
 _WORD = re.compile(r"[^\W\d_]{2,}")
 
@@ -519,61 +529,175 @@ def _brief(r: sqlite3.Row) -> dict[str, Any]:
     return {"node_id": r["node_id"], "type": r["type"], "role": r["role"], "page": r["page"], "text": r["text"]}
 
 
-def _section_text(conn: sqlite3.Connection, section_id: str) -> str:
-    rows = conn.execute(
+def _paragraphs_under(conn: sqlite3.Connection, node_id: str) -> list[sqlite3.Row]:
+    """The paragraphs and list items under a section, in reading order (rowid: the tree is
+    written in its own pre-order walk)."""
+    return conn.execute(
         # CROSS JOIN keeps `sub` the outer loop, so each step is a probe of nodes_parent; left to
         # itself the planner scanned nodes, 47 ms a method on a library of 16,000 nodes
         """WITH RECURSIVE sub(id) AS (SELECT ? UNION ALL SELECT n.node_id FROM sub CROSS JOIN nodes n ON n.parent = sub.id)
-           SELECT n.text FROM sub CROSS JOIN nodes n ON n.node_id = sub.id
-           WHERE n.type IN ('paragraph', 'list_item') AND n.text != '' ORDER BY n.depth, n.ordinal""",
-        (section_id,),
+           SELECT n.node_id, n.text, n.page FROM sub CROSS JOIN nodes n ON n.node_id = sub.id
+           WHERE n.type IN ('paragraph', 'list_item') AND n.text != '' ORDER BY n.rowid""",
+        (node_id,),
     ).fetchall()
-    return " ".join(r["text"] for r in rows)
 
 
-def _method(conn: sqlite3.Connection, dst: str) -> dict[str, Any] | None:
+def _marks(evidence: str | None, detail: str | None) -> list[str]:
+    """The marks an edge was made on, as edges.py wrote them: "compressive modulus, calcein", or
+    a caption's "Figure 4: calcein, live/dead". A pointer's "Section 2.3" names no mark."""
+    if evidence not in ("terms", "caption") or not detail:
+        return []
+    if evidence == "caption" and ":" in detail:
+        detail = detail.split(":", 1)[1]
+    return [t.strip().lower() for t in detail.split(",") if t.strip()]
+
+
+def choose_paragraph(paragraphs: list[sqlite3.Row], finding_text: str, marks: list[str]) -> tuple[sqlite3.Row | None, list[str]]:
+    """The paragraph of a method a finding rests on, and the terms that chose it: the marks the
+    edge was made on weigh three times a shared word, and a shared word weighs less the more of
+    the method's paragraphs say it. None when nothing is shared that one paragraph has more of
+    than the rest — the method is then given from its start, as a whole."""
+    if len(paragraphs) == 1:
+        return paragraphs[0], []
+    if not paragraphs:
+        return None, []
+    own = [terms_of(p["text"]) for p in paragraphs]
+    df: dict[str, int] = {}
+    for ts in own:
+        for t in ts:
+            df[t] = df.get(t, 0) + 1
+    wanted = terms_of(finding_text)
+    best: tuple[float, int, list[str]] | None = None
+    for i, ts in enumerate(own):
+        hit_marks = [m for m in marks if m in ts]
+        shared = [t for t in wanted & ts if df[t] < len(paragraphs)]  # a word every paragraph has tells them apart from nothing
+        score = 3 * sum(2 if " " in m else 1 for m in hit_marks) + sum((2 if " " in t else 1) / df[t] for t in shared)
+        if score > 0 and (best is None or score > best[0]):
+            best = (score, i, hit_marks + sorted((t for t in shared if t not in hit_marks), key=lambda t: (df[t], " " not in t, t)))
+    if best is None or (best[0] < 1.0 and not any(m in own[best[1]] for m in marks)):
+        return None, []
+    return paragraphs[best[1]], best[2][:6]
+
+
+def _method(conn: sqlite3.Connection, dst: str, finding_text: str = "", marks: list[str] | None = None) -> dict[str, Any] | None:
+    """A method as hydration gives it: its heading and path, and, from a subsection of several
+    paragraphs, the one the finding rests on (`paragraph`, with the terms that chose it in
+    `matched`) rather than whatever the subsection opens with."""
     r = _row(conn, dst)
     if r is None:
         return None
     ancestry = json.loads(r["ancestry"] or "[]")
+    paragraph, matched = None, []
     if r["type"] == "section":
         heading = r["heading"]
-        text = _section_text(conn, dst)
         path = [*ancestry, heading] if heading else ancestry
+        paras = _paragraphs_under(conn, dst)
+        whole = " ".join(p["text"] for p in paras)
+        if finding_text or marks:
+            paragraph, matched = choose_paragraph(paras, finding_text, marks or [])
+        text = paragraph["text"] if paragraph is not None else whole
+        page = (paragraph["page"] if paragraph is not None else None) or r["page"]
+        count = len(paras)
     else:
         sec = _enclosing_section(conn, r)
         heading = sec["heading"] if sec is not None else None
-        text = r["text"]
+        whole = text = r["text"]
         path = ancestry
-    return {"node_id": dst, "type": r["type"], "heading": heading, "ancestry": path, "page": r["page"], "text": _cut(text, METHOD_CHARS), "chars": len(text)}
+        page = r["page"]
+        count = 1
+    return {
+        "node_id": dst, "type": r["type"], "heading": heading, "ancestry": path, "page": page,
+        "text": _cut(text, METHOD_CHARS), "chars": len(whole),
+        "paragraph": paragraph["node_id"] if paragraph is not None else None, "matched": matched, "paragraphs": count,
+        "general": (r["canonical"] or "") in GENERAL_METHODS,
+    }
 
 
-def _methods(conn: sqlite3.Connection, hit: sqlite3.Row, anchor: sqlite3.Row, section: sqlite3.Row | None, limit: int = 3) -> list[dict[str, Any]]:
-    """What the hit was measured by, from the `measured_by` rows and nothing else:
-    the hit's own edges (`via: hit`); failing those, for a caption, the edges of the
-    paragraphs that cite its figure (`via: figure`); failing those, when the hit is itself in a
-    results lane, the edges of the other paragraphs in its section (`via: section`), most
-    shared first. (Not for a discussion or introduction hit: its section is the whole
-    Discussion, and on the looped-ligament library pooling it named "Statistical analysis"
-    first.) A fallback edge says
-    which nodes it came from (`sources`), so it reads as what it is — the section's methods,
+def best_paragraph(conn: sqlite3.Connection, finding_id: str, method_id: str) -> str | None:
+    """The paragraph of `method_id` hydration would show for `finding_id` — the chooser the link
+    labels (truth.py) are measured against."""
+    f = _row(conn, finding_id)
+    e = conn.execute("SELECT evidence, detail FROM edges WHERE src = ? AND dst = ? AND kind = 'measured_by'", (finding_id, method_id)).fetchone()
+    m = _method(conn, method_id, f["text"] if f is not None else "", _marks(e["evidence"], e["detail"]) if e is not None else [])
+    return m["paragraph"] if m is not None else None
+
+
+def _methods(conn: sqlite3.Connection, hit: sqlite3.Row, anchor: sqlite3.Row, section: sqlite3.Row | None,
+             limit: int = METHODS_SHOWN) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """What the hit was measured by, from the `measured_by` rows and nothing else, as
+    `(methods, general)`: the methods particular to the finding, strongest edge first, and apart
+    from them the parts every finding shares (statistics, materials: `GENERAL_METHODS`).
+
+    The hit's own edges come first (`via: hit`). While none of them is particular, a caption
+    takes the edges of the paragraphs that cite its figure (`via: figure`), and a hit in a
+    results lane the edges of the other paragraphs in its section (`via: section`), most shared
+    first — not a discussion or introduction hit: its section is the whole Discussion, and on
+    the looped-ligament library pooling it named "Statistical analysis" first. A fallback edge
+    says which nodes it came from (`sources`), so it reads as what it is: the section's methods,
     not a claim about this paragraph."""
     own = conn.execute("SELECT dst, evidence, detail, score FROM edges WHERE src = ? AND kind = 'measured_by' ORDER BY score DESC, dst", (hit["node_id"],)).fetchall()
     found: list[tuple[str, dict[str, Any]]] = [(r["dst"], {"evidence": r["evidence"], "detail": r["detail"], "score": r["score"], "via": "hit"}) for r in own]
-    if not found and anchor["node_id"] != hit["node_id"]:
-        found = _shared(conn.execute(
+    built: dict[str, dict[str, Any] | None] = {}
+    finding_text = hit["text"] or ""
+
+    def build(dst: str, meta: dict[str, Any]) -> dict[str, Any] | None:
+        if dst not in built:
+            m = _method(conn, dst, finding_text, _marks(meta.get("evidence"), meta.get("detail")))
+            built[dst] = {**m, **meta} if m is not None else None
+        return built[dst]
+
+    def particular() -> bool:
+        return any((m := build(d, meta)) is not None and not m["general"] for d, meta in found)
+
+    if not particular() and anchor["node_id"] != hit["node_id"]:
+        found += [x for x in _shared(conn.execute(
             """SELECT m.src, m.dst, m.evidence, m.detail, m.score FROM edges c JOIN edges m ON m.src = c.src AND m.kind = 'measured_by'
-               WHERE c.dst = ? AND c.kind = 'cites_figure'""", (anchor["node_id"],)).fetchall(), "figure")
-    if not found and section is not None and hit["role"] in FINDING_LANES:
-        found = _shared(conn.execute(
+               WHERE c.dst = ? AND c.kind = 'cites_figure'""", (anchor["node_id"],)).fetchall(), "figure") if x[0] not in {d for d, _ in found}]
+    if not particular() and section is not None and hit["role"] in FINDING_LANES:
+        found += [x for x in _shared(conn.execute(
             """SELECT e.src, e.dst, e.evidence, e.detail, e.score FROM edges e JOIN nodes n ON n.node_id = e.src
-               WHERE n.parent = ? AND e.kind = 'measured_by' AND e.src != ?""", (section["node_id"], hit["node_id"])).fetchall(), "section")
-    out = []
-    for dst, meta in found[:limit]:
-        m = _method(conn, dst)
-        if m is not None:
-            out.append({**m, **meta})
-    return out
+               WHERE n.parent = ? AND e.kind = 'measured_by' AND e.src != ?""", (section["node_id"], hit["node_id"])).fetchall(), "section") if x[0] not in {d for d, _ in found}]
+    methods: list[dict[str, Any]] = []
+    general: list[dict[str, Any]] = []
+    for dst, meta in found:
+        if len(methods) >= limit and len(general) >= GENERAL_SHOWN:
+            break
+        m = build(dst, meta)
+        if m is None:
+            continue
+        if m["general"]:
+            if len(general) < GENERAL_SHOWN:
+                general.append(m)
+        elif len(methods) < limit:
+            if described_elsewhere is not None:
+                m["described_in"] = described_elsewhere(conn, dst, limit=ELSEWHERE_SHOWN)
+            methods.append(m)
+    return methods, general
+
+
+def _findings_measured(conn: sqlite3.Connection, r: sqlite3.Row, limit: int = FINDINGS_SHOWN) -> dict[str, Any] | None:
+    """For a hit in a methods lane, the edges walked the other way: the findings measured by the
+    method part it sits in (itself, or the nearest section above it that edges point at), most
+    strongly linked first, with how many there are in all."""
+    node, steps = r, 0
+    while node is not None and node["role"] == "methods" and steps < 16:
+        rows = conn.execute(
+            """SELECT e.src, e.evidence, e.detail, e.score, n.text, n.page, n.role, n.ancestry FROM edges e JOIN nodes n ON n.node_id = e.src
+               WHERE e.dst = ? AND e.kind = 'measured_by' ORDER BY e.score DESC, n.rowid""",
+            (node["node_id"],),
+        ).fetchall()
+        if rows:
+            return {
+                "method": node["node_id"], "heading": node["heading"], "total": len(rows),
+                "findings": [
+                    {"node_id": x["src"], "role": x["role"], "page": x["page"], "ancestry": json.loads(x["ancestry"] or "[]"),
+                     "text": _cut(x["text"] or "", FINDING_CHARS), "evidence": x["evidence"], "detail": x["detail"], "score": x["score"]}
+                    for x in rows[:limit]
+                ],
+            }
+        node = _row(conn, node["parent"]) if node["parent"] else None
+        steps += 1
+    return None
 
 
 def _shared(rows: list[sqlite3.Row], via: str) -> list[tuple[str, dict[str, Any]]]:
@@ -597,10 +721,13 @@ def _caption_of(conn: sqlite3.Connection, figure_id: str) -> str:
 
 def hydrate(conn: sqlite3.Connection, node_id: str, before: int = 1, after: int = 1) -> dict[str, Any]:
     """One unit with its context, every piece a row:
-    `{hit, paper, section, before, after, methods, figures, cites}` — the node; its paper's
-    record; the section it sits in; the paragraphs just before and after it under the same
-    parent (a caption's are its figure's); the methods it was measured by (`_methods`); the
-    figures and tables it cites, with their captions; the reference entries it cites."""
+    `{hit, paper, section, before, after, methods, general, findings, described_in, figures,
+    cites}` — the node; its paper's record; the section it sits in; the paragraphs just before
+    and after it under the same parent (a caption's are its figure's); the methods it was
+    measured by, each with the paragraph it rests on and where else it is described, and the
+    statistics and materials apart (`_methods`); for a methods hit, the findings measured by
+    its method (`_findings_measured`) and where its own procedure is described; the figures and
+    tables it cites, with their captions; the reference entries it cites."""
     r = _row(conn, node_id)
     if r is None:
         return {"error": f"no node {node_id}"}
@@ -631,7 +758,11 @@ def hydrate(conn: sqlite3.Connection, node_id: str, before: int = 1, after: int 
         nxt = [s for s in sibs if s["ordinal"] > anchor["ordinal"]]
         out["before"] = [_brief(s) for s in (prev[-before:] if before > 0 else [])]
         out["after"] = [_brief(s) for s in nxt[: max(0, after)]]
-    out["methods"] = _methods(conn, r, anchor, section)
+    out["methods"], out["general"] = _methods(conn, r, anchor, section)
+    # a hit in the methods is asked the other way round: what was measured by the method it is
+    # part of, and where its own procedure is described when it says "as previously described"
+    out["findings"] = _findings_measured(conn, r) if r["role"] == "methods" else None
+    out["described_in"] = described_elsewhere(conn, node_id, limit=ELSEWHERE_SHOWN) if r["role"] == "methods" and described_elsewhere is not None else []
     out["figures"] = [
         {"node_id": f["dst"], "type": f["type"], "label": f["detail"], "caption": _cut(_caption_of(conn, f["dst"]), CAPTION_CHARS)}
         for f in conn.execute(
@@ -648,7 +779,8 @@ def hydrate(conn: sqlite3.Connection, node_id: str, before: int = 1, after: int 
 
 def query(conn: sqlite3.Connection, question: str, embedder: Embedder | None, k: int = 8, before: int = 1, after: int = 1, **kw: Any) -> dict[str, Any]:
     """`search`, then `hydrate` each hit: `{question, hits: [{rank, score, ranks, hit, paper,
-    section, before, after, methods, figures, cites, also?}], embedder, counts, seconds}`.
+    section, before, after, methods, general, findings, described_in, figures, cites, also?}],
+    embedder, counts, seconds}`.
 
     A hit that already sits in a better hit's context — one of the paragraphs just before or
     after it — is not given its own place; the better hit lists its node id under `also`
@@ -699,7 +831,15 @@ def _print_answer(a: dict[str, Any]) -> None:
         print(f"   {where[:100]} · p. {h['hit']['page']}")
         print(f"   {h['hit']['text'][:240]}")
         for m in h["methods"]:
-            print(f"   method ({m['via']}, {m['evidence']}: {m['detail']}): {m['heading']} — {m['text'][:120]}")
+            chosen = f" [paragraph: {', '.join(m['matched'][:3])}]" if m.get("paragraph") and m.get("matched") else ""
+            print(f"   method ({m['via']}, {m['evidence']}: {m['detail']}): {m['heading']}{chosen} — {m['text'][:120]}")
+            for d in m.get("described_in") or []:
+                where = f"{d['paper']['title'][:60]} ({d['paper'].get('year') or ''})" if d.get("paper") else f"ref {d['ref_no']}, not in the library"
+                print(f"     described in {where}: {(d.get('method') or {}).get('heading') or ''}")
+        if h.get("general"):
+            print(f"   also: {', '.join(m['heading'] or '' for m in h['general'])}")
+        if h.get("findings"):
+            print(f"   findings measured here: {h['findings']['total']} — " + " | ".join(f['text'][:60] for f in h['findings']['findings'][:3]))
         for f in h["figures"]:
             print(f"   figure {f['label']}: {f['caption'][:100]}")
         if h["cites"]:
