@@ -120,7 +120,7 @@ Five tabs over one project at a time, picked at the top:
 | Search | a Europe PMC query (or one the local model drafts from the project's description); each hit with what can be had of it — open XML, an open PDF, nothing open — kept as a candidate; **Fetch & read** takes the XML first (Europe PMC's, else NCBI's for an NIH author manuscript), the PDF second, and lists the rest with their links |
 | Papers | the three panes below; the tree pane's **Canonical** face re-hangs the paper under its type's structure, each section tagged with the mechanism that placed it |
 | Types | the kinds of paper the project holds, each kind's canonical structure (its slots in order, how often its papers have each), and any paper drawn onto it: a line from each printed section to its slot, coloured by the vocabulary, the catalogue, the embedder, a built heading or the outline judge; the slots it lacks drawn empty |
-| Query | a question, and the passages that answer it, each hydrated from its tree: the headings above it, the paragraphs either side, the methods a finding was measured by (the paragraph it rests on, where the method is described in another paper, statistics and materials apart), the findings a method measured, the figures and references it cites; **Open in the tree** lands on it |
+| Query | a question, and the passages that answer it, each hydrated from its tree: the headings above it, the paragraphs either side, the methods a finding was measured by (the paragraph it rests on, where the method is described in another paper, statistics and materials apart), the findings a method measured, the figures and references it cites — a figure with the numbers read from its charts; **Open in the tree** lands on it |
 
 The Papers tab:
 
@@ -575,6 +575,48 @@ what it answered, so the person's next labels are its audit: once 25 are
 audited and the person agrees on 90 % of them, its labels count for the
 rest, and `truth` measures the edges again with them. Until then they are
 only compared, finding by finding, with every disagreement listed.
+
+## Figures read into numbers
+
+A chart in a figure is data the paper does not print anywhere else. As a
+PDF paper is read, each of its figures is cut from its page and its plots
+read into rows (`charts.py`, `figures.py`): every bar and every point with
+the value it stands for, the ends of its error bar, its series and its
+category, and above them the axis's title and unit and the panel's letter.
+
+- **How the figure was drawn decides how it is read.** A figure drawn as
+  vectors is rendered at 600 dpi and its words are the PDF's own text layer
+  — titles set on their side, slanted labels, `10^3` on a log axis. A
+  figure that is an image is read at its own resolution, its words by OCR
+  (RapidOCR, with the models its package ships: nothing is fetched).
+- **A scale, or no number.** The y axis is fitted to at least three of its
+  tick labels, linear or log, and must hold within 1 % of its range; one
+  misread label may be left out. A frame with no numbers beside it — a
+  photograph's edge, a panel's border — is no chart; a scale that will not
+  hold leaves the plot `unread`, with the reason, and gives no value.
+- **What is measured.** Bars standing on the axis, told apart by their
+  fills (grouped bars by the colours repeating), their tops read through an
+  outline's middle; markers, round shapes left when the lines joining them
+  are opened away, two drawn over each other parted by colour; error bars,
+  thin strokes up from a bar or a marker to their cap, and down into a bar
+  in another colour. A whisker that cannot be seen is null, never assumed.
+  Names come from the labels under the axis and the legend's swatches.
+- **Where it shows.** A picture in the Papers tab lists its plots as tables
+  — value ± error, a CSV of each a click away — and a figure read before
+  this existed has **Read the figures**. In Query, a passage that cites a
+  figure (or is its caption) carries its numbers, the panel it names first
+  ("Figure 2B"). `select c.y_label, v.category, v.y, v.err_hi from
+  chart_values v join charts c using (paper, figure, plot)` is the shape of
+  the question.
+
+On six synthetic charts with known values — simple, grouped, outlined with
+slanted labels, points over days, two panels, a log axis — every value is
+within 1.5 % of its axis's range, read either way. On a Wiley paper drawn
+as vectors, 10 of 11 plots were read (the 11th, stress–strain curves, is
+said unread), and they agree with the bars as printed; on an Advanced
+Healthcare Materials paper of images, its grouped gene-expression bars read
+within about 0.05. Curves without markers, box plots, horizontal bars and
+figures in XML papers (whose images are not yet fetched) are not read yet.
 
 ## Citations
 

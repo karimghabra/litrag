@@ -9,6 +9,7 @@
 
 import * as pdfjs from 'pdfjs-dist';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
+import { renderPlots, type Plot } from './charts.ts';
 import { initLabels, openLabelling } from './labels.ts';
 import { BANDS, SORT_KEYS, bandOf, countBy, filterPapers, sortPapers, validFilters, type SortKey } from './papers.ts';
 import { initProjects, renderProjects } from './projects.ts';
@@ -700,7 +701,44 @@ function renderDetail(n: Node) {
     d.append(box);
   }
   if (n.type === 'section' && !n.text) d.append(el('div', 'muted', `${n.children.length} children`));
+  if (n.type === 'picture' || n.type === 'chart') void loadCharts(n, d);
   void loadEdges(n, d);
+}
+
+/** The numbers read from a selected figure (figures.py): each plot a table, or why it was not read;
+ *  a PDF paper whose figures were never read can have them read here. */
+let chartsSeq = 0;
+async function loadCharts(n: Node, into: HTMLElement) {
+  if (!ctx.lib) return;
+  const seq = ++chartsSeq;
+  let r: { plots: Plot[] };
+  try {
+    r = await request<{ plots: Plot[] }>('charts', { lib: ctx.lib, figure: n.node_id });
+  } catch {
+    return;
+  }
+  if (state.selectedNode !== n.node_id || seq !== chartsSeq) return;
+  const box = el('div', 'links charts');
+  const read = r.plots.filter((p) => p.status === 'read').length;
+  const head = el('div', 'links-head', r.plots.length ? `Numbers read from this figure — ${read} of ${r.plots.length} plot${r.plots.length === 1 ? '' : 's'}` : 'No numbers read from this figure');
+  const paper = state.selectedPaper ? state.papers.get(state.selectedPaper) : undefined;
+  if (!r.plots.length && paper?.format === 'pdf') {
+    const b = el('button', 'ghost small label-act', 'Read the figures') as HTMLButtonElement;
+    b.title = 'Read the charts in this paper’s figures into numbers (bars, points, error bars), on this machine';
+    b.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      b.disabled = true;
+      activity.show('Reading the figures');
+      void request('figures', { lib: ctx.lib, keys: [paper.key], force: true }).catch((e) => {
+        activity.hide();
+        log('error', `figures: ${(e as Error).message}`);
+      });
+    });
+    head.append(b);
+  }
+  box.append(head);
+  renderPlots(box, r.plots);
+  into.append(box);
 }
 
 /** The edges of the selected node, drawn once they arrive: the methods a finding was measured by,
@@ -983,6 +1021,11 @@ function onEvent(ev: Record<string, unknown>) {
     case 'done':
       setStatus('ok', 'idle');
       activity.hide();
+      if (ev['op'] === 'figures') {
+        log('stage', `figures: ${ev['read'] ?? 0} of ${ev['plots'] ?? 0} charts read in ${ev['papers'] ?? 0} papers, ${ev['values'] ?? 0} values`);
+        const n = state.selectedNode ? state.nodesById.get(state.selectedNode) : undefined;
+        if (n && !foreign) renderDetail(n);
+      }
       if (!foreign) void loadPapers();
       void loadLibraries();
       break;

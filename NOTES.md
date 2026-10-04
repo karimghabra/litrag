@@ -89,6 +89,29 @@ when it turns out durable. Mark inference as inference.
 
 ## Short-term memory
 
+- **2026-10-04: figures read into numbers** — Karim: "ingesting figures, and converting them …
+  to a numerical format". Built `charts.py` (a pixel reader) and `figures.py` (cut a figure from
+  its PDF page, rows). What was learned, on what is in this container:
+  - **Both kinds exist.** The Wiley paper (PMC9795886, via PMC) draws its charts as vectors (176
+    paths and 78 text objects in Figure 2), its photographs as images; the Advanced Healthcare
+    Materials paper (PMC11468977) embeds every figure as one 300-dpi image. Reading vector
+    figures from their own text layer gives exact titles and ticks; images need OCR.
+  - **The text layer lies about size.** Wiley's PDF sets every glyph at 1 pt and scales it by the
+    text matrix; a joiner using the font size broke every word. The effective size is font size
+    × √|det(matrix)|. pdfium measures char angles clockwise, and inserts `\r\n` between glyphs
+    drawn as separate objects (matplotlib's mathtext) — geometry decides, not those breaks.
+  - **OCR**: RapidOCR 3.9 (a docling dependency) ships PP-OCRv6 det/rec ONNX models in its wheel;
+    with `onnxruntime` it runs offline, ~1.5 s for a 2000×650 crop on 4 CPUs, and reads rotated
+    axis titles when the crop is turned upright. It runs adjacent category labels together;
+    they are re-read one group at a time, parted at blank gaps.
+  - **Numbers**: six synthetic charts (fixtures/charts, known values) within 1.5 % of axis
+    range both ways; Wiley Figures 1–3: 10 of 11 plots read (the 11th is stress–strain curves),
+    e.g. Maximum Load 354/267/315/324 N; AHM Figure 3B/12F grouped gene expression within ~0.05,
+    except 12-px pale bars under a dashed line (~0.1). A paper of 5 figures reads in ~16 s on
+    CPU (it was 70 s until OCR stopped re-reading titles for photographs' false frames).
+  - **Not read yet**: curves without markers (stress–strain), box plots, horizontal bars; XML
+    papers' figures need their images fetched (Europe PMC serves them for open-access articles).
+
 - **2026-10-04: finding→method hydration, the truth set, and methods described elsewhere** —
   Karim asked how findings reach methods and then "Implement these": a labelled truth set first,
   the cheap hydration wins, "as previously described [14]" across papers, similarity still off.

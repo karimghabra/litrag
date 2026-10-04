@@ -715,6 +715,46 @@ def _caption_of(conn: sqlite3.Connection, figure_id: str) -> str:
     return " ".join(r["text"] for r in rows if r["text"])
 
 
+_CAPTION = re.compile(r"^\s*(?:fig(?:ure)?|scheme)\.?\s*S?\d+", re.I)
+
+
+def _captioned(conn: sqlite3.Connection, r: sqlite3.Row) -> sqlite3.Row | None:
+    """The figure a caption belongs to: its parent when the reader hung it there, else — a
+    paragraph that opens "Figure 2" — the large picture on its page nearest it."""
+    if r["type"] == "caption" and r["parent"]:
+        fig = conn.execute("SELECT node_id, type FROM nodes WHERE node_id = ? AND type IN ('picture', 'chart')", (r["parent"],)).fetchone()
+        if fig is not None:
+            return fig
+    if not _CAPTION.match(r["text"] or "") or r["page"] is None or r["bbox_t"] is None:
+        return None
+    best, gap = None, None
+    for f in conn.execute("SELECT node_id, type, bbox_l, bbox_t, bbox_r, bbox_b FROM nodes WHERE paper = ? AND page = ? AND type IN ('picture', 'chart') AND bbox_l IS NOT NULL", (r["paper"], r["page"])):
+        if f["bbox_r"] - f["bbox_l"] < 72 or abs(f["bbox_b"] - f["bbox_t"]) < 72:
+            continue  # a logo
+        top, bottom = min(f["bbox_t"], f["bbox_b"]), max(f["bbox_t"], f["bbox_b"])
+        ct, cb = min(r["bbox_t"], r["bbox_b"]), max(r["bbox_t"], r["bbox_b"])
+        d = 0.0 if ct <= bottom and cb >= top else min(abs(ct - bottom), abs(cb - top))  # beside it, or above or below
+        if gap is None or d < gap:
+            best, gap = f, d
+    return best if best is not None and gap is not None and gap <= 60 else None
+
+
+def _figure_data(conn: sqlite3.Connection, figure: str, label: str | None, text: str) -> list[dict[str, Any]]:
+    """The plots read from a cited figure (figures.py), the panels the passage names first and
+    marked `cited` — "Figure 2B", "Fig. 3(a)"."""
+    from .figures import of_figure
+
+    plots = [p for p in of_figure(conn, figure) if p["status"] == "read"]
+    if not plots:
+        return []
+    num = (label or "").split()[-1] if label else ""
+    named = {m.group(1).upper() for m in re.finditer(rf"\bFig(?:ure)?s?\.?\s*{re.escape(num)}\s*\(?([A-Ha-h])(?![a-z])", text)} if num else set()
+    for p in plots:
+        p["cited"] = bool(p["panel"] and p["panel"] in named)
+    plots.sort(key=lambda p: not p["cited"])
+    return plots
+
+
 def hydrate(conn: sqlite3.Connection, node_id: str, before: int = 1, after: int = 1) -> dict[str, Any]:
     """One unit with its context, every piece a row:
     `{hit, paper, section, before, after, methods, general, findings, described_in, figures,
@@ -760,12 +800,18 @@ def hydrate(conn: sqlite3.Connection, node_id: str, before: int = 1, after: int 
     out["findings"] = _findings_measured(conn, r) if r["role"] == "methods" else None
     out["described_in"] = described_elsewhere(conn, node_id, limit=ELSEWHERE_SHOWN) if r["role"] == "methods" else []
     out["figures"] = [
-        {"node_id": f["dst"], "type": f["type"], "label": f["detail"], "caption": _cut(_caption_of(conn, f["dst"]), CAPTION_CHARS)}
+        {"node_id": f["dst"], "type": f["type"], "label": f["detail"], "caption": _cut(_caption_of(conn, f["dst"]), CAPTION_CHARS),
+         "data": _figure_data(conn, f["dst"], f["detail"], r["text"] or "")}
         for f in conn.execute(
             "SELECT e.dst, e.detail, n.type FROM edges e JOIN nodes n ON n.node_id = e.dst WHERE e.src = ? AND e.kind = 'cites_figure' ORDER BY n.ordinal",
             (node_id,),
         ).fetchall()
     ]
+    fig = _captioned(conn, r)
+    if fig is not None:  # a caption hit: the numbers of the figure it captions, first
+        if all(f["node_id"] != fig["node_id"] for f in out["figures"]):
+            out["figures"].insert(0, {"node_id": fig["node_id"], "type": fig["type"], "label": None, "caption": _cut(r["text"] or "", CAPTION_CHARS),
+                                      "data": _figure_data(conn, fig["node_id"], None, r["text"] or "")})
     out["cites"] = [{**c, "text": _cut(c.get("text") or "", CITE_CHARS)} for c in cites_of(conn, node_id)]
     return out
 

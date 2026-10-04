@@ -282,6 +282,7 @@ def _merge_paper(src: Library, sconn: sqlite3.Connection, s_tables: set[str], ta
         for j in sconn.execute("SELECT pair, same, model, at FROM judgments WHERE paper = ?", (key,)):
             tconn.execute("INSERT OR IGNORE INTO judgments(paper, pair, same, model, at) VALUES (?,?,?,?,?)", (tkey, *tuple(j)))
     _merge_labels(sconn, s_tables, tconn, t_tables, key, tkey)
+    _merge_charts(sconn, s_tables, tconn, key, tkey)
     tconn.commit()
     log_event(tconn, tkey, now, "merged", f"from {src.id} ({key}){'' if raw_came else ', no raw document: to be read again'}")
     return {"kind": "filed", "key": tkey}
@@ -304,6 +305,31 @@ def _merge_labels(sconn: sqlite3.Connection, s_tables: set[str], tconn: sqlite3.
                 f"INSERT OR IGNORE INTO {table}(paper, finding, finding_text, method, method_heading, paragraph, paragraph_text, verdict, by, at) VALUES (?,?,?,?,?,?,?,?,?,?)",
                 (tkey, move(r["finding"]), r["finding_text"], move(r["method"]) or "", r["method_heading"], move(r["paragraph"]), r["paragraph_text"], r["verdict"], r["by"], r["at"]),
             )
+
+
+def _merge_charts(sconn: sqlite3.Connection, s_tables: set[str], tconn: sqlite3.Connection, key: str, tkey: str) -> None:
+    """The numbers read from a filed paper's figures (figures.py) go with it, figure ids moved to
+    the key the target holds it by; a rebuild there finds each figure again by its place."""
+    if "charts" not in s_tables:
+        return
+    from .figures import ensure_schema
+
+    ensure_schema(tconn)
+
+    def move(node_id: str) -> str:
+        return tkey + node_id[len(key):] if tkey != key and node_id.startswith(key + "#") else node_id
+
+    for table in ("charts", "chart_values"):
+        if table not in s_tables:
+            continue
+        cols = [r[1] for r in sconn.execute(f"PRAGMA table_info({table})")]
+        for r in sconn.execute(f"SELECT * FROM {table} WHERE paper = ?", (key,)):
+            row = dict(zip(cols, r))
+            row["paper"], row["figure"] = tkey, move(row["figure"])
+            tconn.execute(f"INSERT OR IGNORE INTO {table}({', '.join(cols)}) VALUES ({', '.join('?' * len(cols))})", [row[c] for c in cols])
+    if "figure_reads" in s_tables:
+        for r in sconn.execute("SELECT reader, figures, plots, read, values_, seconds, at FROM figure_reads WHERE paper = ?", (key,)):
+            tconn.execute("INSERT OR IGNORE INTO figure_reads(paper, reader, figures, plots, read, values_, seconds, at) VALUES (?,?,?,?,?,?,?,?)", (tkey, *tuple(r)))
 
 
 def _merge_candidates(sconn: sqlite3.Connection, tconn: sqlite3.Connection, now: str) -> int:

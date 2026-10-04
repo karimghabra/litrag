@@ -88,8 +88,12 @@ ingest` cuts chunks into `lit.sqlite`, never a tree.
    not, text said twice, headings that are not headings, paragraphs cut in
    two — and stores one number in (0, 1] with its reasons. It flags a
    reading; it changes nothing in it.
-8. **Saved.** Rows in `store.sqlite`: `papers`, `pages`, `nodes` with
-   `nodes_fts`, `refs`, `citations`, `edges`, `judgments`, `events`. The
+8. **Figures read.** A PDF's figures, cut from their pages, read into
+   numbers (`figures.py`, `charts.py`): every bar and point with its error
+   bar, on a scale fitted to the axis's own tick labels — the PDF's text
+   layer for a vector figure, OCR for an image — or `unread`, with why.
+9. **Saved.** Rows in `store.sqlite`: `papers`, `pages`, `nodes` with
+   `nodes_fts`, `refs`, `citations`, `edges`, `charts`, `chart_values`, `judgments`, `events`. The
    audit (`audit.py`) reads them when asked.
 
 `invariants.py` asks the same kind of question as `confidence.py` and answers

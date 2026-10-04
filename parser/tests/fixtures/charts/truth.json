@@ -1,0 +1,265 @@
+{
+ "bars_simple": [
+  {
+   "kind": "bar",
+   "panel": null,
+   "y_label": "Maximum Load (N)",
+   "y_scale": "linear",
+   "categories": [
+    "COL/PLA_Dry",
+    "COL/PLA_Wet",
+    "PLA_Dry",
+    "PLA_Wet"
+   ],
+   "series": [
+    {
+     "name": "Maximum load",
+     "values": [
+      354.0,
+      267.0,
+      314.0,
+      324.0
+     ],
+     "errors": [
+      36.0,
+      13.0,
+      58.0,
+      23.0
+     ]
+    }
+   ]
+  }
+ ],
+ "bars_grouped": [
+  {
+   "kind": "bar",
+   "panel": null,
+   "y_label": "Fold change relative to TCP",
+   "y_scale": "linear",
+   "categories": [
+    "Scx",
+    "Tnmd",
+    "Tnc",
+    "Col-I",
+    "Mkx",
+    "Sox9"
+   ],
+   "series": [
+    {
+     "name": "TCP",
+     "values": [
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0
+     ],
+     "errors": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ]
+    },
+    {
+     "name": "Circle 50",
+     "values": [
+      1.72,
+      0.75,
+      2.39,
+      0.71,
+      2.25,
+      3.41
+     ],
+     "errors": [
+      0.92,
+      0.2,
+      1.25,
+      0.4,
+      0.92,
+      1.05
+     ]
+    },
+    {
+     "name": "Rhombus 50",
+     "values": [
+      1.64,
+      0.58,
+      1.37,
+      0.92,
+      1.32,
+      5.51
+     ],
+     "errors": [
+      0.62,
+      0.11,
+      0.06,
+      0.48,
+      0.41,
+      0.7
+     ]
+    }
+   ]
+  }
+ ],
+ "bars_outlined": [
+  {
+   "kind": "bar",
+   "panel": null,
+   "y_label": "FA length (\u00b5m)",
+   "y_scale": "linear",
+   "categories": [
+    "Circle 50",
+    "Rhombus 50",
+    "TCP"
+   ],
+   "series": [
+    {
+     "name": "FA length",
+     "values": [
+      8.1,
+      7.4,
+      16.4
+     ],
+     "errors": [
+      3.0,
+      2.0,
+      6.2
+     ]
+    }
+   ]
+  }
+ ],
+ "points_days": [
+  {
+   "kind": "point",
+   "panel": null,
+   "y_label": "alamarBlue Fluorescence (%)",
+   "x_label": "Days of Culture",
+   "y_scale": "linear",
+   "series": [
+    {
+     "name": "COL/PLA",
+     "x": [
+      1,
+      7,
+      14,
+      28
+     ],
+     "values": [
+      0.9,
+      3.2,
+      20.6,
+      37.1
+     ],
+     "errors": [
+      0.3,
+      0.5,
+      7.5,
+      3.4
+     ]
+    },
+    {
+     "name": "PLA",
+     "x": [
+      1,
+      7,
+      14,
+      28
+     ],
+     "values": [
+      0.6,
+      1.5,
+      3.6,
+      24.2
+     ],
+     "errors": [
+      0.2,
+      0.4,
+      0.6,
+      4.9
+     ]
+    }
+   ]
+  }
+ ],
+ "panels_two": [
+  {
+   "kind": "bar",
+   "panel": "A",
+   "y_label": "Young's modulus (MPa)",
+   "y_scale": "linear",
+   "categories": [
+    "Random",
+    "ELAC"
+   ],
+   "series": [
+    {
+     "name": "Modulus",
+     "values": [
+      0.78,
+      1.36
+     ],
+     "errors": [
+      0.1,
+      0.12
+     ]
+    }
+   ]
+  },
+  {
+   "kind": "bar",
+   "panel": "B",
+   "y_label": "UTS (MPa)",
+   "y_scale": "linear",
+   "categories": [
+    "Random",
+    "ELAC"
+   ],
+   "series": [
+    {
+     "name": "Strength",
+     "values": [
+      12.5,
+      31.0
+     ],
+     "errors": [
+      2.1,
+      4.4
+     ]
+    }
+   ]
+  }
+ ],
+ "bars_log": [
+  {
+   "kind": "bar",
+   "panel": null,
+   "y_label": "Cell number",
+   "y_scale": "log",
+   "categories": [
+    "Day 1",
+    "Day 3",
+    "Day 7"
+   ],
+   "series": [
+    {
+     "name": "Cells",
+     "values": [
+      1200.0,
+      8500.0,
+      52000.0
+     ],
+     "errors": [
+      300.0,
+      1500.0,
+      9000.0
+     ]
+    }
+   ]
+  }
+ ]
+}

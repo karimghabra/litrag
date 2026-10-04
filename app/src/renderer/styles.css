@@ -369,3 +369,15 @@ h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: v
 .label-hint:empty, .label-error:empty { display: none; }
 .detail .links-head .label-act { margin-left: 8px; padding: 0 8px; font-size: 11px; font-weight: 500; }
 .label-card:focus { outline: none; }
+
+/* the numbers read from a figure (charts.ts) */
+.chart { margin: 6px 0 10px; }
+.chart.cited { border-left: 2px solid var(--accent); padding-left: 6px; }
+.chart-head { display: flex; align-items: center; gap: 8px; font-size: 12px; margin-bottom: 4px; }
+.chart-title { font-weight: 600; }
+.chart-head .ghost.small { padding: 0 8px; font-size: 11px; }
+table.chart-table { border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; }
+table.chart-table th, table.chart-table td { border: 1px solid var(--line); padding: 2px 6px; text-align: right; white-space: nowrap; }
+table.chart-table tr:first-child th { background: var(--soft); text-align: center; }
+table.chart-table th:first-child { text-align: left; font-weight: 500; }
+.side-item .chart { margin-top: 6px; }

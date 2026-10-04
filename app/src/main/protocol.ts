@@ -50,6 +50,8 @@ export const TERMINAL = new Set([
   'projects', 'project', 'search', 'candidates', 'wanted', 'dismissed', 'suggestions', 'types', 'mapping', 'retrieval', 'query',
   // the truth for the finding→method links: the queue, a finding labelled, every label, the measure
   'label_queue', 'labelled', 'labels', 'truth',
+  // the numbers read from a figure, or every figure of a paper
+  'charts',
 ]);
 
 /** `tree` answers a `tree` request and also streams during ingest; only the former closes a request. */

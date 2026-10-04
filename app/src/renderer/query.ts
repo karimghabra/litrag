@@ -5,6 +5,7 @@
  * paragraph node; its context is the rows around it, not a wider chunk.
  */
 
+import { renderPlots, type Plot } from './charts.ts';
 import { $, activity, ctx, el, escapeHtml, hooks, log, onProjectChange, onViewShown, onWorkerEvent, projectName, request, roleColor } from './shared.ts';
 
 interface QNode {
@@ -67,7 +68,7 @@ export interface QHit {
   /** for a methods hit: what its method measured, the edges walked the other way */
   findings?: QFindings | null;
   described_in?: QElsewhere[];
-  figures?: { node_id: string; text: string; caption?: string }[];
+  figures?: { node_id: string; text: string; caption?: string; label?: string; data?: Plot[] }[];
   cites?: { ref_no: number; first_author?: string | null; year?: string | null; title?: string | null; doi?: string | null; text?: string }[];
   also?: string[];
 }
@@ -263,6 +264,7 @@ function hitCard(h: QHit, question: string): HTMLElement {
       const item = el('div', 'side-item', f.caption ?? f.text);
       item.addEventListener('click', () => hooks.openPaper(h.paper.key, f.node_id));
       item.style.cursor = 'pointer';
+      if (f.data?.length) renderPlots(item, f.data, { compact: true }); // the numbers read from it, the panel the passage names first
       side.append(item);
     }
   }

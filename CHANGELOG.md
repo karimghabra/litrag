@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+- **Figures read into numbers** (Karim, 2026-10-04: "ingesting figures, and converting them from
+  data in a visual format, to one in a numerical format"). A PDF's figures are cut from their
+  pages and their charts read (`charts.py`, `figures.py`): each bar and point's value, its error
+  bar's ends, its series, its category or x, the axis's title, unit and scale, the panel's
+  letter and title. A vector figure is rendered at 600 dpi and read with the PDF's own text
+  layer; an image at its own resolution with OCR — RapidOCR on the models its package ships,
+  run by `onnxruntime` (new dependency; nothing is fetched). A y axis must calibrate from three
+  tick labels within 1 % of its range, else the plot is `unread` with the reason and no value;
+  a frame with no numbers beside it is no chart. Bars (grouped by their fills repeating,
+  outlined, pale), markers (overlapping ones parted by colour), error bars up and down; linear
+  and log axes. Rows `charts` and `chart_values`; ingest's `figures` stage
+  (`LITRAG_FIGURES=off` skips it), ops `figures` (a library's PDFs, queued) and `charts`;
+  rebuilds and merges keep them. The Papers tab shows a picture's plots as tables with a CSV
+  each (**Read the figures** for papers read before); Query shows a cited figure's numbers, the
+  named panel first, and a caption hit its own figure's. Not yet: curves without markers, box
+  plots, horizontal bars, XML papers' figures.
+
 From a finding to the method that produced it, followed further — and a way to know how often
 it is right (Karim, 2026-10-04: "Implement these").
 

@@ -34,6 +34,7 @@ from .citations import link_citations
 from .edges import link_edges, summarize as summarize_edges
 from .confidence import assess as assess_confidence
 from .outline import enabled as outline_enabled, judge as judge_outline
+from .figures import enabled as figures_enabled
 from .paper_type import decide as decide_type
 from .record import jats_authors, jats_journal, lookup_record
 from .harness import pdf_title
@@ -355,6 +356,8 @@ class Worker:
                     self.do_embed(req)
                 elif op == "model_label":
                     self.do_model_label(req)
+                elif op == "figures":
+                    self.do_figures(req)
             except Exception as e:  # never let one paper kill the worker
                 emit({"event": "error", "id": req.get("id"), "op": req.get("op"), "lib": req.get("lib"), "message": str(e), "trace": traceback.format_exc()})
             finally:
@@ -529,6 +532,9 @@ class Worker:
         if outline_enabled() or req.get("outline"):
             judge_outline(tree, conn, key, ask_model=ask, pub_types=row["pub_types"])  # a rebuild replays the outline's row; only the judge op asks the model
         n = save_tree(conn, key, tree, parser=f"{'judge ' + judge.model if ask else 'rebuild'} {__version__}", parsed_at=now_iso(), seconds=0.0)
+        from .figures import remap as remap_figures
+
+        remap_figures(conn, key)  # the charts stay; their figures are found again by their place on the page
         xml = source.read_bytes() if row["format"] == "jats" and source and source.exists() else None
         if xml:
             journal, year = jats_journal(xml)
@@ -661,6 +667,8 @@ class Worker:
             if o is not None and o.summary()["down"] and not self._reported_down:
                 self._reported_down = True
                 stage("meaning", f"The embedder is not answering ({o.summary()['error']}): texts the vocabulary does not know read as `other` and are not stored; a rebuild once it answers will read them")
+            if path.suffix.lower() == ".pdf" and figures_enabled():
+                self.read_figures(conn, key, path, stage)
             links = summarize_citations(refs, cites)
             judged = judge.summary()
             stage("saved", f"{n} nodes, {links['refs']} references, {links['citations']} citation links, {linked['linked']} of {linked['findings']} findings linked to a method, a {kind['type']} paper by its {kind['source']}, confidence {sure['confidence']}" + (f" ({sure['reasons'][0]})" if sure["reasons"] else "") + (f", outline by {outlined['model']}: {outlined.get('lanes', 0)} lanes, {outlined.get('built', 0)} headings built" if outlined.get("sections") is not None else "") + (f", {judged['joined']} of {judged['asked']} judged pairs joined" if judged["asked"] else "") + f" in {seconds}s", nodes=n, **links, judged=judged, edges=linked, type=kind)
@@ -671,6 +679,52 @@ class Worker:
             emit({"event": "stage", "id": req_id, "lib": lib.id, "paper": key, "stage": "failed", "message": str(e), "trace": traceback.format_exc(), "elapsed": round(time.time() - started, 1)})
         finally:
             conn.close()
+
+    def read_figures(self, conn: Any, key: str, path: Path, stage: Any) -> dict[str, Any] | None:
+        """A PDF's figures read into numbers (figures.py); a failure is said and never fails the paper."""
+        from . import figures
+
+        try:
+            n = len(figures.pictures(conn, key))
+            if not n:
+                return None
+            stage("figures", f"Reading the charts in {n} figure{'s' if n != 1 else ''}")
+            out = figures.read_paper(conn, key, path)
+            stage("figures", f"{out['read']} of {out['plots']} charts read in {out['figures']} figures: {out['values']} values, in {out['seconds']}s", **out)
+            return out
+        except Exception as e:  # noqa: BLE001 — the paper is read; only its charts are not
+            stage("figures", f"The figures could not be read: {type(e).__name__}: {e}")
+            return None
+
+    def do_figures(self, req: dict[str, Any]) -> None:
+        """Every PDF paper's figures read into numbers — those not read by this reader, or the
+        papers named; `force` reads them again."""
+        from . import figures
+
+        lib = self._lib(req)
+        req_id = req.get("id")
+        conn = open_store(lib.store_path)
+        keys = set(req.get("keys") or [])
+        totals = {"papers": 0, "figures": 0, "plots": 0, "read": 0, "values": 0}
+        try:
+            rows = [r for r in conn.execute("SELECT key, file FROM papers WHERE status = 'parsed' AND format = 'pdf' ORDER BY added_at") if not keys or r["key"] in keys]
+            todo = [r for r in rows if req.get("force") or not figures.is_read(conn, r["key"])]
+            for i, r in enumerate(todo):
+                emit({"event": "progress", "id": req_id, "op": "figures", "lib": lib.id, "done": i, "total": len(todo), "label": f"Reading the charts of paper {i + 1} of {len(todo)}"})
+                path = lib.papers_dir / r["file"]
+                if not path.exists():
+                    continue
+                try:
+                    out = figures.read_paper(conn, r["key"], path)
+                except Exception as e:  # noqa: BLE001 — one paper's figures do not stop the rest
+                    emit({"event": "log", "id": req_id, "lib": lib.id, "paper": r["key"], "logger": "figures", "message": f"{type(e).__name__}: {e}"})
+                    continue
+                totals["papers"] += 1
+                for k in ("figures", "plots", "read", "values"):
+                    totals[k] += out[k]
+        finally:
+            conn.close()
+        emit({"event": "done", "id": req_id, "op": "figures", "lib": lib.id, **totals})
 
     # ---- acquisition, projects, retrieval: the long ones, on the ingest thread ----------
 
@@ -879,7 +933,7 @@ class Worker:
                     emit({"event": "retrieval", "id": req_id, "lib": lib.id, **retrieve.status(conn, retrieve.OllamaEmbedder())})
                 finally:
                     conn.close()
-            elif op in ("fetch", "merge", "embed", "model_label"):
+            elif op in ("fetch", "merge", "embed", "model_label", "figures"):
                 if op != "merge":
                     self._lib(req)  # fail fast on a bad library
                 self.ingest_queue.put(req)
@@ -945,6 +999,22 @@ class Worker:
                 both = edges_of(conn, str(req["node_id"]))
                 conn.close()
                 emit({"event": "edges", "id": req_id, "node_id": str(req["node_id"]), **both})
+            elif op == "charts":
+                # the numbers read from a figure (figures.py): one figure's plots, or every figure of a paper
+                from . import figures
+
+                lib = self._lib(req)
+                conn = open_store(lib.store_path)
+                try:
+                    figures.ensure_schema(conn)
+                    if req.get("figure"):
+                        out = {"figure": str(req["figure"]), "plots": figures.of_figure(conn, str(req["figure"]))}
+                    else:
+                        figs = [r[0] for r in conn.execute("SELECT DISTINCT figure FROM charts WHERE paper = ? ORDER BY figure", (str(req.get("key") or ""),))]
+                        out = {"key": req.get("key"), "figures": [{"figure": f, "plots": figures.of_figure(conn, f)} for f in figs]}
+                finally:
+                    conn.close()
+                emit({"event": "charts", "id": req_id, "lib": lib.id, **out})
             elif op in ("label_queue", "label", "labels", "truth"):
                 # the truth for the finding→method links (truth.py): findings to label, a finding's
                 # labels written, every label, and the linker measured against them
