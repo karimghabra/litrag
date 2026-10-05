@@ -17,13 +17,14 @@ sync's `--extra` would swap for PyPI's (README, Quick start).
 
 | Part | Status | Use it for |
 |---|---|---|
-| `app/`, the window (`npm run app`) | current | five tabs over one project at a time: **Projects** (make one, describe it, merge several), **Search** (Europe PMC, XML first — Europe PMC's, else NCBI's for an author manuscript — then open PDFs, the rest listed to download by hand), **Papers** (trees, pages, citations, edges, the canonical face; **Reparse all**), **Types** (each kind of paper's canonical structure, a paper's mapping onto it), **Query** (passages retrieved and hydrated from the tree) |
+| `app/`, the window (`npm run app`) | current | six tabs over one project at a time: **Projects** (make one, describe it, merge several), **Search** (Europe PMC, XML first — Europe PMC's, else NCBI's for an author manuscript — then open PDFs, the PMC Cloud Service's before EBI's, then the open copy OpenAlex names when it prints the paper's DOI or title, the rest listed to download by hand), **Papers** (trees, pages, citations, edges, the canonical face; **Reparse all**), **Types** (each kind of paper's canonical structure, a paper's mapping onto it), **Query** (passages retrieved and hydrated from the tree), **Graph** (the papers and their citations drawn; citation rounds; SQL over works, authors and citations) |
 | `npm run e2e:studio` | current | the window end to end: a search against Europe PMC stood in on 127.0.0.1, a fetch, two real PDFs through Docling, types, a hydrated query through the embedder, a merge — the harness a change to the product has to pass |
 | `npm run gate:ingestion -- --pairs A:B … [--min 0.95]`, `python -m litrag_parser.bench` | measurement | the reader judged in the unit retrieval returns (a paragraph node in the right lane, against the XML twin); retrieval judged on questions with a known answering passage, the tree beside the `lit` CLI |
 | `parser/`, the worker (`uv run --project parser --no-sync litrag-parser`) | current | what the window does, and the ops it has no button for, among them `rebuild`, `judge`, `audit` and `sql` |
 | `npm run harness`, `npm run audit` | current | judging a change to the reader on whole libraries |
 | `python -m litrag_parser.headings`, `.meaning`, `.paper_type`, `.edges`, `.judge`, `.boundary` | maintenance | regenerating the shipped centroids, measuring a kind or the type before it decides, fetching Europe PMC records, running or calibrating the opt-in judges |
 | `python -m litrag_parser.pairs`, `.confidence --calibrate` | measurement | a PDF's reading against the XML's of the same paper, from two libraries; the confidence score against those pairs. The truth every change to the reader or to the score is judged on |
+| `python -m litrag_parser.truth --lib DIR --measure`, `.labeller --lib DIR`, `.lineage --lib DIR` | measurement | the finding→method links against the labels a person gave in **Label links** (precision per evidence, recall, misses, false links, the paragraph hydration shows against the method's first), and against the local model's once a person's audit of them agrees; the model labelling; the methods a library says are described elsewhere, and how many of the cited papers it holds |
 | `python -m litrag_parser.outline --pdf-lib DIR --xml-lib DIR --model M` | measurement | the outline judge (a local model reading the whole paper) scored on the pairs: faithful before and after, per model |
 | `src/` and `tests/`, the `lit` CLI (`npm run lit`, `bin/lit.js`) | deprecated | nothing new: it searches and fetches from Europe PMC and retrieves over `lit.sqlite`; its verbs are to be ported to `store.sqlite` one at a time and struck from `src/` (`BACKLOG.md`) |
 | `AGENT.md` §1–5, `DESIGN.md` "Revision 1" | describe the deprecated CLI | background; revision 2 overruled its reader (R2.1): pdf.js text with heading patterns, and sections cut into 250-word chunks |
@@ -74,7 +75,13 @@ ingest` cuts chunks into `lit.sqlite`, never a tree.
    where the reader missed a boundary (its lane by the reader's rule, not
    the model's), never the depth; the answer is a row a rebuild replays.
 5. **Linked.** In-text citations to the reference list (`citations.py`),
-   and findings to the methods that produced them (`edges.py`).
+   and findings to the methods that produced them (`edges.py`), each edge
+   with its evidence and a strength. A query follows them both ways and,
+   for a method "as previously described [14]", on to the cited paper's
+   own method when the library holds it (`retrieve.py`, `lineage.py`). A
+   reference naming another paper held is a `cites` row between the two
+   papers (`graph.py`); what the paper cites beyond the library waits for a
+   citation round (below).
 6. **Typed.** `paper_type.py` names the kind of paper from the record, the
    file, its subject line, the title, the printed label, and last the
    tree's own shape. Where two of them disagree, a note says so.
@@ -84,9 +91,28 @@ ingest` cuts chunks into `lit.sqlite`, never a tree.
    not, text said twice, headings that are not headings, paragraphs cut in
    two — and stores one number in (0, 1] with its reasons. It flags a
    reading; it changes nothing in it.
-8. **Saved.** Rows in `store.sqlite`: `papers`, `pages`, `nodes` with
-   `nodes_fts`, `refs`, `citations`, `edges`, `judgments`, `events`. The
+8. **Figures read.** A PDF's figures, cut from their pages, read into
+   numbers (`figures.py`, `charts.py`): every bar and point with its error
+   bar, on a scale fitted to the axis's own tick labels — the PDF's text
+   layer for a vector figure, OCR for an image — or `unread`, with why.
+9. **Saved.** Rows in `store.sqlite`: `papers`, `pages`, `nodes` with
+   `nodes_fts`, `refs`, `citations`, `edges`, `charts`, `chart_values`, `judgments`, `events`. The
    audit (`audit.py`) reads them when asked.
+
+**Rounds.** A library grows in rounds (`graph.py`, the `round` op, the
+Graph tab): round 1 is what searches found and people dropped in; a citation
+round asks Europe PMC and OpenAlex side by side, for each paper read since
+the last, its list of references (and, asked, of citing papers), looks every
+identified work up in Europe PMC twenty to a request (OpenAlex's record for
+a work Europe PMC does not know), and files it as a candidate of the next round —
+`candidates.round`, `cites` rows, `authors` rows, the `works` view. Nothing
+is fetched until a person picks what to read, by a click, by a `SELECT`
+over `works`, or by **Expand** (the `expand` op: a round, then the works the
+papers cite most fetched and read); a paper read is due its own round. Each
+entry of a reference list is linked to the work it names (`ref_works`,
+derived offline from the entry, the papers held and the lists the rounds
+kept in `ref_lists`), so every passage that cites is joined to the work it
+cites (`passage_cites`).
 
 `invariants.py` asks the same kind of question as `confidence.py` and answers
 with a **place** rather than a share: thirteen checks (conservation, no text

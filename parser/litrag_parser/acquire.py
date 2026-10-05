@@ -10,18 +10,30 @@ Fetching goes the way the pairs taught: the JATS full text from the REST service
 it is the paper's own structure; else PMC's own XML from NCBI, by PMCID, which serves what the
 REST service will not — an NIH author manuscript is in PMC but not in the open-access subset,
 and `fullTextXML` answers 500 for it (2026-09-30: 23 of the pilot's 28 PDFs in PMC are these);
-else the publisher's PDF from EBI's bulk open-access area
+else the publisher's PDF: from NLM's PMC Cloud Service first
+(`pmc-oa-opendata.s3.amazonaws.com`, the open-access subset as files, one folder per version of
+an article, a JSON beside each naming its PDF and that PDF's MD5 — the successor NCBI named when
+it retired its OA web service and FTP packages, 2026-08), then from EBI's bulk open-access area
 (`ftp.ebi.ac.uk/pub/databases/pmc/pdf/OA/PMCxxxx<block>/<PMCID>.zip`, the same place the corpus
-scripts fetch from — the website's `?pdf=render` links sit behind a bot check and are left
-alone); else the candidate `needs-pdf`, with the links a person can follow to get it by hand
-and drop it into the app. What is fetched lands in the library's inbox; the worker's `ingest`
+scripts fetch from, which misses many papers the Cloud Service holds — the websites' `?pdf=render`
+links sit behind a bot check and are left alone); else the open copy OpenAlex names, from the
+publisher's or the repository's own host (`candidates.oa_url`: a PDF, or a page whose
+`citation_pdf_url` names one), taken only when its first pages name the paper — its DOI or its
+whole title — and are not a supplement's; else the candidate `needs-pdf`, with the links a person
+can follow to get it by hand and drop it into the app (a site that answers with a bot check is one:
+it is left to a person's browser, never got round). With an XML, the same paper's PDF
+is fetched too where either holds one: the XML names its figures but holds none, and the PDF is
+kept beside it to read them (figures.py). What is fetched lands in the library's inbox; the worker's `ingest`
 files it (DOI, then PMID, then hash) and `reconcile` marks the candidate `ingested`.
 
-The only hosts asked are Europe PMC's (EBI's) and NCBI's E-utilities, and NCBI is only ever
-sent a PMCID: an identifier out, the article in. Every base can be pointed elsewhere, for tests
-and the end-to-end harness: `LITRAG_EPMC_URL` for the REST base, `LITRAG_EPMC_PDF_URL` for the
-bulk PDF base, `LITRAG_NCBI_URL` for E-utilities (`LITRAG_NCBI_EMAIL` and `LITRAG_NCBI_API_KEY`,
-when set, go with each NCBI request as its usage policy asks; neither is ever filled in for you).
+The hosts asked are Europe PMC's (EBI's), NCBI's E-utilities and NLM's PMC Cloud Service, the
+last two only ever sent a PMCID: an identifier out, the article in; and, for an open copy, the
+host OpenAlex names, sent nothing but the request for it (`LITRAG_OPEN_COPIES=off` stops it;
+PMC's and Europe PMC's own pages are never asked this way). Every base can be
+pointed elsewhere, for tests and the end-to-end harness: `LITRAG_EPMC_URL` for the REST base,
+`LITRAG_EPMC_PDF_URL` for the bulk PDF base, `LITRAG_NCBI_URL` for E-utilities
+(`LITRAG_NCBI_EMAIL` and `LITRAG_NCBI_API_KEY`, when set, go with each NCBI request as its usage
+policy asks; neither is ever filled in for you), `LITRAG_PMC_CLOUD_URL` for the Cloud Service.
 
     python -m litrag_parser.acquire --lib DIR --search "hydrogel cartilage" [--size 25]
     python -m litrag_parser.acquire --lib DIR --fetch 1 2 3
@@ -31,7 +43,9 @@ when set, go with each NCBI request as its usage policy asks; neither is ever fi
 from __future__ import annotations
 
 import argparse
+import hashlib
 import html
+import http.client
 import io
 import json
 import math
@@ -40,6 +54,7 @@ import re
 import sqlite3
 import time
 import sys
+import unicodedata
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -52,6 +67,7 @@ from .library import Library, now_iso, safe_key
 REST = "https://www.ebi.ac.uk/europepmc/webservices/rest"
 BULK_PDF = "https://ftp.ebi.ac.uk/pub/databases/pmc/pdf/OA"
 NCBI = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
+PMC_CLOUD = "https://pmc-oa-opendata.s3.amazonaws.com"
 USER_AGENT = "litrag (local research tool; one request at a time)"
 NCBI_GAP = 0.34  # E-utilities ask for at most three requests a second without an API key
 
@@ -71,16 +87,28 @@ CREATE TABLE IF NOT EXISTS candidates (
   file TEXT,                        -- the inbox file a fetch wrote
   error TEXT,
   found_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL
+  updated_at TEXT NOT NULL,
+  round INTEGER,                    -- how the library reached it: 1 a search, n+1 the citations of a round-n paper (graph.py)
+  published TEXT,                   -- Europe PMC's first publication date, YYYY-MM-DD
+  author_list TEXT,                 -- JSON [{name, family, given, initials, orcid}], from the record's author list
+  openalex TEXT,                    -- OpenAlex's id of the work (W…), when a round found it there (openalex.py)
+  oa_url TEXT                       -- where OpenAlex says an open copy is: a fetch asks it last, a person follows it when that fails
 );
 CREATE UNIQUE INDEX IF NOT EXISTS candidates_doi ON candidates(doi) WHERE doi IS NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS candidates_pmid ON candidates(pmid) WHERE pmid IS NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS candidates_pmcid ON candidates(pmcid) WHERE pmcid IS NOT NULL;
 CREATE INDEX IF NOT EXISTS candidates_status ON candidates(status);
 """
+#: Made once the columns it needs exist (an older table gains them in `ensure_schema`).
+INDEXES = """
+CREATE UNIQUE INDEX IF NOT EXISTS candidates_openalex ON candidates(openalex) WHERE openalex IS NOT NULL;
+"""
 
 #: The columns a hit fills, in the order they are inserted.
-_FIELDS = ("pmid", "pmcid", "doi", "title", "authors", "journal", "year", "abstract", "pub_types", "cited_by", "is_open_access", "has_xml", "has_pdf")
+_FIELDS = ("pmid", "pmcid", "doi", "title", "authors", "journal", "year", "abstract", "pub_types", "cited_by", "is_open_access", "has_xml", "has_pdf",
+           "published", "author_list", "openalex", "oa_url")
+#: Columns added since the table was first made, for a library made before them.
+_ADDED = (("round", "INTEGER"), ("published", "TEXT"), ("author_list", "TEXT"), ("openalex", "TEXT"), ("oa_url", "TEXT"))
 
 
 class AcquireError(RuntimeError):
@@ -97,6 +125,10 @@ def pdf_base(base: str | None = None) -> str:
 
 def ncbi_base(base: str | None = None) -> str:
     return (base or os.environ.get("LITRAG_NCBI_URL") or NCBI).rstrip("/")
+
+
+def pmc_cloud_base(base: str | None = None) -> str:
+    return (base or os.environ.get("LITRAG_PMC_CLOUD_URL") or PMC_CLOUD).rstrip("/")
 
 
 def _get(url: str, timeout: float, retries: int = 3) -> bytes:
@@ -157,6 +189,7 @@ def normalise_hit(h: dict[str, Any]) -> dict[str, Any]:
         cited = int(h.get("citedByCount") or 0)
     except (TypeError, ValueError):
         cited = 0
+    published = str(h.get("firstPublicationDate") or "").strip()
     return {
         "source": "europepmc",
         "epmc_source": h.get("source"),
@@ -176,7 +209,27 @@ def normalise_hit(h: dict[str, Any]) -> dict[str, Any]:
         "has_xml": bool(pmcid and ((in_epmc and oa) or author_ms)),
         "cited_by": cited,
         "pub_types": list(types),
+        "published": published if re.fullmatch(r"\d{4}(-\d{2}){0,2}", published) else None,
+        "author_list": author_list(h),
     }
+
+
+def author_list(h: dict[str, Any]) -> list[dict[str, Any]] | None:
+    """A `core` record's authors, each as the record splits them: `{name, family, given,
+    initials, orcid}` (a consortium is a name alone). None when the record lists none — a
+    `lite` record never does; its `authorString` is all there is."""
+    out: list[dict[str, Any]] = []
+    for a in ((h.get("authorList") or {}).get("author") or []):
+        if not isinstance(a, dict):
+            continue
+        orcid = (a.get("authorId") or {}) if isinstance(a.get("authorId"), dict) else {}
+        family = plain_text(a.get("lastName"))
+        name = plain_text(a.get("fullName")) or plain_text(a.get("collectiveName")) or family
+        if not name:
+            continue
+        out.append({"name": name, "family": family, "given": plain_text(a.get("firstName")), "initials": plain_text(a.get("initials")),
+                    "orcid": str(orcid.get("value") or "").strip() or None if str(orcid.get("type") or "").upper() == "ORCID" else None})
+    return out or None
 
 
 def search(query: str, page_size: int = 25, cursor: str = "*", timeout: float = 20, *, base: str | None = None) -> dict[str, Any]:
@@ -203,11 +256,135 @@ def search(query: str, page_size: int = 25, cursor: str = "*", timeout: float = 
     return {"hits": hits, "next_cursor": nxt, "total": int(data.get("hitCount") or 0)}
 
 
+# ---------------------------------------------------------------- citations
+
+
+def _listing(kind: str, pmid: str | None, pmcid: str | None, timeout: float, base: str | None, most: int) -> list[dict[str, Any]] | None:
+    """Europe PMC's list of a paper's references or citations, by PMID (`MED`), else PMCID
+    (`PMC`), a thousand to a page: None when the paper has neither, or the service has no list."""
+    if pmid:
+        src, ident = "MED", str(pmid)
+    elif pmcid:
+        src, ident = "PMC", str(pmcid).upper()
+    else:
+        return None
+    field, item = ("referenceList", "reference") if kind == "references" else ("citationList", "citation")
+    out: list[dict[str, Any]] = []
+    page = 1
+    while len(out) < most:
+        url = f"{rest_base(base)}/{src}/{ident}/{kind}?{urllib.parse.urlencode({'format': 'json', 'pageSize': 1000, 'page': page})}"
+        try:
+            data = json.loads(_get(url, timeout).decode("utf-8"))
+        except urllib.error.HTTPError as e:
+            if e.code == 404:
+                return None
+            raise
+        except json.JSONDecodeError as e:
+            raise AcquireError(f"Europe PMC's {kind} of {src}/{ident} are not JSON") from e
+        got = (data.get(field) or {}).get(item) or []
+        out.extend(x for x in got if isinstance(x, dict))
+        if len(got) < 1000 or len(out) >= int(data.get("hitCount") or 0):
+            break
+        page += 1
+    return out[:most]
+
+
+def references_of(pmid: str | None, pmcid: str | None = None, *, timeout: float = 30, base: str | None = None) -> list[dict[str, Any]] | None:
+    """What a paper cites, as Europe PMC matched its reference list: each entry with `id` and
+    `source` (`MED`: a PMID) where it found the cited paper, its title, authors and year as
+    printed, `citedOrder` its place in the list."""
+    return _listing("references", pmid, pmcid, timeout, base, 10000)
+
+
+def citations_of(pmid: str | None, pmcid: str | None = None, *, timeout: float = 30, base: str | None = None, most: int = 1000) -> list[dict[str, Any]] | None:
+    """What cites a paper, as Europe PMC knows it, newest first, at most `most`."""
+    return _listing("citations", pmid, pmcid, timeout, base, most)
+
+
+def ident_of(*, doi: Any = None, pmid: Any = None, pmcid: Any = None, openalex: Any = None) -> str | None:
+    """A paper's identity for a lookup: `pmid:…`, else `doi:…` (lowercased), else `pmcid:…`, else
+    `openalex:W…`."""
+    if pmid and str(pmid).strip().isdigit():
+        return f"pmid:{str(pmid).strip()}"
+    if doi and str(doi).strip():
+        return f"doi:{str(doi).strip().lower()}"
+    if pmcid and re.fullmatch(r"(?i)pmc\d+", str(pmcid).strip()):
+        return f"pmcid:{str(pmcid).strip().upper()}"
+    if openalex and re.fullmatch(r"W\d+", str(openalex).strip()):
+        return f"openalex:{str(openalex).strip()}"
+    return None
+
+
+_LOOKUP_BATCH = 20  # identifiers ORed into one query: well inside the service's query length
+
+
+def lookup(idents: Iterable[str], *, timeout: float = 60, base: str | None = None,
+           on_batch: Callable[[int, int], None] | None = None) -> tuple[dict[str, dict[str, Any]], list[str]]:
+    """Europe PMC's `core` record of each identity (`pmid:…`, `doi:…`, `pmcid:…`), twenty to a
+    query: `({ident: hit}, missed)` — a hit for each it knows, taken only for the identity it
+    carries back (a PMID asked as `EXT_ID` names its source, `SRC:MED`: a bare number once
+    fetched a different article, NOTES.md); `missed` the identities of a batch that could not be
+    asked (unreachable, timed out twice, refused), which say nothing about the works."""
+    idents = list(dict.fromkeys(i for i in idents if i))
+    out: dict[str, dict[str, Any]] = {}
+    missed: list[str] = []
+    batches = [idents[i:i + _LOOKUP_BATCH] for i in range(0, len(idents), _LOOKUP_BATCH)]
+    for n, batch in enumerate(batches):
+        if on_batch:
+            on_batch(n, len(batches))
+        terms = []
+        for ident in batch:
+            kind, value = ident.split(":", 1)
+            terms.append(f"(EXT_ID:{value} AND SRC:MED)" if kind == "pmid" else f'DOI:"{value}"' if kind == "doi" else f"PMCID:{value}")
+        params = urllib.parse.urlencode({"query": " OR ".join(terms), "resultType": "core", "format": "json", "pageSize": 100})
+        data = None
+        for attempt in range(2):  # a busy answer is asked again by _get; a slow one once more here
+            try:
+                data = json.loads(_get(f"{rest_base(base)}/search?{params}", timeout).decode("utf-8"))
+                break
+            except (urllib.error.URLError, TimeoutError, OSError, json.JSONDecodeError) as e:
+                if isinstance(e, urllib.error.HTTPError) or attempt:
+                    break
+                time.sleep(2)
+        if data is None:
+            missed.extend(batch)
+            continue
+        wanted = set(batch)
+        orphans = 0
+        for h in (data.get("resultList") or {}).get("result") or []:
+            hit = normalise_hit(h)
+            named = [i for i in (f"pmid:{hit['pmid']}" if hit["pmid"] else None, f"doi:{hit['doi']}" if hit["doi"] else None, f"pmcid:{hit['pmcid']}" if hit["pmcid"] else None) if i in wanted]
+            orphans += not named
+            for ident in named:
+                out.setdefault(ident, hit)
+        if orphans:
+            # A record can answer a DOI without carrying it (a PMC article Europe PMC filed with no
+            # DOI: PMC5445871, 2026-10-04): in a batch it cannot be told which DOI it answers, so each
+            # DOI no record named is asked alone, and a single record is that DOI's.
+            for ident in (i for i in batch if i.startswith("doi:") and i not in out):
+                params = urllib.parse.urlencode({"query": f'DOI:"{ident[4:]}"', "resultType": "core", "format": "json", "pageSize": 2})
+                try:
+                    one = json.loads(_get(f"{rest_base(base)}/search?{params}", timeout).decode("utf-8"))
+                except (urllib.error.URLError, TimeoutError, OSError, json.JSONDecodeError):
+                    continue
+                results = (one.get("resultList") or {}).get("result") or []
+                if len(results) == 1:
+                    hit = normalise_hit(results[0])
+                    if not hit["doi"] or hit["doi"] == ident[4:]:
+                        out[ident] = {**hit, "doi": hit["doi"] or ident[4:]}
+    return out, missed
+
+
 # ---------------------------------------------------------------- the table
 
 
 def ensure_schema(conn: sqlite3.Connection) -> None:
     conn.executescript(SCHEMA)
+    have = {r[1] for r in conn.execute("PRAGMA table_info(candidates)")}
+    for col, kind in _ADDED:
+        if col not in have:
+            conn.execute(f"ALTER TABLE candidates ADD COLUMN {col} {kind}")
+    conn.executescript(INDEXES)
     conn.commit()
 
 
@@ -224,6 +401,8 @@ def _row(conn: sqlite3.Connection, cand_id: int) -> dict[str, Any] | None:
 def _values(hit: dict[str, Any]) -> dict[str, Any]:
     v = {k: hit.get(k) for k in _FIELDS}
     v["pub_types"] = "; ".join(hit.get("pub_types") or []) or None
+    al = hit.get("author_list")
+    v["author_list"] = (al if isinstance(al, str) else json.dumps(al, ensure_ascii=False)) if al else None  # a row's own JSON, or a record's list
     for k in ("is_open_access", "has_xml", "has_pdf"):
         v[k] = 1 if hit.get(k) else 0
     v["doi"] = (v["doi"] or "").lower() or None
@@ -232,37 +411,45 @@ def _values(hit: dict[str, Any]) -> dict[str, Any]:
 
 
 def _existing(conn: sqlite3.Connection, v: dict[str, Any]) -> int | None:
-    for col in ("doi", "pmid", "pmcid"):
+    for col in ("doi", "pmid", "pmcid", "openalex"):
         if v.get(col):
             r = conn.execute(f"SELECT cand_id FROM candidates WHERE {col} = ?", (v[col],)).fetchone()
             if r is not None:
                 return int(r[0])
-    if not (v.get("doi") or v.get("pmid") or v.get("pmcid")) and v.get("title"):
-        r = conn.execute("SELECT cand_id FROM candidates WHERE doi IS NULL AND pmid IS NULL AND pmcid IS NULL AND title = ? AND COALESCE(year, '') = ?", (v["title"], v.get("year") or "")).fetchone()
+    if not (v.get("doi") or v.get("pmid") or v.get("pmcid") or v.get("openalex")) and v.get("title"):
+        r = conn.execute("SELECT cand_id FROM candidates WHERE doi IS NULL AND pmid IS NULL AND pmcid IS NULL AND openalex IS NULL AND title = ? AND COALESCE(year, '') = ?", (v["title"], v.get("year") or "")).fetchone()
         if r is not None:
             return int(r[0])
     return None
 
 
-def upsert_candidate(conn: sqlite3.Connection, hit: dict[str, Any], *, query: str | None, now: str, status: str = "found") -> tuple[int, bool]:
+def upsert_candidate(conn: sqlite3.Connection, hit: dict[str, Any], *, query: str | None, now: str, status: str = "found", round: int = 1) -> tuple[int, bool]:
     """A hit as a candidate, once. Returns `(cand_id, added)`. A candidate already seen keeps its
-    status and its query; what it lacked is filled, and nothing it has is replaced."""
+    status and its query; what it lacked is filled, and nothing it has is replaced — but for its
+    round, which is the earliest that reached it."""
     v = _values(hit)
     cid = _existing(conn, v)
     if cid is None:
-        cols = ("query", *_FIELDS, "status", "found_at", "updated_at")
-        cur = conn.execute(f"INSERT INTO candidates({', '.join(cols)}) VALUES ({', '.join('?' * len(cols))})", (query, *(v[k] for k in _FIELDS), status, now, now))
+        cols = ("query", *_FIELDS, "status", "found_at", "updated_at", "round")
+        cur = conn.execute(f"INSERT INTO candidates({', '.join(cols)}) VALUES ({', '.join('?' * len(cols))})", (query, *(v[k] for k in _FIELDS), status, now, now, round))
         return int(cur.lastrowid), True
+    conn.execute("UPDATE candidates SET round = ? WHERE cand_id = ? AND round > ?", (round, cid, round))  # NULL, from before rounds, is a search's: 1
+    fill_candidate(conn, cid, hit)
+    return cid, False
+
+
+def fill_candidate(conn: sqlite3.Connection, cid: int, hit: dict[str, Any]) -> None:
+    """What a candidate lacks, from another record of the same work; nothing it has is replaced,
+    and an identifier another candidate already holds stays that one's — two partial rows of one
+    paper stay two rather than one being overwritten by the other."""
+    v = _values(hit)
     for col in _FIELDS:
         if v.get(col) is None:
             continue
-        if col in ("doi", "pmid", "pmcid"):
-            # an identifier another candidate already holds is that one's; two partial rows of one
-            # paper stay two rather than one being overwritten by the other
+        if col in ("doi", "pmid", "pmcid", "openalex"):
             if conn.execute(f"SELECT 1 FROM candidates WHERE {col} = ? AND cand_id != ?", (v[col], cid)).fetchone():
                 continue
         conn.execute(f"UPDATE candidates SET {col} = COALESCE({col}, ?) WHERE cand_id = ?", (v[col], cid))
-    return cid, False
 
 
 def _write_manifest(lib: Library, update: Callable[[dict[str, Any]], None]) -> dict[str, Any]:
@@ -325,6 +512,8 @@ def links(row: dict[str, Any]) -> dict[str, str]:
         out["europepmc"] = f"https://europepmc.org/article/MED/{row['pmid']}"
     elif row.get("pmcid"):
         out["europepmc"] = f"https://europepmc.org/article/PMC/{row['pmcid']}"
+    if row.get("oa_url"):
+        out["open"] = str(row["oa_url"])  # an open copy OpenAlex knows of, outside PMC: asked by a fetch, and for a person when the site would not answer one
     return out
 
 
@@ -455,6 +644,171 @@ def _pdf_from(data: bytes, pmcid: str) -> bytes | None:
     return None
 
 
+_VERSION = r"<Prefix>{}\.(\d+)/</Prefix>"
+_S3 = re.compile(r"^s3://[^/]+/([^?#]+)(?:\?md5=([0-9a-fA-F]{32}))?")
+
+
+def pmc_cloud_pdf(pmcid: str, timeout: float, base: str | None = None) -> tuple[bytes | None, str]:
+    """A paper's PDF from the PMC Cloud Service, by PMCID: `(pdf, "")`, or `(None, why not)`.
+    The bucket lists an article's versions as folders (`PMC11278924.1/`); the latest one's JSON
+    names its PDF (`pdf_url`, an `s3://` address carrying the PDF's MD5), and the PDF is taken
+    only if it is one and its MD5 holds. An author manuscript is there as XML and text, with no
+    PDF; a paper outside the open-access datasets is not there at all."""
+    pmcid = pmcid.upper()
+    b = pmc_cloud_base(base)
+    listing = _get(f"{b}/?{urllib.parse.urlencode({'list-type': 2, 'prefix': f'{pmcid}.', 'delimiter': '/'})}", timeout)
+    versions = [int(v) for v in re.findall(_VERSION.format(re.escape(pmcid)), listing.decode("utf-8", "replace"))]
+    if not versions:
+        return None, "not in its open-access datasets"
+    v = max(versions)
+    try:
+        meta = json.loads(_get(f"{b}/{pmcid}.{v}/{pmcid}.{v}.json", timeout))
+    except ValueError:
+        return None, "its record would not read"
+    m = _S3.match(str(meta.get("pdf_url") or ""))
+    if m is None:
+        return None, "no PDF (an author manuscript)" if meta.get("is_manuscript") else "no PDF"
+    body = _get(f"{b}/{m.group(1)}", timeout)
+    if body[:4] != b"%PDF":
+        return None, "not a PDF in the answer"
+    if m.group(2) and hashlib.md5(body).hexdigest() != m.group(2).lower():
+        return None, "the PDF failed its MD5"
+    return body, ""
+
+
+#: An open copy is never asked of these: PMC's and Europe PMC's pages sit behind a bot check, and
+#: their services were asked already, by PMCID.
+_ASKED_BY_SERVICE = re.compile(r"(?:^|\.)(?:ncbi\.nlm\.nih\.gov|europepmc\.org|ebi\.ac\.uk)$", re.I)
+#: No paper's PDF is larger; what is, is not taken.
+OPEN_COPY_MOST = 100 * 2**20
+_CITATION_PDF = (re.compile(rb"""<meta\s[^>]*name\s*=\s*["']citation_pdf_url["'][^>]*content\s*=\s*["']([^"']+)["']""", re.I),
+                 re.compile(rb"""<meta\s[^>]*content\s*=\s*["']([^"']+)["'][^>]*name\s*=\s*["']citation_pdf_url["']""", re.I))
+#: A page that asks for a browser rather than answering: a bot check, left to a person.
+_CHALLENGE = re.compile(rb"just a moment\.\.\.|enable javascript and cookies|client challenge|cf-chl|captcha|are you a robot|verify you are human", re.I)
+_REFRESH = re.compile(rb"""<meta\s[^>]*http-equiv\s*=\s*["']?refresh["']?[^>]*content\s*=\s*(?:"([^"]*)"|'([^']*)')""", re.I)
+_REFRESH_URL = re.compile(r"url\s*=\s*['\"]?([^'\"]+)", re.I)
+BOT_CHECK = "the site asks for a browser (a bot check)"
+
+
+def open_copies() -> bool:
+    """Whether a fetch takes the open copy OpenAlex names, unless `LITRAG_OPEN_COPIES=off`."""
+    return os.environ.get("LITRAG_OPEN_COPIES", "on").strip().lower() not in ("off", "0", "false", "no")
+
+
+def _askable(url: str) -> bool:
+    parts = urllib.parse.urlsplit(url)
+    return parts.scheme in ("http", "https") and bool(parts.hostname) and not _ASKED_BY_SERVICE.search(parts.hostname or "")
+
+
+def _get_page(opener: urllib.request.OpenerDirector, url: str, timeout: float) -> tuple[bytes, str, bool]:
+    """One GET of an open copy, through the redirects and cookies a publisher's site sets on the
+    way: `(body, the address it ended at, whether it is a bot check)`, at most `OPEN_COPY_MOST`
+    bytes. A bot check is an error page that says so, or an empty answer a firewall gives in
+    place of a challenge (AWS's: 202, `x-amzn-waf-action`)."""
+    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, "Accept": "application/pdf, text/html;q=0.9, */*;q=0.5"})
+    try:
+        with opener.open(req, timeout=timeout) as resp:
+            body = resp.read(OPEN_COPY_MOST + 1)
+            if len(body) > OPEN_COPY_MOST:
+                raise ValueError("larger than any paper")
+            check = bool(resp.headers.get("x-amzn-waf-action")) or (resp.status == 202 and not body.strip()) or bool(_CHALLENGE.search(body[:65536]))
+            return body, resp.geturl(), check and not _is_pdf(body)
+    except urllib.error.HTTPError as e:
+        page = e.read(65536) if e.fp is not None else b""
+        if e.headers.get("x-amzn-waf-action") or _CHALLENGE.search(page):
+            return page, url, True
+        raise
+
+
+def _is_pdf(body: bytes) -> bool:
+    return b"%PDF" in body[:1024]
+
+
+def _next_address(body: bytes, refresh: bool = True) -> str | None:
+    """Where a page sends a reader for the paper: the PDF its `citation_pdf_url` names (the tag
+    publishers and repositories set for indexers), else, with `refresh`, where its meta refresh goes."""
+    for rx in _CITATION_PDF:
+        if m := rx.search(body):
+            return html.unescape(m.group(1).decode("utf-8", "replace")).strip()
+    if refresh and (m := _REFRESH.search(body[:65536])):
+        if u := _REFRESH_URL.search(html.unescape((m.group(1) or m.group(2) or b"").decode("utf-8", "replace"))):
+            return u.group(1).strip()
+    return None
+
+
+def open_copy_pdf(url: str, timeout: float) -> tuple[bytes | None, str]:
+    """The PDF at an open copy's address: `(pdf, "")`, or `(None, why not)`. The address is
+    OpenAlex's and is the PDF or a page; a page is followed, a few times at most, to the PDF it
+    names or the page its refresh goes to. A bot check ends it: that is for a person's browser."""
+    if not _askable(url):
+        return None, "not an address asked this way"
+    opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor())
+    seen: set[str] = set()
+    for _ in range(4):
+        seen.add(url)
+        body, at, check = _get_page(opener, url, timeout)
+        if _is_pdf(body):
+            return body, ""
+        # an article's page that names its PDF is followed, whatever else it mentions; a bot
+        # check's own refresh (back to itself, with a token) is not
+        named = _next_address(body, refresh=not check)
+        if named is None and check:
+            return None, BOT_CHECK
+        if not body.strip():
+            return None, "an empty answer"
+        if named is None:
+            return None, "a page naming no PDF"
+        url = urllib.parse.urljoin(at, named)
+        if url in seen or not _askable(url):
+            return None, "a page leading nowhere asked this way"
+    return None, "pages leading to pages, never a PDF"
+
+
+def _squeezed(s: Any) -> str:
+    folded = "".join(ch for ch in unicodedata.normalize("NFKD", str(s or "")) if not unicodedata.combining(ch))
+    return re.sub(r"[^a-z0-9]+", "", folded.lower())
+
+
+#: How a supplement names itself above the title it repeats.
+_SUPPLEMENT = re.compile(r"supplementa|supportinginformation|supplementinformation|additionalfile|appendix")
+#: A title shorter than this, squeezed, is too common to stand for the paper on a page.
+_TITLE_CHARS = 24
+
+
+def names_the_paper(text: str, row: dict[str, Any]) -> str | None:
+    """Whether the first pages of a PDF are the candidate's paper: None if they print its DOI or
+    its whole title (spaces, marks, line breaks and accents counting for nothing) and the title
+    is not under a supplement's name; else why not. Unassignable beats misassigned: a PDF that
+    names neither is left to a person, never filed as the paper."""
+    page = _squeezed(text)
+    if not page:
+        return "no text to tell it by"
+    title = _squeezed(row.get("title"))
+    at = page.find(title) if len(title) >= _TITLE_CHARS else -1
+    if at >= 0 and _SUPPLEMENT.search(page[max(0, at - 300):at]):
+        return "a supplement, not the paper"
+    doi = _squeezed(row.get("doi"))
+    if at >= 0 or (doi and len(doi) >= 8 and doi in page):
+        return None
+    return "its first pages name neither its DOI nor its title"
+
+
+def _first_pages(path: Path, pages: int = 3) -> str:
+    """The text of a PDF's first pages, pdfium's, or "" when it has none to give."""
+    from .recover import clean, open_pdf
+
+    try:
+        with open_pdf(path) as pdf:
+            out = []
+            for i in range(min(pages, len(pdf))):
+                page = pdf[i]
+                tp = page.get_textpage()
+                out.append(clean(tp.get_text_range()))
+            return "\n".join(out)
+    except Exception:  # noqa: BLE001 — a PDF pdfium will not open names nothing
+        return ""
+
+
 def _save(dest: Path, data: bytes) -> None:
     dest.parent.mkdir(parents=True, exist_ok=True)
     tmp = dest.with_name(dest.name + ".part")
@@ -468,11 +822,39 @@ def _update(conn: sqlite3.Connection, cid: int, **cols: Any) -> None:
         conn.execute(f"UPDATE candidates SET {', '.join(f'{k} = ?' for k in cols)} WHERE cand_id = ?", (*cols.values(), cid))
 
 
+def _figures_pdf(lib: Library, pmcid: str | None, name: str, pdf: str | None, cloud: str | None, timeout: float) -> str | None:
+    """After the XML, the same paper's PDF, for its figures: the XML names its figures but holds
+    none, and a PDF draws them (figures.py). The PMC Cloud Service first, then the bulk
+    open-access area, the hosts the PDF route asks; only open PDFs are filed there, so a miss is
+    no failure and says nothing of the XML. Off with `LITRAG_FIGURES=off`."""
+    from .figures import enabled
+
+    if not pmcid or not enabled():
+        return None
+    body = None
+    try:
+        body, _ = pmc_cloud_pdf(pmcid, timeout, cloud)
+    except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, OSError):
+        pass
+    if body is None:
+        try:
+            body = _pdf_from(_get(pdf_url(pmcid, pdf), timeout), pmcid)
+        except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, OSError):
+            return None
+    if body is None:
+        return None
+    dest = lib.inbox_dir / f"{name}.pdf"
+    _save(dest, body)
+    return str(dest)
+
+
 def fetch_one(lib: Library, conn: sqlite3.Connection, cand_id: int, *, timeout: float = 90, base: str | None = None,
-              pdf: str | None = None, ncbi: str | None = None, on_progress: Callable[[dict[str, Any]], None] | None = None) -> dict[str, Any]:
-    """One candidate: its JATS from Europe PMC, else PMC's XML from NCBI, else its bulk PDF,
-    else `needs-pdf`. Never raises for the candidate; what went wrong is the answer's `error`
-    and the row's."""
+              pdf: str | None = None, ncbi: str | None = None, cloud: str | None = None,
+              on_progress: Callable[[dict[str, Any]], None] | None = None) -> dict[str, Any]:
+    """One candidate: its JATS from Europe PMC, else PMC's XML from NCBI, else its PDF from the
+    PMC Cloud Service or the bulk area, else `needs-pdf`. With an XML, its PDF as well where
+    there is one, for its figures (`figures` in the answer: the PDF's path, or None). Never raises for the candidate; what went
+    wrong is the answer's `error` and the row's."""
     say = on_progress or (lambda e: None)
     row = _row(conn, cand_id)
     if row is None:
@@ -482,7 +864,9 @@ def fetch_one(lib: Library, conn: sqlite3.Connection, cand_id: int, *, timeout: 
     if row["status"] == "fetched" and row["file"] and (lib.inbox_dir / row["file"]).exists():
         # fetched before and still waiting in the inbox: the same file, not a second download
         path = lib.inbox_dir / row["file"]
-        return {"cand_id": cand_id, "status": "fetched", "path": str(path), "format": "jats" if path.suffix == ".xml" else "pdf", "error": None}
+        beside = path.with_suffix(".pdf") if path.suffix == ".xml" else None
+        return {"cand_id": cand_id, "status": "fetched", "path": str(path), "format": "jats" if path.suffix == ".xml" else "pdf", "error": None,
+                "figures": str(beside) if beside is not None and beside.exists() else None}
     _update(conn, cand_id, status="fetching", error=None)
     say({"event": "candidate", "cand_id": cand_id, "status": "fetching"})
     tried: list[str] = []
@@ -499,7 +883,8 @@ def fetch_one(lib: Library, conn: sqlite3.Connection, cand_id: int, *, timeout: 
                     _save(dest, xml)
                     _update(conn, cand_id, status="fetched", file=dest.name, error=None)
                     say({"event": "candidate", "cand_id": cand_id, "status": "fetched", "format": "jats", "source": "europepmc", "path": str(dest)})
-                    return {"cand_id": cand_id, "status": "fetched", "path": str(dest), "format": "jats", "source": "europepmc", "error": None}
+                    return {"cand_id": cand_id, "status": "fetched", "path": str(dest), "format": "jats", "source": "europepmc", "error": None,
+                            "figures": _figures_pdf(lib, pmcid, name, pdf, cloud, timeout)}
                 tried.append("full text XML: not an article")
             except urllib.error.HTTPError as e:
                 tried.append(f"full text XML: HTTP {e.code}")
@@ -518,15 +903,34 @@ def fetch_one(lib: Library, conn: sqlite3.Connection, cand_id: int, *, timeout: 
                     _save(dest, article)
                     _update(conn, cand_id, status="fetched", file=dest.name, error=None)
                     say({"event": "candidate", "cand_id": cand_id, "status": "fetched", "format": "jats", "source": "ncbi", "path": str(dest)})
-                    return {"cand_id": cand_id, "status": "fetched", "path": str(dest), "format": "jats", "source": "ncbi", "error": None}
+                    return {"cand_id": cand_id, "status": "fetched", "path": str(dest), "format": "jats", "source": "ncbi", "error": None,
+                            "figures": _figures_pdf(lib, pmcid, name, pdf, cloud, timeout)}
                 tried.append("NCBI PMC XML: no full text in the answer")
             except urllib.error.HTTPError as e:
                 tried.append(f"NCBI PMC XML: HTTP {e.code}")  # 400: PMC holds it, NCBI may not give it out
             except (urllib.error.URLError, TimeoutError, OSError) as e:
                 tried.append(f"NCBI PMC XML: {e}")
                 unreachable = True
+        if pmcid:
+            # Asked of every PMCID, like NCBI: its listing says at once whether it holds the paper,
+            # and Europe PMC's flags are not the open-access subset's.
+            say({"event": "candidate", "cand_id": cand_id, "status": "fetching", "format": "pdf", "source": "pmc-cloud"})
+            try:
+                body, why = pmc_cloud_pdf(pmcid, timeout, cloud)
+                if body is not None:
+                    dest = lib.inbox_dir / f"{name}.pdf"
+                    _save(dest, body)
+                    _update(conn, cand_id, status="fetched", file=dest.name, error=None)
+                    say({"event": "candidate", "cand_id": cand_id, "status": "fetched", "format": "pdf", "source": "pmc-cloud", "path": str(dest)})
+                    return {"cand_id": cand_id, "status": "fetched", "path": str(dest), "format": "pdf", "source": "pmc-cloud", "error": None}
+                tried.append(f"PMC Cloud: {why}")
+            except urllib.error.HTTPError as e:
+                tried.append(f"PMC Cloud: HTTP {e.code}")
+            except (urllib.error.URLError, TimeoutError, OSError) as e:
+                tried.append(f"PMC Cloud: {e}")
+                unreachable = True
         if pmcid and (row.get("is_open_access") or row.get("has_pdf")):
-            say({"event": "candidate", "cand_id": cand_id, "status": "fetching", "format": "pdf"})
+            say({"event": "candidate", "cand_id": cand_id, "status": "fetching", "format": "pdf", "source": "europepmc"})
             try:
                 body = _pdf_from(_get(pdf_url(pmcid, pdf), timeout), pmcid)
                 if body is not None:
@@ -541,6 +945,28 @@ def fetch_one(lib: Library, conn: sqlite3.Connection, cand_id: int, *, timeout: 
             except (urllib.error.URLError, TimeoutError, OSError) as e:
                 tried.append(f"open-access PDF: {e}")
                 unreachable = True
+        if row.get("oa_url") and open_copies() and _askable(str(row["oa_url"])):
+            # A host of OpenAlex's naming, not a service of ours: one that cannot be reached, or
+            # will not answer a program, is a link for a person, not a failure to try again.
+            host = urllib.parse.urlsplit(str(row["oa_url"])).hostname
+            say({"event": "candidate", "cand_id": cand_id, "status": "fetching", "format": "pdf", "source": "open-copy", "host": host})
+            try:
+                body, why = open_copy_pdf(str(row["oa_url"]), timeout)
+                if body is not None:
+                    # read under a name ingest never takes, and named the paper's only once it is
+                    dest = lib.inbox_dir / f"{name}.pdf"
+                    unchecked = dest.with_name(dest.name + ".unchecked")
+                    _save(unchecked, body)
+                    why = names_the_paper(_first_pages(unchecked), row) or ""
+                    if not why:
+                        os.replace(unchecked, dest)
+                        _update(conn, cand_id, status="fetched", file=dest.name, error=None)
+                        say({"event": "candidate", "cand_id": cand_id, "status": "fetched", "format": "pdf", "source": "open-copy", "host": host, "path": str(dest)})
+                        return {"cand_id": cand_id, "status": "fetched", "path": str(dest), "format": "pdf", "source": "open-copy", "host": host, "error": None}
+                    unchecked.unlink(missing_ok=True)
+                tried.append(f"open copy at {host}: {why}")
+            except (urllib.error.URLError, TimeoutError, OSError, ValueError, http.client.HTTPException) as e:
+                tried.append(f"open copy at {host}: {e}")
     except Exception as e:  # noqa: BLE001 — one bad candidate never costs the rest
         _update(conn, cand_id, status="failed", error=f"{type(e).__name__}: {e}"[:400])
         say({"event": "candidate", "cand_id": cand_id, "status": "failed"})
@@ -559,15 +985,16 @@ def fetch_one(lib: Library, conn: sqlite3.Connection, cand_id: int, *, timeout: 
 
 def fetch(lib: Library, conn: sqlite3.Connection, cand_ids: Iterable[int] | None = None,
           on_progress: Callable[[dict[str, Any]], None] | None = None, *, timeout: float = 90,
-          base: str | None = None, pdf: str | None = None, ncbi: str | None = None) -> list[dict[str, Any]]:
-    """Fetch candidates into the inbox, XML first (Europe PMC's, then NCBI's), then PDF, else
+          base: str | None = None, pdf: str | None = None, ncbi: str | None = None, cloud: str | None = None) -> list[dict[str, Any]]:
+    """Fetch candidates into the inbox, XML first (Europe PMC's, then NCBI's), then PDF (the PMC
+    Cloud Service's, then the bulk area's), else
     `needs-pdf`: `[{cand_id, status, path, format, source, error}]`. With no ids, every `staged`
     candidate. The worker files the returned paths with its `ingest`, then calls `reconcile`."""
     ensure_schema(conn)
     lib.inbox_dir.mkdir(parents=True, exist_ok=True)
     if cand_ids is None:
         cand_ids = [r[0] for r in conn.execute("SELECT cand_id FROM candidates WHERE status = 'staged' ORDER BY cand_id")]
-    return [fetch_one(lib, conn, int(cid), timeout=timeout, base=base, pdf=pdf, ncbi=ncbi, on_progress=on_progress) for cid in cand_ids]
+    return [fetch_one(lib, conn, int(cid), timeout=timeout, base=base, pdf=pdf, ncbi=ncbi, cloud=cloud, on_progress=on_progress) for cid in cand_ids]
 
 
 # ---------------------------------------------------------------- manual use

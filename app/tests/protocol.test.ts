@@ -33,4 +33,11 @@ describe('closesRequest', () => {
     expect(closesRequest({ event: 'edges', id: 'r3' }, 'edges')).toBe(true);
     expect(closesRequest({ event: 'error', id: 'r3' }, 'papers')).toBe(true);
   });
+
+  it('closes the labelling ops on their answers', () => {
+    expect(closesRequest({ event: 'label_queue', id: 'r4' }, 'label_queue')).toBe(true);
+    expect(closesRequest({ event: 'labelled', id: 'r5' }, 'label')).toBe(true);
+    expect(closesRequest({ event: 'labels', id: 'r6' }, 'labels')).toBe(true);
+    expect(closesRequest({ event: 'truth', id: 'r7' }, 'truth')).toBe(true);
+  });
 });

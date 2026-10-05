@@ -31,6 +31,7 @@
       <button data-view="papers" title="The papers of this project, each read into a tree">Papers</button>
       <button data-view="types" title="The kinds of paper, their canonical structures, and how each paper maps onto one">Types</button>
       <button data-view="query" title="Ask the library: retrieve passages and hydrate them with their context">Query</button>
+      <button data-view="graph" title="The papers and the citations between them; citation rounds; SQL over works, authors and citations">Graph</button>
     </nav>
 
     <main id="views">
@@ -104,6 +105,7 @@
               <div class="spacer"></div>
               <button id="add" class="primary small">Add papers…</button>
               <button id="reparse" class="ghost small" title="Read every paper again with Docling">Reparse all</button>
+              <button id="label-links" class="ghost small" title="Say which method each finding was measured by: the truth the finding→method links are measured against">Label links</button>
             </div>
             <div id="papers-tools" class="tools" hidden>
               <label class="field"><span>Sort</span><select id="papers-sort" title="The order of the list"></select></label>
@@ -183,6 +185,56 @@
         <div id="query-meta" class="summary"></div>
         <div id="query-results" class="scroll results"></div>
       </section>
+
+      <!-- graph: the papers, the citations between them, the rounds, and SQL over them -->
+      <section id="view-graph" class="view" hidden>
+        <div class="view-head">
+          <h1>Graph</h1>
+          <span id="graph-project" class="muted"></span>
+          <div class="spacer"></div>
+          <span id="graph-summary" class="muted"></span>
+          <label class="check" title="Also ask what cites each paper, not only what it cites"><input type="checkbox" id="round-citing" /> and what cites them</label>
+          <label class="check" title="Ask OpenAlex too, beside Europe PMC: works outside PubMed, reference lists for any DOI, and entries with no identifier matched by their title. Free within a daily budget; a free key (LITRAG_OPENALEX_KEY) raises it tenfold"><input type="checkbox" id="round-openalex" checked /> OpenAlex too</label>
+          <label class="field" title="How many of the works the papers cite most to fetch and read"><input id="expand-most" class="narrow" type="number" min="1" max="200" value="10" /></label>
+          <button id="expand-run" class="ghost" title="A citation round, then the works the papers cite most (cited by the most papers held) fetched and read: the next round of the library. Every passage that cites one of them then leads to it.">Expand: read the most cited</button>
+          <button id="round-run" class="primary" title="Ask what each paper read since the last round cites — its own reference list, Europe PMC's and OpenAlex's — and file every work found as a candidate of the next round. Nothing is fetched.">Citation round</button>
+        </div>
+        <div class="graph-layout">
+          <div class="col graph-col">
+            <div class="col-head">
+              <label class="field"><span>Candidates</span><select id="graph-cands" title="Which works not held to draw beside the papers held">
+                <option value="none">none</option><option value="cited" selected>cited by at least</option><option value="all">all</option>
+              </select></label>
+              <input id="graph-min" class="narrow" type="number" min="1" value="2" title="How many papers held must cite (or be cited by) a candidate for it to be drawn" />
+              <label class="field"><span>Colour</span><select id="graph-colour">
+                <option value="round">round</option><option value="year">year</option><option value="state">held or not</option>
+              </select></label>
+              <div class="spacer"></div>
+              <input id="graph-find" class="find" placeholder="Find a paper, an author…" />
+              <button id="graph-fit" class="ghost small" title="Show the whole graph">Fit</button>
+            </div>
+            <div id="graph-host" class="graph-host"><div id="graph-empty" class="empty" hidden>No papers yet. Search and fetch, or drop PDFs on the window; then a citation round finds what they cite.</div></div>
+          </div>
+          <div class="col graph-side">
+            <div class="col-head"><h2 id="graph-detail-title">A work</h2></div>
+            <div id="graph-detail" class="scroll"></div>
+          </div>
+          <div class="col sql-col">
+            <div class="col-head">
+              <h2>Ask in SQL</h2>
+              <div id="sql-presets" class="chips"></div>
+              <div class="spacer"></div>
+              <span id="sql-meta" class="muted"></span>
+              <button id="sql-fetch" class="primary small" disabled title="Fetch and read the candidates ticked below: the next round of the library">Fetch &amp; read selected</button>
+            </div>
+            <form id="sql-form" class="searchbar">
+              <textarea id="sql-q" class="mono" rows="3" spellcheck="false" title="One SELECT over works, authors, cites, papers, candidates, refs, nodes… (Ctrl+Enter runs it)"></textarea>
+              <button type="submit" class="primary">Run</button>
+            </form>
+            <div id="sql-results" class="scroll"></div>
+          </div>
+        </div>
+      </section>
     </main>
   </div>
 
@@ -192,6 +244,30 @@
   </footer>
 
   <div id="drop-overlay" hidden><div>Drop to ingest</div></div>
+
+  <!-- the labelling panel: which method a finding was measured by (labels.ts) -->
+  <div id="label-panel" class="modal" role="dialog" aria-modal="true" aria-labelledby="label-title" hidden>
+    <div class="card label-card" tabindex="-1">
+      <div class="label-head">
+        <h2 id="label-title">Label links</h2>
+        <span id="label-pos" class="muted"></span>
+        <div class="spacer"></div>
+        <button id="label-model" class="ghost small" title="The local model labels the findings this queue would offer (a hundred, on this machine); the queue then offers them first, without saying what it answered, so your labels are its audit">Let the model label</button>
+        <button id="label-close" class="ghost small" title="Close (Esc); Label links comes back to this finding">Close</button>
+      </div>
+      <div id="label-truth" class="label-truth"></div>
+      <div id="label-model-truth" class="label-truth"></div>
+      <div id="label-body" class="label-body"></div>
+      <div class="label-foot">
+        <div class="label-keys muted"><b>1</b>–<b>9</b>, <b>0</b> toggle a method (<b>⇧1</b>… the eleventh on) · <b>N</b> no method · <b>Enter</b> save · <b>S</b> skip · <b>Esc</b> close</div>
+        <div id="label-hint" class="label-hint"></div>
+        <div id="label-error" class="label-error" role="alert"></div>
+        <div class="spacer"></div>
+        <button id="label-skip" class="ghost">Skip</button>
+        <button id="label-save" class="primary">Save &amp; next</button>
+      </div>
+    </div>
+  </div>
   <script type="module" src="renderer.js"></script>
 </body>
 </html>

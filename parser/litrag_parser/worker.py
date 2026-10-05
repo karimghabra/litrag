@@ -4,8 +4,8 @@ The desktop app spawns one of these and talks to it over stdio. Every request
 is one line — `{"id": ..., "op": ..., ...}` — and every answer is one or more
 lines carrying the same id: `stage` and `working` events while a paper is
 being read, `paper`/`tree` events as it lands, and a final `done` (or
-`error`). Reads (`papers`, `tree`, `node`, `sql`) are answered at once from
-the main thread; `ingest`, `reparse` and `rebuild` run one at a time on the
+`error`). Reads (`papers`, `tree`, `node`, `sql`) and small writes (`describe`,
+`label`) are answered at once from the main thread; `ingest`, `reparse` and `rebuild` run one at a time on the
 ingest thread, so the app can browse trees while Docling is busy.
 
 Docling is imported lazily on the ingest thread — it takes seconds and pulls
@@ -34,6 +34,7 @@ from .citations import link_citations
 from .edges import link_edges, summarize as summarize_edges
 from .confidence import assess as assess_confidence
 from .outline import enabled as outline_enabled, judge as judge_outline
+from .figures import enabled as figures_enabled
 from .paper_type import decide as decide_type
 from .record import jats_authors, jats_journal, lookup_record
 from .harness import pdf_title
@@ -353,6 +354,14 @@ class Worker:
                     self.do_merge(req)
                 elif op == "embed":
                     self.do_embed(req)
+                elif op == "model_label":
+                    self.do_model_label(req)
+                elif op == "figures":
+                    self.do_figures(req)
+                elif op == "round":
+                    self.do_round(req)
+                elif op == "expand":
+                    self.do_expand(req)
             except Exception as e:  # never let one paper kill the worker
                 emit({"event": "error", "id": req.get("id"), "op": req.get("op"), "lib": req.get("lib"), "message": str(e), "trace": traceback.format_exc()})
             finally:
@@ -407,6 +416,7 @@ class Worker:
         req_id = req.get("id")
         conn = open_store(lib.store_path)
         filed: list[tuple[str, Path]] = []
+        figure_sources: list[str] = []  # XML papers given a PDF for their figures
         keys: dict[str, str] = {}
         known_all: dict[str, dict[str, Any]] = req.get("known") or {}
         for raw in req.get("paths", []):
@@ -432,6 +442,21 @@ class Worker:
             result = file_paper(conn, title=src.stem, file="", sha256=sha, fmt=fmt, doi=doi, pmid=pmid or known.get("pmid"), pmcid=pmcid or known.get("pmcid"), now=now_iso())
             keys[str(raw)] = result.key
             row = conn.execute("SELECT status, file FROM papers WHERE key = ?", (result.key,)).fetchone()
+            if result.existed and fmt == "pdf" and row and (row["file"] or "").lower().endswith(".xml") and not req.get("reread"):
+                # The paper is its XML: the text, its structure. A PDF of it is kept beside it for
+                # what the XML only names — its figures, drawn — and read for their numbers.
+                dest = lib.papers_dir / f"{_safe(result.key)}.figures.pdf"
+                if src.resolve() != dest.resolve():
+                    shutil.copy2(src, dest)
+                    if src.parent.resolve() == lib.inbox_dir.resolve():
+                        src.unlink()
+                conn.execute("UPDATE papers SET figures_file = ? WHERE key = ?", (dest.name, result.key))
+                conn.commit()
+                log_event(conn, result.key, now_iso(), "filed", f"a PDF of the XML, kept for its figures: {src.name}")
+                emit({"event": "paper", "id": req_id, "lib": lib.id, "paper": result.key, "existed": True, "kept": True, "figures_file": dest.name, "doi": doi, "pmcid": pmcid,
+                      "file": row["file"], "status": row["status"]})
+                figure_sources.append(result.key)
+                continue
             # A paper already read stays as it was read — the same DOI arriving as a second file
             # (a PDF after its JATS, say) is noted, not swapped in. `reread` is the way to replace it.
             #
@@ -467,6 +492,10 @@ class Worker:
         for i, (key, path) in enumerate(filed):
             emit({"event": "progress", "id": req_id, "op": "ingest", "lib": lib.id, "done": i, "total": len(filed), "label": f"Reading paper {i + 1} of {len(filed)}"})
             self.parse_one(lib, key, path, req_id, ask_judge=bool(req.get("judge")), ask_outline=bool(req.get("outline")) or outline_enabled())
+        parsed_now = {k for k, _ in filed}
+        for key in figure_sources:
+            if key not in parsed_now:  # read already: its figures now; one read in this batch read them as it was saved
+                self.figures_of(lib, key, req_id)
         conn = open_store(lib.store_path)
         try:
             acquire.reconcile(conn)  # a candidate whose paper is now filed is `ingested`, whichever way the file came
@@ -527,6 +556,9 @@ class Worker:
         if outline_enabled() or req.get("outline"):
             judge_outline(tree, conn, key, ask_model=ask, pub_types=row["pub_types"])  # a rebuild replays the outline's row; only the judge op asks the model
         n = save_tree(conn, key, tree, parser=f"{'judge ' + judge.model if ask else 'rebuild'} {__version__}", parsed_at=now_iso(), seconds=0.0)
+        from .figures import remap as remap_figures
+
+        remap_figures(conn, key)  # the charts stay; their figures are found again by their place on the page
         xml = source.read_bytes() if row["format"] == "jats" and source and source.exists() else None
         if xml:
             journal, year = jats_journal(xml)
@@ -659,6 +691,13 @@ class Worker:
             if o is not None and o.summary()["down"] and not self._reported_down:
                 self._reported_down = True
                 stage("meaning", f"The embedder is not answering ({o.summary()['error']}): texts the vocabulary does not know read as `other` and are not stored; a rebuild once it answers will read them")
+            if figures_enabled():
+                if path.suffix.lower() == ".pdf":
+                    self.read_figures(conn, key, path, stage)
+                else:
+                    beside = conn.execute("SELECT figures_file FROM papers WHERE key = ?", (key,)).fetchone()
+                    if beside and beside["figures_file"] and (path.parent / beside["figures_file"]).exists():
+                        self.read_figures(conn, key, path.parent / beside["figures_file"], stage, pages=True)
             links = summarize_citations(refs, cites)
             judged = judge.summary()
             stage("saved", f"{n} nodes, {links['refs']} references, {links['citations']} citation links, {linked['linked']} of {linked['findings']} findings linked to a method, a {kind['type']} paper by its {kind['source']}, confidence {sure['confidence']}" + (f" ({sure['reasons'][0]})" if sure["reasons"] else "") + (f", outline by {outlined['model']}: {outlined.get('lanes', 0)} lanes, {outlined.get('built', 0)} headings built" if outlined.get("sections") is not None else "") + (f", {judged['joined']} of {judged['asked']} judged pairs joined" if judged["asked"] else "") + f" in {seconds}s", nodes=n, **links, judged=judged, edges=linked, type=kind)
@@ -669,6 +708,72 @@ class Worker:
             emit({"event": "stage", "id": req_id, "lib": lib.id, "paper": key, "stage": "failed", "message": str(e), "trace": traceback.format_exc(), "elapsed": round(time.time() - started, 1)})
         finally:
             conn.close()
+
+    def read_figures(self, conn: Any, key: str, path: Path, stage: Any, pages: bool = False) -> dict[str, Any] | None:
+        """A PDF's figures read into numbers (figures.py) — the paper's own, or (`pages`) the PDF
+        kept beside its XML; a failure is said and never fails the paper."""
+        from . import figures
+
+        try:
+            n = len(figures.figure_numbers(conn, key) if pages else figures.pictures(conn, key))
+            if not n:
+                return None
+            stage("figures", f"Reading the charts in {n} figure{'s' if n != 1 else ''}" + (f" from {path.name}" if pages else ""))
+            out = figures.read_pages(conn, key, path) if pages else figures.read_paper(conn, key, path)
+            stage("figures", f"{out['read']} of {out['plots']} charts read in {out['figures']} figures: {out['values']} values, in {out['seconds']}s"
+                  + (f"; {out['unmatched']} plots under no caption of the paper's" if out.get("unmatched") else ""), **out)
+            return out
+        except Exception as e:  # noqa: BLE001 — the paper is read; only its charts are not
+            stage("figures", f"The figures could not be read: {type(e).__name__}: {e}")
+            return None
+
+    def figures_of(self, lib: Library, key: str, req_id: Any) -> dict[str, Any] | None:
+        """A read paper's figures, now (a PDF arrived for its XML): progress and a log line, never
+        a stage, so the paper's own state is left as it was."""
+        from . import figures
+
+        conn = open_store(lib.store_path)
+        try:
+            emit({"event": "progress", "id": req_id, "op": "figures", "lib": lib.id, "done": 0, "total": 1, "label": "Reading the figures from the PDF beside the XML"})
+            out = figures.read_for(conn, key, lib.papers_dir)
+            if out is not None:
+                emit({"event": "log", "id": req_id, "lib": lib.id, "paper": key, "logger": "figures",
+                      "message": f"{out['read']} of {out['plots']} charts read from the PDF beside the XML: {out['values']} values"})
+            return out
+        except Exception as e:  # noqa: BLE001 — the paper stays read; only its charts are not
+            emit({"event": "log", "id": req_id, "lib": lib.id, "paper": key, "logger": "figures", "message": f"{type(e).__name__}: {e}"})
+            return None
+        finally:
+            conn.close()
+
+    def do_figures(self, req: dict[str, Any]) -> None:
+        """Every paper's figures read into numbers — a PDF paper's, and an XML paper's from the PDF
+        kept beside it — those not read by this reader, or the papers named; `force` reads them again."""
+        from . import figures
+
+        lib = self._lib(req)
+        req_id = req.get("id")
+        conn = open_store(lib.store_path)
+        keys = set(req.get("keys") or [])
+        totals = {"papers": 0, "figures": 0, "plots": 0, "read": 0, "values": 0}
+        try:
+            rows = [r for r in conn.execute("SELECT key, file FROM papers WHERE status = 'parsed' AND (format = 'pdf' OR figures_file IS NOT NULL) ORDER BY added_at") if not keys or r["key"] in keys]
+            todo = [r for r in rows if req.get("force") or not figures.is_read(conn, r["key"])]
+            for i, r in enumerate(todo):
+                emit({"event": "progress", "id": req_id, "op": "figures", "lib": lib.id, "done": i, "total": len(todo), "label": f"Reading the charts of paper {i + 1} of {len(todo)}"})
+                try:
+                    out = figures.read_for(conn, r["key"], lib.papers_dir)
+                except Exception as e:  # noqa: BLE001 — one paper's figures do not stop the rest
+                    emit({"event": "log", "id": req_id, "lib": lib.id, "paper": r["key"], "logger": "figures", "message": f"{type(e).__name__}: {e}"})
+                    continue
+                if out is None:
+                    continue
+                totals["papers"] += 1
+                for k in ("figures", "plots", "read", "values"):
+                    totals[k] += out[k]
+        finally:
+            conn.close()
+        emit({"event": "done", "id": req_id, "op": "figures", "lib": lib.id, **totals})
 
     # ---- acquisition, projects, retrieval: the long ones, on the ingest thread ----------
 
@@ -687,13 +792,15 @@ class Worker:
                 got.append(acquire.fetch_one(lib, conn, cid, on_progress=lambda e: emit({**e, "id": req_id, "lib": lib.id})))
         finally:
             conn.close()
-        paths = [g["path"] for g in got if g.get("path")]
+        # the XML first, then any PDF fetched beside it for its figures: ingest files the paper as
+        # its XML and keeps the PDF for the figures, never the other way round
+        paths = [g["path"] for g in got if g.get("path")] + [g["figures"] for g in got if g.get("path") and g.get("figures")]
         conn = open_store(lib.store_path)
         try:
             ids = {g["cand_id"]: dict(conn.execute("SELECT doi, pmid, pmcid FROM candidates WHERE cand_id = ?", (g["cand_id"],)).fetchone() or {}) for g in got if g.get("path")}
         finally:
             conn.close()
-        known = {g["path"]: ids.get(g["cand_id"], {}) for g in got if g.get("path")}
+        known = {g["path"]: ids.get(g["cand_id"], {}) for g in got if g.get("path")} | {g["figures"]: ids.get(g["cand_id"], {}) for g in got if g.get("path") and g.get("figures")}
         counts: dict[str, int] = {}
         for g in got:
             counts[str(g.get("status"))] = counts.get(str(g.get("status")), 0) + 1
@@ -701,11 +808,15 @@ class Worker:
         filed = self.do_ingest({"id": req_id, "op": "ingest", "lib": lib.id, "paths": paths, "known": known}) if paths else {}
         conn = open_store(lib.store_path)
         try:
-            # a file filed is its candidate's paper, whatever identifiers it printed of itself
+            # a file filed is its candidate's paper, whatever identifiers it printed of itself; and a
+            # reading that found no title of its own (filed under its file's name) takes the record's
             for g in got:
                 key = filed.get(g.get("path") or "")
                 if key:
                     conn.execute("UPDATE candidates SET status = 'ingested', paper_key = ?, error = NULL, updated_at = ? WHERE cand_id = ?", (key, now_iso(), g["cand_id"]))
+                    stem = Path(g["path"]).stem
+                    conn.execute("UPDATE papers SET title = (SELECT title FROM candidates WHERE cand_id = ?) WHERE key = ? AND title IN (?, ?, ?)"
+                                 " AND (SELECT title FROM candidates WHERE cand_id = ?) IS NOT NULL", (g["cand_id"], key, stem, key, _safe(key), g["cand_id"]))
             conn.commit()
             acquire.reconcile(conn)
             for g in got:
@@ -715,6 +826,88 @@ class Worker:
         finally:
             conn.close()
         emit({"event": "done", "id": req_id, "op": "fetch", "lib": lib.id, "fetched": got})
+
+    def do_round(self, req: dict[str, Any]) -> None:
+        """A citation round (graph.py): what the held papers cite — and, asked for, what cites
+        them — filed as candidates of the next round and `cites` rows. Nothing is fetched."""
+        from . import graph
+
+        lib = self._lib(req)
+        req_id = req.get("id")
+        conn = open_store(lib.store_path)
+        try:
+            papers = req.get("papers")
+            out = graph.harvest(lib, conn, [str(k) for k in papers] if papers else None, references=bool(req.get("references", True)),
+                                citations=bool(req.get("citations")), again=bool(req.get("again")),
+                                openalex=None if req.get("openalex") is None else bool(req.get("openalex")),
+                                on_progress=lambda e: emit({**e, "id": req_id, "lib": lib.id}))
+        finally:
+            conn.close()
+        o = out["openalex"]
+        emit({"event": "stage", "id": req_id, "lib": lib.id, "stage": "round",
+              "message": f"{out['papers']} papers: {out['added']} new candidates, {out['held']} citations between papers held, {out['unidentified']} entries naming no identifier"
+                         + (f"; OpenAlex: {o['works']} works in its lists, {o['matched']} of {o['searches']} entries matched by title{', its daily budget spent' if o['spent'] else ''}" if o["on"] else "")})
+        emit({"event": "done", "id": req_id, "op": "round", "lib": lib.id, **out})
+
+    def do_expand(self, req: dict[str, Any]) -> None:
+        """The library grown by what its papers cite: a citation round for the papers not asked yet,
+        then papers fetched and read, the most cited first, until `most` are read or none that can
+        be is left (`graph.expansion`). A work that cannot be read automatically is never what the
+        `most` is spent on: the ones passed over on the way are fetched too, which marks them
+        `needs-pdf` for Collect PDFs. Once read, every passage that cites one leads to it."""
+        from . import graph
+
+        lib = self._lib(req)
+        req_id = req.get("id")
+        say = lambda e: emit({**e, "id": req_id, "lib": lib.id})  # noqa: E731
+        want = max(1, int(req.get("most") or 10))
+        min_cited = int(req.get("min_cited") or 1)
+        conn = open_store(lib.store_path)
+        try:
+            found = graph.harvest(lib, conn, None, citations=bool(req.get("citations")),
+                                  openalex=None if req.get("openalex") is None else bool(req.get("openalex")), on_progress=say)
+        finally:
+            conn.close()
+        tried: set[int] = set()
+        chosen: list[dict[str, Any]] = []
+        passed: list[dict[str, Any]] = []
+        read: list[str] = []
+        for _ in range(6):  # a readable-looking paper can still be refused: try again further down, a few times
+            conn = open_store(lib.store_path)
+            try:
+                take, skip = graph.expansion(graph.next_to_read(conn, most=None, min_cited=min_cited), want - len(read), tried)
+            finally:
+                conn.close()
+            skip = [r for r in skip if r["cand_id"] not in tried][: max(0, want - len(passed))]
+            if not take and not skip:
+                break
+            chosen += take
+            passed += skip
+            batch = [r["cand_id"] for r in take + skip]
+            tried |= set(batch)
+            emit({"event": "stage", "id": req_id, "lib": lib.id, "stage": "expand",
+                  "message": f"Reading {len(take)} of the works the papers cite most"
+                             + (f", and marking {len(skip)} more cited ones that nothing open is on record for, for Collect PDFs" if skip else "")
+                             + ": " + "; ".join(f"{c['first_author'] or '?'} {c['year'] or ''} (cited by {c['held_links']})" for c in take[:4]) + ("…" if len(take) > 4 else "")})
+            self.do_fetch({"id": req_id, "op": "fetch", "lib": lib.id, "ids": batch})
+            conn = open_store(lib.store_path)
+            try:
+                ids = [r["cand_id"] for r in take + skip]  # one passed over is read too when its open copy came
+                read += [r[0] for r in conn.execute(f"SELECT paper_key FROM candidates WHERE cand_id IN ({','.join('?' * len(ids))}) AND paper_key IN (SELECT key FROM papers)", ids)] if ids else []
+            finally:
+                conn.close()
+            if len(read) >= want or not take:
+                break
+        conn = open_store(lib.store_path)
+        try:
+            graph.sync(conn)
+            passages = conn.execute(f"SELECT COUNT(DISTINCT node_id) FROM passage_cites WHERE work IN ({','.join('?' * len(read))})", read).fetchone()[0] if read else 0
+            wanting = [dict(r) for r in conn.execute(
+                f"SELECT cand_id, status FROM candidates WHERE cand_id IN ({','.join('?' * len(passed))})", [r["cand_id"] for r in passed])] if passed else []
+        finally:
+            conn.close()
+        emit({"event": "done", "id": req_id, "op": "expand", "lib": lib.id, "round": found, "chosen": chosen, "read": read, "passages": passages,
+              "passed": passed, "for_a_person": sum(1 for w in wanting if w["status"] == "needs-pdf")})
 
     def do_merge(self, req: dict[str, Any]) -> None:
         """Several projects' libraries into one (projects.merge), then its rows derived again from
@@ -746,6 +939,22 @@ class Worker:
         finally:
             conn.close()
         emit({"event": "done", "id": req_id, "op": "embed", "lib": lib.id, **out})
+
+    def do_model_label(self, req: dict[str, Any]) -> None:
+        """The local model labels the findings a person would be offered (labeller.py), for a
+        person to audit; a finding it has labelled is not asked again."""
+        from . import labeller, truth
+
+        lib = self._lib(req)
+        req_id = req.get("id")
+        conn = open_store(lib.store_path)
+        try:
+            out = labeller.label(conn, n=int(req.get("n") or 100), seed=int(req.get("seed") or 0), per_paper=int(req.get("per_paper") or truth.PER_PAPER),
+                                 model=req.get("model") or None, on_progress=lambda done, total, label: emit(
+                                     {"event": "progress", "id": req_id, "op": "model_label", "lib": lib.id, "done": done, "total": total, "label": label}))
+        finally:
+            conn.close()
+        emit({"event": "done", "id": req_id, "op": "model_label", "lib": lib.id, **out})
 
     def answer_async(self, req: dict[str, Any]) -> None:
         """A read that waits on something slow — Europe PMC, the local model, the embedder — on
@@ -783,9 +992,12 @@ class Worker:
                 elif op == "query":
                     from . import retrieve
 
+                    from . import graph
+
                     lib = self._lib(req)
                     conn = open_store(lib.store_path)
                     try:
+                        graph.sync(conn)  # a passage's citations lead to the works as they are now
                         t = time.time()
                         out = retrieve.query(conn, str(req.get("question") or ""), retrieve.OllamaEmbedder(), k=int(req.get("k") or 8))
                         out["seconds"] = round(time.time() - t, 3)
@@ -832,7 +1044,9 @@ class Worker:
                     if op == "candidates":
                         emit({"event": "candidates", "id": req_id, "lib": lib.id, "candidates": acquire.candidates(conn, status=req.get("status"), query=req.get("query"))})
                     elif op == "wanted":
-                        emit({"event": "wanted", "id": req_id, "lib": lib.id, "candidates": acquire.wanted(conn)})
+                        from .figures import figures_wanted
+
+                        emit({"event": "wanted", "id": req_id, "lib": lib.id, "candidates": acquire.wanted(conn), "figures": figures_wanted(conn)})
                     else:
                         fn = acquire.dismiss if op == "dismiss" else acquire.stage
                         emit({"event": "dismissed", "id": req_id, "lib": lib.id, "op": op, **fn(conn, [int(i) for i in req.get("ids") or []])})
@@ -861,7 +1075,7 @@ class Worker:
                     emit({"event": "retrieval", "id": req_id, "lib": lib.id, **retrieve.status(conn, retrieve.OllamaEmbedder())})
                 finally:
                     conn.close()
-            elif op in ("fetch", "merge", "embed"):
+            elif op in ("fetch", "merge", "embed", "model_label", "figures", "round", "expand"):
                 if op != "merge":
                     self._lib(req)  # fail fast on a bad library
                 self.ingest_queue.put(req)
@@ -900,10 +1114,32 @@ class Worker:
                 conn.close()
                 emit({"event": "events", "id": req_id, "paper": req["key"], "events": rows})
             elif op == "sql":
+                from . import graph
+
                 lib = self._lib(req)
                 conn = open_store(lib.store_path)
                 try:
-                    emit({"event": "rows", "id": req_id, **run_select(conn, str(req["sql"]), int(req.get("limit", 200)))})
+                    graph.sync(conn)  # `works`, `cites` and `authors` as the papers and candidates are now
+                    conn.execute("PRAGMA query_only = ON")  # the statement reads; the regex in run_select is only the first guard
+                    emit({"event": "rows", "id": req_id, **run_select(conn, str(req["sql"]), min(int(req.get("limit", 200)), 5000))})
+                finally:
+                    conn.close()
+            elif op == "passages":
+                from . import graph
+
+                lib = self._lib(req)
+                conn = open_store(lib.store_path)
+                try:
+                    emit({"event": "passages", "id": req_id, "lib": lib.id, "work": str(req["work"]), "passages": graph.passages_citing(conn, str(req["work"]))})
+                finally:
+                    conn.close()
+            elif op == "graph":
+                from . import graph
+
+                lib = self._lib(req)
+                conn = open_store(lib.store_path)
+                try:
+                    emit({"event": "graph", "id": req_id, "lib": lib.id, **graph.graph(conn, candidates=str(req.get("candidates") or "cited"), min_cited=int(req.get("min_cited") or 2))})
                 finally:
                     conn.close()
             elif op == "file":
@@ -915,10 +1151,15 @@ class Worker:
                     raise ValueError(f"No file for {req.get('key')!r}")
                 emit({"event": "file", "id": req_id, "path": str(lib.papers_dir / row["file"]), "format": row["format"], "raw": str(lib.parsed_dir / f"{_safe(str(req['key']))}.docling.json")})
             elif op == "refs":
+                from . import graph
+
                 lib = self._lib(req)
                 conn = open_store(lib.store_path)
-                rows = refs_of(conn, str(req["key"]))
-                conn.close()
+                try:
+                    graph.sync(conn)  # each entry's work as the papers and candidates are now
+                    rows = refs_of(conn, str(req["key"]))
+                finally:
+                    conn.close()
                 emit({"event": "refs", "id": req_id, "paper": str(req["key"]), "refs": rows})
             elif op == "edges":
                 # a node's edges both ways: what a finding was measured by, what was measured here, what cites a figure
@@ -927,6 +1168,43 @@ class Worker:
                 both = edges_of(conn, str(req["node_id"]))
                 conn.close()
                 emit({"event": "edges", "id": req_id, "node_id": str(req["node_id"]), **both})
+            elif op == "charts":
+                # the numbers read from a figure (figures.py): one figure's plots, or every figure of a paper
+                from . import figures
+
+                lib = self._lib(req)
+                conn = open_store(lib.store_path)
+                try:
+                    figures.ensure_schema(conn)
+                    if req.get("figure"):
+                        out = {"figure": str(req["figure"]), "plots": figures.of_figure(conn, str(req["figure"]))}
+                    else:
+                        figs = [r[0] for r in conn.execute("SELECT DISTINCT figure FROM charts WHERE paper = ? ORDER BY figure", (str(req.get("key") or ""),))]
+                        out = {"key": req.get("key"), "figures": [{"figure": f, "plots": figures.of_figure(conn, f)} for f in figs]}
+                finally:
+                    conn.close()
+                emit({"event": "charts", "id": req_id, "lib": lib.id, **out})
+            elif op in ("label_queue", "label", "labels", "truth"):
+                # the truth for the finding→method links (truth.py): findings to label, a finding's
+                # labels written, every label, and the linker measured against them
+                from . import truth
+
+                lib = self._lib(req)
+                conn = open_store(lib.store_path)
+                try:
+                    if op == "label_queue":
+                        out = truth.queue(conn, n=int(req.get("n") or 100), seed=int(req.get("seed") or 0),
+                                          per_paper=int(req.get("per_paper") or truth.PER_PAPER), finding=req.get("finding") or None)
+                        emit({"event": "label_queue", "id": req_id, "lib": lib.id, **out})
+                    elif op == "label":
+                        saved = truth.save_labels(conn, str(req["finding"]), list(req.get("labels") or []), by=req.get("by"))
+                        emit({"event": "labelled", "id": req_id, "lib": lib.id, "finding": str(req["finding"]), "labels": saved})
+                    elif op == "labels":
+                        emit({"event": "labels", "id": req_id, "lib": lib.id, "labels": truth.labels(conn)})
+                    else:
+                        emit({"event": "truth", "id": req_id, "lib": lib.id, **truth.report(conn, choose_paragraph=truth._hydration_chooser())})
+                finally:
+                    conn.close()
             elif op == "audit":
                 # Every node against its neighbours — see audit.py. One paper, a library, or a raw document.
                 from .audit import audit_doc, summarize

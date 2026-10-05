@@ -53,7 +53,7 @@ def _name(body: str) -> str | None:
 
 
 def jats_authors(xml: bytes | None) -> list[dict[str, Any]]:
-    """`[{name, affiliations, corresponding}]` from a JATS file's contributor groups — the
+    """`[{name, affiliations, corresponding, family?, given?}]` from a JATS file's contributor groups — the
     authors, not the editors — with each affiliation resolved through its `rid`; empty when
     the file names none."""
     if not xml:
@@ -74,7 +74,11 @@ def jats_authors(xml: bytes | None) -> list[dict[str, Any]]:
                 continue
             aff_ids = _AFF_XREF.findall(body)
             affiliations = [affs[a] for a in aff_ids if a in affs] or [_text(_LABEL.sub("", a)) for a in _AFF_ANY.findall(body)]
-            out.append({"name": name, "affiliations": affiliations, "corresponding": bool(_CORRESP.search(attrs) or _CORRESP.search(body))})
+            surname, given = _SURNAME.search(body), _GIVEN.search(body)
+            person = {"name": name, "affiliations": affiliations, "corresponding": bool(_CORRESP.search(attrs) or _CORRESP.search(body))}
+            if surname:  # the file's own split, which a name joined back together loses
+                person |= {"family": _text(surname.group(1)), "given": _text(given.group(1)) if given else None}
+            out.append(person)
     return out
 
 

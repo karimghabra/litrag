@@ -5,6 +5,7 @@
  * paragraph node; its context is the rows around it, not a wider chunk.
  */
 
+import { renderPlots, type Plot } from './charts.ts';
 import { $, activity, ctx, el, escapeHtml, hooks, log, onProjectChange, onViewShown, onWorkerEvent, projectName, request, roleColor } from './shared.ts';
 
 interface QNode {
@@ -17,6 +18,18 @@ interface QNode {
   page?: number | null;
 }
 
+/** Where a method's procedure is written down when it says "as previously described [14]": the
+ *  cited paper's own method when the project holds it, else the reference (lineage.py). */
+interface QElsewhere {
+  sentence: string;
+  marker?: string;
+  ref_no: number;
+  ref: { text?: string; doi?: string | null; year?: string | null; first_author?: string | null; title?: string | null };
+  paper: { key: string; title: string; year?: string | null } | null;
+  method: { node_id: string; heading?: string | null; text: string; evidence: string } | null;
+  candidate?: { cand_id: number; status: string } | null;
+}
+
 interface QMethod {
   node_id: string;
   heading?: string | null;
@@ -25,6 +38,19 @@ interface QMethod {
   evidence?: string;
   detail?: string | null;
   score?: number | null;
+  via?: 'hit' | 'figure' | 'section';
+  /** the paragraph of the method the finding rests on, and the terms that chose it */
+  paragraph?: string | null;
+  matched?: string[];
+  paragraphs?: number;
+  described_in?: QElsewhere[];
+}
+
+interface QFindings {
+  method: string;
+  heading?: string | null;
+  total: number;
+  findings: { node_id: string; text: string; role: string; page?: number | null; evidence: string; detail?: string | null }[];
 }
 
 export interface QHit {
@@ -37,8 +63,13 @@ export interface QHit {
   before?: QNode[];
   after?: QNode[];
   methods?: QMethod[];
-  figures?: { node_id: string; text: string; caption?: string }[];
-  cites?: { ref_no: number; first_author?: string | null; year?: string | null; title?: string | null; doi?: string | null; text?: string }[];
+  /** statistics and materials: every finding's, shown apart so the measuring method comes first */
+  general?: QMethod[];
+  /** for a methods hit: what its method measured, the edges walked the other way */
+  findings?: QFindings | null;
+  described_in?: QElsewhere[];
+  figures?: { node_id: string; text: string; caption?: string; label?: string; data?: Plot[] }[];
+  cites?: { ref_no: number; first_author?: string | null; year?: string | null; title?: string | null; doi?: string | null; text?: string; work_paper?: string | null; work_status?: string | null; work_title?: string | null }[];
   also?: string[];
 }
 
@@ -189,19 +220,43 @@ function hitCard(h: QHit, question: string): HTMLElement {
   const side = el('div', 'qhit-side');
   if (h.methods?.length) {
     side.append(el('div', 'side-h', `Measured by (${h.methods.length})`));
-    for (const m of h.methods) {
-      const item = el('div', 'side-item methods');
-      item.dataset['node'] = m.node_id;
-      item.append(el('div', 'h', m.heading ?? (m.ancestry ?? []).slice(-1)[0] ?? 'Methods'));
-      item.append(el('div', undefined, m.text.length > 700 ? `${m.text.slice(0, 700)}…` : m.text));
-      item.append(el('div', 'ev', [m.evidence, m.detail].filter(Boolean).join(': ')));
-      item.style.cursor = 'pointer';
-      item.addEventListener('click', () => hooks.openPaper(h.paper.key, m.node_id));
-      side.append(item);
-    }
+    for (const m of h.methods) side.append(methodItem(h.paper.key, m));
   } else if (['results', 'results-discussion', 'discussion'].includes(h.hit.role)) {
     side.append(el('div', 'side-h', 'Measured by'));
     side.append(el('div', 'muted', 'No method is linked to this passage in the tree.'));
+  }
+  if (h.general?.length) {
+    // statistics and materials belong to every finding of the paper: named, and opened on a click
+    side.append(el('div', 'side-h', 'Also used'));
+    for (const g of h.general) {
+      const item = el('div', 'side-item general');
+      item.append(el('div', 'h', g.heading ?? 'Methods'));
+      const text = el('div', 'body', g.text.length > 700 ? `${g.text.slice(0, 700)}…` : g.text);
+      text.hidden = true;
+      item.append(text);
+      item.style.cursor = 'pointer';
+      item.title = 'Show it';
+      item.addEventListener('click', () => {
+        text.hidden = !text.hidden;
+      });
+      side.append(item);
+    }
+  }
+  if (h.findings?.findings.length) {
+    side.append(el('div', 'side-h', `Findings measured here (${h.findings.total})`));
+    for (const f of h.findings.findings) {
+      const item = el('div', 'side-item finding');
+      item.append(el('div', undefined, f.text));
+      item.append(el('div', 'ev', [f.evidence, f.detail].filter(Boolean).join(': ')));
+      item.style.cursor = 'pointer';
+      item.addEventListener('click', () => hooks.openPaper(h.paper.key, f.node_id));
+      side.append(item);
+    }
+    if (h.findings.total > h.findings.findings.length) side.append(el('div', 'muted', `and ${h.findings.total - h.findings.findings.length} more, in the tree`));
+  }
+  if (h.described_in?.length) {
+    side.append(el('div', 'side-h', 'Described in'));
+    for (const d of h.described_in) side.append(elsewhereItem(d));
   }
   if (h.figures?.length) {
     side.append(el('div', 'side-h', `Figures cited (${h.figures.length})`));
@@ -209,12 +264,25 @@ function hitCard(h: QHit, question: string): HTMLElement {
       const item = el('div', 'side-item', f.caption ?? f.text);
       item.addEventListener('click', () => hooks.openPaper(h.paper.key, f.node_id));
       item.style.cursor = 'pointer';
+      if (f.data?.length) renderPlots(item, f.data, { compact: true }); // the numbers read from it, the panel the passage names first
       side.append(item);
     }
   }
   if (h.cites?.length) {
     side.append(el('div', 'side-h', `Cites (${h.cites.length})`));
-    for (const c of h.cites.slice(0, 6)) side.append(el('div', 'side-item', `[${c.ref_no}] ${[c.first_author, c.year].filter(Boolean).join(' ')} — ${c.title ?? c.text ?? ''}${c.doi ? ` · doi:${c.doi}` : ''}`));
+    for (const c of h.cites.slice(0, 6)) {
+      const item = el('div', 'side-item', `[${c.ref_no}] ${[c.first_author, c.year].filter(Boolean).join(' ')} — ${c.title ?? c.work_title ?? c.text ?? ''}${c.doi ? ` · doi:${c.doi}` : ''}`);
+      if (c.work_paper) {
+        // the cited paper is in the library: the passage leads to it
+        item.classList.add('go');
+        item.append(el('span', 'held', ' → in the library'));
+        item.title = 'Open the cited paper';
+        item.addEventListener('click', () => hooks.openPaper(c.work_paper!));
+      } else if (c.work_status) {
+        item.append(el('span', 'muted', ` → ${c.work_status}`));
+      }
+      side.append(item);
+    }
   }
   if (h.section) {
     side.append(el('div', 'side-h', 'Section'));
@@ -229,4 +297,53 @@ function hitCard(h: QHit, question: string): HTMLElement {
   foot.append(open);
   card.append(foot);
   return card;
+}
+
+const VIA: Record<string, string> = {
+  figure: 'from the paragraphs citing this figure',
+  section: "from the other findings of this section: the section's methods, not this paragraph's",
+};
+
+/** One method a passage was measured by: its heading, the paragraph of it the passage rests on
+ *  (with the terms that chose it) or its opening when no paragraph stands out, the evidence of
+ *  the edge, and where the procedure is written down when it is "as previously described". */
+function methodItem(paperKey: string, m: QMethod): HTMLElement {
+  const item = el('div', 'side-item methods');
+  item.dataset['node'] = m.node_id;
+  item.append(el('div', 'h', m.heading ?? (m.ancestry ?? []).slice(-1)[0] ?? 'Methods'));
+  if (m.paragraph && (m.paragraphs ?? 1) > 1) {
+    const why = el('div', 'ev', `the paragraph of ${m.paragraphs} on ${m.matched?.length ? m.matched.slice(0, 3).join(', ') : 'its words'}`);
+    item.append(why);
+  }
+  item.append(el('div', undefined, m.text.length > 700 ? `${m.text.slice(0, 700)}…` : m.text));
+  item.append(el('div', 'ev', [m.evidence, m.detail].filter(Boolean).join(': ')));
+  if (m.via && VIA[m.via]) item.append(el('div', 'ev', VIA[m.via]!));
+  item.style.cursor = 'pointer';
+  item.addEventListener('click', () => hooks.openPaper(paperKey, m.paragraph ?? m.node_id));
+  for (const d of m.described_in ?? []) item.append(elsewhereItem(d));
+  return item;
+}
+
+/** "As previously described [14]": the cited paper's own method when the project holds the
+ *  paper, else the reference itself, so it can be fetched. */
+function elsewhereItem(d: QElsewhere): HTMLElement {
+  const box = el('div', 'elsewhere');
+  const ref = [d.ref.first_author, d.ref.year].filter(Boolean).join(' ') || `ref ${d.ref_no}`;
+  if (d.paper) {
+    box.append(el('div', 'ev', `described in ${d.marker ?? `[${d.ref_no}]`} — ${d.paper.title}${d.paper.year ? ` (${d.paper.year})` : ''}`));
+    if (d.method) {
+      box.append(el('div', 'h', d.method.heading ?? 'Methods'));
+      box.append(el('div', undefined, d.method.text.length > 500 ? `${d.method.text.slice(0, 500)}…` : d.method.text));
+      box.style.cursor = 'pointer';
+      box.addEventListener('click', (e) => {
+        e.stopPropagation();
+        hooks.openPaper(d.paper!.key, d.method!.node_id);
+      });
+    }
+  } else {
+    const where = d.candidate ? ` · a candidate of this project (${d.candidate.status})` : ' · not in this project';
+    box.append(el('div', 'ev', `described in ${d.marker ?? `[${d.ref_no}]`} — ${ref}${d.ref.title ? `: ${d.ref.title}` : ''}${d.ref.doi ? ` · doi:${d.ref.doi}` : ''}${where}`));
+  }
+  box.title = d.sentence;
+  return box;
 }

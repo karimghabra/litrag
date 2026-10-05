@@ -288,3 +288,16 @@ def test_a_statistics_degrees_of_freedom_are_not_a_citation():
         ("text", "Sleep deprivation slowed responses (1, 2) and the caffeine dose did not (3, 4). The interaction between sleep condition and cognitive enhancer was not significant ( F (1, 13) = 0.024, p = 0.88). Accuracy was unaffected (5-7)."),
     ])
     assert sorted({c.ref_no for c in cites}) == [1, 2, 3, 4, 5, 6, 7]  # 13 is a degree of freedom
+
+
+
+def test_a_pdf_entry_s_doi_mended_and_its_pmid_read():
+    from litrag_parser.citations import _PMID, entry_doi
+
+    # what six publishers' PDFs printed (2026-10-04), the line breaks as the text layer gave them
+    assert entry_doi("Cell. 2013; 155(7):1639-51. https://doi.org/10.1016/j.cell. 2013.11.029 PMID: 24332913") == "10.1016/j.cell.2013.11.029"
+    assert entry_doi("Biomaterials. 21(23), 2347 - 2359. doi:10.1016/s0142-9612(00) 00102-2") == "10.1016/s0142-9612(00)00102-2"
+    assert entry_doi("J Abbrev. doi:10.1234/abc. 2019;5:1-9.") == "10.1234/abc"  # a year after the full stop: the citation going on
+    assert entry_doi("Smith J (doi:10.1038/nature12373).") == "10.1038/nature12373"
+    assert entry_doi("No identifier at all. 2019.") is None
+    assert [m.group(1) for m in _PMID.finditer("Nat. Rev. Neurol 2013, 9, 668. [PubMed: 24217518] · Cancer Res. PMID: 19470768")] == ["24217518", "19470768"]

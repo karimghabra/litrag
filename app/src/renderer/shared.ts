@@ -186,9 +186,11 @@ export const activity = {
   },
 };
 
-/** Set by the Papers view: open a paper there, and a node of it when one is named. */
+/** Set by the views that own them: open a paper in the Papers view (and a node of it when one is
+ *  named); run a Europe PMC search in the Search view. */
 export const hooks = {
   openPaper: (_key: string, _node?: string): void => undefined,
+  search: (_query: string): void => undefined,
 };
 
 export function fmtInt(n: number | null | undefined): string {

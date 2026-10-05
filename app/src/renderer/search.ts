@@ -6,7 +6,8 @@
  * is listed with its links, and a PDF dropped on the window is filed against it.
  */
 
-import { $, activity, ctx, el, log, onProjectChange, onViewShown, onWorkerEvent, projectName, queryText, request } from './shared.ts';
+import { $, activity, ctx, el, hooks, log, onProjectChange, onViewShown, onWorkerEvent, projectName, queryText, request, showView } from './shared.ts';
+import { collectLabel, collectList, type CollectEntry, type FiguresWanted } from './collectlist.ts';
 
 export interface Candidate {
   cand_id: number;
@@ -26,7 +27,14 @@ export interface Candidate {
   paper_key?: string | null;
   error?: string | null;
   links?: Record<string, string>;
+  /** 1 for a search's hit; n + 1 for a work a citation round found through a round-n paper (graph.py) */
+  round?: number | null;
+  /** an open copy OpenAlex knows of, outside PMC */
+  oa_url?: string | null;
 }
+
+/** A citation round's find no one has acted on yet: listed on the Graph tab, not among a search's candidates. */
+export const fromRound = (c: Candidate): boolean => (c.round ?? 1) > 1 && c.status === 'found';
 
 const state = {
   query: '',
@@ -38,9 +46,16 @@ const state = {
   /** the candidates panel: this search's hits only (once a search has run), or every search's */
   scope: 'search' as 'search' | 'all',
   selected: new Set<number>(),
+  /** XML papers whose figures want a PDF: the collect window offers them after the candidates */
+  figuresWanted: [] as FiguresWanted[],
 };
 
 export function initSearch(): void {
+  hooks.search = (q) => {
+    showView('search');
+    $<HTMLInputElement>('search-q').value = q;
+    void runSearch(q, false);
+  };
   $<HTMLFormElement>('search-form').addEventListener('submit', (e) => {
     e.preventDefault();
     void runSearch($<HTMLInputElement>('search-q').value.trim(), false);
@@ -236,6 +251,7 @@ function linkRow(c: Candidate): HTMLElement | null {
   if (c.doi) links.push(['publisher', `https://doi.org/${c.doi}`]);
   if (c.pmid) links.push(['Europe PMC', `https://europepmc.org/article/MED/${c.pmid}`]);
   else if (c.pmcid) links.push(['Europe PMC', `https://europepmc.org/article/PMC/${c.pmcid}`]);
+  if (c.oa_url) links.push(['open copy', c.oa_url]); // where OpenAlex says one is, outside PMC: a fetch asks it last, a person follows it
   if (!links.length) return null;
   const row = el('span', 'row');
   for (const [label, href] of links) {
@@ -321,6 +337,9 @@ export async function loadCandidates(): Promise<void> {
     const r = await request<{ candidates: Candidate[] }>('candidates', { lib });
     if (ctx.lib !== lib) return;
     state.candidates = r.candidates;
+    const w = await request<{ figures?: FiguresWanted[] }>('wanted', { lib }).catch(() => ({ figures: [] as FiguresWanted[] }));
+    if (ctx.lib !== lib) return;
+    state.figuresWanted = w.figures ?? [];
   } catch (e) {
     log('error', `candidates: ${(e as Error).message}`);
     state.candidates = [];
@@ -330,18 +349,23 @@ export async function loadCandidates(): Promise<void> {
 
 function renderCandidates(): void {
   const wanting = state.candidates.filter((c) => c.status === 'needs-pdf').length;
+  const figures = state.figuresWanted.length;
   const button = $<HTMLButtonElement>('collect');
-  button.disabled = !wanting || collecting;
-  button.textContent = collecting ? 'Collecting…' : wanting ? `Collect PDFs (${wanting})` : 'Collect PDFs';
+  button.disabled = !(wanting || figures) || collecting;
+  button.textContent = collectLabel(wanting, figures, collecting);
+  button.title = figures
+    ? `Open each paper's page to fetch its PDF by hand: ${wanting} with no open copy, and ${figures} read from XML whose figures need the PDF to be read`
+    : 'Open each paper’s page to fetch its PDF by hand';
   const chips = $('cand-filter');
   chips.innerHTML = '';
   // a project's candidates are every hit of every search it has run; after a search the panel
   // shows that search's, so an earlier, broader query's papers do not read as this one's
   const ids = new Set(state.hits.map((h) => h.cand_id));
   const scoped = state.scope === 'search' && ids.size > 0;
-  const pool = scoped ? state.candidates.filter((c) => ids.has(c.cand_id)) : state.candidates;
+  const rounds = state.candidates.filter((c) => fromRound(c) && !ids.has(c.cand_id)).length;
+  const pool = scoped ? state.candidates.filter((c) => ids.has(c.cand_id)) : state.candidates.filter((c) => !fromRound(c) || ids.has(c.cand_id));
   if (ids.size) {
-    for (const [scope, label, n] of [['search', 'this search', state.candidates.filter((c) => ids.has(c.cand_id)).length], ['all', 'every search', state.candidates.length]] as const) {
+    for (const [scope, label, n] of [['search', 'this search', state.candidates.filter((c) => ids.has(c.cand_id)).length], ['all', 'every search', state.candidates.filter((c) => !fromRound(c) || ids.has(c.cand_id)).length]] as const) {
       const chip = el('span', `chip scope${state.scope === scope ? ' on' : ''}`, `${label} ${n}`);
       chip.dataset['scope'] = scope;
       chip.title = scope === 'search' ? 'Only the papers the search on the left found' : 'Every paper any search of this project has found';
@@ -352,6 +376,12 @@ function renderCandidates(): void {
       chips.append(chip);
     }
     chips.append(el('span', 'sep'));
+  }
+  if (rounds && !scoped) {
+    const chip = el('span', 'chip', `${rounds} from citation rounds →`);
+    chip.title = 'Works a citation round found and no one has fetched: listed, ranked and fetched on the Graph tab';
+    chip.addEventListener('click', () => showView('graph'));
+    chips.append(chip, el('span', 'sep'));
   }
   const counts = new Map<string, number>();
   for (const c of pool) counts.set(c.status, (counts.get(c.status) ?? 0) + 1);
@@ -408,9 +438,10 @@ async function collect(): Promise<void> {
     log('error', 'collect: the project has no folder on disk');
     return;
   }
-  let wanted: Candidate[];
+  let wanted: CollectEntry[];
   try {
-    wanted = (await request<{ candidates: Candidate[] }>('wanted', { lib })).candidates;
+    const r = await request<{ candidates: Candidate[]; figures?: FiguresWanted[] }>('wanted', { lib });
+    wanted = collectList(r.candidates, r.figures ?? []);
   } catch (e) {
     log('error', `collect: ${(e as Error).message}`);
     return;
@@ -422,7 +453,7 @@ async function collect(): Promise<void> {
   box.hidden = false;
   box.textContent = `Opening the collect window for ${wanted.length} paper${wanted.length === 1 ? '' : 's'}…`;
   const inboxDir = `${project.dir.replace(/[\\/]+$/, '')}/inbox`;
-  const papers = wanted.map((c) => ({ cand_id: c.cand_id, title: c.title ?? null, doi: c.doi ?? null, pmid: c.pmid ?? null, pmcid: c.pmcid ?? null }));
+  const papers = wanted;
   try {
     const r = await window.litrag.collect({ lib, inboxDir, papers });
     if (r['ok'] === false) log('error', `collect: ${String(r['message'])}`);

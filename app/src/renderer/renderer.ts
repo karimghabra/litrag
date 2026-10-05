@@ -9,8 +9,11 @@
 
 import * as pdfjs from 'pdfjs-dist';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
+import { renderPlots, type Plot } from './charts.ts';
+import { initLabels, openLabelling } from './labels.ts';
 import { BANDS, SORT_KEYS, bandOf, countBy, filterPapers, sortPapers, validFilters, type SortKey } from './papers.ts';
 import { initProjects, renderProjects } from './projects.ts';
+import { initGraph } from './graphtab.ts';
 import { initQuery } from './query.ts';
 import { initSearch, loadCandidates } from './search.ts';
 import { $, ROLES, activity, ctx, dispatch, el, escapeHtml, hooks, log, onProjectChange, onViewShown, rejectionText, rememberedProject, request, roleColor, setProject, setStatus, showView, showWorkerProblem, type ProjectSummary } from './shared.ts';
@@ -26,6 +29,8 @@ interface Paper {
   doi: string | null;
   file: string | null;
   format: string | null;
+  /** an XML paper's PDF, kept beside it for its figures */
+  figures_file?: string | null;
   pages: number | null;
   status: string;
   error: string | null;
@@ -101,6 +106,30 @@ interface Ref {
   first_author: string | null;
   title: string | null;
   cited_by: string[];
+  /** the work the entry names, once the library has linked it (graph.py's ref_works) */
+  work?: string | null;
+  how?: string | null;
+  work_title?: string | null;
+  work_year?: string | null;
+  /** the paper held it is, or the candidate */
+  work_paper?: string | null;
+  work_cand?: number | null;
+  work_status?: string | null;
+}
+
+/** What an entry is linked to: the paper held (opened on a click) or the candidate and its state. */
+function workOf(ref: Ref | undefined): HTMLElement | null {
+  if (!ref?.work) return null;
+  const held = !!ref.work_paper;
+  const w = el('span', `work${held ? ' held' : ''}`, held ? '→ in the library' : `→ ${ref.work_status ?? 'candidate'}`);
+  w.title = `${ref.work_title ?? ref.work}${ref.work_year ? ` (${ref.work_year})` : ''} — linked by ${ref.how}${held ? '; click to open it' : '; a candidate: fetch it from the Graph or Search tab'}`;
+  if (held) {
+    w.addEventListener('click', (e) => {
+      e.stopPropagation();
+      void openPaper(ref.work_paper!);
+    });
+  }
+  return w;
 }
 
 interface Tree {
@@ -672,6 +701,8 @@ function renderDetail(n: Node) {
       row.append(el('span', 'who', ref ? `${ref.first_author ?? '?'} ${ref.year ?? ''}`.trim() : ''));
       row.append(el('span', 'what', ref ? (ref.title ?? ref.text) : '(entry not found)'));
       if (ref?.doi) row.append(el('span', 'doi', ref.doi));
+      const linked = workOf(ref);
+      if (linked) row.append(linked);
       if (ref?.node_id) {
         row.classList.add('go');
         row.title = 'open the entry';
@@ -687,6 +718,12 @@ function renderDetail(n: Node) {
     const citing = ref?.cited_by ?? [];
     box.append(el('div', 'links-head', citing.length ? `Entry [${n.ref_no}] — cited by ${citing.length} node${citing.length === 1 ? '' : 's'}` : `Entry [${n.ref_no}] — never cited in the text`));
     if (ref?.doi) box.append(el('div', 'doi', `doi:${ref.doi}${ref.pmid ? ` · pmid:${ref.pmid}` : ''}`));
+    const linked = workOf(ref);
+    if (linked) {
+      const names = el('div', 'names', `Names ${ref!.work_title ?? ref!.work}${ref!.work_year ? ` (${ref!.work_year})` : ''} `);
+      names.append(linked);
+      box.append(names);
+    }
     for (const id of citing) {
       const citer = state.nodesById.get(id);
       const row = el('div', 'link go');
@@ -699,7 +736,50 @@ function renderDetail(n: Node) {
     d.append(box);
   }
   if (n.type === 'section' && !n.text) d.append(el('div', 'muted', `${n.children.length} children`));
+  if (n.type === 'picture' || n.type === 'chart') void loadCharts(n, d);
   void loadEdges(n, d);
+}
+
+/** The numbers read from a selected figure (figures.py): each plot a table, or why it was not read;
+ *  a PDF paper whose figures were never read can have them read here. */
+let chartsSeq = 0;
+async function loadCharts(n: Node, into: HTMLElement) {
+  if (!ctx.lib) return;
+  const seq = ++chartsSeq;
+  let r: { plots: Plot[] };
+  try {
+    r = await request<{ plots: Plot[] }>('charts', { lib: ctx.lib, figure: n.node_id });
+  } catch {
+    return;
+  }
+  if (state.selectedNode !== n.node_id || seq !== chartsSeq) return;
+  const box = el('div', 'links charts');
+  const read = r.plots.filter((p) => p.status === 'read').length;
+  const head = el('div', 'links-head', r.plots.length ? `Numbers read from this figure — ${read} of ${r.plots.length} plot${r.plots.length === 1 ? '' : 's'}` : 'No numbers read from this figure');
+  const paper = state.selectedPaper ? state.papers.get(state.selectedPaper) : undefined;
+  if (!r.plots.length && paper?.format === 'jats' && !paper.figures_file) {
+    box.append(head);
+    box.append(el('div', 'muted', 'Read from XML, which names its figures but holds none. A PDF of the paper draws them: drop one here, or fetch it with Collect PDFs on the Search tab, and its charts are read and pinned to these figures.'));
+    into.append(box);
+    return;
+  }
+  if (!r.plots.length && (paper?.format === 'pdf' || paper?.figures_file)) {
+    const b = el('button', 'ghost small label-act', 'Read the figures') as HTMLButtonElement;
+    b.title = 'Read the charts in this paper’s figures into numbers (bars, points, error bars), on this machine';
+    b.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      b.disabled = true;
+      activity.show('Reading the figures');
+      void request('figures', { lib: ctx.lib, keys: [paper.key], force: true }).catch((e) => {
+        activity.hide();
+        log('error', `figures: ${(e as Error).message}`);
+      });
+    });
+    head.append(b);
+  }
+  box.append(head);
+  renderPlots(box, r.plots);
+  into.append(box);
 }
 
 /** The edges of the selected node, drawn once they arrive: the methods a finding was measured by,
@@ -726,16 +806,30 @@ async function loadEdges(n: Node, into: HTMLElement) {
   // the same test edges.py applies: a results paragraph, or a discussion paragraph that cites a figure, of eight words or more
   const words = n.text.split(/\s+/).filter(Boolean).length;
   const isFinding = n.type === 'paragraph' && words >= 8 && (n.role === 'results' || n.role === 'results-discussion' || (n.role === 'discussion' && /\b(fig(ure)?s?|tables?|schemes?)\.?\s*S?\d/i.test(n.text)));
+  // a finding's "Measured by" says which method a person would name: the labelling editor, on this one finding
+  const labelAction = () => {
+    const b = el('button', 'ghost small label-act', 'Label');
+    b.title = 'Say which of the paper’s methods this finding was measured by: the truth the links are measured against';
+    b.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      void openLabelling({ finding: n.node_id, onClose: () => void (state.selectedNode === n.node_id && renderDetail(n)) }).catch((e) => log('error', `label: ${(e as Error).message}`));
+    });
+    return b;
+  };
   if (isFinding && !measuredBy.length) {
     const why = r.candidates === 0 ? 'the paper has no methods section to link to' : r.candidates === 1 ? 'the methods have one part, which only a pointer could name' : 'no pointer, no term only one method owns, nothing in a cited caption';
     const box = el('div', 'links edges');
-    box.append(el('div', 'links-head', `Measured by — no method found: ${why}`));
+    const head = el('div', 'links-head', `Measured by — no method found: ${why}`);
+    if (r.candidates > 0) head.append(labelAction());
+    box.append(head);
     into.append(box);
   }
   for (const [title, rows] of groups) {
     if (!rows.length) continue;
     const box = el('div', 'links edges');
-    box.append(el('div', 'links-head', `${title} (${rows.length})`));
+    const head = el('div', 'links-head', `${title} (${rows.length})`);
+    if (title === 'Measured by' && isFinding) head.append(labelAction());
+    box.append(head);
     for (const e of rows) {
       const row = el('div', 'link go');
       const tag = el('span', 'tag', e.evidence);
@@ -968,6 +1062,11 @@ function onEvent(ev: Record<string, unknown>) {
     case 'done':
       setStatus('ok', 'idle');
       activity.hide();
+      if (ev['op'] === 'figures') {
+        log('stage', `figures: ${ev['read'] ?? 0} of ${ev['plots'] ?? 0} charts read in ${ev['papers'] ?? 0} papers, ${ev['values'] ?? 0} values`);
+        const n = state.selectedNode ? state.nodesById.get(state.selectedNode) : undefined;
+        if (n && !foreign) renderDetail(n);
+      }
       if (!foreign) void loadPapers();
       void loadLibraries();
       break;
@@ -1018,6 +1117,8 @@ function wire() {
   initSearch();
   initTypes();
   initQuery();
+  initGraph();
+  initLabels();
   onProjectChange(() => {
     state.selectedPaper = null;
     state.tree = null;
@@ -1049,7 +1150,7 @@ function wire() {
     const kept = window.localStorage.getItem('litrag.papers.sort');
     if (kept && SORT_KEYS.some((k) => k.key === kept)) state.sort = kept as SortKey;
     const view = window.localStorage.getItem('litrag.view');
-    if (view && ['projects', 'search', 'papers', 'types', 'query'].includes(view)) startView = view;
+    if (view && ['projects', 'search', 'papers', 'types', 'query', 'graph'].includes(view)) startView = view;
   } catch {
     // no storage: the list starts in the order the papers were added, on the Projects tab
   }

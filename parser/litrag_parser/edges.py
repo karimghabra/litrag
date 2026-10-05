@@ -158,6 +158,24 @@ def _document_frequency(tree: Tree) -> dict[str, int]:
 COMMON_DF = 5  # a word in five or more of the paper's blocks is the paper's subject, not a method's mark
 RARE_PAIR_DF = 4  # a word pair in four blocks or fewer is a mark even when a method says it once
 
+# An edge's score orders the methods a finding is shown with: every pointer above every mark,
+# every mark above every caption, and within a kind, more evidence above less. A word pair a
+# method owns weighs two, a single word one; six is as strong as a kind gets.
+POINTER_SCORE = 1.0
+TERMS_BAND, CAPTION_BAND, SIMILARITY_BAND = (0.80, 0.95), (0.70, 0.80), (0.60, 0.70)
+STRONG = 6
+DETAIL_MARKS = 8  # the marks written on an edge: what the window shows, and what hydration looks for
+
+
+def strength(marks: list[str]) -> int:
+    """How much a set of owned marks says: two for a word pair, one for a word."""
+    return sum(2 if " " in t else 1 for t in marks)
+
+
+def banded(marks: list[str], band: tuple[float, float]) -> float:
+    lo, hi = band
+    return round(lo + (hi - lo) * min(1.0, strength(marks) / STRONG), 3)
+
 
 def _ownership(cands: list[tuple[Node, str]], df: dict[str, int] | None = None) -> dict[str, int]:
     """Which candidate alone owns each of its *marks*, the terms that are that method's own
@@ -238,13 +256,13 @@ def link_edges(tree: Tree, key: str, oracle: Any = None) -> list[Edge]:
                 i = _numbered_candidate(num, numbered)
                 if i is not None and i not in linked:
                     linked.add(i)
-                    edges.append(Edge(key, f.node_id, cands[i][0].node_id, "measured_by", "pointer", f"Section {num}", 1.0))
+                    edges.append(Edge(key, f.node_id, cands[i][0].node_id, "measured_by", "pointer", f"Section {num}", POINTER_SCORE))
         if linked:
             continue
         # 2. terms only one candidate owns
         for i, ts in _by_terms(f.text, owned, df):
             linked.add(i)
-            edges.append(Edge(key, f.node_id, cands[i][0].node_id, "measured_by", "terms", ", ".join(ts[:4]), 0.9))
+            edges.append(Edge(key, f.node_id, cands[i][0].node_id, "measured_by", "terms", ", ".join(ts[:DETAIL_MARKS]), banded(ts, TERMS_BAND)))
         if linked:
             continue
         # 2b. the figure it cites: the caption's terms
@@ -253,7 +271,7 @@ def link_edges(tree: Tree, key: str, oracle: Any = None) -> list[Edge]:
             for i, ts in _by_terms(caption, owned, df):
                 if i not in linked:
                     linked.add(i)
-                    edges.append(Edge(key, f.node_id, cands[i][0].node_id, "measured_by", "caption", f"{_caption_label(fig)}: {', '.join(ts[:4])}", 0.8))
+                    edges.append(Edge(key, f.node_id, cands[i][0].node_id, "measured_by", "caption", f"{_caption_label(fig)}: {', '.join(ts[:DETAIL_MARKS])}", banded(ts, CAPTION_BAND)))
         if linked:
             continue
         # 3. similarity, only when asked for (LITRAG_EDGES_SIMILARITY=on) and an oracle is there:
@@ -263,7 +281,9 @@ def link_edges(tree: Tree, key: str, oracle: Any = None) -> list[Edge]:
             v = oracle.which(f.text[:600], [t[:600] for _, t in cands], threshold=SIMILARITY_THRESHOLD, margin=SIMILARITY_MARGIN)
             if v.sure:
                 i = int(v.name)
-                edges.append(Edge(key, f.node_id, cands[i][0].node_id, "measured_by", "similarity", f"cosine {v.score} margin {v.margin}", float(v.score)))
+                lo, hi = SIMILARITY_BAND
+                closeness = max(0.0, min(1.0, (float(v.score) - SIMILARITY_THRESHOLD) / (1 - SIMILARITY_THRESHOLD)))
+                edges.append(Edge(key, f.node_id, cands[i][0].node_id, "measured_by", "similarity", f"cosine {v.score} margin {v.margin}", round(lo + (hi - lo) * closeness, 3)))
     return edges
 
 

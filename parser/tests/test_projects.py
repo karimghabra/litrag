@@ -145,6 +145,30 @@ def test_merge_refuses_what_it_cannot_do(two):
         projects.merge(root, ["collagen-a", "collagen-b"], "", into="collagen-b")
 
 
+def test_merge_carries_the_labels_a_person_made(two):
+    """A person's finding→method labels (and the local model's) are not derived from the paper: they travel with it, a
+    duplicate's as well, under the key the target holds it by; merging again adds nothing."""
+    root, ka, kb = two["root"], two["ka"], two["kb_same"]
+    rows = {"a": (ka, f"{ka}#section-5#paragraph-1", "The aligned threads were stronger.", f"{ka}#section-4#section-6", "2.6. Mechanical Assessment", "yes"),
+            "b": (kb, f"{kb}#section-5#paragraph-2", "The random threads were weaker.", "", "", "none")}
+    for side, row in rows.items():
+        conn = open_store(two[side].store_path)
+        with conn:
+            conn.execute("INSERT INTO link_labels(paper, finding, finding_text, method, method_heading, verdict, by, at) VALUES (?,?,?,?,?,?,'Karim','t')", row)
+            if side == "a":  # the local model's labels travel too, in their own table
+                conn.execute("INSERT INTO model_labels(paper, finding, finding_text, method, method_heading, verdict, by, at) VALUES (?,?,?,?,?,?,'qwen3:14b','t')", row)
+        conn.close()
+    projects.merge(root, ["collagen-a", "collagen-b"], "Collagen")
+    projects.merge(root, ["collagen-a", "collagen-b"], "Collagen", into="collagen")
+    conn = open_store(open_library(root, "collagen").store_path)
+    got = sorted(tuple(r) for r in conn.execute("SELECT paper, finding, method, verdict, by FROM link_labels"))
+    model = [tuple(r) for r in conn.execute("SELECT paper, finding, method, verdict, by FROM model_labels")]
+    conn.close()
+    assert model == [(ka, f"{ka}#section-5#paragraph-1", f"{ka}#section-4#section-6", "yes", "qwen3:14b")]
+    assert kb != ka  # the same DOI in another case: filed once, under the first key
+    assert got == sorted([(ka, f"{ka}#section-5#paragraph-1", f"{ka}#section-4#section-6", "yes", "Karim"), (ka, f"{ka}#section-5#paragraph-2", "", "none", "Karim")])
+
+
 def test_summary_and_describe(two):
     a = two["a"]
     s = projects.summary(a)

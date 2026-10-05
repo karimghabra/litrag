@@ -48,6 +48,12 @@ export const TERMINAL = new Set([
   'done', 'error', 'hello', 'libraries', 'library', 'papers', 'node', 'section', 'events', 'rows', 'file', 'bye', 'queued', 'refs', 'audit', 'edges',
   // the studio's reads: projects, a search and its candidates, the types and a paper's mapping, retrieval
   'projects', 'project', 'search', 'candidates', 'wanted', 'dismissed', 'suggestions', 'types', 'mapping', 'retrieval', 'query',
+  // the truth for the finding→method links: the queue, a finding labelled, every label, the measure
+  'label_queue', 'labelled', 'labels', 'truth',
+  // the numbers read from a figure, or every figure of a paper
+  'charts',
+  // the works and the citations between them, and the passages that cite one
+  'graph', 'passages',
 ]);
 
 /** `tree` answers a `tree` request and also streams during ingest; only the former closes a request. */

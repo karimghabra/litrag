@@ -2,6 +2,194 @@
 
 ## Unreleased
 
+- **Open copies fetched** (Karim, 2026-10-04: "yes, fetch the open copies too"; invariant 1 names
+  the hosts). After Europe PMC, NCBI, the PMC Cloud Service and EBI's bulk area, a fetch asks the
+  open copy OpenAlex named (`candidates.oa_url`) of its own host: the PDF, or a page followed — a
+  few hops at most — to the PDF its `citation_pdf_url` names or the page its refresh goes to
+  (`acquire.open_copy_pdf`). It is filed only when its first three pages print the paper's DOI or
+  its whole title, and not under a supplement's name (`acquire.names_the_paper`); otherwise it is
+  deleted, never filed as the paper. A bot check — Cloudflare's "Just a moment…", Springer
+  Nature's "Client Challenge", AWS's empty 202 — is left to a person's browser in Collect PDFs,
+  never got round; PMC's and Europe PMC's own pages are never asked this way, and a host that
+  cannot be reached leaves the paper `needs-pdf`, not `failed`. `LITRAG_OPEN_COPIES=off` stops it
+  (and the tests run with it off unless a test turns it on against a canned site). Expand counts an
+  open copy read for a work it passed over. From this cloud container, on 100 such links: 5 taken,
+  each the right paper (OSTI, JCI, arXiv), 77 bot checks, 14 refused outright.
+- **Expand at scale** (Karim, 2026-10-04: "we need to test this at scale"). A 44-paper library
+  expanded by 100 read 19: the most cited works of a grown library are mostly classics nothing
+  open is on record for, and readability only broke ties between works cited as often. Of every
+  fetch so far, those with nothing open on record failed 74 of 74, an open XML Europe PMC hosts
+  never failed, an NIH author manuscript came about two times in five. `next_to_read` now scores
+  `readable` 2, 1 or 0 by those odds and orders by it among works cited as often;
+  `graph.expansion` takes the next works that can be read until the count is met, and the more
+  cited ones it passes over are fetched too, which marks them needs-pdf for Collect PDFs, never
+  spent from the count; a refused paper is replaced from further down, a few times. The same
+  expansion again: 100 of 100 read (90 JATS from Europe PMC, 10 from NCBI) in 29.5 min, 100
+  passed to a person, 278 passages of the papers held leading to the papers read. Collect PDFs
+  opens an open copy OpenAlex knows of first (56 of the 99 no service gave out had one; a person's
+  click, nothing fetched unasked). At 163 papers, 12,232 reference entries, 4,678 candidates and
+  7,774 citing passages (store 64 MB): a sync with nothing new 30 ms, from scratch 1.8 s; the
+  graph op 172 ms for 4,684 works; the Graph tab drawn in 337 ms (cited by two) or 642 ms (every
+  candidate). A 2,000-row SQL table held the window 1.1 s, and a click on a row 1.2 s more (the
+  table laid out again when the detail beside it changed): rows are now put down 200 at a time as
+  the table is scrolled, and each pane is laid out on its own — 0.34 s and 0.13 s.
+- **Entry linking at scale** (Karim, 2026-10-04: "we need to test this at scale"). On a library of
+  25 PDFs with 2,406 candidates and 4,895 kept list rows, linking every entry from scratch took
+  24 s — and a `SELECT`, the Graph tab or a paper's references wait on it after any round or fetch:
+  each entry's words were normalised again for every work of its list (525,000 times). Entries and
+  works are now prepared once (`openalex.Entry`, `Work`), and an entry is compared only with the
+  works whose first author it names: 0.45 s, the same 2,373 links (a work both lists name is now
+  credited to the same list every time). The linker's version is part of its stamp, so a library
+  linked before is linked again once.
+- **The links tested, and what the test fixed** (Karim, 2026-10-04: "test this feature"). Six open
+  papers from six publishers read twice, as PDF and as JATS, the JATS's identifiers the truth:
+  `python -m litrag_parser.graph --lib … --truth …` (new) scores one library's entry links against
+  the other's. First try: precision 0.944 (10 wrong), recall 0.67, the Wiley paper 0 of 47. Fixed:
+  a DOI read off a PDF is filed only once Europe PMC or OpenAlex knows it (every wrong link was a
+  DOI the line breaks had mangled: "00085472" for 0008-5472, "j.cell" for j.cell.2013.11.029); a
+  DOI broken after a dot, a hyphen or inside a bracket is joined back (`citations.entry_doi`); PDF
+  entries' printed PMIDs are read ("PMID: …", "[PubMed: …]"); "[1]." is a printed number; a held
+  paper's own PMID and PMCID are looked up so Europe PMC's list of its references can be asked;
+  titles match with accents folded and spaces and hyphens squeezed out, against any year the entry
+  prints within one; an entry printing no title matches by first author, year, volume and first
+  page (`ref_lists.volume`, `first_page`, new); a merge carries the kept lists (it had dropped
+  them, and the links with them). Now: precision 1.0 (0 wrong of 232 verifiable), recall 0.92
+  (231 of 252), the Wiley paper 44 of 47. A rebuild with the network cut and a merge each give
+  back all 246 links. Expand: "readable" now means an open XML or an open paper with a PMCID (a
+  PMCID alone chose papers PMC may not give out), and a paper read without a title of its own
+  takes its record's.
+- **Passages linked to the works they cite, and Expand** (Karim, 2026-10-04: "expand on corpuses
+  by grabbing references cited by the corpus' papers … link chunks that cite specific references
+  to these new citations"). Every entry of a held paper's reference list is linked to the work it
+  names (`ref_works`): by its own DOI or PMID, a held paper's whole title in it, Europe PMC's entry
+  at the same place when its first author and year agree, or the one work of OpenAlex's list whose
+  whole title, year and first author it carries; else it stays unlinked. The lists each source
+  gave are kept (`ref_lists`), so the links are derived offline and follow a reread or a rebuild.
+  `passage_cites` (a view) joins every in-text citation to its work: the chunks that cite a paper,
+  as a `SELECT`. The `passages` op lists them, the `refs` op and a query's `cites` carry each
+  entry's work, and `cites` rows of origin `refs` are now the entries' links. The `expand` op runs
+  a round, then fetches and reads the works the papers held cite most (`graph.next_to_read`): the
+  Graph tab's **Expand: read the most cited**. A work's detail there lists **Cited in the text**,
+  each passage a click from its tree; an edge counts its passages; the Papers tab says what an
+  entry names (→ in the library, a click away); Query's citations lead to the papers held.
+  Two things the live run showed: a Europe PMC record can answer a DOI without carrying it (a PMC
+  article filed with no DOI), which a batched lookup threw away and left the work with no PMCID to
+  fetch by — such a DOI is now asked alone; and among works cited as often, one that can be read
+  now comes before one that would wait for a person.
+- **OpenAlex beside Europe PMC in the citation rounds** (Karim, 2026-10-04: "we can use it in
+  parallel with what we've got"; one more host for invariant 1, sent identifiers, and for an entry
+  naming none its own words). `openalex.py` asks for a held paper's work by DOI, PMID or PMCID
+  (free) and its `referenced_works`, fetched a hundred to a list call while OpenAlex's daily budget
+  lasts and one by one — free — once it is spent; with `citations`, the works citing it (`cites:`).
+  A work Europe PMC knows is filed with Europe PMC's record, one it does not with OpenAlex's
+  (new candidates columns `openalex`, `oa_url`; an open copy outside PMC is the candidate's `open`
+  link, for a person, never fetched); `cites.origin` gains `openalex`. For a paper neither source
+  has a list for, an entry naming no identifier is searched in OpenAlex by its words and taken only
+  when one work's whole title, year ±1 and first author are in it (at most 50 searches a round).
+  A held paper with no authors on record gets OpenAlex's. A work OpenAlex holds under another DOI
+  than Europe PMC's (a publisher that changed it) is the same candidate when its whole title, year
+  and first author agree. A spent budget is said, and what it stopped waits for the next round. `LITRAG_OPENALEX=off`, `LITRAG_OPENALEX_KEY` (a free key: ten
+  times the budget), `LITRAG_OPENALEX_URL` (the tests and the end-to-end fixture point it at a
+  canned server; tests run with it off unless they ask). The Graph tab's **OpenAlex too**. Live,
+  on three papers Europe PMC had already been asked about: 183 works in OpenAlex's lists, 95 new
+  candidates, 18 of them unknown to Europe PMC, 28 with an open copy outside PMC.
+- **The library as a graph, and citation rounds** (Karim, 2026-10-04: "a second round of searches,
+  based on the citations in the first round … a graphical representation of the literature which
+  connects papers together, much like the graph in something like obsidian … ordered searches,
+  and searches of the corpus by author … these queries should be able to prompt further rounds
+  of ingestion"). `graph.py` keeps paper-to-paper citations as rows (`cites`: between works, a
+  paper held or a candidate, `origin` refs or europepmc), every work's authors as rows
+  (`authors`, with family name, initials, ORCID and a `person` key that joins one person across
+  works) and a `works` view over papers and candidates alike (year, first publication date,
+  first author, `round`, `cited_here`, `cites_here`). A reference naming a paper held is a
+  citation the moment both are read. The `round` op asks Europe PMC what each paper read since
+  the last round cites (its `/references`; with `citations`, its `/citations` too), looks every
+  identified work up twenty to a query, and files it as a candidate of the next round
+  (`candidates.round`, `published`, `author_list` — new columns), never fetched; an entry naming
+  no identifier is counted, not guessed. The `graph` op returns the picture; `sql` now runs on a
+  `query_only` handle (the regex was the only guard) after bringing those rows up to date. A new
+  **Graph** tab draws the papers and the candidates several of them cite as a force-directed
+  graph — by round, year or held-or-not, neighbours lit on hover, a work's authors, citing and
+  cited works a click away — beside a SQL pane with ready questions (held oldest first, the next
+  round, by an author, authors here, who cites whom, rounds) whose candidate rows can be ticked
+  and fetched and read: the next round. An author opens their other works here, or a Europe PMC
+  search for them. On two papers, a round filed 117 works (46 with open XML) in nine seconds.
+- **Open PDFs from NLM's PMC Cloud Service** (Karim, 2026-10-04: "yes, add the PMC Cloud
+  Service"; one more host for invariant 1, sent a PMCID and nothing else). NCBI retired its OA
+  web service and FTP packages in August 2026 and named the `pmc-oa-opendata` bucket the
+  successor; EBI's bulk area, the only PDF source until now, misses many papers it holds (the
+  Advanced Healthcare Materials paper among them). `fetch` now asks it for every PMCID with no
+  open XML, and for the PDF beside an XML for its figures, before the bulk area: the article's
+  versions are listed, the newest one's JSON names its PDF and that PDF's MD5, and the PDF is
+  kept only if the MD5 holds. An author manuscript there has XML and text and no PDF, said so in
+  the candidate's error. `source` is `pmc-cloud`; `LITRAG_PMC_CLOUD_URL` points it elsewhere
+  (the tests and the end-to-end fixture do, so nothing in them reaches NLM).
+- **An XML paper's figures, from a PDF of it** (Karim, 2026-10-04: "if we only ever retrieve an
+  xml … we end up missing a bunch of figures?"). JATS names its figures and holds none, so the
+  XML stays the paper and a PDF of the same paper is kept beside it for its charts
+  (`papers.figures_file`): each page printing a figure's caption is read — an image there whole,
+  at its own resolution, the rest with the page's text layer — and every plot pinned to the
+  caption under it, "Figure 2." to the XML's figure 2 (`charts.figure_label`; a sentence that
+  begins "Figure 2 shows" is no caption; a rebuild finds the figure again by its number). The PDF
+  comes from a fetch (EBI's open-access PDF beside the XML, where that area has it), from a PDF
+  dropped for a paper already read as XML (kept for its figures, no longer set aside), or from
+  **Collect PDFs**, which now lists the XML papers whose figures want one after the papers with
+  no copy (`wanted` → `figures`). On the Advanced Healthcare Materials paper read as XML, its
+  PDF gave 12 of 24 plots, 127 values, its two-panel gene-expression figure with every series
+  named.
+- **Figures read into numbers** (Karim, 2026-10-04: "ingesting figures, and converting them from
+  data in a visual format, to one in a numerical format"). A PDF's figures are cut from their
+  pages and their charts read (`charts.py`, `figures.py`): each bar and point's value, its error
+  bar's ends, its series, its category or x, the axis's title, unit and scale, the panel's
+  letter and title. A vector figure is rendered at 600 dpi and read with the PDF's own text
+  layer; an image at its own resolution with OCR — RapidOCR on the models its package ships,
+  run by `onnxruntime` (new dependency; nothing is fetched). A y axis must calibrate from three
+  tick labels within 1 % of its range, else the plot is `unread` with the reason and no value;
+  a frame with no numbers beside it is no chart. Bars (grouped by their fills repeating,
+  outlined, pale), markers (overlapping ones parted by colour), error bars up and down; linear
+  and log axes. Rows `charts` and `chart_values`; ingest's `figures` stage
+  (`LITRAG_FIGURES=off` skips it), ops `figures` (a library's PDFs, queued) and `charts`;
+  rebuilds and merges keep them. The Papers tab shows a picture's plots as tables with a CSV
+  each (**Read the figures** for papers read before); Query shows a cited figure's numbers, the
+  named panel first, and a caption hit its own figure's. Not yet: curves without markers, box
+  plots, horizontal bars, XML papers' figures.
+
+From a finding to the method that produced it, followed further — and a way to know how often
+it is right (Karim, 2026-10-04: "Implement these").
+
+- **Link strength.** `measured_by` edges keep their evidence and gain a score that orders them:
+  a pointer 1.0, terms 0.80–0.95, a caption 0.70–0.80, resemblance 0.60–0.70, each higher in its
+  band the more marks it rests on. The same edges as before; a library read before needs
+  `rebuild` for the scores (until then its terms edges stay at 0.9).
+- **Query hydration, both ways.** A finding's methods come strongest first, at most three, each
+  with **the paragraph** inside it the finding rests on — the one its marks name, else the one
+  sharing its rarer words, else the first — instead of the subsection's first 1,500 characters.
+  Statistics and materials (by canonical heading) go apart, under "Also used", so they never
+  take a method's place; a finding with only those still gets its figure's methods, then its
+  section's. A hit inside a methods subsection lists **the findings its method measured**.
+- **Methods described elsewhere** (`lineage.py`). "As previously described [14]", in a closed
+  vocabulary of cues, is followed to the entry it cites and, when the library holds that paper
+  (by DOI, then PMID, then title), to its own method — the subsection the sentence's marks name,
+  else its methods section; when it does not, the entry is named with the candidate that would
+  fetch it. On each hydrated method and on a methods hit (`described_in`); `python -m
+  litrag_parser.lineage --lib DIR` surveys a library. Pure reads, no model, about a millisecond.
+- **The truth set.** **Label links** on the Papers tab, and **Label** under a finding's "Measured
+  by": per finding, which methods it was measured by, or none, and the paragraph if it is
+  known (number keys, N, Enter, S). Ops `label_queue`, `label`, `labels`, `truth`; table
+  `link_labels`, kept through rebuilds and merges. `truth` scores the edges against the labels —
+  precision per evidence, recall, misses, false links — and hydration's paragraph against the
+  method's first; `python -m litrag_parser.truth --lib DIR --measure | --export | --import`.
+  Resemblance stays off until it scores 0.9 there.
+- **The local model labels, a person audits** (Karim, 2026-10-04: a person need not label a
+  hundred findings). **Let the model label** in the panel (op `model_label`, `python -m
+  litrag_parser.labeller`) has the local model (`qwen3:14b`, or `LITRAG_LABEL_MODEL`, through
+  Ollama on 127.0.0.1) label the findings the queue would offer, by the rule the panel now shows
+  beside the question; its answers go to `model_labels`, apart from a person's. The queue offers
+  them first, never saying what the model answered, so a person's labels on them are its audit;
+  `truth` reports the agreement and every disagreement, and once 25 are audited at 0.9 agreement,
+  measures the edges again with the model's labels for the findings no person labelled. Merges
+  carry them; running it twice asks nothing twice.
+
 ## 0.3.2 — 2026-10-04
 
 Installable from a release, author manuscripts from NCBI, and torch chosen by name.

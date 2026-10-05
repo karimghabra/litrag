@@ -89,6 +89,189 @@ when it turns out durable. Mark inference as inference.
 
 ## Short-term memory
 
+- **2026-10-04: open copies fetched** — Karim: "yes, fetch the open copies too" (invariant 1 amended:
+  the host of an open copy OpenAlex names, sent only the request for it). Asked last, after every
+  service of ours; filed only when the first three pages print the DOI or the whole title, not under
+  a supplement's name. From this cloud container, on the big library's 100 links outside PMC: 5
+  came (OSTI ×3, JCI, arXiv — every one the right paper), 77 bot checks (Cell Press all 35, doi.org
+  → publishers 11, NEJM, OUP, Wiley, SAGE, Hindawi, RSC, PNAS…), 14 refused outright (MDPI 8,
+  ScienceDirect 2, eScholarship, a handle), 2 IOP pages leading nowhere, 1 right paper refused for
+  its record's spelling ("tumours" against the PDF's "Tumors": a person's). A datacenter address is
+  what bot checks are tuned against; the rate from Karim's machine is the number that matters and
+  is not measured yet. Bot checks are left to the person's browser — never a headless browser, a
+  borrowed user agent, or anything else that gets round one. Live, through the worker's `fetch` in a
+  fresh library: all five fetched and read in 6 min (one NCBI XML with them), each filed under its
+  own DOI; the two bot checks and the "tumours" refusal went to needs-pdf with every route's reason.
+  What the reader made of them is BACKLOG's reading faults (4): an affiliation read as a title, an
+  arXiv preprint with no references found.
+
+- **2026-10-04: the scale test** — Karim: "i know it wouldnt be more, but we need to test this at
+  scale". Grown from the six-paper link-test library by Expand in this container (Europe PMC, NCBI,
+  the PMC Cloud bucket; OpenAlex's free one-by-one path, its keyless budget spent). Expand 50 at
+  44 papers read 35 (11.5 min); Expand 100 read **19** (22.8 min): the most cited works of a grown
+  library are classics nothing open is on record for (74 of 74 such fetches failed; open XML never
+  failed; NIH author manuscripts ~2 in 5). With readability ordering and the passed-over ones
+  marked for a person: Expand 100 read **100** (94 of 94 open-XML bets, 6 of 12 author manuscripts,
+  the 6 refused replaced from further down) in 29.5 min, 100 passed to Collect PDFs, of which an
+  earlier count found 56 in 99 with an open copy OpenAlex knows of (shown, not fetched — fetching
+  from arbitrary hosts is Karim's call, not asked yet). Library then: 163 papers, 12,232 entries,
+  4,678 candidates, 7,774 citing passages, 64 MB. The link test at 25 pairs: 2,599 entries, 0 wrong,
+  recall 0.956. Speed: entry linking was 24 s from scratch (fixed: 0.45 s); sync 30 ms with nothing
+  new; graph op 172 ms; next_to_read 408 ms; the Graph tab 337 ms / 642 ms (cited by two / every
+  candidate, 60 fps once settled); a 2,000-row SQL table 1.1 s and a row click 1.2 s (fixed: 0.34 s
+  and 0.13 s — rows put down 200 at a time, each pane laid out on its own). Unanswered: a PR to
+  main; whether to fetch OpenAlex's open copies outside PMC.
+
+- **2026-10-04: the link test** — Karim: "I want you to test this feature". Six open papers from six
+  publishers (Micromachines, Cureus, Sci Rep, Adv Eng Mater, PLOS ONE, Front Bioeng), read as JATS
+  (truth: 252 of 273 entries carry a DOI or PMID) and as PDF (76 of 275 printed a DOI). Scores with
+  `python -m litrag_parser.graph --lib pdf --truth xml`: first 0.944 precision / 0.67 recall (all 10
+  wrong links were PDF DOIs mangled at line breaks; the Wiley paper 0/47 — no titles printed, no
+  PMID known for the held paper, its "[PubMed: n]" unread); after the fixes 1.0 / 0.92. What is
+  left unreached is mostly reading faults (Frontiers' back matter filed as reference entries, two
+  entries run together; BACKLOG) and a few entries no list matched. Europe PMC's `citedOrder` is
+  not the paper's order for every paper (Sci Rep: its 1 was the PDF's 10), which is why a place is
+  never taken without author and year. Timings: a full relink of 3,600 entries 0.23 s, 2 ms when
+  nothing changed; Expand reads three open papers in ~40–50 s.
+
+- **2026-10-04: passages linked to the works they cite; Expand** — Karim: "expand on corpuses by
+  grabbing references cited by the corpus' papers … link chunks that cite specific references to
+  these new citations". Built `ref_lists`, `ref_works`, `passage_cites`, the `expand` and
+  `passages` ops. Live, from the Micromachines fixture alone: all 61 of its entries linked (46 by
+  PMID, 14 by DOI, 1 through OpenAlex's list); Expand read the three most cited works that could be
+  read (Kishore 2011 Biomaterials, Younesi 2014 AFM, Chen 2018 Nanomaterials) in 43 s, after which
+  8 of its passages led to them — and the papers read cite each other too (Kishore 2011 is cited
+  by 7 passages across two papers). The first live try chose three classics no one can fetch
+  (Engler 2006 Cell, Murphy 2014, and an open MDPI paper whose Europe PMC record answers its DOI
+  without carrying it, so the batched lookup dropped it and it had no PMCID): fixed both — a DOI
+  no record named is asked alone, and among works cited as often the readable go first.
+
+- **2026-10-04: OpenAlex in the rounds** — Karim: "we can use it in parallel with what we've got.
+  implement it." Invariant 1 names it. OpenAlex's terms as of 2026-10 (its docs): one work by id is
+  free and unlimited; a filtered list $0.0001, a search $0.001; **no key = $0.10/day shared by every
+  machine behind one IP** — this cloud container's was spent before we asked anything (a 429 that
+  says "Insufficient budget"), so the live check ran on the free one-by-one path: 183 works for
+  three papers in 56 s. A free key (account at openalex.org, `LITRAG_OPENALEX_KEY`) has $1/day of
+  its own; Karim would want one on his machine if the lab shares an address. What it added on the
+  three Akkus-lab papers, after Europe PMC: 95 candidates, 18 not in Europe PMC (Ceramics
+  International, J Mech Phys Solids, Applied Sciences…), 28 with an open copy outside PMC.
+  OpenAlex listed 62 references for the Micromachines paper against Europe PMC's 46. Its years are
+  the online date, often a year before the issue's — the title match allows ±1.
+
+- **2026-10-04: citation rounds, the graph, SQL over works** — Karim asked for a second round of
+  searches from the first round's citations, an Obsidian-like graph, ordered and by-author
+  searches in SQL that prompt further ingestion. What existed: every reference list was already
+  rows (`refs`, `citations`), JATS entries with DOI/PMID, PDF entries with a DOI when printed;
+  nothing followed them out of the library, and the old CLI's `snowball` (backward only) was
+  never ported. Built: `graph.py` (`cites`, `authors`, `works`, `harvests`), the `round` and
+  `graph` ops, the Graph tab. Checked live on the Micromachines paper and the PDGF-BB suture
+  paper: Europe PMC matched all 46 + 44 references to PMIDs, 27 citing papers came back, 117
+  candidates in 8.6 s, 46 with open XML; the two works both papers cite came first. Europe PMC
+  facts used: `/MED/<pmid>/references` gives `id`/`source` per matched entry and no DOI;
+  `(EXT_ID:n AND SRC:MED) OR DOI:"…"` looks twenty up in one `core` query; `core` records carry
+  `authorList` with ORCIDs and `firstPublicationDate`. Not done: title-only entries (most PDF
+  lists without DOIs) are not looked up by title — Europe PMC's own list covers any paper with a
+  PMID; OpenAlex would cover the rest and is a new host (Karim's call).
+
+- **2026-10-04: the PMC Cloud Service is a source** — Karim: "yes, add the PMC Cloud Service".
+  Invariant 1 now names it; `fetch` asks it (by PMCID only) before EBI's bulk area, for a paper's
+  PDF and for the PDF beside an XML. Checked live: the MDPI paper (PMC11278924, 2.8 MB) and
+  PMC11457099 came with their MD5s holding, in about a second each; the author manuscript
+  PMC5653421 has XML and text and no PDF; the closed deposit PMC9469745 is not there. The bucket
+  also holds author manuscripts' XML, a second road if NCBI's `efetch` ever goes the way of
+  `oa.fcgi` — not used. Its terms: say the data is NLM's, no PMC logo, no implied endorsement
+  (README says so).
+
+- **2026-10-04: where figures (and papers) can come from** — a survey for Karim ("see if there are
+  alternative publishers or platforms"), probed from the cloud container; full report kept out
+  of the repo. What is true now:
+  - **NCBI retired the PMC OA web service (`oa.fcgi`), its FTP packages and the old cloud files
+    on 2026-08-24.** The successor is the **PMC Cloud Service**, a public S3 bucket
+    (`pmc-oa-opendata.s3.amazonaws.com`): per article version `.xml`, `.txt`, `.json` (licence,
+    `is_manuscript`, `pdf_url`), and for the open-access subset the PDF and figures. Asked by
+    litrag since Karim allowed it (entry above). It held the MDPI test paper's PDF; EBI's bulk PDF
+    area — what the fetch asks now — did not (`PMCxxxx1128/` lists no such file).
+  - **NIH author manuscripts** (most Acta Biomaterialia papers in PMC) have XML and text only,
+    everywhere open: their PDF and figures come from the publisher (Elsevier's API with an
+    institutional key) or from a person through Collect PDFs.
+  - **Bot checks**: PMC's site (reCAPTCHA), europepmc.org's renders and `/bin/` images, and the
+    sites of Elsevier, Wiley, Sage, T&F, ACS, RSC (Cloudflare), www.mdpi.com (Akamai) — from a
+    datacenter IP; Karim's own may fare otherwise.
+  - **Full-size figures** from CC-BY publishers, unblocked: PLOS (original TIFFs, 1889 px), eLife
+    (IIIF, 2362 px), Frontiers (1414 px), MDPI's CDN `mdpi-res.com` (2916 px PNG) — against PMC's
+    ~700 px. Discovery services (OpenAlex, Unpaywall now on OpenAlex's data, Semantic Scholar)
+    found no new copy of the three test papers.
+  - **Licensed**: Elsevier's API (key + campus subscription: XML, PDF, high-res figures) is the
+    only automated route to most tendon papers in Acta Biomaterialia and Biomaterials; Wiley's TDM
+    API next. Sage, T&F and ACS restrict "AI use" (Sage names RAG) — for Karim and the library.
+
+- **2026-10-04: an XML paper's figures, from a PDF of it** — built: the PDF kept beside the XML
+  (`figures_file`), read page by page and pinned by caption number. The Advanced Healthcare
+  Materials paper (PMC11468977) read as XML plus its PDF: 12 of 24 plots read, 127 values, in
+  ~60 s on CPU; first tries pinned two panels of one figure to two captions (a caption's line
+  comes in pieces from the text layer; its extent is now the whole line) and read a page's
+  running head as a title. Images inside a page are read whole, as one figure each, so a figure's
+  panels share its legend.
+
+- **2026-10-04: figures read into numbers** — Karim: "ingesting figures, and converting them …
+  to a numerical format". Built `charts.py` (a pixel reader) and `figures.py` (cut a figure from
+  its PDF page, rows). What was learned, on what is in this container:
+  - **Both kinds exist.** The Wiley paper (PMC9795886, via PMC) draws its charts as vectors (176
+    paths and 78 text objects in Figure 2), its photographs as images; the Advanced Healthcare
+    Materials paper (PMC11468977) embeds every figure as one 300-dpi image. Reading vector
+    figures from their own text layer gives exact titles and ticks; images need OCR.
+  - **The text layer lies about size.** Wiley's PDF sets every glyph at 1 pt and scales it by the
+    text matrix; a joiner using the font size broke every word. The effective size is font size
+    × √|det(matrix)|. pdfium measures char angles clockwise, and inserts `\r\n` between glyphs
+    drawn as separate objects (matplotlib's mathtext) — geometry decides, not those breaks.
+  - **OCR**: RapidOCR 3.9 (a docling dependency) ships PP-OCRv6 det/rec ONNX models in its wheel;
+    with `onnxruntime` it runs offline, ~1.5 s for a 2000×650 crop on 4 CPUs, and reads rotated
+    axis titles when the crop is turned upright. It runs adjacent category labels together;
+    they are re-read one group at a time, parted at blank gaps.
+  - **Numbers**: six synthetic charts (fixtures/charts, known values) within 1.5 % of axis
+    range both ways; Wiley Figures 1–3: 10 of 11 plots read (the 11th is stress–strain curves),
+    e.g. Maximum Load 354/267/315/324 N; AHM Figure 3B/12F grouped gene expression within ~0.05,
+    except 12-px pale bars under a dashed line (~0.1). A paper of 5 figures reads in ~16 s on
+    CPU (it was 70 s until OCR stopped re-reading titles for photographs' false frames).
+  - **Not read yet**: curves without markers (stress–strain), box plots, horizontal bars; XML
+    papers' figures need their images fetched (Europe PMC serves them for open-access articles).
+
+- **2026-10-04: finding→method hydration, the truth set, and methods described elsewhere** —
+  Karim asked how findings reach methods and then "Implement these": a labelled truth set first,
+  the cheap hydration wins, "as previously described [14]" across papers, similarity still off.
+  Built on `claude/epic-knuth-1dlvv9` (two in worktrees, one here). What is true now:
+  - **Link strength**: same edges, new scores — pointer 1.0, terms 0.80–0.95, caption 0.70–0.80,
+    similarity 0.60–0.70, higher in a band the more marks (a pair 2, a word 1, full at 6). On the
+    demo library (4 papers, rebuilt) the 49 terms edges went from a flat 0.9 to 0.85–0.95
+    (29 · 7 · 1 · 12 at 0.85 · 0.9 · 0.875 · 0.95), the 3 captions to 0.733–0.8. Old libraries
+    keep 0.9 until a `rebuild`.
+  - **The paragraph hydration shows**: of the 52 edges, 39 reach a method of several paragraphs;
+    for 25 of those the paragraph chosen is not the method's first. Unmeasured: whether it is the
+    *right* one is what the labels' paragraphs will say (`truth` reports it beside the first
+    paragraph's score, the baseline). The marks themselves can be weak — "provide sufficient"
+    decided one edge — which is the linker's problem, and the truth set's to count.
+  - **Statistics and materials apart** ("Also used"): none on the demo library, because no
+    finding there had an edge to one. The catalogue's canonical names decide it, not the heading.
+  - **Described elsewhere** (`lineage.py`): on the demo library 6 of 53 methods paragraphs carry
+    a cue, 8 entries leaned on, none in the library, 6 of them candidates already — so the window
+    offers the fetch. A call takes 0.3 ms mean, 1.5 ms max (93 methods nodes); X's synthetic
+    store of 4,231 nodes is in its tests. Followed only by DOI, PMID or a whole title; a method
+    picked inside the cited paper only when its marks say so, else its whole methods section.
+  - **The truth set** is built and empty: **Label links** on the Papers tab, `label_queue` /
+    `label` / `labels` / `truth`, `python -m litrag_parser.truth`. Similarity stays off until it
+    scores 0.9 there.
+  - **Karim chose not to label a hundred himself** ("I don't have to do this labeling do i?" —
+    then option 3 of three: fewer labels, someone else, or the local model labels and he audits).
+    Built: `labeller.py`, `model_labels`, **Let the model label**; the queue offers the model's
+    findings first and blind; its labels count once 25 are audited at 0.9 agreement. The rule
+    beside the question (the procedures that produced what the finding reports; preparation and
+    statistics only when the finding reports them) is mine, written so a person and the model
+    answer the same question — Karim may want it otherwise.
+  - **The model, tried** on the demo library with `qwen3:1.7b` on 4 CPUs (the only model this
+    container could hold): 6 findings, 6 answers readable, 20 s each, ~3,000 prompt tokens each.
+    It over-ticks — the crosslinking subsection on five of six, cell culture for an elongation —
+    so a model that small would not pass the audit. `qwen3:14b` on Karim's GPU is untried.
+
 - **2026-09-30: installable by a script** — Karim: "the installation should essentially be a bat
   script that installs dependencies, followed by the software itself". Built in three worktrees
   against one contract (per-user root `%LOCALAPPDATA%\litrag` with `app\ venv\ uv\`; the

@@ -9,6 +9,10 @@ dependencies = [
     # meets the same floor
     "torch>=2.14",
     "torchvision>=0.29",
+    # reading the words on a figure (charts.py): the OCR docling brings, with the models its
+    # package ships, run by onnxruntime — nothing fetched
+    "rapidocr>=3.4",
+    "onnxruntime>=1.20",
 ]
 
 # Which torch is chosen by name, `--extra cpu` or `--extra cu130`, never both:

@@ -351,3 +351,102 @@ def test_the_command_line_answers_json_without_an_embedder(store, tmp_path, monk
     a = json.loads(capsys.readouterr().out)
     assert a["hits"] and a["embedder"]["model"].endswith("@doc1")
     assert retrieve.main(["--store", str(tmp_path / "store.sqlite"), "--embed"]) == 1  # down: says so, writes nothing
+
+
+# -- hydration: which method, which paragraph of it, and the edges walked the other way -------------------------------
+
+
+def test_edges_are_ordered_by_their_evidence_and_by_how_much_of_it():
+    from litrag_parser.edges import CAPTION_BAND, POINTER_SCORE, SIMILARITY_BAND, TERMS_BAND, banded, strength
+
+    assert strength(["compressive modulus", "calcein"]) == 3  # a pair weighs two, a word one
+    word, pair, many = banded(["calcein"], TERMS_BAND), banded(["compressive modulus"], TERMS_BAND), banded(["a b", "c d", "e f", "g"], TERMS_BAND)
+    assert TERMS_BAND[0] < word < pair < many == TERMS_BAND[1] < POINTER_SCORE
+    # every kind stays in its band: the strongest caption below the weakest mark, similarity below both
+    assert banded(["a b", "c d", "e f", "g h"], CAPTION_BAND) == CAPTION_BAND[1] <= TERMS_BAND[0]
+    assert SIMILARITY_BAND[1] <= CAPTION_BAND[0]
+
+
+def test_edges_of_one_finding_come_strongest_first(store):
+    conn, _, _ = store
+    scores = [r[0] for r in conn.execute("SELECT score FROM edges WHERE kind = 'measured_by' AND evidence = 'terms'")]
+    assert scores and all(0.80 < s <= 0.95 for s in scores) and len(set(scores)) > 1  # no longer one flat 0.9
+
+
+def test_choose_paragraph_follows_the_marks_then_the_rarer_words():
+    P = lambda i, t: {"node_id": f"p{i}", "text": t, "page": 1}  # noqa: E731
+    paras = [
+        P(1, "Collagen threads were electrocompacted between two electrodes at three volts."),
+        P(2, "Compressive modulus of collagen samples was measured on an Instron with a load cell."),
+        P(3, "Swelling ratio was computed from wet and dry weights of collagen threads."),
+    ]
+    p, why = retrieve.choose_paragraph(paras, "The compressive modulus rose twofold", ["compressive modulus"])
+    assert p["node_id"] == "p2" and why[0] == "compressive modulus"
+    p, why = retrieve.choose_paragraph(paras, "The swelling ratio of the threads fell after crosslinking", [])
+    assert p["node_id"] == "p3" and "swelling ratio" in why
+    # a word every paragraph says tells them apart from nothing: the method is given whole
+    assert retrieve.choose_paragraph(paras, "Collagen was the material", []) == (None, [])
+    assert retrieve.choose_paragraph(paras[:1], "anything at all", [])[0]["node_id"] == "p1"
+
+
+def test_a_finding_is_given_the_paragraph_of_its_method_it_rests_on(store):
+    conn, _, _ = store
+    for src, dst, detail in conn.execute("SELECT src, dst, detail FROM edges WHERE kind = 'measured_by' AND evidence = 'terms' ORDER BY score DESC, src").fetchall():
+        paras = {p["node_id"]: p["text"] for p in retrieve._paragraphs_under(conn, dst)}
+        if len(paras) > 1:
+            break
+    else:
+        pytest.skip("no finding in the fixture is linked to a method of several paragraphs")
+    h = retrieve.hydrate(conn, src)
+    m = next(m for m in h["methods"] if m["node_id"] == dst)
+    assert m["paragraph"] in paras and m["paragraphs"] == len(paras)
+    assert m["text"] == retrieve._cut(paras[m["paragraph"]], retrieve.METHOD_CHARS) and m["chars"] > len(paras[m["paragraph"]])
+    from litrag_parser.edges import _terms
+
+    assert m["matched"] and all(t in _terms(paras[m["paragraph"]]) for t in m["matched"])
+    assert retrieve.best_paragraph(conn, src, dst) == m["paragraph"]  # what the link labels are measured against
+
+
+def test_statistics_and_materials_are_shown_apart_and_never_first(store):
+    conn, key, _ = store
+    stats = conn.execute("SELECT node_id FROM nodes WHERE canonical = 'Statistical analysis'").fetchone()[0]
+    src, dst = conn.execute("SELECT src, dst FROM edges WHERE kind = 'measured_by' ORDER BY score DESC, src LIMIT 1").fetchone()
+    conn.execute("INSERT INTO edges(paper, src, dst, kind, evidence, detail, score) VALUES (?,?,?,?,?,?,?)",
+                 (key, src, stats, "measured_by", "pointer", "Section 2.7", 1.0))  # stronger than any edge it has
+    h = retrieve.hydrate(conn, src)
+    assert [g["node_id"] for g in h["general"]] == [stats] and h["general"][0]["general"]
+    assert stats not in [m["node_id"] for m in h["methods"]] and dst in [m["node_id"] for m in h["methods"]]
+
+
+def test_a_finding_linked_only_to_statistics_still_gets_its_sections_methods(store):
+    conn, key, _ = store
+    row = conn.execute(
+        """SELECT n.node_id FROM nodes n
+           WHERE n.type = 'paragraph' AND n.role = 'results'
+             AND NOT EXISTS (SELECT 1 FROM edges e WHERE e.src = n.node_id AND e.kind = 'measured_by')
+             AND EXISTS (SELECT 1 FROM edges e JOIN nodes s ON s.node_id = e.src WHERE s.parent = n.parent AND e.kind = 'measured_by')
+           ORDER BY n.rowid LIMIT 1"""
+    ).fetchone()
+    if row is None:
+        pytest.skip("every results paragraph in the fixture has its own edge")
+    stats = conn.execute("SELECT node_id FROM nodes WHERE canonical = 'Statistical analysis'").fetchone()[0]
+    conn.execute("INSERT INTO edges(paper, src, dst, kind, evidence, detail, score) VALUES (?,?,?,?,?,?,?)",
+                 (key, row["node_id"], stats, "measured_by", "terms", "statistical significance", 0.9))
+    h = retrieve.hydrate(conn, row["node_id"])
+    assert [g["node_id"] for g in h["general"]] == [stats]
+    assert h["methods"] and all(m["via"] == "section" for m in h["methods"])
+
+
+def test_a_methods_hit_lists_the_findings_its_method_measured(store):
+    conn, _, _ = store
+    dst, total = conn.execute("SELECT dst, count(*) FROM edges WHERE kind = 'measured_by' GROUP BY dst ORDER BY count(*) DESC, dst LIMIT 1").fetchone()
+    para = retrieve._paragraphs_under(conn, dst)[0]["node_id"]
+    h = retrieve.hydrate(conn, para)
+    f = h["findings"]
+    assert f["method"] == dst and f["total"] == total and len(f["findings"]) == min(total, retrieve.FINDINGS_SHOWN)
+    scores = [x["score"] for x in f["findings"]]
+    assert scores == sorted(scores, reverse=True)
+    for x in f["findings"]:
+        assert conn.execute("SELECT 1 FROM edges WHERE src = ? AND dst = ? AND kind = 'measured_by'", (x["node_id"], dst)).fetchone()
+    src = conn.execute("SELECT src FROM edges WHERE kind = 'measured_by' LIMIT 1").fetchone()[0]
+    assert retrieve.hydrate(conn, src)["findings"] is None  # a finding is not asked the other way round

@@ -18,9 +18,10 @@ Where things are:
   `tree.py` turns a Docling document into the node tree; `store.py` is the
   SQLite schema and its reads; `worker.py` speaks JSON lines over stdio.
 - `app/` — Electron, TypeScript, built with esbuild. `src/main` spawns the
-  worker and relays its events; `src/renderer` is the window: five tabs
+  worker and relays its events; `src/renderer` is the window: six tabs
   over one project — Projects, Search, Papers (tree, page with boxes,
-  canonical face), Types, Query — and the log.
+  canonical face), Types, Query, Graph (citations, rounds, SQL) — and the
+  log.
 - `src/`, `tests/` — the `lit` CLI (Node): Europe PMC, chunks, embeddings,
   hybrid retrieval. Not yet wired to the tree store, and deprecated: kept
   until its verbs are ported to it (`BACKLOG.md`).
@@ -32,8 +33,15 @@ Invariants:
    Hugging Face and run here; the embedder and the judge are Ollama on
    127.0.0.1; the only other network calls are Europe PMC's and NCBI's
    (PMC's XML by PMCID, for the author manuscripts Europe PMC will not
-   serve: an identifier out, the article in — Karim, 2026-09-30). Nothing
-   reads a paper for a cloud service.
+   serve: an identifier out, the article in — Karim, 2026-09-30), and
+   NLM's PMC Cloud Service (`pmc-oa-opendata.s3.amazonaws.com`: an
+   open-access paper's PDF by PMCID, the same way — Karim, 2026-10-04),
+   and OpenAlex (`api.openalex.org`, for citation rounds beside Europe PMC:
+   identifiers out, and for a reference entry naming none its own words,
+   never a paper's text — Karim, 2026-10-04), and the host of an open copy
+   OpenAlex names (a publisher's or a repository's: the request for that
+   PDF and nothing else, a bot check left to a person — Karim, 2026-10-04).
+   Nothing reads a paper for a cloud service.
 2. **Two languages, one wire.** Python owns parsing and the store; TypeScript
    owns the window. They meet only on the JSON-lines protocol in
    `parser/litrag_parser/worker.py` and `app/src/main/protocol.ts`. No

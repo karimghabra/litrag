@@ -112,15 +112,16 @@ published release, installs each once on a clean runner, and attaches them.
 
 ## What you see
 
-Five tabs over one project at a time, picked at the top:
+Six tabs over one project at a time, picked at the top:
 
 | Tab | What it is for |
 |---|---|
 | Projects | every project as a card: papers by format and type, how many are read, the searches run, the candidates waiting for a PDF, the passages embedded; **New project**; **Merge libraries…** files every paper of several projects once in a new one |
-| Search | a Europe PMC query (or one the local model drafts from the project's description); each hit with what can be had of it — open XML, an open PDF, nothing open — kept as a candidate; **Fetch & read** takes the XML first (Europe PMC's, else NCBI's for an NIH author manuscript), the PDF second, and lists the rest with their links |
+| Search | a Europe PMC query (or one the local model drafts from the project's description); each hit with what can be had of it — open XML, an open PDF, nothing open — kept as a candidate; **Fetch & read** takes the XML first (Europe PMC's, else NCBI's for an NIH author manuscript), the PDF second (NLM's PMC Cloud Service, else EBI's bulk area, else the open copy OpenAlex names when it prints the paper's DOI or title), and lists the rest with their links |
 | Papers | the three panes below; the tree pane's **Canonical** face re-hangs the paper under its type's structure, each section tagged with the mechanism that placed it |
 | Types | the kinds of paper the project holds, each kind's canonical structure (its slots in order, how often its papers have each), and any paper drawn onto it: a line from each printed section to its slot, coloured by the vocabulary, the catalogue, the embedder, a built heading or the outline judge; the slots it lacks drawn empty |
-| Query | a question, and the passages that answer it, each hydrated from its tree: the headings above it, the paragraphs either side, the methods a finding was measured by, the figures and references it cites; **Open in the tree** lands on it |
+| Query | a question, and the passages that answer it, each hydrated from its tree: the headings above it, the paragraphs either side, the methods a finding was measured by (the paragraph it rests on, where the method is described in another paper, statistics and materials apart), the findings a method measured, the figures and references it cites — a figure with the numbers read from its charts; **Open in the tree** lands on it |
+| Graph | the papers and the citations between them, drawn as a graph with the works they cite most beside them; **Citation round** files what the papers cite (and what cites them) as the next round's candidates; SQL over `works`, `authors` and `cites`, its candidates fetched and read from the results |
 
 The Papers tab:
 
@@ -516,6 +517,149 @@ truth set too small to trust either alone, which is why every edge carries
 the evidence that made it, the window shows it, and resemblance is off by
 default. NOTES.md has the numbers.
 
+Each edge has a strength as well as a kind. A pointer scores 1.0; terms
+score between 0.80 and 0.95, a caption between 0.70 and 0.80 and
+resemblance between 0.60 and 0.70, each higher within its band the more
+marks it rests on (a word pair counts two, a word one). The kinds never
+overlap, so the order is still the evidence's; inside a kind, the edge
+with more behind it comes first. A library read before this needs
+`rebuild` for the new scores.
+
+**In a query** the link is followed both ways, every piece a row
+(`retrieve.hydrate`):
+
+- A finding shows the methods it was measured by, strongest first, and of
+  each method **the paragraph** the finding rests on rather than the
+  subsection's opening: the one its marks name, else the one sharing the
+  finding's rarer words, else, when no paragraph stands out, the first.
+  Statistics and materials — the methods every finding leans on — are kept
+  apart under "Also used", so they never take the place of the method
+  that measured it. A finding with only those still gets its figure's
+  methods, then its section's.
+- A hit inside a methods subsection shows **the findings its method
+  measured**, the reverse walk over the same edges.
+- **Described elsewhere.** "Electrocompacted as previously described [14]"
+  says nothing of how. `lineage.py` reads such sentences in a closed
+  vocabulary of cues (a pointer inside the paper, a supplier's protocol or
+  a figure's credit is none), takes the entries they cite, and looks for
+  each among the library's papers by DOI, then PMID, then title. When the
+  library holds the paper, the method shown is that paper's own
+  subsection — the one the sentence's marks name, else its whole methods
+  section, never a guess between subsections; when it does not, the entry
+  is named, with the candidate that would fetch it. `python -m
+  litrag_parser.lineage --lib DIR` counts all of it over a library.
+
+**The truth set.** Thirteen pointers cannot say how often the edges are
+right, so the window collects the truth: **Label links** on the Papers tab
+steps through a queue of findings spread across papers and publishers,
+linked and unlinked mixed (`label_queue`), and for each one a person
+checks the methods it was measured by, or "no method", and may mark the
+paragraph inside it (number keys, N, Enter). A finding's own **Label**
+button, under "Measured by", opens it alone. The labels are rows of the
+library (`link_labels`), a person's work rather than the paper's, so a
+rebuild or a merge keeps them; each finds its finding again by id, else by
+its words. `truth` (the op, or `python -m litrag_parser.truth --lib DIR
+--measure`) scores the edges against them: precision by kind of evidence,
+recall, the misses, the false links, and how often hydration's paragraph
+is the one the person marked, beside the method's first paragraph.
+Resemblance stays off until it scores 0.9 there.
+
+A person need not label all of it. **Let the model label** (in the same
+panel, or `python -m litrag_parser.labeller --lib DIR`) has the local model
+(`qwen3:14b` through Ollama, on this machine) answer the same question, by
+the same rule, for the hundred findings the queue would offer (twenty
+seconds a finding with `qwen3:1.7b` on four CPU cores; the 14B model on a
+GPU is untried). Its
+answers are rows of their own (`model_labels`), never mixed with a
+person's. The queue then offers the model's findings first, without saying
+what it answered, so the person's next labels are its audit: once 25 are
+audited and the person agrees on 90 % of them, its labels count for the
+rest, and `truth` measures the edges again with them. Until then they are
+only compared, finding by finding, with every disagreement listed.
+
+## Figures read into numbers
+
+A chart in a figure is data the paper does not print anywhere else. As a
+PDF paper is read, each of its figures is cut from its page and its plots
+read into rows (`charts.py`, `figures.py`): every bar and every point with
+the value it stands for, the ends of its error bar, its series and its
+category, and above them the axis's title and unit and the panel's letter.
+
+- **How the figure was drawn decides how it is read.** A figure drawn as
+  vectors is rendered at 600 dpi and its words are the PDF's own text layer
+  — titles set on their side, slanted labels, `10^3` on a log axis. A
+  figure that is an image is read at its own resolution, its words by OCR
+  (RapidOCR, with the models its package ships: nothing is fetched).
+- **A scale, or no number.** The y axis is fitted to at least three of its
+  tick labels, linear or log, and must hold within 1 % of its range; one
+  misread label may be left out. A frame with no numbers beside it — a
+  photograph's edge, a panel's border — is no chart; a scale that will not
+  hold leaves the plot `unread`, with the reason, and gives no value.
+- **What is measured.** Bars standing on the axis, told apart by their
+  fills (grouped bars by the colours repeating), their tops read through an
+  outline's middle; markers, round shapes left when the lines joining them
+  are opened away, two drawn over each other parted by colour; error bars,
+  thin strokes up from a bar or a marker to their cap, and down into a bar
+  in another colour. A whisker that cannot be seen is null, never assumed.
+  Names come from the labels under the axis and the legend's swatches.
+- **Where it shows.** A picture in the Papers tab lists its plots as tables
+  — value ± error, a CSV of each a click away — and a figure read before
+  this existed has **Read the figures**. In Query, a passage that cites a
+  figure (or is its caption) carries its numbers, the panel it names first
+  ("Figure 2B"). `select c.y_label, v.category, v.y, v.err_hi from
+  chart_values v join charts c using (paper, figure, plot)` is the shape of
+  the question.
+
+On six synthetic charts with known values — simple, grouped, outlined with
+slanted labels, points over days, two panels, a log axis — every value is
+within 1.5 % of its axis's range, read either way. On a Wiley paper drawn
+as vectors, 10 of 11 plots were read (the 11th, stress–strain curves, is
+said unread), and they agree with the bars as printed; on an Advanced
+Healthcare Materials paper of images, its grouped gene-expression bars read
+within about 0.05. Curves without markers, box plots and horizontal bars are
+not read yet.
+
+**An XML paper's figures come from a PDF of it.** JATS names its figures
+(`<graphic xlink:href="…g001.jpg"/>`) and holds none; Europe PMC's figure
+pages sit behind a bot check, and the images its API gives open-access papers
+are display-size (~730 px), too small to read a tick label. So the XML stays
+the paper — its text, its structure — and a PDF of the same paper is kept
+beside it (`papers.figures_file`, `papers/<key>.figures.pdf`) only to read the
+charts: each page that prints a figure's caption is read, an image there whole
+at its own resolution and the rest with the page's text layer, and every plot
+is pinned to the caption under it — "Figure 2." to the XML's figure 2 (a
+sentence that begins "Figure 2 shows" is no caption). The PDF comes three
+ways: a fetch takes the paper's open-access PDF beside its XML, from the PMC
+Cloud Service or else EBI's bulk area; a PDF dropped into a project whose
+paper is already its XML is kept for the figures instead of being set aside;
+and **Collect PDFs** lists the XML papers whose figures want one, after the
+papers with no copy at all.
+
+**Where an open PDF comes from.** The PMC Cloud Service
+(`pmc-oa-opendata.s3.amazonaws.com`) is the National Library of Medicine's
+copy of PMC's open-access articles as files, the successor NCBI named when
+it retired its OA web service in August 2026: it is asked by PMCID alone,
+its newest version of the article taken, and the PDF kept only when the MD5
+NLM lists for it holds. The articles are NLM's data, each under its own
+licence; NLM does not endorse this tool. EBI's bulk area is asked after it,
+for what the Cloud Service lacks. An NIH author manuscript is there as XML
+and text, never as a PDF.
+
+**An open copy, last.** When neither has it, the open copy OpenAlex names
+(a repository's author manuscript, a preprint, the publisher's free PDF)
+is asked of its own host: the PDF itself, or a page followed to the PDF it
+names for indexers (`citation_pdf_url`) or the page it refreshes to. It is
+filed only when its first pages print the paper's DOI or its whole title,
+and not under a supplement's name; anything else is left in Collect PDFs,
+with its link. A site that answers with a bot check ("Just a moment…") is
+left to a person's browser, never got round. Measured from a cloud
+container on 100 such links: 5 taken (OSTI, JCI, arXiv), each the right
+paper; 77 bot checks (Cell Press's 35 among them), 14 refused outright
+(MDPI's 8), 2 pages leading nowhere, and one right paper refused for its
+record's spelling ("tumours", the PDF's "Tumors"). Not yet measured from a
+home or university address, where the publishers' checks may be gentler.
+`LITRAG_OPEN_COPIES=off` stops it.
+
 ## Citations
 
 Every entry in a paper's reference list is a row (`refs`: number, first
@@ -527,6 +671,113 @@ lists both, each a click away. `select n.role, r.first_author, r.year,
 r.doi from citations c join nodes n using(node_id) join refs r on
 r.paper=c.paper and r.ref_no=c.ref_no` is the shape of the question this
 answers: which chunk leans on which paper.
+
+## The library as a graph, and the rounds it grows by
+
+Papers cite papers, and the store keeps that as rows too (`graph.py`). A
+*work* is a paper the project holds or a candidate it does not hold yet;
+`cites` is one row per citation between two works, `authors` one row per
+author of every work, and `works` is a view over both, so a question about
+the literature is a `SELECT`:
+
+```sql
+-- the papers held, in the order they were published
+select year, first_author, title from works where state = 'held' order by year, published;
+-- everything one author wrote that the project knows of, held or not
+select w.year, w.title, w.state from authors a join works w using (work)
+where a.family = 'Akkus' order by w.year;
+-- what to read next: the works the project's papers cite most, not held yet
+select cited_here, year, first_author, title, work from works
+where state = 'candidate' order by cited_here desc, year desc;
+```
+
+- **Among the papers held**, a reference naming another held paper — by
+  DOI, PMID, or its whole title and year — is a citation as soon as both
+  are read; nothing is asked of the network.
+- **A citation round** (**Citation round** on the Graph tab, the `round`
+  op) asks, for each paper read since the last round, what it cites: its
+  own reference list, Europe PMC's list of it and OpenAlex's; ticked, also
+  what cites it. Every work it can identify (a DOI or PMID) is looked up in
+  Europe PMC — twenty to a request — and filed as a candidate of the next
+  round: round 1 is what a search found or a person dropped in, round 2 what
+  those cite, and so on. Nothing is fetched. On two papers, 46 and 27
+  references and 27 citing papers came back as 117 candidates, 46 of them
+  with open XML, in about nine seconds.
+- **OpenAlex beside Europe PMC** (**OpenAlex too**, ticked by default).
+  [OpenAlex](https://openalex.org) is an open index of 300M+ works in every
+  field: it knows papers PubMed never indexed — engineering, physics,
+  materials journals — and a reference list for any DOI whose publisher
+  deposited one. On three papers Europe PMC had already been asked about,
+  its lists named 183 works and added 95 candidates, 18 of them unknown to
+  Europe PMC (Ceramics International, J Mech Phys Solids…), and 28 with an
+  open copy outside PMC (the candidate's **open** link — asked last by a
+  fetch, and followed by a person when its site will not answer one). A work Europe PMC knows is filed with
+  Europe PMC's record, since that is what a fetch needs; one it does not,
+  with OpenAlex's. For a paper neither has a list for (a PDF with no DOI), an
+  entry naming no identifier is searched in OpenAlex by its words and taken
+  only when one work's whole title (four words or more), year (give or take
+  one) and first author are all in it; else it is counted and left, never
+  guessed onto a paper. OpenAlex is asked one work at a time by its id —
+  free and unlimited — and in lists of a hundred while its daily budget
+  lasts ($0.10 a day without a key, shared by every machine behind one
+  address; $1 with a free key in `LITRAG_OPENALEX_KEY`). A spent budget
+  makes the lists one-by-one (slower, still free) and leaves what needs it
+  — what cites a paper, the title searches — for the next round, said in
+  the log. `LITRAG_OPENALEX=off` turns it off.
+- **Every entry linked to its work, every passage with it.** A paper's
+  reference list is linked entry by entry to the works the rounds found
+  (`ref_works`): by the entry's own DOI or PMID, by a held paper's whole
+  title in it, by Europe PMC's entry at the same place in the list when its
+  first author and year agree, or by the one work of OpenAlex's list whose
+  whole title, year and first author the entry carries. An entry none of
+  these names stays unlinked. Since every in-text marker already names its
+  entry (`citations`), every passage that cites is joined to the work it
+  cites — `passage_cites`, a view: `select * from passage_cites where work =
+  'doi:10.1016/…'` is every chunk of the library that cites that paper. The
+  lists each source gave are kept as rows (`ref_lists`), so a paper read
+  again is linked again without asking anything. On the Graph tab a work's
+  detail lists **Cited in the text** — each passage, its paper and heading,
+  the sentence around the marker, a click from the passage in its tree; an
+  edge knows how many passages it stands for. In the Papers tab an entry
+  says what it names (→ in the library, a click away; → found, a
+  candidate), and in Query a passage's citations lead to the papers held.
+- **How right the links are** is measured, not assumed: `python -m
+  litrag_parser.graph --lib <a PDF library> --truth <the same papers' JATS>`
+  scores every link of the first against the identifiers the second's
+  entries carry. On six open papers from six publishers (MDPI, Cureus,
+  Scientific Reports, Wiley, PLOS, Frontiers): 246 of 270 PDF entries
+  linked, none wrong, 14 to works the JATS itself names no identifier for
+  (books, a few non-PubMed papers, checked by hand), and 231 of the 252
+  works the JATS identifies reached (0.92). What it took: a DOI the PDF's
+  line breaks mangled is trusted only once Europe PMC or OpenAlex knows it
+  (it had made all 10 wrong links of the first try); the PMIDs PDF entries
+  print are read; a held paper's own PMID is looked up so Europe PMC's list
+  can be asked; titles are matched with accents folded and the PDF's lost
+  hyphens forgiven, against any year the entry prints; and an entry that
+  prints no title (Wiley's "Geissler J, Injury 2019, 50, S64.") by its
+  first author, year, volume and first page. A rebuild with the network
+  cut, and a merge, give back every link.
+- **Expand: read the most cited** runs a round, then fetches and reads the
+  works the papers held cite most (linked to the most of them, then the
+  ones that can be read — an open XML, then an author manuscript — then the
+  most cited anywhere) until the number beside it (10 by default) are read.
+  The more cited ones nothing open is on record for are passed over, not
+  spent from the number, and marked for Collect PDFs. The next round of the
+  library in one click: 100 papers read in half an hour at scale; once
+  read, every passage that cited one leads to it.
+- **The next round is a choice.** Any query's rows that are candidates can
+  be ticked and fetched and read from the SQL pane (**Fetch & read
+  selected**), which is the next round of the library; a paper read later
+  is due its own citation round. An author in a work's detail opens the
+  project's other works of theirs, or a Europe PMC search for them
+  (`AUTH:"Akkus O"`) — a new round from a person rather than a paper.
+- **The Graph tab** draws it like a note graph: the papers held as filled
+  discs, the candidates cited by at least two of them (or none, or all) as
+  hollow ones, each the larger the more works here cite it, coloured by
+  round, by year, or held-or-not; hover lights a paper's neighbours, a click
+  shows its detail (its authors with ORCIDs where Europe PMC has them, what
+  it cites and what cites it), a double click opens a held paper. A query's
+  rows are lit in the graph, and a row clicked is found in it.
 
 ## The harness and the end-to-end suite
 

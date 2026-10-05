@@ -249,6 +249,7 @@ def _merge_paper(src: Library, sconn: sqlite3.Connection, s_tables: set[str], ta
     tkey = result.key
     have = tconn.execute("SELECT file, status FROM papers WHERE key = ?", (tkey,)).fetchone()
     if result.existed and have is not None and (have["file"] or have["status"] == "parsed"):
+        _merge_labels(sconn, s_tables, tconn, t_tables, key, tkey)
         tconn.commit()
         return {"kind": "duplicate", "key": tkey}
 
@@ -280,17 +281,67 @@ def _merge_paper(src: Library, sconn: sqlite3.Connection, s_tables: set[str], ta
     if "judgments" in s_tables and "judgments" in t_tables:
         for j in sconn.execute("SELECT pair, same, model, at FROM judgments WHERE paper = ?", (key,)):
             tconn.execute("INSERT OR IGNORE INTO judgments(paper, pair, same, model, at) VALUES (?,?,?,?,?)", (tkey, *tuple(j)))
+    _merge_labels(sconn, s_tables, tconn, t_tables, key, tkey)
+    _merge_charts(sconn, s_tables, tconn, key, tkey)
     tconn.commit()
     log_event(tconn, tkey, now, "merged", f"from {src.id} ({key}){'' if raw_came else ', no raw document: to be read again'}")
     return {"kind": "filed", "key": tkey}
+
+
+def _merge_labels(sconn: sqlite3.Connection, s_tables: set[str], tconn: sqlite3.Connection, t_tables: set[str], key: str, tkey: str) -> None:
+    """A person's finding→method labels (truth.py), and the local model's (labeller.py), go with
+    the paper, the target's own kept where both have one. Node ids under another key are moved
+    to it; where the target reads the paper differently, truth.anchor finds them again by their
+    words."""
+
+    def move(node_id: str | None) -> str | None:
+        return tkey + node_id[len(key):] if node_id and tkey != key and node_id.startswith(key + "#") else node_id
+
+    for table in ("link_labels", "model_labels"):
+        if table not in s_tables or table not in t_tables:
+            continue
+        for r in sconn.execute(f"SELECT finding, finding_text, method, method_heading, paragraph, paragraph_text, verdict, by, at FROM {table} WHERE paper = ?", (key,)):
+            tconn.execute(
+                f"INSERT OR IGNORE INTO {table}(paper, finding, finding_text, method, method_heading, paragraph, paragraph_text, verdict, by, at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                (tkey, move(r["finding"]), r["finding_text"], move(r["method"]) or "", r["method_heading"], move(r["paragraph"]), r["paragraph_text"], r["verdict"], r["by"], r["at"]),
+            )
+
+
+def _merge_charts(sconn: sqlite3.Connection, s_tables: set[str], tconn: sqlite3.Connection, key: str, tkey: str) -> None:
+    """The numbers read from a filed paper's figures (figures.py) go with it, figure ids moved to
+    the key the target holds it by; a rebuild there finds each figure again by its place."""
+    if "charts" not in s_tables:
+        return
+    from .figures import ensure_schema
+
+    ensure_schema(tconn)
+
+    def move(node_id: str) -> str:
+        return tkey + node_id[len(key):] if tkey != key and node_id.startswith(key + "#") else node_id
+
+    for table in ("charts", "chart_values"):
+        if table not in s_tables:
+            continue
+        cols = [r[1] for r in sconn.execute(f"PRAGMA table_info({table})")]
+        for r in sconn.execute(f"SELECT * FROM {table} WHERE paper = ?", (key,)):
+            row = dict(zip(cols, r))
+            row["paper"], row["figure"] = tkey, move(row["figure"])
+            tconn.execute(f"INSERT OR IGNORE INTO {table}({', '.join(cols)}) VALUES ({', '.join('?' * len(cols))})", [row[c] for c in cols])
+    if "figure_reads" in s_tables:
+        for r in sconn.execute("SELECT reader, figures, plots, read, values_, seconds, at FROM figure_reads WHERE paper = ?", (key,)):
+            tconn.execute("INSERT OR IGNORE INTO figure_reads(paper, reader, figures, plots, read, values_, seconds, at) VALUES (?,?,?,?,?,?,?,?)", (tkey, *tuple(r)))
 
 
 def _merge_candidates(sconn: sqlite3.Connection, tconn: sqlite3.Connection, now: str) -> int:
     """A source's candidates into the target's, once each. A fetch's file stayed in the source's
     inbox, so a fetched candidate is found again here, to be fetched again if wanted; an ingested
     one is `ingested` here only when `reconcile` finds its paper in the target."""
+    from . import graph
+
     added = 0
     rows = sconn.execute("SELECT * FROM candidates ORDER BY cand_id").fetchall()
+    graph.ensure_schema(tconn)
+    as_here: dict[str, str] = {}
     with tconn:
         for r in rows:
             d = dict(r)
@@ -299,8 +350,23 @@ def _merge_candidates(sconn: sqlite3.Connection, tconn: sqlite3.Connection, now:
             status = d.get("status") or "found"
             if status in ("fetching", "fetched", "ingested"):
                 status = "found"  # the file is not carried, and whether it is held here is reconcile's to say
-            cid, new = acquire.upsert_candidate(tconn, hit, query=d.get("query"), now=d.get("found_at") or now, status=status)
+            cid, new = acquire.upsert_candidate(tconn, hit, query=d.get("query"), now=d.get("found_at") or now, status=status, round=int(d.get("round") or 1))
+            as_here[f"cand:{d['cand_id']}"] = f"cand:{cid}"
             if new:
                 added += 1
                 tconn.execute("UPDATE candidates SET error = ?, updated_at = ? WHERE cand_id = ?", (d.get("error"), now, cid))
+        # the citations a round found, between the same works here (a paper's key is the same in every library)
+        tables = {t for (t,) in sconn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+        if "cites" in tables:
+            for citing, cited, origin, ref_no in sconn.execute("SELECT citing, cited, origin, ref_no FROM cites"):
+                tconn.execute("INSERT OR IGNORE INTO cites VALUES (?, ?, ?, ?)", (as_here.get(citing, citing), as_here.get(cited, cited), origin, ref_no))
+        if "harvests" in tables:
+            for paper, kind, at, found in sconn.execute("SELECT paper, kind, at, found FROM harvests WHERE kind != 'local'"):
+                tconn.execute("INSERT OR IGNORE INTO harvests VALUES (?, ?, ?, ?)", (paper, kind, at, found))
+        if "ref_lists" in tables:
+            # the lists a round kept are what line a paper's entries up with their works: a round
+            # marked asked would never fetch them again, so they come too
+            cols = [c for c in graph.REF_LIST_COLS.split(", ") if c in {r[1] for r in sconn.execute("PRAGMA table_info(ref_lists)")}]
+            tconn.executemany(f"INSERT OR IGNORE INTO ref_lists ({', '.join(cols)}) VALUES ({', '.join('?' * len(cols))})",
+                              [tuple(r) for r in sconn.execute(f"SELECT {', '.join(cols)} FROM ref_lists")])
     return added

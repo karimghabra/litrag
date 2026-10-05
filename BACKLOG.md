@@ -5,6 +5,56 @@ wants as they are voiced.
 
 ## Named priorities
 
+- **Reading faults the link test found** (2026-10-04, six papers read as PDF and as XML) —
+  (1) `tree._pick_title` refuses a real title shaped like a list of names ("Mesenchymal Stem Cell
+  Migration and Tissue Repair", doi:10.3390/cells8080784): `_never_a_title` → `_name_list` /
+  `_looks_like_authors` veto even a Docling `title` item read from JATS, and the paper is filed
+  under its file's name (a fetch now falls back to the record's title; a dropped JATS does not).
+  (2) A Frontiers PDF (doi:10.3389/fbioe.2024.1505102) had its funding, AI-use and disclaimer
+  statements filed in the references lane as entries, and two entries run together at a column
+  break; 12 of its 53 cited works stay unlinked for it. (3) The same Frontiers PDF's title was
+  read as "EDITED BY Jianxun Ding, Chinese Academy of Sciences (CAS), China" (the front page's
+  editor box), and the Micromachines PDF's introduction opens with "Academic Editor: Dmitry
+  Volodkin" joined into its first paragraph — MDPI's and Frontiers' first-page boxes, read as text.
+  (4) Open copies (2026-10-04, five repository and preprint PDFs read): an OSTI author manuscript's
+  title read as its affiliation line ("*Department of Cell Biology, 240, Longwood Ave…",
+  doi:10.1038/ncb0901-785), though the record's title is printed above it and the fetch checked
+  exactly that; the arXiv preprint (doi:10.1103/physreve.68.061907) read with 0 references; the
+  JCI PDF with 15% of its prose in the reference list, an OSTI review with 90% of its body under
+  its introduction. The reader's own confidence flags the last two (0.39, 0.3).
+- **The rounds, further** (after Karim, 2026-10-04; *passages linked to the works they cite and Expand built the same day*) — a citation round files what the papers cite
+  and what cites them (`graph.py`, the Graph tab), from Europe PMC and OpenAlex side by side
+  (*2026-10-04*: a reference with no DOI or PMID matched in OpenAlex by its whole title, year and
+  first author). Next: a round's candidates scored for the project (the description's embedding against
+  their abstracts) beside `cited_here`, so a large round can be read top-down; co-citation and
+  bibliographic coupling as `SELECT`s in the presets; authors joined by ORCID where both works
+  have one (OpenAlex's author ids, which a round already reads, would join more), before family
+  name and initial.
+- **More sources for PDFs and figures** (Karim to decide, 2026-10-04; NOTES.md has the survey) —
+  each a new host for invariant 1. ~~The PMC Cloud Service bucket~~ (*built 2026-10-04*: asked
+  before EBI's bulk area for every open PDF, an XML paper's figures PDF included). Still open, no
+  licence: ~~OpenAlex's open copies outside PMC~~ (*built 2026-10-04*, Karim: "yes, fetch the open
+  copies too": asked last, filed only when the first pages name the paper; from a cloud container 5
+  in 100 came, 77 were bot checks — next, measured from Karim's machine, and `best_oa_location`'s own
+  `pdf_url` and `version` kept beside `oa_url`, so a preprint is known as one); Crossref (licences and the
+  publishers' TDM links); full-size figures from PLOS, eLife, Frontiers and MDPI's CDN. Licensed:
+  Elsevier's API (personal key + the university's subscription) for Acta Biomaterialia and
+  Biomaterials, then Wiley's TDM API.
+- **Figures, the rest of them** (after Karim, 2026-10-04) — `charts.py` reads bars and markers
+  with error bars from PDF figures, and an XML paper's from a PDF kept beside it. Next, in order
+  of how often these papers use them: curves (stress–strain: vector paths sampled exactly, raster
+  traced by colour); per-cell dot and violin plots; box plots and horizontal bars; a check of each read value against the numbers the paper's
+  text states for the same figure ("355 ± 36 N (Figure 2B)"), which would also measure it.
+- **Label the finding→method truth set** (Karim, 2026-10-04) — the local model labels ~100
+  findings across 20–25 papers (**Let the model label**, `qwen3:14b`), then Karim audits 25 of
+  them in **Label links**, which offers them first; `python -m litrag_parser.truth --lib …
+  --measure` says whether its labels stand (0.9 agreement) and lists the disagreements. If they
+  do not, the disagreements say whether the rule, the prompt or the model is at fault. It decides three
+  things waiting on it: whether similarity (`LITRAG_EDGES_SIMILARITY=on`) earns its place (gate:
+  precision ≥ 0.9 on the labels), whether hydration's paragraph beats the method's first, and
+  which evidence kind drops weak marks. Labels survive rebuilds and merges; `--export`/`--import`
+  carry them between machines. Still not built after it: the parameter miner over a method's
+  chosen paragraph, and following "as previously described" further than one paper.
 - **Measure the port from `claude/ingestion-generalization`** (2026-09-30) — citations
   (e55e3d9), the type (b97151c, 80ec4d0) and `_tight` (a6c7353) are on `main` since PR #25,
   with tests but no corpus numbers: the corpora were not where the port was done, and it was
@@ -30,8 +80,8 @@ wants as they are voiced.
   embedded once with their headings, words and meaning fused, every hit
   hydrated with its neighbours and its methods; on 14 proxy questions the
   answer is in the top 3 for 14 with its context, against 8 for `lit query`).
-  Left: the graph walk (HippoRAG's personalised PageRank over `refs` and
-  `edges`), the miner and the model stage over `nodes`, and Karim's own bench
+  Left: the graph walk (HippoRAG's personalised PageRank over `cites`, now
+  rows between papers, and `edges`), the miner and the model stage over `nodes`, and Karim's own bench
   questions; then strike `src/chunk.ts`, `sections.ts`, `pdf.ts`.
 - **Node summaries** (PageIndex's idea) — one line per section from the
   model stage, stored on the node, so an assistant navigates a chosen paper
@@ -121,8 +171,9 @@ Each one wants a fixture or a test before its fix, as the spot-check does.
   to the exact sentence, as the 2026 schema-constrained biomedical
   extraction paper does. `parameters.sentence` already carries the miner's
   sentence; the model's rows carry `context` in the model's words.
-- **Forward citations** via Europe PMC's `citations` endpoint; `snowball`
-  only walks backward today.
+- ~~**Forward citations** via Europe PMC's `citations` endpoint; `snowball`
+  only walks backward today.~~ *Built 2026-10-04*: the `round` op walks both
+  ways (`graph.py`), and `lit snowball` is ported.
 - **Section-aware chunk sizes** as in the lab's own scripts: conclusions
   kept whole, methods grouped by adjacent paragraphs, ~450-token target.
   Worth an A/B on the test set before copying.
