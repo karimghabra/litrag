@@ -46,7 +46,8 @@ def test_the_skeleton_is_the_lanes_in_order_with_furniture_at_the_ends(tmp_path)
     assert [s["status"] for s in r["slots"]] == ["typical", "expected", "expected", "expected", "expected"]
     positions = [s["median_position"] for s in r["slots"]]
     assert positions == sorted(positions) and positions[0] == 0.0
-    assert [s["slot"] for s in r["furniture"]["head"]] == ["front"] and [s["slot"] for s in r["furniture"]["tail"]] == ["references"]
+    # MDPI's closing disclaimer is back matter after the list, no longer an entry of it
+    assert [s["slot"] for s in r["furniture"]["head"]] == ["front"] and [s["slot"] for s in r["furniture"]["tail"]] == ["references", "back"]
     discussion = r["slots"][-1]
     assert [c["name"] for c in discussion["canonical"]] == ["Conclusions", "Discussion"]  # two names in one slot, each with its own place
     by_name = {c["name"]: c for c in discussion["canonical"]}
@@ -69,7 +70,7 @@ def test_every_section_maps_by_a_mechanism_read_from_the_rows(tmp_path):
     subs = tops["2. Materials and Methods"]["children"]
     assert len(subs) == 8 and {c["mechanism"] for c in subs} == {"inherited"}
     assert subs[0]["canonical"] == "Materials" and subs[0]["words"] > 0
-    assert {s["slot"]: s["status"] for s in m["slots"]} == {**{lane: "matched" for lane in BODY}, "front": "furniture", "references": "furniture"}
+    assert {s["slot"]: s["status"] for s in m["slots"]} == {**{lane: "matched" for lane in BODY}, "front": "furniture", "references": "furniture", "back": "furniture"}
     assert m["order"] == []
     assert 0.0 <= m["unassigned_words_share"] < 0.1
     json.dumps(m)  # every answer is JSON
@@ -90,7 +91,7 @@ def test_a_deleted_section_is_a_missing_slot_and_an_empty_one_in_the_canonical_t
     slots = {s["slot"]: s for s in t["slots"]}
     assert slots["discussion"]["status"] == "missing" and slots["discussion"]["sections"] == []
     full = canonical_tree(conn, a)
-    assert [s["slot"] for s in full["slots"]] == ["front", *BODY, "other", "references"]
+    assert [s["slot"] for s in full["slots"]] == ["front", *BODY, "other", "references", "back"]
     assert [x["heading"] for x in {s["slot"]: s for s in full["slots"]}["discussion"]["sections"]] == ["4. Discussion", "5. Conclusions"]
     assert {s["slot"]: s for s in full["slots"]}["other"]["sections"] == []
 

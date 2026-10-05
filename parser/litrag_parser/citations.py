@@ -176,36 +176,125 @@ def _split_entries(nodes: list[Node]) -> tuple[list[tuple[Node, str]], int]:
     return out, cuts
 
 
+#: an entry's own printed number: "1.", "[1]", "[1].", and "100.Ide T" once the numbers outgrow the space
+_PRINTED = re.compile(r"^\[?(\d{1,3})(?:\]\.?|\.)(?:\s+|(?=[A-Z]))")
+#: how an entry of an author–year list opens: a surname (its particles, a diacritic the PDF set apart:
+#: "Radi ć , M. M. B.") and, within its first words, a comma and an initial — "Choi, W.-Y.", "te Riet,
+#: J.", "Clarke AS, Lotz MM" — or an author that is a body, then its year: "World Health Organization (2018)"
+_OPENS_ENTRY = re.compile(r"^(?:(?:van|von|de|del|della|der|den|di|da|dos|das|du|la|le|te|ter|ten|al|el|d')\s+)*[A-Z][^\s,]*(?:\s+[^\s,]+){0,3}?\s*,\s*(?:[A-Z]|et al)"
+                          r"|^(?:[A-Z][a-z]?\.\s?-?\s?){1,3}[A-Z][\w'’\-]+(?:,|\s+and\s|\s+&\s)")  # or initials first: "S.A. Langer and A.J. Liu,"
+_OPENS_BY_BODY = re.compile(rf"^[A-Z][^()]{{0,80}}\(\s*{_YEAR}\s*\)")
+#: what stands in a reference list that is no entry of it: a publisher's statement, a licence, a
+#: funder's name run on from the funding section, the notice of a review's pre-publication history
+_STATEMENT = re.compile(
+    r"publisher[\'’]?s note|disclaimer|claims expressed in this article|generative ai|creativecommons|creative commons|licen[cs]e\b"
+    r"|pre-publication history|/prepub\b|how to cite this article|\bdeclare\b|\bgrant (?:no|number)|\bfunded by\b|\bsupported by\b",
+    re.I)
+#: the legend a review sets above its list: "Papers of particular interest … have been highlighted as:"
+_LEGEND = re.compile(r"^(?:articles|papers|references) of (?:particular|special) interest", re.I)
+#: where a second entry of an author–year list begins inside the first, the two columns read across:
+#: "… Curcumin-loaded scaffolds in Bakkalci, D., Jay, A., … (2021). Bioengineering …"
+_SECOND_ENTRY = re.compile(rf"(?<=\s)(?:(?:van|von|de|der|den|di|da|du|la|le|te|ter|ten)\s+)*[A-Z][\w'’\-]+(?:\s[A-Z][\w'’\-]+)?,\s(?:[A-Z]\.\s?)+(?:-[A-Z]\.\s?)?,[^()]{{0,220}}?\(\s*{_YEAR}\s*\)\.")
+_PAREN_YEAR = re.compile(rf"\(\s*{_YEAR}\s*\)")
+
+
+def _split_author_year(text: str) -> list[str]:
+    """An author–year entry with a second entry run into it, cut where the second's authors and
+    year begin: only after the first has a year of its own, so a long author list is never cut."""
+    out: list[str] = []
+    while True:
+        cut = next((m.start() for m in _SECOND_ENTRY.finditer(text) if _PAREN_YEAR.search(text[: m.start()])), None)
+        if cut is None:
+            out.append(text)
+            return out
+        out.append(text[:cut].rstrip(" ,"))
+        text = text[cut:]
+
+
+def _assemble(pieces: list[tuple[Node, str]], repairs: dict[str, int]) -> list[tuple[Node, str, int | None]]:
+    """The entries out of the pieces the reference lane was read into: `(node, text, printed number)`.
+
+    A piece is an entry when it opens as one — its printed number in a numbered list, else a surname
+    and an initial, or an author's name and its year. What opens as none is the rest of the entry
+    before it (a line the column break left behind: "to adhesion and TGF b is dependent on …"), or a
+    review's note on it ("A review of VEGF-E."), and is joined to it; but a publisher's statement, a
+    legend, or a paragraph of prose with no year read into the lane (a figure legend, the body's own
+    last paragraph) is no entry, and is left out of the list — it stays in the tree where it was read.
+    In a numbered list the numbers decide alone, so the notes between its entries no longer shift the
+    numbering every link after them relies on."""
+    numbers = [int(m.group(1)) if (m := _PRINTED.match(t)) else None for _, t in pieces]
+    nums = [p for p in numbers if p is not None]
+    rising = sum(1 for a, b in zip(nums, nums[1:]) if b > a)  # a column read out of turn sets "[49]" before "[48]"
+    numbered = (bool(nums) and len(nums) >= 0.5 * len(pieces) and len(set(nums)) == len(nums) and len(nums) - 1 - rising <= max(2, 0.1 * (len(nums) - 1))
+                and min(nums) <= 2 and max(nums) > len(nums) * 0.5)
+    if not numbered and sum(1 for _, t in pieces if _OPENS_ENTRY.match(t) or _OPENS_BY_BODY.match(t)) < 0.5 * len(pieces):
+        # a list in a style no rule here knows: every piece its own entry, as it was read
+        return [(n, t, None) for n, t in pieces]
+    out: list[list[Any]] = []
+    for (n, text), num in zip(pieces, numbers):
+        words = len(text.split())
+        if _STATEMENT.search(text) and not (num is not None and numbered) and not (_OPENS_ENTRY.match(text) and _YEAR_RE.search(text)):
+            repairs["reference_statements"] = repairs.get("reference_statements", 0) + 1
+            continue
+        if _LEGEND.match(text):
+            continue
+        if numbered:
+            opens = num is not None
+        else:
+            opens = bool(_OPENS_ENTRY.match(text) or _OPENS_BY_BODY.match(text))
+        if opens:
+            out.append([n, text, num if numbered else None])
+            continue
+        if words >= 40 and not _YEAR_RE.search(text):
+            repairs["reference_prose"] = repairs.get("reference_prose", 0) + 1
+            continue  # prose read into the list: a figure legend, a paragraph of the body
+        if out:
+            out[-1][1] = f"{out[-1][1]} {text}"
+            repairs["reference_continuations"] = repairs.get("reference_continuations", 0) + 1
+    if not numbered:
+        split: list[list[Any]] = []
+        for n, text, num in out:
+            parts = _split_author_year(text)
+            if len(parts) > 1:
+                repairs["split_references"] = repairs.get("split_references", 0) + len(parts) - 1
+            split.extend([n, p, None] for p in parts)
+        out = split
+    return [(n, text, num) for n, text, num in out]
+
+
+def _as_listed(pieces: list[tuple[Node, str]]) -> list[tuple[Node, str, int | None]]:
+    """An XML's entries, one per item: numbered by the numbers they print when those run in order,
+    an unnumbered item among them then being the rest of the one before it, which links nowhere."""
+    printed = [int(m.group(1)) if (m := re.match(r"^\[?(\d{1,3})(?:\]\.?|\.)\s+", t)) else None for _, t in pieces]
+    nums = [p for p in printed if p is not None]
+    if pieces and len(nums) >= 0.8 * len(pieces) and nums == sorted(nums) and len(set(nums)) == len(nums) and nums[0] <= 2 and nums[-1] > len(nums) * 0.5:
+        return [(n, t, p) for (n, t), p in zip(pieces, printed) if p is not None]
+    return [(n, t, None) for n, t in pieces]
+
+
 def reference_entries(tree: Tree) -> list[Ref]:
-    """One Ref per entry in the references lane, numbered in order."""
+    """One Ref per entry in the references lane, numbered in order — by the numbers the paper
+    prints when it prints them in order (a merged or a missing entry then shifts no link after it).
+    An XML's list is its `<ref>`s, one item each, taken as they are; a PDF's is assembled from the
+    pieces its layout was read into (`_assemble`)."""
     nodes = [n for n in tree.walk() if n.role == "references" and n.type in ("list_item", "paragraph") and n.text.strip()]
-    entries, cuts = _split_entries(nodes)
-    if cuts:
-        # set, not added to: the linker reads a tree more than once (the worker, then the confidence
-        # score), and a count that grew on every reading would say the list was cut twice
-        tree.repairs["split_references"] = cuts
+    pieces, cuts = _split_entries(nodes)
+    # set, not added to: the linker reads a tree more than once (the worker, then the confidence
+    # score), and a count that grew on every reading would say the list was cut twice
+    repairs: dict[str, int] = {"split_references": cuts} if cuts else {}
+    entries = _assemble(pieces, repairs) if tree.pages else _as_listed(pieces)
+    for k in ("split_references", "reference_statements", "reference_prose", "reference_continuations"):
+        if repairs.get(k):
+            tree.repairs[k] = repairs[k]
+        else:
+            tree.repairs.pop(k, None)
     refs: list[Ref] = []
-    printed: list[int | None] = []
-    for i, (n, text) in enumerate(entries):
-        m = re.match(r"^\[?(\d{1,3})(?:\]\.?|\.)\s+", text)
-        printed.append(int(m.group(1)) if m else None)
-        text = re.sub(r"^\[?(\d{1,3})(?:\]\.?|\.)\s+", "", text)  # an entry's own number, if printed: "1.", "[1]", "[1]."
+    for i, (n, text, num) in enumerate(entries):
+        text = _PRINTED.sub("", text, count=1)  # an entry's own number, if printed: "1.", "[1]", "[1]."
         year = _YEAR_RE.search(text)
         pmid = _PMID.search(text)
-        refs.append(Ref(ref_no=i + 1, node_id=n.node_id, text=text, doi=entry_doi(text), pmid=pmid.group(1) if pmid else None,
+        refs.append(Ref(ref_no=num if num is not None else i + 1, node_id=n.node_id, text=text, doi=entry_doi(text), pmid=pmid.group(1) if pmid else None,
                         year=year.group(1) if year else None, first_author=first_surname(text)))
-    # when the paper prints its numbers and they run in order, they are the entry numbers: a
-    # merged or a missing entry no longer shifts every link after it; an unnumbered entry in
-    # such a list is the rest of the one before it, and links nowhere
-    nums = [p for p in printed if p is not None]
-    if refs and len(nums) >= 0.8 * len(refs) and nums == sorted(nums) and len(set(nums)) == len(nums) and nums[0] <= 2 and nums[-1] > len(nums) * 0.5:
-        numbered: list[Ref] = []
-        for r, p in zip(refs, printed):
-            if p is None:
-                continue
-            r.ref_no = p
-            numbered.append(r)
-        return numbered
     return refs
 
 

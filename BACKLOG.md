@@ -5,23 +5,18 @@ wants as they are voiced.
 
 ## Named priorities
 
-- **Reading faults the link test found** (2026-10-04, six papers read as PDF and as XML) —
-  (1) `tree._pick_title` refuses a real title shaped like a list of names ("Mesenchymal Stem Cell
-  Migration and Tissue Repair", doi:10.3390/cells8080784): `_never_a_title` → `_name_list` /
-  `_looks_like_authors` veto even a Docling `title` item read from JATS, and the paper is filed
-  under its file's name (a fetch now falls back to the record's title; a dropped JATS does not).
-  (2) A Frontiers PDF (doi:10.3389/fbioe.2024.1505102) had its funding, AI-use and disclaimer
-  statements filed in the references lane as entries, and two entries run together at a column
-  break; 12 of its 53 cited works stay unlinked for it. (3) The same Frontiers PDF's title was
-  read as "EDITED BY Jianxun Ding, Chinese Academy of Sciences (CAS), China" (the front page's
-  editor box), and the Micromachines PDF's introduction opens with "Academic Editor: Dmitry
-  Volodkin" joined into its first paragraph — MDPI's and Frontiers' first-page boxes, read as text.
-  (4) Open copies (2026-10-04, five repository and preprint PDFs read): an OSTI author manuscript's
-  title read as its affiliation line ("*Department of Cell Biology, 240, Longwood Ave…",
-  doi:10.1038/ncb0901-785), though the record's title is printed above it and the fetch checked
-  exactly that; the arXiv preprint (doi:10.1103/physreve.68.061907) read with 0 references; the
-  JCI PDF with 15% of its prose in the reference list, an OSTI review with 90% of its body under
-  its introduction. The reader's own confidence flags the last two (0.39, 0.3).
+- **Reading faults the link test found** (2026-10-04; *the title and reference faults fixed
+  2026-10-05*, CHANGELOG) — what is left: (1) the Micromachines PDF's introduction opens with
+  "Academic Editor: Dmitry Volodkin" joined into its first paragraph (MDPI's first-page box read
+  as text); (2) an OSTI review (doi:10.1016/j.ceb.2003.10.016) with 90% of its body under its
+  introduction (confidence 0.3); the OSTI manuscript doi:10.1242/dev.105.2.223 with no discussion
+  lane found (it was this paper, not the JCI one as first noted, whose figure legends lay in the
+  reference list); (3) Frontiers' two columns read across in places: an entry's first line, then
+  the next entry whole — the second is cut out now, but the first entry's remaining lines are
+  read elsewhere and its title is lost (5 of 53 unreached in doi:10.3389/fbioe.2024.1505102);
+  (4) a JATS title with a `<subtitle>` is joined to it with no colon ("Focal Contacts as
+  Mechanosensors Externally Applied …", four JCB papers); a PDF that prints a series line above
+  its title ("Mammographic density." over doi:10.1186/bcr1831's) reads the title without it.
 - **The rounds, further** (after Karim, 2026-10-04; *passages linked to the works they cite and Expand built the same day*) — a citation round files what the papers cite
   and what cites them (`graph.py`, the Graph tab), from Europe PMC and OpenAlex side by side
   (*2026-10-04*: a reference with no DOI or PMID matched in OpenAlex by its whole title, year and
