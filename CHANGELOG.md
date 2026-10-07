@@ -2,6 +2,29 @@
 
 ## Unreleased
 
+- **Title and reference reading faults fixed** (Karim, 2026-10-05: "fix the title and reference
+  reading faults"). Measured on the 31 PDFs with a JATS twin and every saved reading of the
+  scratch libraries (210), before and after, with the JATS as the truth. *Titles:* a JATS file's
+  `<article-title>` is the title whatever its shape (doi:10.3390/cells8080784, "Mesenchymal Stem
+  Cell Migration and Tissue Repair", had been refused as a list of names and filed under its file's
+  name); on a PDF, a name list whose words the paper's own prose writes in lower case is a title
+  in title case; an editor's box ("EDITED BY …") and an address (an institution or a company, then
+  a place after its last comma) are never a title (Frontiers' title had been its editor box); a line
+  set as a title or heading, one sentence, before any prose, may end with a full stop (an OSTI author
+  manuscript had been titled with its affiliation). PDF titles 28 → 30 of 31 exactly the JATS's
+  (the last prints a series line above the title), JATS titles 166 → 167 of 167 their `<article-title>`.
+  *References:* a PDF's entries are assembled from the pieces the layout gave
+  (`citations._assemble`): the rest of an entry a column broke off and a review's notes join the
+  entry before; author–year entries run together are cut apart; publisher's statements, a list's
+  legend and yearless prose are no entries; numbered lists keep their printed numbers through
+  notes and one or two numbers read out of turn ("100.Ide T" read as numbered too). A list with no
+  heading after an appendix is found by its items' printed numbers (Docling's list `marker`): an
+  arXiv preprint had 0 references, now 59, 101 citations linked. Prose after a list's last entry
+  opens an untitled section (back matter when it is a publisher's statement). "Generative AI
+  statement" and "Publisher's note" are back-matter headings. JATS lists are unchanged. On 25 PDF
+  pairs: entries matching no JATS entry 156 → 64, found once 2,710 → 2,720 of 2,789; entry links
+  reached 2,351 → 2,378 of 2,459 (recall 0.956 → 0.967), on six more 0.889 → 0.909, 0 wrong
+  throughout.
 - **Open copies fetched** (Karim, 2026-10-04: "yes, fetch the open copies too"; invariant 1 names
   the hosts). After Europe PMC, NCBI, the PMC Cloud Service and EBI's bulk area, a fetch asks the
   open copy OpenAlex named (`candidates.oa_url`) of its own host: the PDF, or a page followed — a

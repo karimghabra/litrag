@@ -37,7 +37,7 @@ ROLES: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"^(references?|bibliography|literature\s+cited|works\s+cited)$"), "references"),
     (
         re.compile(
-            r"^(statement\s+of\s+significance|significance\s+statement|article\s+(info|information|history)|author\s+information|highlights|graphical\s+abstract|acknowledg\w*|funding(\s+\w+)?|author\s+contributions?|authors?'?\s+contributions?|conflicts?\s+of\s+interest|competing\s+interests?|declaration\s+of\s+\w+|data\s+availability(\s+statement)?|supplementary(\s+\w+)*|supporting\s+information|appendix(\s+\w+)?|abbreviations|ethics\s+\w+|ethical\s+\w+|consent\s+\w+|disclosures?|notes?|orcid|highlights|keywords?|graphical\s+abstract|footnotes?|cited\s+works)$"
+            r"^(statement\s+of\s+significance|significance\s+statement|article\s+(info|information|history)|author\s+information|highlights|graphical\s+abstract|acknowledg\w*|funding(\s+\w+)?|author\s+contributions?|authors?'?\s+contributions?|conflicts?\s+of\s+interest|competing\s+interests?|declaration\s+of\s+\w+|data\s+availability(\s+statement)?|supplementary(\s+\w+)*|supporting\s+information|appendix(\s+\w+)?|abbreviations|ethics\s+\w+|ethical\s+\w+|(declaration\s+of\s+)?generative\s+ai(\s+[\w-]+)*|(declaration\s+of\s+)?(the\s+)?use\s+of\s+(generative\s+)?ai(\s+[\w-]+)*|ai\s+(use\s+)?(statement|disclosure)|publisher['’]?s?\s+note|consent\s+\w+|disclosures?|notes?|orcid|highlights|keywords?|graphical\s+abstract|footnotes?|cited\s+works)$"
         ),
         "back",
     ),

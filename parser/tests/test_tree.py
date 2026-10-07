@@ -606,3 +606,74 @@ def test_the_floor_never_touches_a_jats_reading(monkeypatch):
     finally:
         monkeypatch.delenv("LITRAG_CANONICAL_ONLY", raising=False)
         importlib.reload(t)
+
+
+# ---------------------------------------------------------------- titles the link test found refused or misread
+
+
+MSC_PROSE = ("Mesenchymal stem cells are multilineage cells with the ability to self-renew, and their migration "
+             "to the site of injury is the first step of tissue repair; the stem cell niche and the cell migration "
+             "it allows are reviewed here for mesenchymal cells in repair.")
+
+
+def test_an_xml_title_is_its_title_whatever_its_shape():
+    """A JATS file's `<article-title>` is the title, though "Mesenchymal Stem Cell Migration and Tissue
+    Repair" splits at "and" into runs of capitalised words, the shape of a list of names
+    (doi:10.3390/cells8080784 was filed under its file's name)."""
+    items = [{"self_ref": f"#/texts/{i}", "parent": {"$ref": "#/body"}, "children": [], "label": label, "text": text, "level": 1 if label == "section_header" else None, "prov": []}
+             for i, (label, text) in enumerate([("title", "Mesenchymal Stem Cell Migration and Tissue Repair"), ("section_header", "Abstract"), ("text", MSC_PROSE), ("section_header", "1. Introduction"), ("text", MSC_PROSE)])]
+    doc = {"name": "d", "body": {"self_ref": "#/body", "children": [{"$ref": t["self_ref"]} for t in items]}, "texts": items, "pictures": [], "tables": [], "groups": [], "pages": {}}
+    assert build_tree(doc, "k").title == "Mesenchymal Stem Cell Migration and Tissue Repair"
+
+
+def test_a_title_in_title_case_is_no_list_of_names():
+    """The same title on the PDF's first page: its words are the paper's own words, written lower case
+    in its prose, as a list of names' are not."""
+    doc = _doc([("text", "Review", 1), ("section_header", "Mesenchymal Stem Cell Migration and Tissue Repair", 1),
+                ("text", "Xiaorong Fu 1 , Ge Liu 1 , Alexander Halim 1 , Yang Ju 2 , Qing Luo 1 and Guanbin Song 1, *", 1),
+                ("text", "Received: 24 June 2019; Accepted: 26 July 2019; Published: 28 July 2019", 1),
+                ("text", "Abstract: " + MSC_PROSE, 1), ("section_header", "1. Introduction", 1), ("text", MSC_PROSE, 2)])
+    assert build_tree(doc, "k").title == "Mesenchymal Stem Cell Migration and Tissue Repair"
+    # a list of names is still no title: its names are no words of the prose
+    names = _doc([("section_header", "Anowarul Islam, Thomas Mbimba, Mousa Younesi and Ozan Akkus", 1),
+                  ("section_header", "Collagen threads aligned by electrochemistry for tendon repair", 1),
+                  ("text", "Abstract: " + MSC_PROSE, 1), ("section_header", "1. Introduction", 1), ("text", MSC_PROSE, 2)])
+    assert build_tree(names, "k").title == "Collagen threads aligned by electrochemistry for tendon repair"
+
+
+def test_an_editors_box_is_no_title():
+    """Frontiers sets the editor and the reviewers, each with an address, above the title on its first
+    page (doi:10.3389/fbioe.2024.1505102 was titled "EDITED BY Jianxun Ding, Chinese Academy of
+    Sciences (CAS), China"); the addresses took every place a title could have been found in."""
+    title = "Biological and structural properties of curcumin-loaded graphene oxide incorporated collagen as composite scaffold for bone regeneration"
+    doc = _doc([("section_header", "OPEN ACCESS", 1), ("text", "EDITED BY", 1), ("text", "Jianxun Ding,", 1), ("text", "Chinese Academy of Sciences (CAS), China", 1),
+                ("section_header", "REVIEWED BY", 1), ("text", "Prashanth Ravishankar,", 1), ("text", "Namida Lab, Inc., United States", 1),
+                ("text", "Dan Lin,", 1), ("text", "Shanghai University of Medicine and Health Sciences, China", 1), ("text", "Tao Yang,", 1),
+                ("text", "Sun Yat-sen University, China", 1), ("text", "Chen Zetao,", 1), ("text", "Sun Yat-sen University, China", 1),
+                ("section_header", "CITATION", 1), ("text", "Front. Bioeng. Biotechnol. 12:1505102.", 1),
+                ("section_header", title, 1), ("text", "Qi Xie 1 , Tianqi Wang 1 , Lina He 1 , Hongbo Liang 2 and Yumei Niu 1 *", 1),
+                ("text", "Introduction: " + MSC_PROSE, 1), ("section_header", "1 Introduction", 2), ("text", MSC_PROSE, 2)])
+    assert build_tree(doc, "k").title == title
+
+
+def test_an_author_manuscripts_title_may_end_with_a_full_stop():
+    """An author manuscript sets its title as a sentence, full stop and all (doi:10.1038/ncb0901-785
+    from OSTI was titled with the affiliation under it); a line set as a heading, one sentence, before
+    any prose, is a title still."""
+    title = "ErbB2, but not ErbB1, reinitiates proliferation and induces luminal repopulation in epithelial acini."
+    doc = _doc([("section_header", title, 1), ("text", "Senthil K. Muthuswamy*†, Dongmei Li*, Sophie Lelievre†‡, Mina J. Bissell‡ and Joan S. Brugge*§", 1),
+                ("text", "*Department of Cell Biology, 240, Longwood Ave, Harvard Medical School, Boston, Massachusetts 02115, USA", 1),
+                ("text", "LBNL/DOE funding & contract number: DE-AC02-05CH11231", 1), ("section_header", "Abstract", 1), ("text", MSC_PROSE, 1),
+                ("section_header", "Introduction", 2), ("text", MSC_PROSE, 2)])
+    assert build_tree(doc, "k").title == title
+
+
+def test_an_address_names_a_place_after_its_last_comma():
+    from litrag_parser.tree import _address_line
+
+    for line in ("Sun Yat-sen University, China", "Namida Lab, Inc., United States", "Chinese Academy of Sciences (CAS), China",
+                 "*Department of Cell Biology, 240, Longwood Ave, Harvard Medical School, Boston, Massachusetts 02115, USA"):
+        assert _address_line(line), line
+    for line in ("The Role of the Hospital Laboratory in Infection Control", "Stem Cells, Scaffolds and the University Hospital",
+                 "Associations between smoke and emergency department visits were, at most, weak"):
+        assert not _address_line(line), line

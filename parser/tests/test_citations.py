@@ -301,3 +301,133 @@ def test_a_pdf_entry_s_doi_mended_and_its_pmid_read():
     assert entry_doi("Smith J (doi:10.1038/nature12373).") == "10.1038/nature12373"
     assert entry_doi("No identifier at all. 2019.") is None
     assert [m.group(1) for m in _PMID.finditer("Nat. Rev. Neurol 2013, 9, 668. [PubMed: 24217518] · Cancer Res. PMID: 19470768")] == ["24217518", "19470768"]
+
+
+# ---------------------------------------------------------------- a PDF's reference list, assembled from its pieces
+
+
+def pdf_paper(texts, key="k"):
+    """A PDF's document: (label, text, page) triples, or (label, text, page, extra fields)."""
+    items = []
+    for i, t in enumerate(texts):
+        label, text, page = t[:3]
+        items.append({"self_ref": f"#/texts/{i}", "parent": {"$ref": "#/body"}, "children": [], "label": label, "text": text, "level": 1 if label == "section_header" else None,
+                      "prov": [{"page_no": page, "bbox": {"l": 50, "t": 800 - (i % 30) * 25, "r": 300, "b": 790 - (i % 30) * 25, "coord_origin": "BOTTOMLEFT"}}], **(t[3] if len(t) > 3 else {})})
+    pages = sorted({t[2] for t in texts})
+    return build_tree({"name": "made up", "body": {"self_ref": "#/body", "children": [{"$ref": t["self_ref"]} for t in items]}, "texts": items, "pictures": [], "tables": [], "groups": [],
+                       "pages": {str(p): {"page_no": p, "size": {"width": 600, "height": 850}} for p in pages}}, key)
+
+
+BODY = [("section_header", "Introduction", 1), ("text", "Vascular growth is driven by one family of factors [1], its receptors [2,3] and a co-receptor [4].", 1)]
+
+
+def test_a_reviews_notes_under_its_entries_are_no_entries():
+    """BMC's reviews print a note under an entry they recommend, and a legend above the list
+    (doi:10.1186/gb-2005-6-2-209: 90 entries read where 61 were printed). The notes are the entry's;
+    the printed numbers decide, so no note shifts the link of a citation after it."""
+    tree = pdf_paper(BODY + [("section_header", "References", 2),
+                             ("text", "Articles of particular interest have been highlighted as:", 2), ("text", "• of special interest", 2), ("text", "•• of outstanding interest", 2),
+                             ("list_item", "1. Senger DR, Galli SJ, Dvorak AM: Tumor cells secrete a vascular permeability factor. Science 1983, 219:983-985.", 2),
+                             ("text", "•• The initial discovery of a secreted VPF with the characteristics of VEGF-A.", 2),
+                             ("list_item", "2. Ferrara N, Henzel WJ: Pituitary follicular cells secrete a novel heparin-binding growth factor. Biochem Biophys Res Commun 1989, 161:851-858.", 2),
+                             ("text", "This and [4] are the first reports of the cDNA cloning of VEGF-A.", 2),
+                             ("list_item", "3. Ogawa S, Oku A, Sawano A: A novel type of vascular endothelial growth factor, VEGF-E. J Biol Chem 1998, 273:31273-31282.", 2),
+                             ("text", "A review of VEGF-E.", 2),
+                             ("list_item", "4. Leung DW, Cachianes G, Kuang WJ: Vascular endothelial growth factor is a secreted angiogenic mitogen. Science 1989, 246:1306-1309.", 2)]
+                     + [("list_item", f"{i}. Author{i} AB, Other CD: A paper on the receptors number {i}. J Biol Chem {1990 + i}, {i}:1-9.", 2) for i in range(5, 13)])
+    refs, cites = link_citations(tree)
+    assert [r.ref_no for r in refs] == list(range(1, 13))
+    assert refs[0].text.endswith("with the characteristics of VEGF-A.") and refs[2].text.endswith("A review of VEGF-E.")
+    assert sorted(c.ref_no for c in cites) == [1, 2, 3, 4]
+    assert tree.repairs["reference_continuations"] == 3
+
+
+def test_an_entry_a_column_break_cut_in_two_is_one_entry():
+    """Frontiers and JCB lists set by author and year: the rest of an entry the column broke off
+    reached the tree as an entry of its own ("(CaP) whisker-reinforced …", "tricalcium phosphate …").
+    As list items, which the tree's own joining leaves apart, as the layout model gave these."""
+    tree = pdf_paper([("section_header", "Introduction", 1), ("text", "Whiskers stiffen the composite (Choi et al., 2010), and silica dopes the ceramic (Fielding et al., 2012).", 1),
+                      ("section_header", "References", 2),
+                      ("list_item", "Choi, W.-Y., Kim, H.-E., Kim, M.-J., Kim, U.-C., Kim, J.-H., and Koh, Y.-H. (2010). Production and characterization of calcium phosphate", 2),
+                      ("list_item", "(CaP) whisker-reinforced poly(ε-caprolactone) composites as bone regenerative. Mater. Sci. Eng. 30, 1280-1286.", 3),
+                      ("list_item", "Fielding, G. A., Bandyopadhyay, A., and Bose, S. (2012). Effects of silica and zinc oxide doping on mechanical and biological properties of 3D printed", 3),
+                      ("list_item", "tricalcium phosphate tissue engineering scaffolds. Dent. Mater. 28, 113-122.", 3),
+                      ("list_item", "World Health Organization (2018). The Top 10 Causes of Death. Available online at: https://www.who.int", 3)])
+    refs, cites = link_citations(tree)
+    assert len(refs) == 3 and refs[0].text.endswith("Mater. Sci. Eng. 30, 1280-1286.") and refs[1].text.endswith("Dent. Mater. 28, 113-122.")
+    assert refs[2].text.startswith("World Health Organization")
+    assert sorted(c.ref_no for c in cites) == [1, 2]
+
+
+def test_two_author_year_entries_run_together_are_cut_apart():
+    """Frontiers' two columns read across: one entry's first line, then the next entry whole."""
+    tree = pdf_paper([("section_header", "Introduction", 1), ("text", "Ameloblastoma alters bone nodules (Bakkalci et al., 2021).", 1), ("section_header", "References", 2),
+                      ("text", "Astaneh, M. E., Noori, F., and Fereydouni, N. (2024). Curcumin-loaded scaffolds in Bakkalci, D., Jay, A., Rezaei, A., Howard, C. A., Haugen, H. J., Pape, J., et al. (2021). Bioengineering the ameloblastoma tumour to study its effect on bone nodule formation.", 2),
+                      ("text", "Senthil, R., Sinem, Ç., Kavukcu, S. B., and Aruni, A. W. (2022). Fabrication of cylindrical bone graft substitute supported by reduced graphene-oxide. Mater. Lett. 322, 132475.", 2)])
+    refs, cites = link_citations(tree)
+    assert [r.text[:12] for r in refs] == ["Astaneh, M. ", "Bakkalci, D.", "Senthil, R.,"]  # a long list of authors is never cut
+    assert [c.ref_no for c in cites] == [2] and tree.repairs["split_references"] == 1
+
+
+def test_statements_set_in_the_reference_list_are_no_entries():
+    """Frontiers sets its funding's last line, the generative-AI statement and the publisher's note
+    among the entries; MDPI its disclaimer after the last (doi:10.3389/fbioe.2024.1505102,
+    doi:10.3390/mi15070851). They are back matter, not entries."""
+    tree = pdf_paper(BODY + [("section_header", "References", 2),
+                             ("text", "Astaneh, M. E., Noori, F., and Fereydouni, N. (2024). Curcumin-loaded scaffolds in bone regeneration. Heliyon 10, e32566.", 2),
+                             ("text", "Development Program of Heilongjiang Province (Grant No.2022ZX06C05).", 2),
+                             ("section_header", "Generative AI statement", 2), ("text", "The author(s) declare that no Generative AI was used in the creation of this manuscript.", 2),
+                             ("section_header", "Publisher’s note", 2), ("text", "All claims expressed in this article are solely those of the authors and do not necessarily represent those of their affiliated organizations.", 2),
+                             ("text", "Bose, S., and Sarkar, N. (2020). Natural medicinal compounds in bone tissue engineering. Trends Biotechnol. 38, 404-417.", 2)])
+    refs, _ = link_citations(tree)
+    assert [r.first_author for r in refs] == ["Astaneh", "Bose"]
+    roles = {n.heading: n.role for n in tree.walk() if n.type == "section"}
+    assert roles["Generative AI statement"] == "back" and roles["Publisher’s note"] == "back"
+
+
+def test_a_preprints_list_after_its_appendix_under_no_heading():
+    """A physics preprint prints its numbered entries straight after the appendix, under no heading,
+    their numbers in Docling's list marker and one pair read out of turn (doi:10.1103/physreve.68.061907
+    was read with no references at all)."""
+    entries = [(i, f"{'ABCDEFGHJKLMNP'[i % 14]}.{'QRSTUVWXYZ'[i % 10]}. Author{i} and K. Other, Phys. Rev. E {50 + i}, {1000 + i} ({1990 + i % 13}).") for i in range(1, 13)]
+    entries[7], entries[8] = entries[8], entries[7]
+    tree = pdf_paper([("section_header", "I. INTRODUCTION", 1), ("text", "Rigidity percolates at a threshold [3], and thermal effects soften it [9].", 1),
+                      ("section_header", "APPENDIX", 2), ("text", "The affine limit follows from the energy of a single filament under strain.", 2)]
+                     + [("list_item", text, 3, {"marker": f"[{i}]", "enumerated": True}) for i, text in entries])
+    refs, cites = link_citations(tree)
+    assert tree.repairs.get("inferred_references") and len(refs) == 12
+    assert sorted(c.ref_no for c in cites) == [3, 9] and all(c.ref_no == next(r.ref_no for r in refs if r.text.startswith(f"{'ABCDEFGHJKLMNP'[c.ref_no % 14]}.")) for c in cites)
+
+
+def test_numbers_printed_out_of_turn_still_number_the_list():
+    texts = [f"[{i}] A. Author{i} and B. Other, J. Chem. Phys. {i}, {100 + i} ({1990 + i})." for i in range(1, 11)]
+    texts[4], texts[5] = texts[5], texts[4]
+    tree = pdf_paper(BODY + [("section_header", "References", 2)] + [("list_item", t, 2) for t in texts])
+    refs, cites = link_citations(tree)
+    assert [r.ref_no for r in refs][:7] == [1, 2, 3, 4, 6, 5, 7] and refs[4].text.startswith("A. Author6")
+    assert sorted(c.ref_no for c in cites) == [1, 2, 3, 4]
+
+
+def test_figure_legends_after_the_list_are_no_part_of_it():
+    """An author manuscript sets one figure to a page after its references, each with its legend
+    (doi:10.1242/dev.105.2.223 from OSTI: 15% of its prose read as the reference list)."""
+    legend = ("Development of lumen-containing structures by cells cultured on the matrix. Isolated primary mammary epithelial cells were "
+              "cultured on the matrix and photographed after eight days; the structures are polarized and secrete into a central lumen, "
+              "as the phase-contrast view shows, and the bar marks fifty micrometres in every panel.")
+    tree = pdf_paper(BODY + [("section_header", "References", 2),
+                             ("text", "Hynes, R. O. (1987). Integrins: a family of cell surface receptors. Cell 48, 549-554.", 2),
+                             ("text", "Williams, J. M. and Daniel, C. W. (1983). Mammary ductal elongation. Devl Biol. 97, 274-290.", 2),
+                             ("text", legend, 3), ("text", legend.replace("Development", "Prevalence"), 4)])
+    refs, _ = link_citations(tree)
+    assert len(refs) == 2
+    after = [n for n in tree.root.children if n.heading == "(untitled section)"]
+    assert len(after) == 1 and after[0].role == "other" and len(after[0].children) == 2
+    assert tree.repairs["after_references"] == 1
+
+
+def test_a_list_in_a_style_no_rule_knows_keeps_every_piece():
+    texts = ["Optical tweezers in cell biology, a review of the field, in: Methods in Cell Biology 1998.",
+             "the forces of single motors, as measured in vitro, ibid. 1999.", "kinesin under load, ibid. 2001."]
+    tree = pdf_paper(BODY + [("section_header", "References", 2)] + [("text", t, 2) for t in texts])
+    refs, _ = link_citations(tree)
+    assert [r.text for r in refs] == texts

@@ -89,6 +89,22 @@ when it turns out durable. Mark inference as inference.
 
 ## Short-term memory
 
+- **2026-10-05: title and reference faults fixed** — Karim: "fix the title and reference reading
+  faults". Measured first, with a scorer kept in the scratchpad: every saved reading of the scratch
+  libraries (210) derived again with the code, the 31 PDFs that have a JATS twin scored against it
+  (title; each JATS entry found once, split, merged or missed by its DOI, its title — Europe PMC's
+  JATS keeps that only in the Google Scholar link — else its opening), all 167 JATS titles against
+  their `<article-title>`. Baseline: titles 28/31, 166/167; entries found once 2,710 of 2,789, 156
+  PDF entries matching nothing. After: 30/31 (the last is "near": a series line above the title),
+  167/167; 2,720 found once, 64 matching nothing; entry links on rebuilt copies 0.956 → 0.967 (25
+  pairs) and 0.889 → 0.909 (six), 0 wrong. 21 of 210 readings changed, one of them JATS (its
+  title). What moved the most: BMC reviews' notes under entries (90 entries read where 61 were
+  printed, and the numbering then ignored, so every citation after a note could link one entry
+  late); Frontiers' and JCB's column-broken entries; an arXiv preprint's 59 entries under no
+  heading, numbered only in Docling's list `marker`. Correction: the "15% of the prose in the
+  reference list" of the open copies was the OSTI manuscript dev.105.2.223's figure legends, not
+  the JCI paper's (which read cleanly); now an untitled section, its confidence 0.39 → 0.67.
+
 - **2026-10-04: open copies fetched** — Karim: "yes, fetch the open copies too" (invariant 1 amended:
   the host of an open copy OpenAlex names, sent only the request for it). Asked last, after every
   service of ours; filed only when the first three pages print the DOI or the whole title, not under

@@ -672,6 +672,21 @@ r.doi from citations c join nodes n using(node_id) join refs r on
 r.paper=c.paper and r.ref_no=c.ref_no` is the shape of the question this
 answers: which chunk leans on which paper.
 
+A PDF's list reaches the tree in the pieces its layout was read in, and the
+entries are put back together from them (`citations._assemble`). A piece
+that opens as an entry — its printed number, or a surname and an initial,
+or an author's name and a year — starts one; the rest of an entry a column
+broke off, and a review's note under an entry ("A review of VEGF-E."), are
+joined to the entry before them; two author–year entries the layout ran
+together are cut where the second's authors and year begin. A publisher's
+statement, a legend over the list, or prose with no year after it (an
+author manuscript's figure legends) is no entry; prose after the last entry
+opens a visibly untitled section. A numbered list is numbered by the numbers
+it prints, even one or two read out of turn, so a note between entries
+shifts no link. Scored against the same papers' JATS (25 PDFs, 2,459
+identified works): entries naming nothing 156 → 64, links reached 0.956 →
+0.967, none wrong. A JATS list is one entry per `<ref>`, as before.
+
 ## The library as a graph, and the rounds it grows by
 
 Papers cite papers, and the store keeps that as rows too (`graph.py`). A

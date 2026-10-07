@@ -1103,14 +1103,18 @@ def _infer_references(items: list[dict[str, Any]], repairs: dict[str, int]) -> l
     """Some Wiley PDFs reach Docling with no "References" heading: the entries file under
     the last section and no citation can be linked. A run of eight or more entries —
     numbered, or an author's name and initials, each with a year — in the back part of
-    the paper is the reference list, and a heading is put before it."""
+    the paper is the reference list, and a heading is put before it. A list item's number
+    may stand apart from its text, in Docling's `marker`: a physics preprint's "[55] S.A. Langer
+    and A.J. Liu, J. Phys. Chem. B 101, 8667 (1997)", which no author pattern knows, after an
+    appendix and under no heading of its own."""
     if any(it.get("label") == "section_header" and role_of(it.get("text") or "") == "references" for it in items):
         return items
     n = len(items)
     flags = []
     for it in items:
         text = _tight((it.get("text") or "").strip())
-        flags.append(it.get("label") in ("list_item", "text", "paragraph") and len(text) < 700 and bool(_REF_ENTRY.match(text)) and bool(_A_YEAR.search(text)))
+        numbered = it.get("label") == "list_item" and bool(re.fullmatch(r"\[\d{1,3}\]|\d{1,3}\.", (it.get("marker") or "").strip()))
+        flags.append(it.get("label") in ("list_item", "text", "paragraph") and len(text) < 700 and (numbered or bool(_REF_ENTRY.match(text))) and bool(_A_YEAR.search(text)))
     by_rule = list(flags)  # a run opens at an entry a pattern knows, or at a verdict the next item agrees with; a lone verdict never opens
     # an entry shaped like none of the patterns — the embedder says what it resembles, for
     # the back part of the paper, in one batch
@@ -1146,6 +1150,18 @@ def _infer_references(items: list[dict[str, Any]], repairs: dict[str, int]) -> l
     header = {"self_ref": "#/texts/references~inferred", "parent": {"$ref": "#/body"}, "children": [], "label": "section_header", "text": "References", "level": 1, "prov": list(items[best[0]].get("prov") or []), "_inferred": True}
     repairs["inferred_references"] = best[2]
     return items[: best[0]] + [header] + items[best[0] :]
+
+
+#: what a publisher or the authors state at a paper's end, beside its licence
+_PUBLISHER_STATEMENT = re.compile(r"publisher[\'’]?s note|disclaimer|claims expressed in this article|\bdeclare\b|generative ai|conflicts? of interest|competing interests?", re.I)
+
+
+def _entry_shaped(item: dict[str, Any]) -> bool:
+    """A reference entry by its shape alone: numbered (in its text or its list marker) or opened by an
+    author's name and initials, with a year."""
+    text = _tight((item.get("text") or "").strip())
+    numbered = item.get("label") == "list_item" and bool(re.fullmatch(r"\[\d{1,3}\]|\d{1,3}\.", (item.get("marker") or "").strip()))
+    return item.get("label") in ("list_item", "text", "paragraph") and len(text) < 700 and (numbered or bool(_REF_ENTRY.match(text))) and bool(_A_YEAR.search(text))
 
 
 _BULLET = re.compile(r"^[■▪●•◆▶‣◼█▉\s]+")
@@ -1742,21 +1758,69 @@ _LICENCE = re.compile(
 )
 
 
-def _never_a_title(text: str) -> bool:
+#: what an address names that `_INSTITUTION` does not: a company or a lab ("Namida Lab, Inc., United States")
+_COMPANY = re.compile(r"\b(?:lab|labs|inc|ltd|llc|gmbh|corp(?:oration)?|company)\b\.?", re.I)
+
+
+def _address_line(text: str) -> bool:
+    """An affiliation as a first page sets it, under the authors or in an editor's box: an
+    institution or a company, then a place after its last comma ("Sun Yat-sen University, China";
+    "*Department of Cell Biology, 240, Longwood Ave, …, Boston, Massachusetts 02115, USA"), and no
+    verb of prose. A title in title case that names a hospital or a school ends in no place."""
+    t = text.strip().rstrip(".")
+    if "," not in t or _VERBS.search(t) or not (_INSTITUTION.search(t) or _COMPANY.search(t)):
+        return False
+    place = [w for w in re.split(r"\s+", t.rsplit(",", 1)[1].strip()) if w]
+    return 1 <= len(place) <= 4 and all(w[0].isupper() or w[0].isdigit() for w in place) and not any(w.lower() in _FUNCTION_WORDS for w in place)
+
+
+def _prose_words(text: str, vocabulary: set[str] | None) -> bool:
+    """Whether a line's capitalised words are words the paper's own prose uses in lower case:
+    "Mesenchymal Stem Cell Migration and Tissue Repair" is a title set in title case, its every
+    word in the body ("mesenchymal", "migration", "tissue"); a list of names is not, since a family
+    name is all but never written lower case in a paper's text ("Long", "White" now and then)."""
+    if not vocabulary:
+        return False
+    words = [w.lower() for w in re.findall(r"[A-Za-z][a-z'\u2019-]+", text) if w.lower() not in ("and",)]
+    return len(words) >= 2 and sum(1 for w in words if w in vocabulary) >= 0.6 * len(words)
+
+
+def _lower_vocabulary(items: list[dict[str, Any]]) -> set[str]:
+    """Every word the document's prose writes in lower case, the measure `_prose_words` asks."""
+    out: set[str] = set()
+    for it in items:
+        text = it.get("text") or ""
+        if it.get("label") in ("text", "paragraph", "list_item") and len(text.split()) >= 20:
+            out.update(w for w in re.findall(r"\b[a-z][a-z'\u2019-]+\b", text))
+    return out
+
+
+def _never_a_title(text: str, vocabulary: set[str] | None = None, *, heading: bool = False) -> bool:
     """What a first page's largest lines can be that a title is not: an author line
-    ("Yonghan Cha, MD, PhD"), a licence sentence, a sentence of prose that starts
-    lowercase or ends with a full stop."""
+    ("Yonghan Cha, MD, PhD"), a licence sentence, an editor's box ("EDITED BY Jianxun Ding,
+    Chinese Academy of Sciences (CAS), China"), an address, a sentence of prose that starts
+    lowercase or ends with a full stop. A line the layout model set as a title or a heading
+    (`heading`) may end with a full stop when it is one sentence: an author manuscript's title
+    often does ("ErbB2, but not ErbB1, reinitiates proliferation … in epithelial acini.").
+    `vocabulary` (the prose's lower-case words) tells a title set in title case from a list of
+    names."""
     t = text.strip()
     if not t:
         return True
     first = t.split()[0]
     if first.islower() and first.isalpha() and len(first) >= 2:
         return True  # a sentence's middle ("the original author…"); "circCACNA1D" and "p53" open titles
-    if _LICENCE.search(t) or (_DEGREES.search(t) and _name_list(re.sub(_DEGREES.pattern, "", t))) or _looks_like_authors(t) or _name_list(t):
+    if _LICENCE.search(t) or (_DEGREES.search(t) and _name_list(re.sub(_DEGREES.pattern, "", t))) or _looks_like_authors(t):
+        return True
+    if _name_list(t) and not _prose_words(t, vocabulary):
+        return True
+    if _EDITOR_LINE.search(t) or _address_line(t):
         return True
     words = t.split()
     if _DATE_LINE.search(t) and re.search(r"\b(?:19|20)\d{2}\b", t) and len(words) <= 30:
         return True  # "Received 22nd August 2026 Accepted 26th August 2026": a dates line
+    if heading and len(words) <= 30 and ". " not in t[:-1] and (t[0].isupper() or t[0].isdigit()):
+        return False
     return t.endswith(".") and len(words) >= 12 and not t.endswith(("et al.", "sp.", "spp."))
 
 
@@ -1767,15 +1831,22 @@ def _never_a_title(text: str) -> bool:
 #: break below carries that measurement).
 #: `_journal_name` is also too loose to ask here: it calls a figure panel's "A" the name of
 #: "Proc Natl Acad Sci U S A". The wrong title survives; the prose under it does not move.
-def _pick_title(items: list[dict[str, Any]], hint: str | None) -> str | None:
+def _pick_title(items: list[dict[str, Any]], hint: str | None, *, xml: bool = False) -> str | None:
     """The self_ref of the item that is the paper's title.
 
     On a first page the title sits under the publisher's label ("PAPER", "Full length
     article", "RESEARCH ARTICLE") or the journal's name, and above the authors; the layout
     model may call it a title, a header, or plain text. The first title-like item wins —
     a Docling `title` over a header over text — and the PDF's own Title metadata, when it
-    is one, decides between candidates or stands in when there are none.
+    is one, decides between candidates or stands in when there are none. From an XML (`xml`),
+    the first `title` is the file's own `<article-title>`, whatever its shape.
     """
+    if xml:
+        for item in items:
+            text = re.sub(r"\s+", " ", (item.get("text") or "")).strip()
+            if item.get("label") == "title" and text and text.lower().strip(" .:") not in _GENERIC_LABELS:
+                return item.get("self_ref")
+    vocabulary = _lower_vocabulary(items)
     candidates: list[tuple[int, int, dict[str, Any]]] = []
     prose = 0
     past_heading = 0  # a structured abstract's labels (BACKGROUND, METHODS, RESULTS) can stand above the title on a first page
@@ -1797,7 +1868,7 @@ def _pick_title(items: list[dict[str, Any]], hint: str | None) -> str | None:
                 # while the only candidate is the journal's line was tried (2026-09-20) and refused:
                 # the scan then reaches the body's own first heading, which outranks a `text`
                 # candidate near the top, and PNAS lost "Can White Noise Cause…" (faithful −0.090)
-        if _never_a_title(text):
+        if _never_a_title(text, vocabulary, heading=label in ("title", "section_header") and prose == 0):
             continue
         if label == "title" and len(text.split()) >= 2 and not _FURNITURE.search(text) and text.lower().strip(" .:") not in _GENERIC_LABELS:
             candidates.append((0 + past_heading, i, item))  # the layout model's own word for it: doubted only when generic
@@ -2252,7 +2323,7 @@ def build_tree(doc: dict[str, Any], key: str, title_hint: str | None = None, jud
 
     # --- the title, and the front matter between it and the first known heading ---------
     skip_refs: set[str] = set()  # items filed nowhere: a title taken from beyond the front matter
-    title_ref = _pick_title(items, title_hint)
+    title_ref = _pick_title(items, title_hint, xml=not pages)
     if title_ref is None and title_hint:
         title = title_hint
         root.text = title_hint
@@ -2409,6 +2480,8 @@ def build_tree(doc: dict[str, Any], key: str, title_hint: str | None = None, jud
     if pages:
         _mark_abstract_parts(items, repairs)
     first_title_taken = title_ref is not None
+    # the last item shaped like a reference entry: prose after it is no part of the list
+    last_entry = max((i for i, it in enumerate(items) if _entry_shaped(it)), default=-1)
     for index, item in enumerate(items):
         label = item.get("label", "text")
         self_ref = item.get("self_ref", "")
@@ -2630,6 +2703,21 @@ def build_tree(doc: dict[str, Any], key: str, title_hint: str | None = None, jud
             repairs["box_prose" if early_back is None else "back_box_prose"] = repairs.get("box_prose" if early_back is None else "back_box_prose", 0) + 1
             body_started = True
             parent = intro
+        top = next((n for lvl, n in stack if lvl == 1), None)
+        if pages and top is not None and top.role == "references" and index > last_entry and label in _PROSE and len(text.split()) >= 40 and not _A_YEAR.search(text) and _prose_like(text):
+            # a paragraph after the list's last entry, with no year, in sentences: an author manuscript's
+            # figure legends, one to a page after the references (doi:10.1242/dev.105.2.223 from OSTI),
+            # MDPI's disclaimer, under no heading the layout read. Not the list's: a section the paper did
+            # not title, which says so, rather than prose filed as references; back matter when it is a
+            # publisher's statement, else a lane of its own
+            while len(stack) > 1:
+                stack.pop()
+            lane = "back" if _LICENCE.search(text) or _PUBLISHER_STATEMENT.search(text) else "other"
+            after = make(root, "section", {**item, "label": "section_header"}, "", lane, heading="(untitled section)", level=1)
+            attach(root, after)
+            stack.append((1, after))
+            parent = after
+            repairs["after_references"] = repairs.get("after_references", 0) + 1
         read_before = next((c for c in reversed(root.children) if c.type == "section" and c.role == "introduction"), None) if body_started else None
         if parent.type == "section" and parent.role == "abstract" and parent.children and label in _PROSE and len(text.split()) >= 15 and _prose_like(text) and (
             (_CITES.search(text) and (not body_started or read_before is not None))
