@@ -59,6 +59,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import zipfile
+import zlib
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
@@ -626,15 +627,13 @@ def _article_from(data: bytes) -> bytes | None:
 
 def _pdf_from(data: bytes, pmcid: str) -> bytes | None:
     """The PDF itself: the bytes when they are one, the paper's own PDF from a zip (the one named
-    for it, else the largest), else None."""
+    for it, else the largest), else None. A zip that will not open, or whose PDF will not unpack,
+    raises: an answer broken on the way, not one without a PDF."""
     if data[:4] == b"%PDF":
         return data
     if data[:2] != b"PK":
         return None
-    try:
-        z = zipfile.ZipFile(io.BytesIO(data))
-    except zipfile.BadZipFile:
-        return None
+    z = zipfile.ZipFile(io.BytesIO(data))
     pdfs = sorted((i for i in z.infolist() if i.filename.lower().endswith(".pdf")),
                   key=lambda i: (Path(i.filename).name.lower() != f"{pmcid.lower()}.pdf", -i.file_size))
     for info in pdfs:
@@ -822,30 +821,54 @@ def _update(conn: sqlite3.Connection, cid: int, **cols: Any) -> None:
         conn.execute(f"UPDATE candidates SET {', '.join(f'{k} = ?' for k in cols)} WHERE cand_id = ?", (*cols.values(), cid))
 
 
-def _figures_pdf(lib: Library, pmcid: str | None, name: str, pdf: str | None, cloud: str | None, timeout: float) -> str | None:
-    """After the XML, the same paper's PDF, for its figures: the XML names its figures but holds
-    none, and a PDF draws them (figures.py). The PMC Cloud Service first, then the bulk
-    open-access area, the hosts the PDF route asks; only open PDFs are filed there, so a miss is
-    no failure and says nothing of the XML. Off with `LITRAG_FIGURES=off`."""
-    from .figures import enabled
+#: What a route raises when it could not be asked, or its answer broke off or would not unpack:
+#: a connection refused, a timeout, a truncated read, a corrupt zip. A failure to try again.
+_UNASKED = (urllib.error.URLError, TimeoutError, OSError, http.client.HTTPException, zipfile.BadZipFile, zlib.error)
+#: The Cloud Service's reasons that are its answer about the paper, not a fault on the way.
+_CLOUD_SETTLES = ("not in its open-access datasets", "no PDF")
 
-    if not pmcid or not enabled():
-        return None
-    body = None
+
+def _fault(e: Exception) -> tuple[str, bool]:
+    """What a route that raised says: its reason, and whether it could not be asked at all (no
+    connection, a timeout, an answer broken off, a 5xx once `_get` stopped asking again)."""
+    if isinstance(e, urllib.error.HTTPError):
+        return f"HTTP {e.code}", e.code >= 500
+    return f"{type(e).__name__}: {e}", isinstance(e, (OSError, http.client.HTTPException))
+
+
+def figures_pdf(pmcid: str | None, timeout: float, *, pdf: str | None = None,
+                cloud: str | None = None) -> tuple[bytes | None, str | None, str | None, bool, bool]:
+    """An XML paper's own PDF, for its figures: the XML names its figures but holds none, and a
+    PDF draws them (figures.py). The PMC Cloud Service first, then the bulk open-access area, the
+    hosts the PDF route asks, each asked once: `(pdf, source, why, settled, unreachable)`. It
+    never raises, since a miss says nothing of the XML.
+
+    With a PDF, `source` is 'pmc-cloud' or 'europepmc', and the answer is settled. Without one,
+    `why` gives each route's reason ("PMC Cloud: not in its open-access datasets; bulk area: HTTP
+    404"); `settled` is whether every route answered about the paper (the Cloud that it does not
+    hold it or holds no PDF of it, the bulk area a 404 or no PDF in the answer), so that asking
+    again would change nothing; `unreachable` is whether a route could not be asked at all. An
+    answer that came and settled nothing (a PDF failing its MD5, a record that would not read, a
+    corrupt zip) is neither. No PMCID is `(None, None, None, False, False)`."""
+    if not pmcid:
+        return None, None, None, False, False
     try:
-        body, _ = pmc_cloud_pdf(pmcid, timeout, cloud)
-    except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, OSError):
-        pass
-    if body is None:
-        try:
-            body = _pdf_from(_get(pdf_url(pmcid, pdf), timeout), pmcid)
-        except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, OSError):
-            return None
-    if body is None:
-        return None
-    dest = lib.inbox_dir / f"{name}.pdf"
-    _save(dest, body)
-    return str(dest)
+        body, cloud_why = pmc_cloud_pdf(pmcid, timeout, cloud)
+        if body is not None:
+            return body, "pmc-cloud", None, True, False
+        cloud_settled, cloud_down = cloud_why.startswith(_CLOUD_SETTLES), False
+    except Exception as e:  # noqa: BLE001 — best effort: the XML stands
+        cloud_why, cloud_down = _fault(e)
+        cloud_settled = False
+    try:
+        body = _pdf_from(_get(pdf_url(pmcid, pdf), timeout), pmcid)
+        if body is not None:
+            return body, "europepmc", None, True, False
+        bulk_why, bulk_settled, bulk_down = "no PDF in the answer", True, False
+    except Exception as e:  # noqa: BLE001 — best effort: the XML stands
+        bulk_why, bulk_down = _fault(e)
+        bulk_settled = isinstance(e, urllib.error.HTTPError) and e.code == 404  # the area files no PDF for it
+    return None, None, f"PMC Cloud: {cloud_why}; bulk area: {bulk_why}", cloud_settled and bulk_settled, cloud_down or bulk_down
 
 
 def fetch_one(lib: Library, conn: sqlite3.Connection, cand_id: int, *, timeout: float = 90, base: str | None = None,
@@ -853,8 +876,12 @@ def fetch_one(lib: Library, conn: sqlite3.Connection, cand_id: int, *, timeout: 
               on_progress: Callable[[dict[str, Any]], None] | None = None) -> dict[str, Any]:
     """One candidate: its JATS from Europe PMC, else PMC's XML from NCBI, else its PDF from the
     PMC Cloud Service or the bulk area, else `needs-pdf`. With an XML, its PDF as well where
-    there is one, for its figures (`figures` in the answer: the PDF's path, or None). Never raises for the candidate; what went
-    wrong is the answer's `error` and the row's."""
+    there is one, for its figures (`figures` in the answer: the PDF's path, or None; not asked
+    for with `LITRAG_FIGURES=off`). Never raises for the candidate; what went wrong is the
+    answer's `error` and the row's. A route that could not be asked, or whose answer broke off
+    or would not unpack, is passed for the next, and makes a miss a failure to try again."""
+    from .figures import enabled as figures_on
+
     say = on_progress or (lambda e: None)
     row = _row(conn, cand_id)
     if row is None:
@@ -873,6 +900,20 @@ def fetch_one(lib: Library, conn: sqlite3.Connection, cand_id: int, *, timeout: 
     unreachable = False
     name = file_key(row)
     pmcid = row.get("pmcid")
+
+    def pdf_beside() -> str | None:
+        # the XML's own PDF, saved beside it for its figures; a miss, for whatever reason, or a
+        # PDF that will not save, leaves the XML fetched as it is
+        body, *_ = figures_pdf(pmcid, timeout, pdf=pdf, cloud=cloud)
+        if body is None:
+            return None
+        dest = lib.inbox_dir / f"{name}.pdf"
+        try:
+            _save(dest, body)
+        except OSError:
+            return None
+        return str(dest)
+
     try:
         if pmcid and row.get("has_xml") and row.get("is_open_access"):
             say({"event": "candidate", "cand_id": cand_id, "status": "fetching", "format": "jats", "source": "europepmc"})
@@ -884,12 +925,12 @@ def fetch_one(lib: Library, conn: sqlite3.Connection, cand_id: int, *, timeout: 
                     _update(conn, cand_id, status="fetched", file=dest.name, error=None)
                     say({"event": "candidate", "cand_id": cand_id, "status": "fetched", "format": "jats", "source": "europepmc", "path": str(dest)})
                     return {"cand_id": cand_id, "status": "fetched", "path": str(dest), "format": "jats", "source": "europepmc", "error": None,
-                            "figures": _figures_pdf(lib, pmcid, name, pdf, cloud, timeout)}
+                            "figures": pdf_beside() if figures_on() else None}
                 tried.append("full text XML: not an article")
             except urllib.error.HTTPError as e:
                 tried.append(f"full text XML: HTTP {e.code}")
-            except (urllib.error.URLError, TimeoutError, OSError) as e:
-                tried.append(f"full text XML: {e}")
+            except _UNASKED as e:
+                tried.append(f"full text XML: {type(e).__name__}: {e}")
                 unreachable = True
         if pmcid:
             # Asked of every PMCID the REST service did not serve, not only the ones flagged as
@@ -904,12 +945,12 @@ def fetch_one(lib: Library, conn: sqlite3.Connection, cand_id: int, *, timeout: 
                     _update(conn, cand_id, status="fetched", file=dest.name, error=None)
                     say({"event": "candidate", "cand_id": cand_id, "status": "fetched", "format": "jats", "source": "ncbi", "path": str(dest)})
                     return {"cand_id": cand_id, "status": "fetched", "path": str(dest), "format": "jats", "source": "ncbi", "error": None,
-                            "figures": _figures_pdf(lib, pmcid, name, pdf, cloud, timeout)}
+                            "figures": pdf_beside() if figures_on() else None}
                 tried.append("NCBI PMC XML: no full text in the answer")
             except urllib.error.HTTPError as e:
                 tried.append(f"NCBI PMC XML: HTTP {e.code}")  # 400: PMC holds it, NCBI may not give it out
-            except (urllib.error.URLError, TimeoutError, OSError) as e:
-                tried.append(f"NCBI PMC XML: {e}")
+            except _UNASKED as e:
+                tried.append(f"NCBI PMC XML: {type(e).__name__}: {e}")
                 unreachable = True
         if pmcid:
             # Asked of every PMCID, like NCBI: its listing says at once whether it holds the paper,
@@ -926,8 +967,8 @@ def fetch_one(lib: Library, conn: sqlite3.Connection, cand_id: int, *, timeout: 
                 tried.append(f"PMC Cloud: {why}")
             except urllib.error.HTTPError as e:
                 tried.append(f"PMC Cloud: HTTP {e.code}")
-            except (urllib.error.URLError, TimeoutError, OSError) as e:
-                tried.append(f"PMC Cloud: {e}")
+            except _UNASKED as e:
+                tried.append(f"PMC Cloud: {type(e).__name__}: {e}")
                 unreachable = True
         if pmcid and (row.get("is_open_access") or row.get("has_pdf")):
             say({"event": "candidate", "cand_id": cand_id, "status": "fetching", "format": "pdf", "source": "europepmc"})
@@ -942,8 +983,8 @@ def fetch_one(lib: Library, conn: sqlite3.Connection, cand_id: int, *, timeout: 
                 tried.append("open-access PDF: no PDF in the answer")
             except urllib.error.HTTPError as e:
                 tried.append(f"open-access PDF: HTTP {e.code}")
-            except (urllib.error.URLError, TimeoutError, OSError) as e:
-                tried.append(f"open-access PDF: {e}")
+            except _UNASKED as e:
+                tried.append(f"open-access PDF: {type(e).__name__}: {e}")
                 unreachable = True
         if row.get("oa_url") and open_copies() and _askable(str(row["oa_url"])):
             # A host of OpenAlex's naming, not a service of ours: one that cannot be reached, or
