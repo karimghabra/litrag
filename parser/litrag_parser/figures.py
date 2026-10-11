@@ -180,7 +180,7 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
 CREATE TABLE IF NOT EXISTS charts (
   paper TEXT NOT NULL REFERENCES papers(key) ON DELETE CASCADE,
   figure TEXT NOT NULL,             -- the picture node it was read from
-  figure_label TEXT,                -- "2" when the plot was pinned to "Figure 2" by its caption (an XML paper's PDF)
+  figure_label TEXT,                -- "2" or "Scheme 2" when the plot was pinned to "Figure 2" or "Scheme 2" by its caption (an XML paper's PDF)
   plot INTEGER NOT NULL,            -- its plots, top to bottom, left to right
   page INTEGER, bbox TEXT,          -- the figure's place: page, [left, top, right, bottom] in points from the top
   panel TEXT,                       -- the letter printed beside it, when one is
@@ -307,11 +307,22 @@ def read_paper(conn: sqlite3.Connection, key: str, pdf_path: Path, *, ocr: chart
 # -- an XML paper's figures, from a PDF of it ------------------------------------------------------------------
 
 PAGE_DPI = 300
-_LABEL = re.compile(r"^\s*(?:fig(?:ure)?s?|scheme)\s*\.?\s*(S?\d+)(?![\d.]*\d)", re.I)
+_KINDS = {"s": "Scheme ", "c": "Chart "}  # what a key puts before the number, by the first letter of its caption's first word; a figure's, nothing
+_LABEL = re.compile(r"^\s*(fig(?:ure)?s?|scheme|chart)\s*\.?\s*(S?\d+)(?![\d.]*\d)", re.I)
+
+
+def figure_key(kind: str, number: str) -> str:
+    """The key a caption gives its float: a figure its number alone, "2" or "S2"; a scheme or a
+    chart its kind and number, "Scheme 2", "Chart 2", so that neither takes a figure's number. A
+    figure key is one with no kind word. The kind is told by its first letter, as edges.py tells
+    it, so every word the patterns take has a key ("Fıgure" and "ſcheme" too, which re.I matches).
+    (edges.py keys the same scheme "scheme 2", and no chart.)"""
+    return _KINDS.get(kind[:1].casefold(), "") + number.upper()
 
 
 def figure_numbers(conn: sqlite3.Connection, key: str) -> dict[str, str]:
-    """The paper's figures by the number their captions give them: {"2": picture node}."""
+    """The keys looked for in a PDF of the paper: its figures, schemes and charts by the key their
+    captions give them (`figure_key`), {"2": picture node, "Scheme 1": picture node}."""
     out: dict[str, str] = {}
     for r in conn.execute(
         "SELECT p.node_id, p.text, (SELECT group_concat(c.text, ' ') FROM nodes c WHERE c.parent = p.node_id AND c.type = 'caption') AS cap "
@@ -319,25 +330,26 @@ def figure_numbers(conn: sqlite3.Connection, key: str) -> dict[str, str]:
         (key,),
     ):
         m = _LABEL.match(r["cap"] or r["text"] or "")
-        if m and m.group(1).upper() not in out:
-            out[m.group(1).upper()] = r["node_id"]
+        if m:
+            out.setdefault(figure_key(m.group(1), m.group(2)), r["node_id"])  # the first to give a key keeps it
     return out
 
 
-_CAPTION_UPPER = re.compile(r"^\s*(?:FIGURE|FIG\.|SCHEME)\s*(S?\d+)(?![\d.]*\d)")  # set in capitals: a caption, punctuated or not
-_CAPTION_DOTTED = re.compile(r"^\s*(?:fig(?:ure)?|scheme)\s*\.?\s*(S?\d+)\s*[.:|](?!\d)", re.I)  # "Figure 2." "Fig. 2:" "Figure 2 |"
+_CAPTION_UPPER = re.compile(r"^\s*(FIGURE|FIG\.|SCHEME|CHART)\s*(S?\d+)(?![\d.]*\d)")  # set in capitals: a caption, punctuated or not
+_CAPTION_DOTTED = re.compile(r"^\s*(fig(?:ure)?|scheme|chart)\s*\.?\s*(S?\d+)\s*[.:|](?!\d)", re.I)  # "Figure 2." "Fig. 2:" "Figure 2 |" "Scheme 1."
 
 
 def captions(words: list[Word]) -> list[tuple[str, Word]]:
-    """The captions on a page, ("2", the caption's first line): a phrase that opens the way a
-    caption does — "FIGURE 2", "Fig. 2.", "Figure 2:" — not a sentence that begins "Figure 2
-    shows"; its extent the whole of its line, which the text layer gives in pieces."""
+    """The captions on a page by their keys, ("2" or "Scheme 1", the caption's first line): a
+    phrase that opens the way a caption does — "FIGURE 2", "Fig. 2.", "Figure 2:", "Scheme 1." —
+    not a sentence that begins "Figure 2 shows"; its extent the whole of its line, which the text
+    layer gives in pieces."""
     out = []
     for w in words:
         m = _CAPTION_UPPER.match(w.text) or _CAPTION_DOTTED.match(w.text)  # not "Figure 2 shows": a sentence
         if not m or w.w < w.h:
             continue
-        num = m.group(1).upper()
+        num = figure_key(m.group(1), m.group(2))
         x1 = w.x1
         for o in sorted((o for o in words if o is not w and abs(o.cy - w.cy) <= 0.5 * w.h and o.x0 >= w.x0), key=lambda o: o.x0):
             if o.x0 - x1 > 3 * w.h:
@@ -363,6 +375,15 @@ def owner(box: list[float], caps: list[tuple[str, Word]]) -> str | None:
     return min(ranked)[2] if ranked else None
 
 
+def claimed(box: list[float], caps: list[tuple[str, Word]], numbers: dict[str, str]) -> str | None:
+    """The key a plot is pinned to: that of its caption, which `owner` picks from every caption on
+    the page, when the paper has a float by it; else None, and the plot is counted, not kept. A
+    caption the paper has no float for (one the XML lost) claims its plots all the same, and never
+    hands them on to the next caption that is the paper's."""
+    num = owner(box, caps)
+    return num if num is not None and num in numbers else None
+
+
 def _images(page: Any, w: float, h: float) -> list[tuple[Any, tuple[float, float, float, float]]]:
     """The images on a page large enough to be a figure: (object, its box from the top left, in points)."""
     import pypdfium2.raw as raw
@@ -378,12 +399,13 @@ def _images(page: Any, w: float, h: float) -> list[tuple[Any, tuple[float, float
 
 
 def read_pages(conn: sqlite3.Connection, key: str, pdf_path: Path, *, ocr: charts.Ocr | None = None, on_page: Callable[[int, int], None] | None = None) -> dict[str, Any]:
-    """An XML paper's figures read from a PDF of it, on each page that prints a figure's caption:
-    an image there large enough to be a figure is read whole, at its own resolution, with OCR,
-    and pinned with all its plots to the caption it sits over ("Figure 2", so to the XML's figure
-    2); the rest of the page, the images blanked, is read at PAGE_DPI with its own text layer, and
-    each plot drawn there pinned the same way. A plot no caption of the paper's claims is counted,
-    not kept."""
+    """An XML paper's figures read from a PDF of it, on each page that prints the caption of one
+    of its figures, schemes or charts: an image there large enough to be a figure is read whole,
+    at its own resolution, with OCR, and pinned with all its plots to the caption it sits over
+    ("Figure 2", so to the XML's figure 2; "Scheme 1" to its scheme 1); the rest of the page, the
+    images blanked, is read at PAGE_DPI with its own text layer, and each plot drawn there pinned
+    the same way. A plot under no caption, or under one the paper has no float for, is counted,
+    not kept (`claimed`)."""
     import pypdfium2 as pdfium
 
     from .library import now_iso
@@ -415,14 +437,14 @@ def read_pages(conn: sqlite3.Connection, key: str, pdf_path: Path, *, ocr: chart
             page = pdf[pno]
             w, h = page.get_size()
             words_pt = text_words(page, (0, 0, w, h), 1.0)
-            caps = [(n, c) for n, c in captions(words_pt) if n in numbers]
-            if not caps:
+            caps = captions(words_pt)  # every caption on the page, the paper's or not: each claims what it sits under
+            if not any(n in numbers for n, _ in caps):
                 page.close()
                 continue
             # the images: each a figure of its own, read whole
             images = _images(page, w, h)
             for _, box in images:
-                num = owner(list(box), caps)
+                num = claimed(list(box), caps, numbers)
                 img, _, _, scale = crop(pdf, pno + 1, box)
                 plots = charts.read(img, None, ocr=ocr)
                 if num is None:
@@ -439,7 +461,7 @@ def read_pages(conn: sqlite3.Connection, key: str, pdf_path: Path, *, ocr: chart
             by_fig: dict[str, list[tuple[dict[str, Any], list[float], str, float]]] = {}
             for p in charts.read(img, words_px, ocr=None):
                 box = [v / scale for v in p["bbox"]]
-                num = owner(box, caps)
+                num = claimed(box, caps, numbers)
                 if num is None:
                     unmatched += 1
                 else:
@@ -466,10 +488,12 @@ def read_for(conn: sqlite3.Connection, key: str, papers_dir: Path, **kw: Any) ->
 
 def figures_wanted(conn: sqlite3.Connection) -> list[dict[str, Any]]:
     """The XML papers whose figures no PDF draws yet: read, with figures their captions number,
-    and no figures_file — what the collect window can fetch for them, most figures first."""
+    and no figures_file — what the collect window can fetch for them, most figures first. Only
+    figure keys count: a PDF kept for a paper is read for its schemes and charts too, but a paper
+    whose captions number only schemes and charts is not listed."""
     out = []
     for r in conn.execute("SELECT key, title, doi, pmid, pmcid FROM papers WHERE format = 'jats' AND status = 'parsed' AND (figures_file IS NULL OR figures_file = '')"):
-        n = len(figure_numbers(conn, r["key"]))
+        n = sum(" " not in k for k in figure_numbers(conn, r["key"]))  # "2" and "S2", not "Scheme 1"
         if n:
             out.append({**dict(r), "figures": n})
     out.sort(key=lambda d: (-d["figures"], d["key"]))

@@ -162,13 +162,15 @@ def test_the_worker_reads_a_library_s_figures_and_answers_for_one(tmp_path, caps
 # -- an XML paper's figures, from a PDF of it ------------------------------------------------------------------
 
 
-def _xml_paper(conn, figures_n=3, doi="10.3390/mi15070851"):
-    """A paper read from XML: its figures numbered by their captions, no page, no box."""
-    key = file_paper(conn, title="read from XML", file="paper.xml", sha256="x1", fmt="jats", doi=doi, pmid=None, pmcid=None, now="t").key
+def _xml_paper(conn, figures_n=3, doi="10.3390/mi15070851", caps=None):
+    """A paper read from XML: its figures numbered by their captions (`caps`, one a picture), no
+    page, no box."""
+    caps = caps or [f"Figure {i} What figure {i} shows." for i in range(1, figures_n + 1)]
+    key = file_paper(conn, title="read from XML", file="paper.xml", sha256=f"x:{doi}", fmt="jats", doi=doi, pmid=None, pmcid=None, now="t").key
     rows = [(f"{key}#section-1", key, None, 0, 1, "section", "section_header", "results", "3 Results", "[]", "")]
-    for i in range(1, figures_n + 1):
+    for i, cap in enumerate(caps, 1):
         rows.append((f"{key}#section-1#picture-{i}", key, f"{key}#section-1", i, 2, "picture", "picture", "results", None, '["3 Results"]', ""))
-        rows.append((f"{key}#section-1#picture-{i}#caption-1", key, f"{key}#section-1#picture-{i}", 0, 3, "caption", "caption", "results", None, '["3 Results"]', f"Figure {i} What figure {i} shows."))
+        rows.append((f"{key}#section-1#picture-{i}#caption-1", key, f"{key}#section-1#picture-{i}", 0, 3, "caption", "caption", "results", None, '["3 Results"]', cap))
     conn.executemany("INSERT INTO nodes(node_id, paper, parent, ordinal, depth, type, label, role, heading, ancestry, text) VALUES (?,?,?,?,?,?,?,?,?,?,?)", rows)
     conn.execute("UPDATE papers SET status = 'parsed', file = 'paper.xml' WHERE key = ?", (key,))
     conn.commit()
@@ -181,8 +183,60 @@ def test_a_caption_is_told_from_a_sentence_that_begins_with_a_figure():
     def caps(texts):
         return [n for n, _ in figures.captions([Word(10, 10 + 20 * i, 400, 22 + 20 * i, t) for i, t in enumerate(texts)])]
 
-    assert caps(["Figure 2. Fold change", "FIGURE 3 Percent reduction", "Fig. 4. SEM images", "Figure 5: Strength", "Figure 6 | Modulus", "Fig. S1. More"]) == ["2", "3", "4", "5", "6", "S1"]
+    assert caps(["Figure 2. Fold change", "FIGURE 3 Percent reduction", "Fig. 4. SEM images", "Figure 5: Strength", "Figure 6 | Modulus", "Fig. S1. More", "FIG. 7 Images", "Fig. s2. Less"]) == ["2", "3", "4", "5", "6", "S1", "7", "S2"]
     assert caps(["Figure 2 shows the strength", "(Figure 2)", "Figures 3 and 4 show", "as Figure 1 shows", "Figure 2.5 times"]) == []
+    assert caps(["Scheme 1. Route", "SCHEME 2 Synthesis", "Chart 1: Structures", "CHART 2 Ligands"]) == ["Scheme 1", "Scheme 2", "Chart 1", "Chart 2"]  # a scheme's or a chart's number carries its kind
+    assert caps(["Scheme 2 shows the route", "as Chart 1 lists"]) == []
+    assert caps(["Fıgure 8. A dotless i", "Fİgure 9: A dotted capital I", "ſcheme 3. A long s"]) == ["8", "9", "Scheme 3"]  # letters re.I takes for i and s: the kind still told
+
+
+def test_a_scheme_is_keyed_by_its_kind_and_never_takes_a_figure_s_number(tmp_path):
+    conn = open_store(tmp_path / "store.sqlite")
+    key = _xml_paper(conn, caps=["Scheme 1 The route to the monomer.", "Figure 1 What figure 1 shows.", "Figure 2 What figure 2 shows.", "Figure 1 A repeat.",
+                                 "Fıgure 3 Its i dotless.", "ſcheme 2 Its s long."])
+    scheme, f1, f2, _, f3, s2 = (f"{key}#section-1#picture-{i}" for i in range(1, 7))
+    assert figures.figure_numbers(conn, key) == {"Scheme 1": scheme, "1": f1, "2": f2, "3": f3, "Scheme 2": s2}  # the scheme came first, "1" is still figure 1's, not its repeat's
+
+
+def test_a_paper_whose_captions_number_only_schemes_and_charts_is_not_wanted(tmp_path):
+    conn = open_store(tmp_path / "store.sqlite")
+    mixed = _xml_paper(conn, caps=["Scheme 1 The route to the monomer.", "Figure 1 What figure 1 shows.", "Figure 2 What figure 2 shows."])
+    only = _xml_paper(conn, doi="10.1021/schemes", caps=["Scheme 1 Synthesis of the ligand.", "Scheme 2 Its complexes.", "Chart 1 The structures."])
+    assert set(figures.figure_numbers(conn, only)) == {"Scheme 1", "Scheme 2", "Chart 1"}  # looked for, when a PDF of it is read
+    assert [(w["key"], w["figures"]) for w in figures.figures_wanted(conn)] == [(mixed, 2)]  # but only figures are counted, and wanted
+
+
+def test_a_plot_under_a_caption_the_paper_lacks_is_counted_not_pinned_to_the_next(tmp_path, monkeypatch):
+    from litrag_parser.charts import Word
+
+    box = [100.0, 100.0, 400.0, 300.0]
+    lost, kept = ("2", Word(100, 305, 400, 317, "Figure 2. Lost from the XML")), ("1", Word(100, 80, 400, 92, "Figure 1. Above the plot"))
+    assert figures.owner(box, [lost, kept]) == "2"  # the caption under the plot is its own
+    assert figures.claimed(box, [lost, kept], {"1": "fig-1"}) is None  # and the paper has no figure 2: not handed to figure 1
+    assert figures.claimed(box, [lost, kept], {"1": "fig-1", "2": "fig-2"}) == "2"
+    assert figures.claimed(box, [kept], {"1": "fig-1"}) == "1"  # with no caption under it, the one above claims it
+
+    # a PDF of the paper prints captions the XML lost, one under panel A (drawn) and one under
+    # Figure 2's image: A and the image are counted, B still pinned
+    conn = open_store(tmp_path / "store.sqlite")
+    key = _xml_paper(conn, caps=["Figure 1 What figure 1 shows.", "Figure 2 What figure 2 shows.", "Scheme 1 A route this PDF does not print."])
+    real = figures.captions
+    lost = {"1": ("7", Word(70, 400, 260, 410, "Figure 7. Lost from the XML")),  # Figure 1's page: under panel A, its panels side by side above Figure 1
+            "2": ("8", Word(60, 400, 400, 410, "Figure 8. Lost from the XML"))}  # Figure 2's page: between its image and its caption
+
+    def with_lost_ones(words):
+        caps = real(words)
+        return caps + [lost[caps[0][0]]] if len(caps) == 1 and caps[0][0] in lost else caps
+
+    def ocr(img):  # the words on Figure 2's image, which is bars_grouped drawn: its own text layer, scaled to the image
+        src = pdfium.PdfDocument(str(CHARTS / "bars_grouped.pdf"))
+        sx, sy = img.shape[1] / src[0].get_size()[0], img.shape[0] / src[0].get_size()[1]
+        return [Word(x.x0 * sx, x.y0 * sy, x.x1 * sx, x.y1 * sy, x.text) for x in figures.text_words(src[0], (0, 0, *src[0].get_size()), 1.0)]
+
+    monkeypatch.setattr(figures, "captions", with_lost_ones)
+    out = figures.read_pages(conn, key, CHARTS / "page_paper.pdf", ocr=ocr)
+    assert (out["figures"], out["plots"], out["read"], out["unmatched"]) == (3, 1, 1, 2)  # the keys looked for, the scheme's too
+    assert [tuple(r) for r in conn.execute("SELECT figure_label, panel FROM charts")] == [("1", "B")]
 
 
 def test_an_xml_paper_s_figures_are_read_from_a_pdf_of_it_and_pinned_by_their_captions(tmp_path):

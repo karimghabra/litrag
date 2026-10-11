@@ -645,6 +645,15 @@ Each one wants a fixture or a test before its fix, as the spot-check does.
   opt-in, into the library's `figures/` beside the paper — a Europe PMC
   call, which the invariants allow — would let the reading view show the
   image where its placeholder stands.
+- **Captions with no stop after the number** (found planning the XML
+  figures work, 2026-10-11) — a PDF kept beside an XML paper is read only
+  on the pages that print one of its captions, and `figures.captions` takes
+  a caption by its opening: "FIGURE 2" in capitals, or "Fig. 2." / "Figure
+  2:" / "Figure 2 |" with a stop. Springer's and BMC's "Fig. 1 Title" has
+  none, so its pages are passed over and its plots go unread; taking it
+  needs the line itself told from a sentence ("Figure 2 shows…": its own
+  line, its font), and a `READER` bump so the papers already read are read
+  again.
 - **Superscript citations with a space in the PDF text** (done, 2026-09-11
   night) — the text layer now marks a raised number ("applications.^17")
   and the linker reads that, the glued form and the spaced form
