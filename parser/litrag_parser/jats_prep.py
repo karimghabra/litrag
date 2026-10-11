@@ -1,7 +1,7 @@
 """What the JATS is told before Docling reads it.
 
 Docling's JATS backend flattens a citation `<xref>` to its text and reads a formula only
-from `<tex-math>`. Two things are made explicit in the bytes it gets — never in the file:
+from `<tex-math>`. What it would miss is made explicit in the bytes it gets — never in the file:
 
 - every MathML-only formula gains a `<tex-math>` with the formula as a line of text
   (`mathml.py`), so the equation and its inline symbols survive;
@@ -16,7 +16,23 @@ from `<tex-math>`. Two things are made explicit in the bytes it gets — never i
   Abstract. "2. Materials and Methods" carries one;
 - every `<ref>` is given one `<mixed-citation>` of running text: an `<element-citation>`
   (Springer, some ACS) is fields Docling reads as nothing, and a `<ref>` with two
-  citations (Wiley's "a)", "b)") became two entries, shifting every number after it.
+  citations (Wiley's "a)", "b)") became two entries, shifting every number after it;
+- every float in the article's `<floats-group>` is set after the block of text that first
+  cites it, a range "Tables 1–3" citing Table 2 too: Docling reads `<body>` and `<back>`
+  only, so a paper that keeps its figures there (some of MDPI's, Hindawi's, Spandidos's,
+  Ivyspring's) was read with none. A float nothing cites goes in a last section titled
+  "(untitled section)", visibly the reader's;
+- every figure and table is named as the page prints it: ACS writes its labels as a bare
+  "1" and its calls as an empty `<xref>` or "Figure " with the number left to the
+  stylesheet, so the label becomes "Figure 1" (or "Scheme 1", "Table 1") and the call
+  takes its number; a label in markup becomes its text, since Docling reads a table's
+  label as `.text` and a caption opened "None"; a `<table-wrap>` that is only an image
+  becomes a `<fig>`, since Docling drops a table with no `<table>`, caption and all; a
+  figure with no `<caption>` is given an empty one, since Docling closes such a caption
+  with "None".
+
+`floats_in` counts what the file holds, and `floats_note` is a reading's note when it has
+fewer figures or tables than that, so a float lost is said and not silent.
 """
 
 from __future__ import annotations
@@ -26,6 +42,8 @@ import re
 from .mathml import add_tex_math
 
 _NUMERIC_XREF = re.compile(r"\d{1,3}(?:\s*[,–-]\s*\d{1,3})*")
+#: what joins the two ends of a range of calls, "1–3"
+_DASHES = ("−", "–", "-", "—")
 
 
 def bracket_numeric_xrefs(root) -> bool:
@@ -44,7 +62,7 @@ def bracket_numeric_xrefs(root) -> bool:
         if not text and xref.get("rid") in position:
             text = str(position[xref.get("rid")])
             nxt = xref.getnext()
-            if (xref.tail or "").strip() in ("−", "–", "-", "—") and nxt is not None and nxt.tag == "xref" and nxt.get("ref-type") == "bibr" and not "".join(nxt.itertext()).strip() and nxt.get("rid") in position:
+            if (xref.tail or "").strip() in _DASHES and nxt is not None and nxt.tag == "xref" and nxt.get("ref-type") == "bibr" and not "".join(nxt.itertext()).strip() and nxt.get("rid") in position:
                 text = f"{text}–{position[nxt.get('rid')]}"
                 xref.tail = nxt.tail
                 removed.add(id(nxt))
@@ -348,6 +366,250 @@ def flatten_titles(root) -> bool:
     return changed
 
 
+#: what an article's `<floats-group>` holds that Docling reads when it stands in the text
+_FLOATS = {"fig", "table-wrap", "table-wrap-group", "fig-group", "boxed-text"}
+#: the parents of a block of text: a float is set after the block, never inside a list or a paragraph
+_BLOCK_PARENTS = {"sec", "body", "app", "boxed-text"}
+#: the heading of the section that holds the floats nothing cites — the reader's, not the author's
+_UNTITLED = "(untitled section)"
+
+
+def _in_front(el) -> bool:
+    return any(etree_local(a.tag) == "front" for a in el.iterancestors())
+
+
+def _article_groups(root) -> list:
+    """The `<floats-group>`s that are the article's own: a sub-article's is not read either way."""
+    return [g for g in root.iter("floats-group") if g.getparent() is not None and etree_local(g.getparent().tag) == "article"]
+
+
+def _block_of(el):
+    """The block of text an element stands in: itself or its nearest ancestor whose parent is a
+    section, the body, an appendix or a box. None outside any — a footnote of the back matter."""
+    while el is not None:
+        parent = el.getparent()
+        if parent is not None and etree_local(parent.tag) in _BLOCK_PARENTS:
+            return el
+        el = parent
+    return None
+
+
+def _family(el) -> str:
+    """A float's kind for a range of calls: a figure group is figures, a table group tables."""
+    return etree_local(el.tag).split("-")[0]
+
+
+def place_floats(root) -> bool:
+    """Every float of the article's `<floats-group>` set directly after the block of text that
+    first cites it — the first `<xref>` in `<body>`, then in `<back>`, whose rid names the float
+    or an id inside it, and that stands in a block (one in a footnote of the back matter places
+    nothing) — and the emptied group removed. A range of calls joined by a dash, "Tables
+    <xref>1</xref>–<xref>3</xref>", cites the floats of its kind between its ends in the group
+    too, Table 2 that no xref names. Floats first cited in one block keep the group's order. A
+    float nothing cites goes in a last body section titled "(untitled section)", so it is read
+    and visibly not placed by its author; a body is made for it when the file has none."""
+    from lxml import etree
+
+    groups = _article_groups(root)
+    floats = [f for g in groups for f in g if isinstance(f.tag, str) and etree_local(f.tag) in _FLOATS]
+    if not floats:
+        return False
+    owner: dict = {}  # an id → the float that is it or holds it
+    for f in floats:
+        for el in f.iter():
+            if isinstance(el.tag, str) and el.get("id"):
+                owner.setdefault(el.get("id"), f)
+    order = {f: i for i, f in enumerate(floats)}
+    body, back = next(root.iter("body"), None), next(root.iter("back"), None)
+    # keyed by the elements themselves, which the dicts keep alive: lxml hands back the same
+    # proxy for a node only while one exists, so a key by id() could name another node later
+    cited: dict = {}
+    for scope in (body, back):
+        if scope is None:
+            continue
+        for xref in scope.iter("xref"):
+            named = [owner[rid] for rid in (xref.get("rid") or "").split() if rid in owner]
+            nxt = xref.getnext()
+            if named and (xref.tail or "").strip() in _DASHES and nxt is not None and etree_local(nxt.tag) == "xref" and nxt.get("ref-type") == xref.get("ref-type"):
+                ends = [owner[rid] for rid in (nxt.get("rid") or "").split() if rid in owner]
+                if ends:
+                    named += [f for f in floats[order[named[-1]] + 1 : order[ends[0]]] if _family(f) == _family(named[-1])]
+            for f in named:
+                if f not in cited:
+                    block = _block_of(xref)
+                    if block is not None:
+                        cited[f] = block
+    last: dict = {}  # a block → the float last set after it
+    uncited = []
+    for f in floats:
+        block = cited.get(f)
+        if block is None:
+            uncited.append(f)
+            continue
+        f.tail = None
+        last.get(block, block).addnext(f)
+        last[block] = f
+    if uncited:
+        if body is None:
+            article = groups[0].getparent()
+            body = etree.Element("body")
+            article.insert(list(article).index(back if back is not None and back.getparent() is article else groups[0]), body)
+        sec = etree.SubElement(body, "sec")
+        etree.SubElement(sec, "title").text = _UNTITLED
+        for f in uncited:
+            f.tail = None
+            sec.append(f)
+    for g in groups:
+        if not any(isinstance(c.tag, str) for c in g):
+            g.getparent().remove(g)
+    return True
+
+
+_BARE_LABEL = re.compile(r"^\s*(S?\d+)\s*[.:]?\s*$")
+_LABEL_NUMBER = re.compile(r"(S?\d+)\s*[.:]?\s*$")
+_KIND_WORD = re.compile(r"(?i)(fig(?:ure)?s?\.?|tables?|schemes?|charts?)?")
+_CALL_TYPES = {"fig", "table", "scheme", "chart"}
+_NUMBER_FIRST = re.compile(r"\s*S?\d")
+
+
+def _holds_table(el) -> bool:
+    """Whether Docling finds a table in a `<table-wrap>`: a `<table>` of its own or in its `<alternatives>`."""
+    return el.find("table") is not None or el.find("alternatives/table") is not None
+
+
+def _kind_of(el) -> str:
+    """The word a float's number is printed after: "Table" for a table; for a figure, "Scheme"
+    or "Chart" when its fig-type or its id says it is one, else "Figure"."""
+    if etree_local(el.tag) == "table-wrap":
+        return "Table"
+    kind, ident = (el.get("fig-type") or "").lower(), (el.get("id") or "").lower()
+    if kind in ("scheme", "chart"):
+        return kind.capitalize()
+    if ident.startswith("sch"):
+        return "Scheme"
+    if ident.startswith(("cht", "chart")):
+        return "Chart"
+    return "Figure"
+
+
+def _numbered_after(xref) -> bool:
+    """Whether the file prints a call's number right after it: `<xref>Figure</xref> 1`, or
+    `<xref>Fig.</xref><xref>1</xref>`."""
+    tail = xref.tail or ""
+    if _NUMBER_FIRST.match(tail):
+        return True
+    nxt = xref.getnext()
+    return not tail.strip() and nxt is not None and etree_local(nxt.tag) == "xref" and _NUMBER_FIRST.match("".join(nxt.itertext())) is not None
+
+
+def name_floats(root) -> bool:
+    """Every figure and table outside `<front>` named as the page prints it, and every call to
+    one carrying its number:
+
+    (a) a `<label>` of inline markup becomes its text: Docling reads a table's label as `.text`,
+        so `<label><bold>Table 1.</bold></label>` made a caption "NoneCurrent Advances…";
+    (b) a label that is only a number, ACS's "1", is spelled out: "Table 1"; "Scheme 1" or
+        "Chart 1" for a figure whose fig-type or id says it is one; "Figure 1" otherwise;
+    (c) a call `<xref ref-type="fig|table|scheme|chart">` that holds no other xref and is empty
+        or only a kind word ("Figure ": ACS leaves the number to its stylesheet) takes the
+        number of the float its rid names, unless the file prints the number right after it.
+        A panel letter ("d", "h–i") is never touched;
+    (d) a `<table-wrap>` with no `<table>`, an image of one, becomes a `<fig>` with its id,
+        label, caption and graphic: Docling drops a table it finds no `<table>` in, caption and all;
+    (e) a `<fig>` with no `<caption>` is given an empty one: Docling joins the label to a caption
+        it did not find as "Figure 1None", and to an empty one as "Figure 1"."""
+    from lxml import etree
+
+    changed = False
+    numbers: dict[str, str] = {}
+    for el in list(root.iter("fig", "table-wrap")):
+        if _in_front(el):
+            continue
+        label = el.find("label")
+        if label is not None:
+            if len(label) and all(etree_local(c.tag) in _INLINE_TAGS or not isinstance(c.tag, str) for c in label):
+                text = " ".join("".join(label.itertext()).split())
+                for c in list(label):
+                    label.remove(c)
+                label.text = text
+                changed = True
+            bare = _BARE_LABEL.match("".join(label.itertext()))
+            if bare:
+                for c in list(label):
+                    label.remove(c)
+                label.text = f"{_kind_of(el)} {bare.group(1)}"
+                changed = True
+            number = _LABEL_NUMBER.search("".join(label.itertext()))
+            if number and el.get("id"):
+                numbers.setdefault(el.get("id"), number.group(1))
+        if etree_local(el.tag) == "table-wrap" and not _holds_table(el):
+            el.tag = "fig"
+            changed = True
+        if etree_local(el.tag) == "fig" and el.find("caption") is None:
+            if label is not None:
+                label.addnext(etree.Element("caption"))
+            else:
+                el.insert(0, etree.Element("caption"))
+            changed = True
+    for xref in list(root.iter("xref")):
+        if xref.get("ref-type") not in _CALL_TYPES or xref.find(".//xref") is not None:
+            continue
+        text = "".join(xref.itertext())
+        word = text.strip()
+        if not _KIND_WORD.fullmatch(word) or _numbered_after(xref):
+            continue
+        found = list(dict.fromkeys(numbers[r] for r in (xref.get("rid") or "").split() if r in numbers))
+        if not found:
+            continue
+        for c in list(xref):
+            xref.remove(c)
+        lead = text[: len(text) - len(text.lstrip())]
+        # the number where the stylesheet would print it: "Figure " becomes "Figure 1", and
+        # "Table " before a panel letter "Table 1A"
+        xref.text = f"{lead}{word} {', '.join(found)}" if word else ", ".join(found)
+        changed = True
+    return changed
+
+
+def floats_in(raw: bytes) -> dict[str, int] | None:
+    """The figures and tables a JATS file holds where Docling reads once its floats are placed:
+    every `<fig>` and `<table-wrap>` in the first `<body>`, the first `<back>` and the article's
+    own `<floats-group>`, so never one under `<front>` (a graphical abstract). A `<table-wrap>`
+    with no `<table>` counts as a figure, which is what `name_floats` makes it.
+    `{figures, tables}`, or None for bytes that are not XML."""
+    from lxml import etree
+
+    try:
+        root = etree.fromstring(raw, etree.XMLParser(resolve_entities=False, load_dtd=False, no_network=True, huge_tree=True))
+    except etree.XMLSyntaxError:
+        return None
+    scopes = [s for s in (next(root.iter("body"), None), next(root.iter("back"), None)) if s is not None] + _article_groups(root)
+    out = {"figures": 0, "tables": 0}
+    for scope in scopes:
+        for el in scope.iter("fig", "table-wrap"):
+            out["tables" if etree_local(el.tag) == "table-wrap" and _holds_table(el) else "figures"] += 1
+    return out
+
+
+def _counted(n: int, word: str) -> str:
+    return f"{n} {word}{'' if n == 1 else 's'}"
+
+
+def floats_note(tree, raw: bytes | None) -> dict | None:
+    """A reading's note when its tree holds fewer figures or fewer tables than the JATS file it
+    was read from (`floats_in`): `{kind: "xml-floats", node_id, page, message}` on the paper's
+    own node, for the audit and the paper's events. None when it holds them all, or for a PDF."""
+    held = floats_in(raw) if raw else None
+    if held is None:
+        return None
+    figures = sum(1 for n in tree.walk() if n.type in ("picture", "chart"))
+    tables = sum(1 for n in tree.walk() if n.type == "table")
+    if figures >= held["figures"] and tables >= held["tables"]:
+        return None
+    return {"kind": "xml-floats", "node_id": tree.root.node_id, "page": None,
+            "message": f"the XML holds {_counted(held['figures'], 'figure')} and {_counted(held['tables'], 'table')}; this reading has {figures} and {tables}"}
+
+
 def wrap_untitled_body(root) -> bool:
     """A body whose paragraphs stand before any `<sec>` (a letter, a case study, a short
     communication) files under the abstract, the last heading Docling saw. Those paragraphs
@@ -409,9 +671,18 @@ def drop_processing_meta(root) -> bool:
     return changed
 
 
+def _unfailing(step, root) -> bool:
+    """A step that never costs a paper: one that stops half-way leaves well-formed XML, which is
+    kept, and a float it could not set or name is read as the file has it, as before it."""
+    try:
+        return step(root)
+    except Exception:  # noqa: BLE001 — never a paper lost to a float
+        return True
+
+
 def prepare_jats(raw: bytes) -> bytes:
-    """The bytes Docling reads: formulas as text, numeric citations bracketed. Anything that
-    does not parse as XML is returned as it came."""
+    """The bytes Docling reads: formulas as text, numeric citations bracketed, floats where
+    their text cites them. Anything that does not parse as XML is returned as it came."""
     from lxml import etree
 
     try:
@@ -420,6 +691,8 @@ def prepare_jats(raw: bytes) -> bytes:
     except etree.XMLSyntaxError:
         return raw
     changed = drop_processing_instructions(root)
+    changed = _unfailing(place_floats, root) or changed  # while an image of a table is still a table-wrap, so a range of tables spans it
+    changed = _unfailing(name_floats, root) or changed  # before the titles are folded to text, so a call in a caption's title takes its number too
     changed = flatten_titles(root) or changed
     changed = add_tex_math(root) or changed
     changed = render_formulas(root) or changed

@@ -22,6 +22,12 @@ def vocabulary_on() -> bool:
     harness says what that costs. Never the default."""
     return os.environ.get("LITRAG_VOCABULARY", "on") != "off"
 
+
+#: the reader's own headings for a section the author did not title — a heading the layout dropped,
+#: a run structure.py could not name, the floats a JATS file never cites: they name no lane, and
+#: the embedder is never asked what they resemble
+UNTITLED_HEADINGS = ("(untitled section)", "(heading not detected)")
+
 ROLES: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"^(abstract|summary|lay summary|structured abstract|synopsis)$"), "abstract"),
     (re.compile(r"^(introduction|background|main|main text)$"), "introduction"),  # "Main", "Main text": Nature's and OUP's wrapper for the body, whose own paragraphs are the introduction
@@ -76,7 +82,7 @@ def role_of(heading: str, meaning: bool = True) -> str:
     off, the vocabulary alone answers — what decides a heading's depth, since "Statistical
     analysis" under "Methods" is methods by meaning but not a top-level section."""
     clean = normalise(heading)
-    if not clean:
+    if not clean or heading.endswith(UNTITLED_HEADINGS):
         return "other"
     strict = vocabulary_on()
     if strict:

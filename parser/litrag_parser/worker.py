@@ -43,6 +43,7 @@ from .recover import recover_from_pdf
 from .citations import summarize as summarize_citations
 from .store import (cited_by, cites_of, edges_of, file_paper, list_papers, log_event, node, node_count, open_store, paper_tree, refs_of, run_select, save_edges, save_refs, save_tree, section, set_confidence, set_record, set_status, set_type, sha256_of, siblings)
 from .tree import build_tree
+from .jats_prep import floats_note
 
 _out_lock = threading.Lock()
 
@@ -222,6 +223,16 @@ def lookup_by_title(title: str | None, timeout: float = 6.0) -> tuple[str | None
     return doi, pmid
 
 
+def docling_version() -> str:
+    """Docling's version from its package's metadata, which does not import it; "?" when it cannot be had."""
+    try:
+        from importlib.metadata import version
+
+        return version("docling")
+    except Exception:
+        return "?"
+
+
 def page_count(path: Path) -> int | None:
     if path.suffix.lower() != ".pdf":
         return None
@@ -264,7 +275,7 @@ class Worker:
         """What the reader noticed and did not act on, as rows in `events` beside the paper's —
         this reading's notes replacing the last reading's, so a rebuild twice is one set."""
         with conn:
-            conn.execute("DELETE FROM events WHERE paper = ? AND (stage LIKE 'lane-%' OR stage LIKE 'type-%' OR stage LIKE 'outline-%')", (key,))
+            conn.execute("DELETE FROM events WHERE paper = ? AND (stage LIKE 'lane-%' OR stage LIKE 'type-%' OR stage LIKE 'outline-%' OR stage LIKE 'xml-%')", (key,))
         for note in tree.notes:
             log_event(conn, key, now_iso(), str(note.get("kind", "note")), f"{note.get('node_id')}: {note.get('message')}")
 
@@ -309,12 +320,7 @@ class Worker:
         from docling.datamodel.pipeline_options import PdfPipelineOptions
         from docling.document_converter import DocumentConverter, PdfFormatOption
 
-        try:
-            from importlib.metadata import version
-
-            self.docling_version = version("docling")
-        except Exception:
-            self.docling_version = "?"
+        self.docling_version = docling_version()
         opts = PdfPipelineOptions(do_ocr=False, do_table_structure=True, generate_page_images=False)
         opts.table_structure_options.do_cell_matching = True
         artifacts = self.root / "models" / "docling"
@@ -571,6 +577,7 @@ class Worker:
         kind = decide_type(tree, jats_xml=xml, pub_types=row["pub_types"], oracle=lanes.active())
         set_type(conn, key, kind["type"], kind["source"], kind["detail"], kind.get("subtype"))
         tree.notes.extend(kind.get("notes", []))
+        tree.notes.extend(n for n in [floats_note(tree, xml)] if n)  # fewer figures or tables than the XML holds: said, not silent
         self._note_events(conn, key, tree)
         sure = assess_confidence(tree, kind)
         set_confidence(conn, key, sure["confidence"], sure["reasons"], sure["penalties"])
@@ -667,6 +674,8 @@ class Worker:
                 if outlined.get("error") or outlined.get("unreadable"):
                     stage("outline", f"The outline judge gave no usable answer ({outlined.get('error') or 'the answer was not an outline'}): the reader's own structure stands")
             seconds = round(time.time() - started, 1)
+            if self.docling_version is None:
+                self.docling_version = docling_version()  # the layout child read it, and this process never built a converter
             n = save_tree(conn, key, tree, parser=f"docling {self.docling_version} · litrag-parser {__version__}", parsed_at=now_iso(), seconds=seconds)
             xml = path.read_bytes() if path.suffix.lower() == ".xml" else None
             if xml:
@@ -684,6 +693,8 @@ class Worker:
             kind = decide_type(tree, jats_xml=xml, pub_types=stored["pub_types"] if stored else None, oracle=lanes.active())
             set_type(conn, key, kind["type"], kind["source"], kind["detail"], kind.get("subtype"))
             tree.notes.extend(kind.get("notes", []))
+            floats = floats_note(tree, xml)  # fewer figures or tables than the XML holds: said, not silent
+            tree.notes.extend([floats] if floats else [])
             self._note_events(conn, key, tree)
             sure = assess_confidence(tree, kind)
             set_confidence(conn, key, sure["confidence"], sure["reasons"], sure["penalties"])
@@ -700,7 +711,7 @@ class Worker:
                         self.read_figures(conn, key, path.parent / beside["figures_file"], stage, pages=True)
             links = summarize_citations(refs, cites)
             judged = judge.summary()
-            stage("saved", f"{n} nodes, {links['refs']} references, {links['citations']} citation links, {linked['linked']} of {linked['findings']} findings linked to a method, a {kind['type']} paper by its {kind['source']}, confidence {sure['confidence']}" + (f" ({sure['reasons'][0]})" if sure["reasons"] else "") + (f", outline by {outlined['model']}: {outlined.get('lanes', 0)} lanes, {outlined.get('built', 0)} headings built" if outlined.get("sections") is not None else "") + (f", {judged['joined']} of {judged['asked']} judged pairs joined" if judged["asked"] else "") + f" in {seconds}s", nodes=n, **links, judged=judged, edges=linked, type=kind)
+            stage("saved", f"{n} nodes, {links['refs']} references, {links['citations']} citation links, {linked['linked']} of {linked['findings']} findings linked to a method, a {kind['type']} paper by its {kind['source']}, confidence {sure['confidence']}" + (f" ({sure['reasons'][0]})" if sure["reasons"] else "") + (f", outline by {outlined['model']}: {outlined.get('lanes', 0)} lanes, {outlined.get('built', 0)} headings built" if outlined.get("sections") is not None else "") + (f", {judged['joined']} of {judged['asked']} judged pairs joined" if judged["asked"] else "") + f" in {seconds}s" + (f", {floats['message']}" if floats else ""), nodes=n, **links, judged=judged, edges=linked, type=kind)
             emit({"event": "tree", "id": req_id, "lib": lib.id, "paper": key, "title": tree.title, "type": kind, "confidence": {"confidence": sure["confidence"], "reasons": sure["reasons"]}, "roles": tree.roles, "has_methods": tree.has_methods, "nodes": n, "pages": len(tree.pages), "seconds": seconds, "raw": str(raw_path), "dropped": tree.dropped, "repairs": tree.repairs, "notes": len(tree.notes), "judged": judged, "meaning": self._meaning(), "edges": linked, **links})
         except Exception as e:
             set_status(conn, key, "failed", error=str(e))
