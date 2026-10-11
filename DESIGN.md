@@ -678,6 +678,18 @@ spatially were both refused by measurement — 0.7 per cent lies inside a pictur
 and the table test is worthless because 46 per cent of table boxes cover more than
 half their page. Named, counted, and not yet solved.
 
+**The XML's floats are conserved too** (2026-10-11). A JATS file may keep its
+figures and tables in a `<floats-group>` after `<back>`, and Docling reads only
+`<body>` and `<back>`: in a library of 152 XML papers, 25 of the 29 that do had
+lost every figure, and 79 tables with them, with nothing to say so. `jats_prep`
+now sets each float directly after the block of text that first cites it — not
+at the end, where it would file under the last section's lane — and a float
+nothing cites in a last section that is visibly untitled. ACS's bare labels and
+numberless calls are spelled out the same way, so "Figure ." reads "Figure 1."
+again. And a reading that still holds fewer figures or tables than its file
+says so (`xml-floats`, a note the audit shows): the rule of the page, applied
+to the file — leaving out may be right, leaving out silently is not.
+
 ## R4.4 A crash costs one paper
 
 *Built 2026-09-21.* The worker died part-way through runs of PDFs, and the cost
