@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+- **A figures PDF that could not be had no longer fails the XML fetch** (Karim, 2026-10-11:
+  "start with M1 and M3"). After an XML, a fetch asks the PMC Cloud Service and EBI's bulk area
+  for the same paper's PDF, for its figures; an answer broken off (`IncompleteRead`) or a zip that
+  would not open or unpack escaped that ask and marked the whole candidate failed, its XML saved
+  but not read. `acquire.figures_pdf` now never raises and says why there is no PDF ("PMC Cloud:
+  not in its open-access datasets; bulk area: HTTP 404"), whether that settles it, and whether PMC
+  could not be asked. A fetch's own routes pass such an answer to the next route, the open copy
+  included, instead of failing the candidate. The parser's tests point Europe PMC, NCBI and the
+  PMC Cloud Service at a port nothing answers on unless a test serves them.
+- **A scheme's caption never takes a figure's number** (same request). An XML paper's figures are
+  pinned to a PDF's plots by the number their captions give; "Scheme 1" and "Figure 1" both gave
+  "1", so the first of them took the other's plots (14 of the 15 papers with both kinds in a
+  226-paper scratch library). A caption's key now carries its kind ("1", "S1", "Scheme 1", "Chart 1"); a plot
+  under a caption the paper has no float for is counted, never pinned to the next caption; Collect's
+  count of an XML paper's figures counts figures only. `charts.figure_label` may read "Scheme 1".
+
 - **Title and reference reading faults fixed** (Karim, 2026-10-05: "fix the title and reference
   reading faults"). Measured on the 31 PDFs with a JATS twin and every saved reading of the
   scratch libraries (210), before and after, with the JATS as the truth. *Titles:* a JATS file's
