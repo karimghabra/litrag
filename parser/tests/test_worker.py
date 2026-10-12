@@ -93,3 +93,72 @@ def test_a_pdf_that_prints_no_identifier_is_read_by_its_name(tmp_path):
     assert sniff_ids(anonymous) == (None, None)  # nothing to read: the hash key is right
 
     assert sniff_ids(tmp_path / "PMC1.xml") == (None, None)  # JATS is read by jats_ids, not here
+
+
+def test_a_readings_floats_note_replaces_the_last_readings(tmp_path):
+    from types import SimpleNamespace
+
+    from litrag_parser.store import open_store
+    from litrag_parser.worker import Worker
+
+    conn = open_store(tmp_path / "store.sqlite")
+    note = {"kind": "xml-floats", "node_id": "k", "page": None, "message": "the XML holds 2 figures and 0 tables; this reading has 0 and 0"}
+    for _ in range(2):
+        Worker._note_events(conn, "k", SimpleNamespace(notes=[note]))
+    assert [r[0] for r in conn.execute("SELECT detail FROM events WHERE paper = 'k' AND stage = 'xml-floats'")] == ["k: the XML holds 2 figures and 0 tables; this reading has 0 and 0"]
+    Worker._note_events(conn, "k", SimpleNamespace(notes=[]))  # a reading that has every float: the last one's note goes
+    assert conn.execute("SELECT count(*) FROM events WHERE paper = 'k'").fetchone()[0] == 0
+
+
+def test_a_reading_with_fewer_floats_than_its_xml_says_so(tmp_path, monkeypatch):
+    """The layout stood in by the micromachines paper's saved Docling document, its XML given one
+    figure more than that document read: the 'saved' stage says so and one `xml-floats` row
+    holds it however often the paper is read or rebuilt, the audit's reading says it too, a
+    rebuild against the file it has all of clears it, and the parser string names Docling's
+    version though no converter was built here."""
+    from importlib.metadata import PackageNotFoundError, version
+
+    from litrag_parser.harness import read_paper
+    from litrag_parser.library import create_library, parsed_papers
+    from litrag_parser.store import file_paper, open_store
+    from litrag_parser.worker import Worker
+
+    monkeypatch.setenv("LITRAG_BOUNDARY", "off")
+    monkeypatch.delenv("LITRAG_JUDGE", raising=False)
+    lib = create_library(tmp_path, "Micromachines")
+    conn = open_store(lib.store_path)
+    key = file_paper(conn, title="x", file="paper.xml", sha256="aa", fmt="jats", doi="10.3390/mi15070851", pmid=None, pmcid=None, now="t").key
+    conn.commit()
+    xml = (FIXTURES / "PMC11278924.xml").read_bytes()
+    (lib.papers_dir / "paper.xml").write_bytes(xml.replace(b"</article>", b'<floats-group><fig id="f7"><label>Figure 7</label><caption><p>Cited nowhere.</p></caption></fig></floats-group></article>'))
+    doc = (FIXTURES / "PMC11278924.jats.docling.json").read_text("utf-8")
+
+    def layout(self, lib, key, path, raw_path, *rest):
+        raw_path.write_text(doc, "utf-8")
+        return json.loads(doc)
+
+    monkeypatch.setattr(Worker, "layout", layout)
+    worker = Worker(tmp_path)
+    for _ in range(2):
+        worker.parse_one(lib, key, lib.papers_dir / "paper.xml", "r")
+    note = "the XML holds 7 figures and 1 table; this reading has 6 and 1"
+    notes = lambda: [r[0] for r in conn.execute("SELECT detail FROM events WHERE paper = ? AND stage = 'xml-floats'", (key,))]  # noqa: E731
+    assert notes() == [f"{key}: {note}"]
+    saved = [r[0] for r in conn.execute("SELECT detail FROM events WHERE paper = ? AND stage = 'saved' ORDER BY id", (key,))]
+    assert len(saved) == 2 and saved[-1].endswith(f"s, {note}")
+    parser = conn.execute("SELECT parser FROM papers WHERE key = ?", (key,)).fetchone()[0]
+    try:
+        installed = version("docling")
+    except PackageNotFoundError:
+        installed = "?"
+    assert parser.startswith(f"docling {installed} · ")
+    probe = "import sys; from litrag_parser.worker import docling_version; docling_version(); print('docling' in sys.modules)"
+    assert subprocess.run([sys.executable, "-c", probe], capture_output=True, text=True, check=True).stdout.strip() == "False"  # read from its metadata, never imported for it
+    worker.do_rebuild({"id": "a", "op": "rebuild", "lib": lib.id})
+    assert notes() == [f"{key}: {note}"]  # a rebuild against the same file says it the same, once
+    assert conn.execute("SELECT count(*) FROM events WHERE paper = ? AND stage = 'rebuild-refused'", (key,)).fetchone()[0] == 0
+    tree, _, _ = read_paper(lib.dir, parsed_papers(lib.dir, [key])[0])
+    assert [n["message"] for n in tree.notes if n["kind"] == "xml-floats"] == [note]  # the library audit's reading
+    (lib.papers_dir / "paper.xml").write_bytes(xml)
+    worker.do_rebuild({"id": "b", "op": "rebuild", "lib": lib.id})
+    assert conn.execute("SELECT count(*) FROM events WHERE paper = ? AND stage = 'xml-floats'", (key,)).fetchone()[0] == 0

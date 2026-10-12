@@ -47,14 +47,13 @@ from typing import Any
 
 from .citations import link_citations
 from .citations import summarize as summarize_citations
-from .facets import normalise
+from .facets import UNTITLED_HEADINGS as _UNTITLED, normalise
 from .tree import Tree
 
 #: the lanes whose paragraphs are the paper's own prose: what `faithful` is measured over
 LANES = ("abstract", "introduction", "methods", "results", "results-discussion", "discussion", "other")
 K = 4  # words to a shingle
 _LETTERS = re.compile(r"[a-z]{2,}")
-_UNTITLED = ("(untitled section)", "(heading not detected)")
 _SOFT = {0xAD: None, 0xFFFE: None}  # a soft hyphen, and the mark pdfium leaves for a hyphen at a line's end
 
 

@@ -19,7 +19,7 @@ import re
 from dataclasses import dataclass, field, asdict
 from typing import Any, Iterable
 
-from .facets import normalise as normalise_heading, role_of, unspace
+from .facets import UNTITLED_HEADINGS as _UNTITLED, normalise as normalise_heading, role_of, unspace
 from .headings import agreed, canonical_of, top_level_lane
 from .glyphs import ligature_vocabulary, repair_glyphs
 from .structure import CANONICAL, build_headings, lane_sections
@@ -2628,8 +2628,16 @@ def build_tree(doc: dict[str, Any], key: str, title_hint: str | None = None, jud
             parent = stack[-1][1]
             last_heading = text
             prose_since_heading = False
-            role = role_of(text, meaning=False) if level == 1 else (role_of(text, meaning=False) if role_of(text, meaning=False) == "back" else current_role(parent))  # a statement nested inside the reference list is still a statement
-            if role == "other" and level == 1 and text:
+            untitled = text.endswith(_UNTITLED)
+            if untitled:
+                # the reader's words, not the author's: nothing is asked what they name. At the top
+                # they are `other` (and its paragraphs may still lane it, as `lane_sections` does
+                # any section whose heading names nothing); nested, the section is its parent's,
+                # as an empty heading's is
+                role = "other" if level == 1 else current_role(parent)
+            else:
+                role = role_of(text, meaning=False) if level == 1 else (role_of(text, meaning=False) if role_of(text, meaning=False) == "back" else current_role(parent))  # a statement nested inside the reference list is still a statement
+            if role == "other" and level == 1 and text and not untitled:
                 by_rule = top_level_lane(text)
                 role = by_rule or role_of(text)  # rules first: the vocabulary, then the catalogue ("Case presentation" is results, "Declaration of competing interest" is back), the embedder last
                 if by_rule is None and role in _NOT_NUMBERED and top_number(text) is not None:
@@ -2669,7 +2677,7 @@ def build_tree(doc: dict[str, Any], key: str, title_hint: str | None = None, jud
                 held_back = None
             if item.get("_built"):
                 node.label = "built"  # the reader's heading, not the author's: visible in the row
-            if text:
+            if text and not untitled:
                 name, how = canonical_of(text, _oracle())
                 node.canonical = agreed(name, role)  # a name whose lane is another's is no name: "Reference materials" under methods is not References
                 if how == "meaning" and node.canonical is not None:

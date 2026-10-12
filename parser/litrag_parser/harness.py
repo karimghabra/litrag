@@ -40,6 +40,7 @@ from .confidence import assess as assess_confidence
 from .edges import link_edges, summarize as summarize_edges
 from .facets import role_of
 from .glyphs import glyph_residue
+from .jats_prep import floats_note
 from .judge import Judge
 from .outline import enabled as outline_enabled, judge as judge_outline
 from .library import parsed_papers, safe_key
@@ -250,6 +251,7 @@ def read_paper(lib: Path, row: dict[str, Any]) -> tuple[Tree, dict[str, Any], by
     xml = source.read_bytes() if row["format"] == "jats" and source and source.exists() else None
     kind = decide_type(tree, jats_xml=xml, pub_types=row.get("pub_types"), oracle=lanes.active())
     tree.notes.extend(kind.get("notes", []))  # a label against another, or against the shape: the audit shows it
+    tree.notes.extend(n for n in [floats_note(tree, xml)] if n)  # fewer figures or tables than the XML holds, likewise
     return tree, kind, xml
 
 

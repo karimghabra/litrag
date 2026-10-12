@@ -95,7 +95,7 @@ def audit_tree(tree: Tree, paper_type: str | None = None) -> list[Finding]:  # n
         if not n.children:
             add("empty-section", "info", n, "a section with nothing in it")
         if n.heading is None or _UNTITLED.search(n.heading or ""):
-            add("untitled-section", "info", n, "a section whose heading was not detected")
+            add("untitled-section", "info", n, "a section whose heading was not detected, or the floats the XML holds and its text never cites")
             continue
         key = _norm(n.heading)
         if key and len(key) > 3:

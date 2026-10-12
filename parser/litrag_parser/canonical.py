@@ -64,7 +64,7 @@ from pathlib import Path
 from typing import Any
 
 from .confidence import EXPECTED
-from .facets import normalise, role_of
+from .facets import UNTITLED_HEADINGS as _UNTITLED, normalise, role_of
 from .headings import canonical_of, top_level_lane
 from .tree import _NOT_NUMBERED, top_number
 
@@ -79,7 +79,6 @@ TAIL_FURNITURE = ("references", "back")
 TYPICAL = 0.5
 #: prose, for words and paragraphs
 _PROSE = ("paragraph", "list_item")
-_UNTITLED = ("(untitled section)", "(heading not detected)")
 _OUTLINE_BUILT = "#section-outline-"  # outline.py: in the id of every section the outline judge built
 
 #: every mechanism `mechanism_of` can return, and what it means. `evidence` says where the word
@@ -98,7 +97,7 @@ MECHANISMS = {
     "disagreement": "the heading named a lane its paragraphs read as another; neither was asserted: `other`, the heading's lane kept as the guess",
     "numbered": "the heading resembles back matter but carries a body number, so it is a body section: `other`",
     "front": "the reader's own container for what comes before the first heading",
-    "untitled": "a heading the layout dropped, stood in for by a visibly untitled section",
+    "untitled": "a heading the layout dropped, or a float the XML holds and its text never cites",
     "none": "nothing named the heading: `other`",
     "unknown": "the row does not say what named it (the paragraphs' classifier, the outline's lane, or the embedder without a stored verdict), and it is not presumed",
 }
