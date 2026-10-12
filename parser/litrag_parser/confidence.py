@@ -35,13 +35,13 @@ from typing import Any, Callable
 
 from .citations import link_citations
 from .citations import summarize as summarize_citations
+from .facets import UNTITLED_HEADINGS as _UNTITLED
 from .pairs import LANES, Unit, units_of, words
 from .tree import Tree, split_fused_heading
 
 _BODY = ("introduction", "methods", "results", "results-discussion", "discussion", "other")
 _END = re.compile(r"[.!?:;)\]”\"'’]\s*$|\.\s*\^?\[?\d[\d,–\- ]*\]?\s*$")  # a full stop, or one followed by a citation mark
 _BULLET = re.compile(r"^\s*[•·▪■●○◦\-–—*»>]")
-_UNTITLED = ("(untitled section)", "(heading not detected)")
 K_DUP = 6
 
 #: the lanes a paper of a type should have; a missing one is a heading the reader did not find

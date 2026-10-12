@@ -654,6 +654,23 @@ Each one wants a fixture or a test before its fix, as the spot-check does.
   needs the line itself told from a sentence ("Figure 2 shows…": its own
   line, its font), and a `READER` bump so the papers already read are read
   again.
+- **A rebuild logs some of a reading's notes again** (found by the floats
+  fix's review, 2026-10-11) — `Worker._note_events` clears only the stages
+  `lane-%`, `type-%`, `outline-%` and `xml-%` before writing a reading's
+  notes, so any other kind the reader notes (`heading-refused`, from
+  tree.py) is appended once more on every rebuild: 6, 12, 18 rows for
+  doi:10.1088/1748-605X/abdf9e over two rebuilds of a scratch copy.
+  Invariant 4 says running a stage twice changes nothing. One list of the
+  note stages, kept where notes are made, and a test that a rebuild twice
+  is one set; history rows ('filed', 'figures', 'saved') stay.
+- **A table group's own label** (found by the floats fix, 2026-10-11) — a
+  `<table-wrap-group>` holding two tables (doi:10.1155/2012/309187's Table
+  2, the only labelled one in a 152-XML library) is read with its caption
+  as a paragraph and its tables captioned only "(a)" and "(b)": the text is
+  kept, but no caption reads "Table 2", so a call to it finds none. Either
+  the group's label goes to each table's caption ("Table 2(a)"), or the
+  group becomes one caption over both; the reading's float count is right
+  either way, so nothing flags it.
 - **Superscript citations with a space in the PDF text** (done, 2026-09-11
   night) — the text layer now marks a raised number ("applications.^17")
   and the linker reads that, the glued form and the spaced form
@@ -717,6 +734,11 @@ Each one wants a fixture or a test before its fix, as the spot-check does.
   paging or a `since`.
 - `reparse` reads every paper again with Docling; a `reparse --changed`
   that re-reads only papers parsed by an older Docling would be cheaper.
+  A hash of the bytes Docling was given (`papers.prepared`) would make it
+  exact for a `jats_prep.py` change too: the floats fix (2026-10-11) was
+  taken to 36 papers by a list made by hand. `papers.parser` names the
+  Docling version from that fix on; before it, every row read "docling
+  None".
 
 - `refresh` re-runs saved searches at limit 50 regardless of their
   original limit; a `--limit` per saved query would let a broad query stay

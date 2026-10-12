@@ -42,6 +42,7 @@ from typing import Any, Callable, Iterable
 from .citations import Citation, Ref, _expand_numeric, _NUMERIC, link_citations
 from .confidence import EXPECTED
 from .edges import figures
+from .facets import UNTITLED_HEADINGS as _UNTITLED
 from .pairs import LANES, Unit, units_of, words
 from .tree import Node, Tree, build_tree, split_fused_heading
 
@@ -51,7 +52,6 @@ K_DUP = 6
 MIN_PARAGRAPH = 20  # words; below this an unterminated line is a caption fragment, not a cut paragraph
 _TERMINAL = re.compile(r"[.!?:;)\]”\"'’]\s*$|\.\s*\^?\[?\d[\d,–\- ]*\]?\s*$")  # `confidence._END`
 _BULLET = re.compile(r"^\s*[•·▪■●○◦\-–—*»>]")
-_UNTITLED = ("(untitled section)", "(heading not detected)")
 _HEADING_NUMBER = re.compile(r"^\s*\(?(\d{1,2}(?:\.\d{1,2})*)\)?[.)]?\s+\S")
 _ENTRY_NUMBER = re.compile(r"^\s*\[?(\d{1,3})[\].)]\s+")
 _FIGURE_CALL = re.compile(r"\b(Fig(?:ure)?s?|Tables?|Schemes?)\.?\s*(\d{1,2})\b", re.I)

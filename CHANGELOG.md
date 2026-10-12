@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+- **An XML paper's figures and tables are read where its text cites them** (Karim, 2026-10-11:
+  "move onto M2"). A JATS file may keep its floats in a `<floats-group>` after `<back>`, which
+  Docling never reads: in a 152-XML scratch library, 25 of the 29 papers that do had lost every
+  figure, and 79 tables. `jats_prep` sets each float directly after the block that first cites it
+  (a range "Tables 1–3" citing Table 2 too); one nothing cites goes in a last section titled
+  "(untitled section)", lane `other`, never asked of the embedder. ACS's bare labels ("1") are
+  written "Figure 1", "Scheme 1", "Table 1", and its numberless calls take their number ("Figure ."
+  read "Figure 1." again: 107 calls in 4 papers); a label in markup becomes its text (captions that
+  read "None…"); a table that is only an image is read as a figure with its caption; a figure with
+  no caption no longer reads "Figure 1None". A reading with fewer figures or tables than its file
+  says so: an `xml-floats` event, shown by the audit. On that library: pictures 6 → 209, tables 16 →
+  95, captions 22 → 304 in the 29 papers, 0 text lost, 0 paragraphs moved. Existing libraries take
+  it by a reparse of the papers it changes (NOTES.md says how to list them). `papers.parser` names
+  the Docling version again ("docling None" before). One parser test reads a JATS string with
+  Docling's XML backend, which needs no model.
+
 - **A figures PDF that could not be had no longer fails the XML fetch** (Karim, 2026-10-11:
   "start with M1 and M3"). After an XML, a fetch asks the PMC Cloud Service and EBI's bulk area
   for the same paper's PDF, for its figures; an answer broken off (`IncompleteRead`) or a zip that

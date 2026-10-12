@@ -132,7 +132,9 @@ at four times chance and the rest are at or near it
 - **Reparse** (the window's **Reparse all**, the `reparse` op) runs every
   step again, Docling included. It needs Docling's models and takes
   minutes. Use it when what Docling is given has changed: `jats_prep.py`,
-  `mathml.py`, or Docling itself.
+  `mathml.py`, or Docling itself. After a change to `jats_prep.py`, list
+  the papers it changes (their raw XML prepared before and after) and
+  reparse those by `keys`: a whole reparse reads every PDF again too.
 - **Rebuild** (the `rebuild` op; the window has no button) runs steps 3 to
   8 again from `parsed/`, without Docling, in about a second a paper. Use
   it after any change to those steps. The judge is not asked; its stored

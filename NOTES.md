@@ -89,6 +89,28 @@ when it turns out durable. Mark inference as inference.
 
 ## Short-term memory
 
+- **2026-10-11: XML papers' floats, read where the text cites them (M2)** — Karim: "move onto M2",
+  after being told it waited on four choices; the plan's recommendations were taken, and are his to
+  overturn: a float nothing cites goes into a last section titled "(untitled section)", lane
+  `other`, never asked of the embedder; `jats_prep` writes ACS's bare labels as "Figure 1" and gives
+  numberless calls their number; existing libraries take the fix by a reparse of the papers it
+  changes, on his word; one parser test reads a JATS string with Docling's XML backend (no model,
+  no network, 3–5 s), and CLAUDE.md's sentence about the tests is his to write. What it fixed, on
+  the 226-paper scratch library (152 XML): the 29 papers that keep floats in `<floats-group>` went
+  from 6 pictures, 16 tables and 22 captions to 209, 95 and 304 (25 had lost every figure); 107
+  numberless calls in 4 ACS papers got their number; 4 table captions that read "None…" and 6 tables
+  that are only images got their captions. 32 readings had fewer floats than their XML, now 0; a
+  reading that still has fewer says so (`xml-floats` event, in the audit). Text lost: 0; paragraphs
+  moved out of their section or lane: 0; a reparse twice and a rebuild change nothing. A range
+  "Tables 1–3" cites Table 2 too, so no float of that library is uncited and no "(untitled section)"
+  was made. `figures_wanted` there grows from 117 papers / 842 figures to 146 / 1,085. Which papers
+  of a library need the reparse (one-off; it changes nothing): for each parsed JATS paper, parse its
+  raw XML (`papers/<file>`) with lxml and run `jats_prep.place_floats(root) | jats_prep.name_floats(root)`;
+  a True names a key for `reparse {lib, keys}`. 36 in that library, about 30 s with lanes on. Until
+  then a `rebuild` writes the `xml-floats` note on the papers that need it. `papers.parser` now names
+  the Docling version ("docling 2.126.0"); every row read "docling None" before. Not done: Karim's
+  own libraries (not reachable from here).
+
 - **2026-10-11: XML papers' figures, the first two fixes** — Karim asked how a paper whose XML we
   have but whose figures we cannot draw is reconciled. The answer: by a PDF of it kept beside the
   XML (`papers.figures_file`), its plots pinned to the XML's figures by caption number, and nothing
