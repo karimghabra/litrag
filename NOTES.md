@@ -89,6 +89,26 @@ when it turns out durable. Mark inference as inference.
 
 ## Short-term memory
 
+- **2026-10-11: XML papers' figures, the first two fixes** — Karim asked how a paper whose XML we
+  have but whose figures we cannot draw is reconciled. The answer: by a PDF of it kept beside the
+  XML (`papers.figures_file`), its plots pinned to the XML's figures by caption number, and nothing
+  recorded when no PDF comes. A plan of fourteen PRs followed (kept outside the repository; the
+  gaps are in BACKLOG.md as they are taken up); Karim: "start with M1 and M3". *M1:* a figures PDF
+  that could not be had (an answer broken off, a corrupt zip, a PDF that will not save) no longer
+  fails the XML fetch it follows; `acquire.figures_pdf` gives the reason, and whether PMC settled
+  the question or could not be asked, for a later PR to keep on the paper. Candidates the old
+  fault failed: `SELECT cand_id FROM candidates WHERE status='failed' AND (error LIKE
+  'IncompleteRead%' OR error LIKE 'BadZipFile%')`; staging and fetching them again recovers them.
+  *M3:* a scheme's or a chart's caption keys "Scheme 1" / "Chart 1", never a figure's "1". The
+  measure: for each parsed JATS paper, a number whose float in `figure_numbers` has a "Scheme…"
+  caption while another caption opens "Fig…" with that number. Both measured on the 226-paper
+  scratch library built from the archive for the tutorial's screenshots (152 XML papers), so
+  Karim's own libraries may differ: 0 candidates failed the old way; 14 of the 15 papers with both
+  kinds collided before, 0 after; `figures_wanted` unchanged at 117 papers and 842 figures (in all
+  15 the schemes' numbers lie within the figures'). Next: the floats a `<floats-group>` holds,
+  which Docling never reads (25 of those papers lost every figure, and tables too), and plots kept
+  through rebuild and reread.
+
 - **2026-10-05: title and reference faults fixed** — Karim: "fix the title and reference reading
   faults". Measured first, with a scorer kept in the scratchpad: every saved reading of the scratch
   libraries (210) derived again with the code, the 31 PDFs that have a JATS twin scored against it

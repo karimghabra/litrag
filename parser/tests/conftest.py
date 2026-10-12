@@ -1,5 +1,6 @@
 """What every test starts from: no oracle configured, no test writing verdicts into
-the user's real library root, and OpenAlex and open copies off. `fake_oracle` is an oracle over a toy embedder for the tests
+the user's real library root, OpenAlex and open copies off, and Europe PMC, NCBI and the PMC
+Cloud Service pointed at a port nothing answers on. `fake_oracle` is an oracle over a toy embedder for the tests
 that need one."""
 
 import re
@@ -16,6 +17,8 @@ def _no_oracle_leaks(monkeypatch):
     monkeypatch.setenv("LITRAG_LANES", "off")  # the subprocess worker in test_worker inherits this
     monkeypatch.setenv("LITRAG_OPENALEX", "off")  # no test reaches OpenAlex: those that ask it point it at a canned one
     monkeypatch.setenv("LITRAG_OPENALEX_URL", "http://127.0.0.1:9")
+    for env in ("LITRAG_EPMC_URL", "LITRAG_EPMC_PDF_URL", "LITRAG_NCBI_URL", "LITRAG_PMC_CLOUD_URL"):
+        monkeypatch.setenv(env, "http://127.0.0.1:9")  # nor Europe PMC, NCBI or the PMC Cloud Service: the `epmc` fixture points them at a canned one
     monkeypatch.setenv("LITRAG_OPEN_COPIES", "off")  # nor any open copy's host: those that fetch one turn it on, against a canned one
     yield
     lanes._active = None

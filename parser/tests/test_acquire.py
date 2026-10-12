@@ -4,8 +4,10 @@ Service's, then the bulk area's, then the open copy OpenAlex names), else needs-
 touches the network."""
 
 import hashlib
+import http.client
 import io
 import json
+import struct
 import threading
 import urllib.parse
 import zipfile
@@ -153,6 +155,36 @@ def _zip(pmcid: str) -> bytes:
     return buf.getvalue()
 
 
+def _flipped(zipped: bytes, inside: bytes = b"the paper itself") -> bytes:
+    """A zip with one byte of a stored member flipped: it opens, and that member fails its CRC."""
+    at = zipped.index(inside)
+    return zipped[:at] + bytes([zipped[at] ^ 0x20]) + zipped[at + 1:]
+
+
+def _uninflatable(pmcid: str) -> bytes:
+    """A zip of the paper's PDF, deflated, with the first byte of its stream flipped: it opens,
+    and the PDF will not inflate (zlib's error, not the zip's)."""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr(f"{pmcid}.pdf", b"%PDF-1.4 the paper itself", compress_type=zipfile.ZIP_DEFLATED)
+    zipped = buf.getvalue()
+    name, extra = struct.unpack("<HH", zipped[26:30])  # the local header's lengths; the stream follows them
+    at = 30 + name + extra
+    return zipped[:at] + bytes([zipped[at] ^ 0xFF]) + zipped[at + 1:]
+
+
+def _broken_off(monkeypatch, *parts: str) -> None:
+    """`_get` with the answer to any address holding one of `parts` broken off on the way."""
+    get = acquire._get
+
+    def broken_off(url, timeout, retries=3):
+        if any(p in url for p in parts):
+            raise http.client.IncompleteRead(b"x", 100)
+        return get(url, timeout, retries)
+
+    monkeypatch.setattr(acquire, "_get", broken_off)
+
+
 def test_with_an_xml_the_bulk_pdf_is_fetched_beside_it_for_its_figures(epmc, lib):
     xml = (FIXTURES / "PMC11278924.xml").read_bytes()
     epmc.routes["/rest/PMC100001/fullTextXML"] = (200, "application/xml", xml)
@@ -164,6 +196,7 @@ def test_with_an_xml_the_bulk_pdf_is_fetched_beside_it_for_its_figures(epmc, lib
     assert a["status"] == "fetched" and a["format"] == "jats" and Path(a["path"]).suffix == ".xml"
     assert Path(a["figures"]) == lib.inbox_dir / "doi_10.1_xml.pdf" and Path(a["figures"]).read_bytes() == b"%PDF-1.4 the paper itself"
     assert [e["status"] for e in events][-1] == "fetched" and all(e.get("format") != "pdf" for e in events)  # the candidate is its XML
+    assert acquire.figures_pdf("PMC100001", 5) == (b"%PDF-1.4 the paper itself", "europepmc", None, True, False)
     # no PDF in the bulk area: no figures, and the XML stands as it was
     epmc.routes.pop("/oa/PMCxxxx11/PMC100001.zip")
     (lib.inbox_dir / "doi_10.1_xml.pdf").unlink()
@@ -172,6 +205,13 @@ def test_with_an_xml_the_bulk_pdf_is_fetched_beside_it_for_its_figures(epmc, lib
     conn.commit()
     again = acquire.fetch_one(lib, conn, ids[0])
     assert again["status"] == "fetched" and again["format"] == "jats" and again["figures"] is None
+    # and why, kept: each route answered about the paper, so asking again would change nothing
+    assert acquire.figures_pdf("PMC100001", 5) == (None, None, "PMC Cloud: not in its open-access datasets; bulk area: HTTP 404", True, False)
+    # a 5xx is a service that could not be asked, not an answer; no PMCID asks nothing
+    epmc.routes["/oa/PMCxxxx11/PMC100001.zip"] = (500, "text/html", b"<html>internal error</html>")
+    assert acquire.figures_pdf("PMC100001", 5) == (None, None, "PMC Cloud: not in its open-access datasets; bulk area: HTTP 500", False, True)
+    asked = len(epmc.seen)
+    assert acquire.figures_pdf(None, 5) == (None, None, None, False, False) and len(epmc.seen) == asked
     conn.close()
 
 
@@ -208,7 +248,7 @@ def test_what_the_cloud_service_cannot_give_falls_through_to_the_bulk_area(epmc,
     conn.close()
 
 
-def test_with_an_xml_the_figures_pdf_comes_from_the_cloud_service_first(epmc, lib):
+def test_with_an_xml_the_figures_pdf_comes_from_the_cloud_service_first(epmc, lib, monkeypatch):
     epmc.routes["/rest/PMC100001/fullTextXML"] = (200, "application/xml", (FIXTURES / "PMC11278924.xml").read_bytes())
     epmc.cloud("PMC100001", pdf=b"%PDF-1.5 the paper, from the cloud")
     conn = open_store(lib.store_path)
@@ -216,6 +256,112 @@ def test_with_an_xml_the_figures_pdf_comes_from_the_cloud_service_first(epmc, li
     a = acquire.fetch_one(lib, conn, ids[0])
     assert a["format"] == "jats" and Path(a["figures"]).read_bytes() == b"%PDF-1.5 the paper, from the cloud"
     assert not any(p.startswith("/oa/") for p in epmc.seen)
+    assert acquire.figures_pdf("PMC100001", 5) == (b"%PDF-1.5 the paper, from the cloud", "pmc-cloud", None, True, False)
+    # figures off: the XML alone, and PMC is not asked for its PDF
+    monkeypatch.setenv("LITRAG_FIGURES", "off")
+    (lib.inbox_dir / "doi_10.1_xml.pdf").unlink()
+    conn.execute("UPDATE candidates SET status = 'found', file = NULL WHERE cand_id = ?", (ids[0],))
+    conn.commit()
+    epmc.seen.clear()
+    off = acquire.fetch_one(lib, conn, ids[0])
+    assert off["format"] == "jats" and off["figures"] is None and epmc.seen == ["/rest/PMC100001/fullTextXML"]
+    conn.close()
+
+
+def test_a_corrupt_zip_of_the_figures_pdf_leaves_the_xml_fetched(epmc, lib):
+    epmc.routes["/rest/PMC100001/fullTextXML"] = (200, "application/xml", (FIXTURES / "PMC11278924.xml").read_bytes())
+    epmc.routes["/oa/PMCxxxx11/PMC100001.zip"] = (200, "application/zip", _flipped(_zip("PMC100001")))
+    conn = open_store(lib.store_path)
+    ids = _cands(lib, conn)
+    a = acquire.fetch_one(lib, conn, ids[0])
+    assert a["status"] == "fetched" and a["format"] == "jats" and a["figures"] is None and a["error"] is None
+    row = {r["cand_id"]: r for r in acquire.candidates(conn)}[ids[0]]
+    assert row["status"] == "fetched" and row["file"] == "doi_10.1_xml.xml" and row["error"] is None
+    assert (lib.inbox_dir / "doi_10.1_xml.xml").exists() and not (lib.inbox_dir / "doi_10.1_xml.pdf").exists()
+    body, source, why, settled, unreachable = acquire.figures_pdf("PMC100001", 5)
+    assert body is None and source is None and why.startswith("PMC Cloud: not in its open-access datasets; bulk area: BadZipFile")
+    assert settled is False and unreachable is False  # an answer came, and settled nothing
+    # nor does a zip cut short, which will not open, or one whose PDF will not inflate
+    for broken, says in ((_zip("PMC100001")[:-30], "; bulk area: BadZipFile: File is not a zip file"),
+                         (_uninflatable("PMC100001"), "; bulk area: error: Error -3 while decompressing data")):
+        epmc.routes["/oa/PMCxxxx11/PMC100001.zip"] = (200, "application/zip", broken)
+        why, settled, unreachable = acquire.figures_pdf("PMC100001", 5)[2:]
+        assert says in why and settled is False and unreachable is False
+    conn.close()
+
+
+def test_a_cloud_answer_broken_off_leaves_the_xml_fetched(epmc, lib, monkeypatch):
+    epmc.routes["/rest/PMC100001/fullTextXML"] = (200, "application/xml", (FIXTURES / "PMC11278924.xml").read_bytes())
+    _broken_off(monkeypatch, "/cloud/?list-type=2")
+    conn = open_store(lib.store_path)
+    ids = _cands(lib, conn)
+    a = acquire.fetch_one(lib, conn, ids[0])
+    assert a["status"] == "fetched" and a["format"] == "jats" and a["figures"] is None
+    assert {r["cand_id"]: r for r in acquire.candidates(conn)}[ids[0]]["status"] == "fetched"
+    body, source, why, settled, unreachable = acquire.figures_pdf("PMC100001", 5)
+    assert body is None and why.startswith("PMC Cloud: IncompleteRead: ") and why.endswith("; bulk area: HTTP 404")
+    assert unreachable is True and settled is False  # the Cloud could not be asked: nothing is known of the paper
+    conn.close()
+
+
+def test_only_an_answer_about_the_paper_settles_the_ask_for_its_pdf(epmc):
+    # the Cloud's answers about the paper: it holds no PDF of it, an author manuscript's or any
+    epmc.cloud("PMC100001", manuscript=True)
+    epmc.json("/cloud/PMC100002.1/PMC100002.1.json", {"pmcid": "PMC100002", "version": 1, "is_manuscript": False})
+    assert acquire.figures_pdf("PMC100001", 5)[2:] == ("PMC Cloud: no PDF (an author manuscript); bulk area: HTTP 404", True, False)
+    assert acquire.figures_pdf("PMC100002", 5)[2:] == ("PMC Cloud: no PDF; bulk area: HTTP 404", True, False)
+    # its answers that came and settled nothing
+    epmc.cloud("PMC100003", md5="0" * 32)
+    epmc.cloud("PMC100005", pdf=b"<html>an error page</html>")
+    epmc.cloud("PMC100006")
+    epmc.routes["/cloud/PMC100006.1/PMC100006.1.json"] = (200, "application/json", b"{not json")
+    for pmcid, why in (("PMC100003", "the PDF failed its MD5"), ("PMC100005", "not a PDF in the answer"), ("PMC100006", "its record would not read")):
+        assert acquire.figures_pdf(pmcid, 5)[2:] == (f"PMC Cloud: {why}; bulk area: HTTP 404", False, False)
+    # the bulk area's answer about the paper: a zip with no PDF in it
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("readme.txt", b"no pdf here")
+    epmc.routes["/oa/PMCxxxx1/PMC7.zip"] = (200, "application/zip", buf.getvalue())
+    assert acquire.figures_pdf("PMC7", 5)[2:] == ("PMC Cloud: not in its open-access datasets; bulk area: no PDF in the answer", True, False)
+
+
+def test_an_xml_from_ncbi_has_its_figures_pdf_beside_it_too(epmc, lib, monkeypatch):
+    article = (FIXTURES / "PMC11278924.xml").read_bytes().split(b"?>", 1)[1]
+    epmc.routes["/ncbi/efetch.fcgi"] = (200, "text/xml", _articleset(article))  # and Europe PMC's fullTextXML answers 404
+    epmc.cloud("PMC100001", pdf=b"%PDF-1.5 the paper, from the cloud")
+    conn = open_store(lib.store_path)
+    ids = _cands(lib, conn)
+    a = acquire.fetch_one(lib, conn, ids[0])
+    assert a["source"] == "ncbi" and a["format"] == "jats" and Path(a["figures"]).read_bytes() == b"%PDF-1.5 the paper, from the cloud"
+    # figures off: the XML alone here too
+    monkeypatch.setenv("LITRAG_FIGURES", "off")
+    (lib.inbox_dir / "doi_10.1_xml.pdf").unlink()
+    conn.execute("UPDATE candidates SET status = 'found', file = NULL WHERE cand_id = ?", (ids[0],))
+    conn.commit()
+    epmc.seen.clear()
+    off = acquire.fetch_one(lib, conn, ids[0])
+    assert off["source"] == "ncbi" and off["figures"] is None and not any(p.startswith(("/cloud/", "/oa/")) for p in epmc.seen)
+    conn.close()
+
+
+def test_a_figures_pdf_that_will_not_save_leaves_the_xml_fetched(epmc, lib, monkeypatch):
+    epmc.routes["/rest/PMC100001/fullTextXML"] = (200, "application/xml", (FIXTURES / "PMC11278924.xml").read_bytes())
+    epmc.cloud("PMC100001", pdf=b"%PDF-1.5 the paper, from the cloud")
+    save = acquire._save
+
+    def full(dest, data):
+        if dest.suffix == ".pdf":
+            raise OSError(28, "No space left on device")
+        save(dest, data)
+
+    monkeypatch.setattr(acquire, "_save", full)
+    conn = open_store(lib.store_path)
+    ids = _cands(lib, conn)
+    a = acquire.fetch_one(lib, conn, ids[0])
+    assert a["status"] == "fetched" and a["source"] == "europepmc" and a["figures"] is None
+    row = {r["cand_id"]: r for r in acquire.candidates(conn)}[ids[0]]
+    assert row["status"] == "fetched" and row["file"] == "doi_10.1_xml.xml" and row["error"] is None
+    assert not any(p.startswith("/ncbi/") for p in epmc.seen)  # the XML is not asked for again elsewhere
     conn.close()
 
 
@@ -467,6 +613,9 @@ def test_unreachable_is_failed_not_needs_pdf(lib, monkeypatch):
     assert out["status"] == "failed" and out["error"]
     assert acquire.candidates(conn)[0]["status"] == "failed"
     assert acquire.stage(conn, ids)["changed"] == ids  # a failure can be staged and tried again
+    # and asking there for an XML paper's PDF says so: no route could be asked, nothing is settled
+    why, settled, unreachable = acquire.figures_pdf("PMC7", 2)[2:]
+    assert why.startswith("PMC Cloud: URLError: ") and "; bulk area: URLError: " in why and unreachable is True and settled is False
     conn.close()
 
 
@@ -635,6 +784,42 @@ def test_open_copies_off_and_pmc_s_own_pages_are_not_asked(epmc, lib, monkeypatc
     conn.execute("UPDATE candidates SET status = 'found', oa_url = 'https://www.ncbi.nlm.nih.gov/pmc/articles/3683711' WHERE cand_id = ?", (cid,))
     assert acquire.fetch(lib, conn, [cid])[0]["status"] == "needs-pdf"  # its services were asked by PMCID; its pages are a bot check
     assert not acquire._askable("https://europepmc.org/articles/PMC1/pdf") and not acquire._askable("ftp://x/y.pdf")
+    conn.close()
+
+
+def test_a_corrupt_zip_falls_through_to_the_open_copy(open_copies, lib):
+    open_copies.routes["/oa/PMCxxxx11/PMC100004.zip"] = (200, "application/zip", _flipped(_zip("PMC100004")))
+    conn = open_store(lib.store_path)
+    ids = acquire.record_search(lib, conn, "q", [{"pmcid": "PMC100004", "doi": "10.1/corrupt", "title": TITLE, "is_open_access": True,
+                                                  "oa_url": f"{open_copies.url}/repo/copy.pdf"}])["cand_ids"]
+    (one,) = acquire.fetch(lib, conn, ids)
+    assert one["status"] == "failed" and "open-access PDF: BadZipFile" in one["error"]  # a broken answer, worth asking again
+    assert "/repo/copy.pdf" in open_copies.seen  # and the open copy was asked after it
+    assert acquire.candidates(conn)[0]["status"] == "failed"
+    # once the open copy is there, the corrupt zip no longer stands in its way
+    open_copies.routes["/repo/copy.pdf"] = (200, "application/pdf", PAPER)
+    acquire.stage(conn, ids)
+    (two,) = acquire.fetch(lib, conn, ids)
+    assert two["status"] == "fetched" and two["source"] == "open-copy" and Path(two["path"]).read_bytes() == PAPER
+    conn.close()
+
+
+def test_a_broken_answer_on_every_route_falls_through_to_the_open_copy(open_copies, lib, monkeypatch):
+    # three answers broken off on the way, and a zip whose PDF will not inflate
+    _broken_off(monkeypatch, "/fullTextXML", "/ncbi/", "/cloud/?list-type=2")
+    open_copies.routes["/oa/PMCxxxx11/PMC100004.zip"] = (200, "application/zip", _uninflatable("PMC100004"))
+    conn = open_store(lib.store_path)
+    ids = acquire.record_search(lib, conn, "q", [{"pmcid": "PMC100004", "doi": "10.1/broken", "title": TITLE, "has_xml": True,
+                                                  "is_open_access": True, "oa_url": f"{open_copies.url}/repo/copy.pdf"}])["cand_ids"]
+    (one,) = acquire.fetch(lib, conn, ids)
+    assert one["status"] == "failed" and "/repo/copy.pdf" in open_copies.seen  # each passed for the next, to the open copy
+    for route in ("full text XML", "NCBI PMC XML", "PMC Cloud"):
+        assert f"{route}: IncompleteRead: " in one["error"]
+    assert "open-access PDF: error: Error -3 while decompressing data" in one["error"]
+    open_copies.routes["/repo/copy.pdf"] = (200, "application/pdf", PAPER)
+    acquire.stage(conn, ids)
+    (two,) = acquire.fetch(lib, conn, ids)
+    assert two["status"] == "fetched" and two["source"] == "open-copy"
     conn.close()
 
 
