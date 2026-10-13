@@ -4,7 +4,7 @@
  * directly; it asks here, and every worker event is forwarded to it.
  */
 
-import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, session, shell } from 'electron';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { runCollect, type CollectJob } from './collect.ts';
@@ -59,6 +59,8 @@ function createWindow(): void {
       offscreen: headless,
       // a hidden page's animation frames are paused by Chromium, and pdf.js paints on them
       backgroundThrottling: !headless,
+      // Chromium's spellchecker fetches its dictionary from Google's CDN: a call invariant 1 does not allow
+      spellcheck: false,
     },
   });
   win.loadFile(join(__dirname, 'index.html'));
@@ -100,6 +102,13 @@ ipcMain.handle('app:info', async () => {
 });
 
 app.whenReady().then(() => {
+  // Chromium's spellchecker fetches a dictionary from Google's CDN (gvt1.com) for every new profile:
+  // a call invariant 1 does not allow. Off in both sessions before any window, and its download
+  // pointed at a port nothing listens on.
+  for (const ses of [session.defaultSession, session.fromPartition('persist:litrag-collect')]) {
+    ses.setSpellCheckerDictionaryDownloadURL('http://127.0.0.1:9/');
+    ses.setSpellCheckerEnabled(false);
+  }
   worker = startWorker();
   createWindow();
   app.on('activate', () => {

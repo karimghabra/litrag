@@ -1024,8 +1024,10 @@ def _engine() -> Any:
     if _ENGINE is None:
         import logging
 
+        import onnxruntime
         from rapidocr import RapidOCR
 
+        onnxruntime.disable_telemetry_events()  # nothing about a read goes to Microsoft (see __init__.py)
         logging.getLogger("RapidOCR").setLevel(logging.WARNING)
         _ENGINE = RapidOCR(params={"Global.log_level": "warning"})
     return _ENGINE
