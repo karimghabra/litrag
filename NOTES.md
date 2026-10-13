@@ -89,6 +89,23 @@ when it turns out durable. Mark inference as inference.
 
 ## Short-term memory
 
+- **2026-10-13: plots follow their figure, or go (M4)** — Karim: "move onto M4"; the plan's choice
+  for a reread that changes format was taken (his to overturn): read from its PDF now, a PDF kept
+  beside its XML is no longer read; read from its XML now, its own PDF is kept beside it for its
+  figures. Before: two figures that traded node ids made `remap` raise (a UNIQUE constraint on
+  `chart_values`), so the rebuild refused the paper with its nodes already replaced, leaving plots
+  on the wrong figure or on ids that no longer exist; a reparse never remapped at all. Now every
+  replacement of a tree (rebuild, reparse, reread, `npm run judge`) moves each plot to its figure —
+  by caption number for an XML paper's, else to the one picture on its page whose box overlaps its
+  figure's by at least 0.8 (a node's id alone never keeps a plot: another reading can give it to
+  another picture) — or removes it with a `figures` events row, and drops the paper's
+  `figure_reads` so the figures op reads it again. Measured on a copy of the 226-paper scratch
+  library: a whole rebuild, twice, refused 0 papers and left all 727 chart rows (261 placements)
+  exactly where they were, about 4 min each; with two figures edited to trade places, the old code
+  refused both papers and the new one moved 25 plots to their figures and removed 8 whose figure was
+  gone, values untouched. Seen again: `heading-refused` notes grow by 63 rows on every whole-library
+  rebuild, old code and new (BACKLOG.md).
+
 - **2026-10-11: XML papers' floats, read where the text cites them (M2)** — Karim: "move onto M2",
   after being told it waited on four choices; the plan's recommendations were taken, and are his to
   overturn: a float nothing cites goes into a last section titled "(untitled section)", lane

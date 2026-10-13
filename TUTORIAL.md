@@ -1221,7 +1221,7 @@ A figure is a `picture` node from the layout, with a page, a box and its `captio
 | `chart_values` | bar or marker | `series`, `name`, `colour`, `category`, `x`, `y`, `err_lo`, `err_hi` |
 | `figure_reads` | paper | `reader`, `figures`, `plots`, `read`, `values_`, `seconds`, `file` |
 
-Reading again replaces a paper's chart rows. A `rebuild` keeps them, finding each figure by page and position.
+Reading again replaces a paper's chart rows. A `rebuild` or a reparse keeps them: each plot follows its figure, by its caption's number for an XML paper's or by its page and position for a PDF's. A plot whose figure that reading no longer has is removed, the paper's log says so, and the figures op reads the paper again.
 
 A paragraph naming "Fig. 10" or "Figures 2 and 3" gets a `cites_figure` edge to each figure or table whose caption opens with that label. It is pattern matching, rebuilt with the tree.
 

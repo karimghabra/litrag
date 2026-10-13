@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- **A paper's plots follow their figures when its nodes are replaced, or go with a note** (Karim,
+  2026-10-13: "move onto M4"). Two figures that traded node ids in a rebuild made the plots' move
+  collide (`chart_values`' UNIQUE constraint), and the rebuild refused the paper after its nodes
+  were already replaced; a reparse never moved the plots at all. `figures.remap` now maps every
+  plot before one row moves: pinned by a caption, to the figure with that number now; else to the
+  one picture on its page whose box overlaps its figure's (`SAME_PLACE`, 0.8), never by a node id
+  alone; else, or when two plots claim one figure, the plot is removed. It runs after every
+  replacement of a tree — rebuild, reparse, reread and the judge's command — and a removal writes a
+  `figures` events row and a log line and clears the paper's figure read, so the figures op reads
+  it again. A reread from the other format moves what draws the figures: read from its PDF now, the
+  PDF kept beside its XML is no longer read; read from its XML now, its own PDF is kept beside it.
+  On a 226-paper scratch library a whole rebuild leaves all 727 chart rows in place and refuses
+  none.
+
 - **An XML paper's figures and tables are read where its text cites them** (Karim, 2026-10-11:
   "move onto M2"). A JATS file may keep its floats in a `<floats-group>` after `<back>`, which
   Docling never reads: in a 152-XML scratch library, 25 of the 29 papers that do had lost every
