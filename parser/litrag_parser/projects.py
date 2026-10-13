@@ -122,12 +122,12 @@ def merge(root: Path, source_ids: list[str], target_name: str, into: str | None 
     skipped, candidates_merged, queries_merged}`.
 
     Each source's papers, in the order they were added, are filed in the target by
-    `store.file_paper` — so a DOI two sources hold files once, the first one read wins, and the
-    second counts as a duplicate. A paper new to the target brings its file, its raw Docling
-    document (and then its status is `parsed`, so `rebuild` will read it), its record, and its
-    `outlines` and `judgments` rows (so a rebuild replays the model's answers rather than asking
-    again). Candidates merge without duplicates, keeping their status; the manifests' `queries`
-    are united. The sources are opened read-only.
+    `store.file_paper` — so a DOI two sources hold, in whatever case each writes it, files once,
+    the first one read wins, and the second counts as a duplicate. A paper new to the target
+    brings its file, its raw Docling document (and then its status is `parsed`, so `rebuild` will
+    read it), its record, and its `outlines` and `judgments` rows (so a rebuild replays the model's
+    answers rather than asking again). Candidates merge without duplicates, keeping their status;
+    the manifests' `queries` are united. The sources are opened read-only.
 
     `keys_to_rebuild` is every paper of this merge the target holds as parsed with its raw
     document and no rows yet: the worker runs `rebuild` on them. `keys_to_parse` has a file and
@@ -239,12 +239,8 @@ def _merge_paper(src: Library, sconn: sqlite3.Connection, s_tables: set[str], ta
     sha = row.get("sha256") or (sha256_of(file) if file else None)
     if not sha:
         return {"kind": "skipped", "reason": "no file and no hash to file it by"}
-    doi = row.get("doi")
-    if doi:
-        # the store matches a DOI as written; the same DOI printed in another case is the same paper
-        same = tconn.execute("SELECT doi FROM papers WHERE lower(doi) = lower(?)", (doi,)).fetchone()
-        doi = same["doi"] if same else doi
-    result = file_paper(tconn, title=row.get("title") or key, file="", sha256=sha, fmt=row.get("format") or "", doi=doi,
+    # a DOI in whatever case the source wrote it: file_paper meets it in any
+    result = file_paper(tconn, title=row.get("title") or key, file="", sha256=sha, fmt=row.get("format") or "", doi=row.get("doi"),
                         pmid=row.get("pmid"), pmcid=row.get("pmcid"), now=row.get("added_at") or now)
     tkey = result.key
     have = tconn.execute("SELECT file, status FROM papers WHERE key = ?", (tkey,)).fetchone()

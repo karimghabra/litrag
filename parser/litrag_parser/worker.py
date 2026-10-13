@@ -233,6 +233,10 @@ def docling_version() -> str:
         return "?"
 
 
+#: How a filing says which identifier met a paper already held (store.Filed.by).
+_SEEN_BY = {"doi": "DOI", "pmid": "PMID", "sha": "file hash"}
+
+
 def page_count(path: Path) -> int | None:
     if path.suffix.lower() != ".pdf":
         return None
@@ -431,7 +435,9 @@ class Worker:
     def do_ingest(self, req: dict[str, Any]) -> dict[str, str]:
         """File and read the given files; returns `{path: key}` for every file filed. `known`
         (path → {doi, pmid, pmcid}) is what the caller already knows of a file — a fetch knows the
-        candidate it came for — and fills whatever the file does not say of itself."""
+        candidate it came for — and fills whatever the file does not say of itself. A file's
+        `paper` event says whether its paper was held already (`existed`) and, if so, which
+        identifier met it (`by`: 'doi', 'pmid' or 'sha', its file's hash)."""
         lib = self._lib(req)
         req_id = req.get("id")
         conn = open_store(lib.store_path)
@@ -472,8 +478,8 @@ class Worker:
                         src.unlink()
                 conn.execute("UPDATE papers SET figures_file = ? WHERE key = ?", (dest.name, result.key))
                 conn.commit()
-                log_event(conn, result.key, now_iso(), "filed", f"a PDF of the XML, kept for its figures: {src.name}")
-                emit({"event": "paper", "id": req_id, "lib": lib.id, "paper": result.key, "existed": True, "kept": True, "figures_file": dest.name, "doi": doi, "pmcid": pmcid,
+                log_event(conn, result.key, now_iso(), "filed", f"a PDF of the XML (by {_SEEN_BY[result.by]}), kept for its figures: {src.name}")
+                emit({"event": "paper", "id": req_id, "lib": lib.id, "paper": result.key, "existed": True, "by": result.by, "kept": True, "figures_file": dest.name, "doi": doi, "pmcid": pmcid,
                       "file": row["file"], "status": row["status"]})
                 figure_sources.append(result.key)
                 continue
@@ -506,8 +512,11 @@ class Worker:
                 record = lookup_record(doi, pmid, pmcid=pmcid)  # Europe PMC's word: who wrote it, where, when, and what kind of paper it is — kept with the paper
                 if record:
                     set_record(conn, result.key, **record)
-            log_event(conn, result.key, now_iso(), "filed", f"{'seen before, kept' if already else 'seen before' if result.existed else 'new'}: {src.name}")
-            emit({"event": "paper", "id": req_id, "lib": lib.id, "paper": result.key, "existed": result.existed, "kept": already, "doi": doi, "pmcid": pmcid, "file": dest.name, "status": "parsed" if already else "queued", "pages": page_count(dest)})
+            seen = f"seen before (by {_SEEN_BY[result.by]})" if result.existed else "new"
+            log_event(conn, result.key, now_iso(), "filed", f"{seen}{', kept' if already else ''}: {src.name}")
+            emit({"event": "paper", "id": req_id, "lib": lib.id, "paper": result.key, "existed": result.existed, "by": result.by, "kept": already, "doi": doi, "pmcid": pmcid, "file": dest.name, "status": "parsed" if already else "queued", "pages": page_count(dest)})
+            if not result.existed and fmt == "pdf" and not doi and not (pmid or known.get("pmid")):
+                self._twin(conn, lib, result.key, dest, pmcid or known.get("pmcid"), req_id)
             if not already:
                 filed.append((result.key, dest))
         conn.close()
@@ -525,6 +534,27 @@ class Worker:
             conn.close()
         emit({"event": "done", "id": req_id, "op": "ingest", "lib": lib.id, "parsed": [k for k, _ in filed]})
         return keys
+
+    @staticmethod
+    def _twin(conn: Any, lib: Library, key: str, dest: Path, pmcid: str | None, req_id: Any) -> None:
+        """A PDF filed as a new paper, for want of a DOI or a PMID, whose first pages print the
+        whole title of a paper held and read from XML: said, as an events row `twin` and a log
+        line, so a person can tell the two are one paper. Only said: nothing is moved or merged on
+        a title. Not said when those pages print the whole title of any other paper held too
+        (acquire.titles_printed, names_the_paper's rule for a title), nor when the PDF names
+        another PMCID than that paper's."""
+        from .acquire import first_pages, titles_printed
+
+        held = [dict(r) for r in conn.execute("SELECT key, title, format, pmcid FROM papers WHERE status = 'parsed' AND key != ?", (key,))]
+        printed = titles_printed(first_pages(dest), held)
+        if len(printed) != 1 or printed[0]["format"] != "jats":
+            return
+        twin = printed[0]
+        if pmcid and twin["pmcid"] and pmcid.upper() != str(twin["pmcid"]).upper():
+            return
+        message = f"its first pages print the whole title of {twin['key']}, read from XML; filed apart, since no DOI or PMID was found for it"
+        log_event(conn, key, now_iso(), "twin", message)
+        emit({"event": "log", "id": req_id, "lib": lib.id, "paper": key, "logger": "twin", "message": message})
 
     @staticmethod
     def _format_changed(conn: Any, lib: Library, key: str, row: Any, fmt: str, dest: Path) -> None:
