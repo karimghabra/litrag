@@ -638,7 +638,14 @@ answer when it has none is kept); a PDF dropped into a project whose
 paper is already its XML is kept for the figures instead of being set aside,
 when its first pages print the paper's DOI or whole title;
 and **Collect PDFs** lists the XML papers whose figures want one, after the
-papers with no copy at all.
+papers with no copy at all. Papers filed before are asked of PMC with **Ask
+PMC** (`figures_fetch`). What each figure came to is a row
+(`figure_outcomes`) and the window says it, on the paper's card ("plots in
+10 of 16 figures", "6 figures · no PDF"), in the tree and under the figure:
+plots pinned to it, a caption found with no chart under it, a caption the
+PDF does not print, no number to match by, no PDF. Nothing is pinned by
+order or position: a plot under no caption of the paper's is counted, not
+kept.
 
 **Where an open PDF comes from.** The PMC Cloud Service
 (`pmc-oa-opendata.s3.amazonaws.com`) is the National Library of Medicine's

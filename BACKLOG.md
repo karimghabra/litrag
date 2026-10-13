@@ -635,18 +635,26 @@ Each one wants a fixture or a test before its fix, as the spot-check does.
   directory. A third PNAS PDF parses, but Docling reads its first page as
   a jumble (columns interleaved) and no title can be found.
 - **Equations that are only images** — a JATS `<disp-formula>` with a
-  `<graphic>` and no maths. Europe PMC serves the image by name (see
-  "Figures for XML papers"); fetching it opt-in would let the reading view
-  show the equation where its placeholder stands, and a formula OCR could
-  read it into text.
+  `<graphic>` and no maths. The PMC Cloud Service lists each article's
+  media files beside its PDF (see "Figures for XML papers"); fetching the
+  equation's image, opt-in, would let the reading view show it where its
+  placeholder stands, and a formula OCR could read it into text.
 
-- **Figures for XML papers** (Karim, 2026-09-11) — a JATS names each figure's
-  file (`<graphic xlink:href="micromachines-15-00851-g001"/>`) but carries
-  no pixels; Europe PMC serves the file at
-  `https://europepmc.org/articles/<PMCID>/bin/<name>.jpg`. Fetching them,
-  opt-in, into the library's `figures/` beside the paper — a Europe PMC
-  call, which the invariants allow — would let the reading view show the
-  image where its placeholder stands.
+- **Figures for XML papers** (Karim, 2026-09-11; the charts part done
+  2026-10-13, `DESIGN.md` R4.5) — a JATS names each figure's file
+  (`<graphic xlink:href="micromachines-15-00851-g001"/>`) but carries no
+  pixels. The charts are now read from a PDF kept beside the XML; the
+  images themselves are still not kept, so the reading view shows a
+  placeholder where each figure stands. The route is the PMC Cloud
+  Service's record (`media_urls`, each checked by its MD5, about 100 MB for
+  117 papers), not Europe PMC's `/bin/` (behind a bot check from a
+  datacenter) or EBI's zips (which hold only the PDF). It needs invariant
+  1's Cloud line to name the images ("…an open-access paper's PDF and its
+  figure images by PMCID"), Karim's to write, and would be opt-in
+  (`figures_fetch` with `images`), into one per-figure table with
+  `figure_outcomes`. Charts from the images: not planned (slower, two
+  misread labels on PMC11278924's Figure 5, and every record with images
+  also has a PDF).
 - **Captions with no stop after the number** (found planning the XML
   figures work, 2026-10-11) — a PDF kept beside an XML paper is read only
   on the pages that print one of its captions, and `figures.captions` takes

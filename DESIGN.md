@@ -715,6 +715,64 @@ And "already read" is now a fact about the tree — nodes exist *and* the raw
 document exists — rather than about the `papers` row that says one was meant. That
 row was the whole of the silence.
 
+## R4.5 An XML paper's figures
+
+*Built 2026-10-13* (the XML-figures plan, M1–M11: Karim's word on asking PMC at
+filing, the plan's recommendations on the rest, his to overturn). A JATS file names
+its figures and holds none of them, so the charts the reader puts into numbers have
+to come from somewhere else. Until this, an XML paper's figures came only with a
+fetch that happened to bring its PDF; 151 of 152 XML papers in a scratch library had
+been dropped rather than fetched, none had a PDF, and nothing said why their figures
+were blank.
+
+**The XML stays the paper; a PDF is kept beside it only for its figures**
+(`papers.figures_file`). The text, the structure and the lanes come from the XML.
+The PDF is read only on the pages that print one of the paper's captions, and each
+plot is pinned to the float whose caption it sits under, by the caption's number:
+"Figure 2." to the XML's figure 2, "Scheme 1" to its scheme 1, so a scheme never
+takes a figure's number. Never by order and never by position: a plot under a
+caption the paper has no float for is counted and not kept, and a figure whose
+caption the PDF does not print stays without numbers. A guessed pairing would be a
+misassigned figure, which invariant 5 ranks below an unassigned one.
+
+**One gate** (`figures.keep_beside`). Every PDF that arrives for an XML paper —
+fetched, dropped on the window or on one of its figures, caught by Collect, carried
+by a merge, given by PMC — is kept only when its first three pages print the
+paper's DOI or whole title. A second PDF replaces the first only when it prints the
+captions of more of the figures, and the first is set aside, never deleted. A
+refusal is said, with why, and the file stays where it was. Two exceptions are
+stated where they happen: a reread from the XML of a paper read from its PDF keeps
+that PDF beside it, and a merge brings a new paper's kept PDF as it was.
+
+**PMC is asked by PMCID, once, and its settled answer kept.** An XML paper filed
+with a PMCID asks the PMC Cloud Service, then EBI's bulk area: the identifier out,
+the PDF in, from hosts invariant 1 already names. A settled no is kept on the paper
+(`papers.figures_note`), so no later filing asks again; an ask that cannot reach PMC
+keeps nothing and stops the rest of its batch. The papers filed before are asked on
+a person's word (`figures_fetch`, the window's **Ask PMC** buttons).
+
+**What each figure came to is a row, or is told from the rows.** A read keeps one
+`figure_outcomes` row per figure it looked for — plots, no plot, no caption in the
+PDF, skipped — and the pages it looked at. A figure no read has a row for is told
+from the rows when asked (no PDF, no number, a number taken, too small, not read),
+with SQL alone, so the window's answers never open a PDF on the thread that answers
+them. A read stands only while it looked for the figures there are now. The window
+says each answer in words kept in one file (`figstate.ts`), and offers an action
+only where one can change the answer: **Read the figures** before a read, **Ask
+PMC** for a paper with no PDF. A deterministic reader asked again gives the same
+answer, so a read figure offers nothing.
+
+**A rebuild moves them; a reread replaces them.** A rebuild or a reparse that
+renumbers the nodes moves each plot, and what its figure came to, to the figure with
+the same caption number (a PDF's picture by its page and box), or removes it with a
+note; a reread replaces the paper's rows.
+
+Not done, and why: the figure images the PMC Cloud Service lists beside each PDF
+(they need invariant 1's Cloud line to name them, Karim's to write); charts read
+from images (slower, and every record with images has a PDF); captions with no stop
+after the number, Springer's "Fig. 1 Title", which leave such a PDF's figures at "not
+in PDF" until the reader learns them (`BACKLOG.md`).
+
 ---
 
 # Revision 1 — the retrieval loop (2026-09-03)
