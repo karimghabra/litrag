@@ -163,18 +163,25 @@ def test_the_worker_reads_a_library_s_figures_and_answers_for_one(tmp_path, caps
 # -- an XML paper's figures, from a PDF of it ------------------------------------------------------------------
 
 
-def _xml_paper(conn, figures_n=3, doi="10.3390/mi15070851", caps=None):
-    """A paper read from XML: its figures numbered by their captions (`caps`, one a picture), no
-    page, no box."""
+def _xml_nodes(conn, key, title="read from XML", caps=None, figures_n=3):
+    """A paper as a reading of its XML leaves it: its figures numbered by their captions (`caps`,
+    one a picture), no page, no box, and its title."""
     caps = caps or [f"Figure {i} What figure {i} shows." for i in range(1, figures_n + 1)]
-    key = file_paper(conn, title="read from XML", file="paper.xml", sha256=f"x:{doi}", fmt="jats", doi=doi, pmid=None, pmcid=None, now="t").key
     rows = [(f"{key}#section-1", key, None, 0, 1, "section", "section_header", "results", "3 Results", "[]", "")]
     for i, cap in enumerate(caps, 1):
         rows.append((f"{key}#section-1#picture-{i}", key, f"{key}#section-1", i, 2, "picture", "picture", "results", None, '["3 Results"]', ""))
         rows.append((f"{key}#section-1#picture-{i}#caption-1", key, f"{key}#section-1#picture-{i}", 0, 3, "caption", "caption", "results", None, '["3 Results"]', cap))
     conn.executemany("INSERT INTO nodes(node_id, paper, parent, ordinal, depth, type, label, role, heading, ancestry, text) VALUES (?,?,?,?,?,?,?,?,?,?,?)", rows)
-    conn.execute("UPDATE papers SET status = 'parsed', file = 'paper.xml' WHERE key = ?", (key,))
+    conn.execute("UPDATE papers SET status = 'parsed', title = ? WHERE key = ?", (title, key))
     conn.commit()
+
+
+def _xml_paper(conn, figures_n=3, doi="10.3390/mi15070851", caps=None, title="read from XML", pmcid=None):
+    """A paper read from XML, `paper.xml`: its figures numbered by their captions (`caps`, one a
+    picture), no page, no box."""
+    key = file_paper(conn, title=title, file="paper.xml", sha256=f"x:{doi}", fmt="jats", doi=doi, pmid=None, pmcid=pmcid, now="t").key
+    conn.execute("UPDATE papers SET file = 'paper.xml' WHERE key = ?", (key,))
+    _xml_nodes(conn, key, title, caps, figures_n)
     return key
 
 
@@ -415,7 +422,7 @@ def test_a_figure_claimed_twice_or_holding_plots_of_its_own_takes_none(tmp_path)
     assert [tuple(r) for r in conn.execute("SELECT figure, plot FROM chart_values")] == [(p3, 0)]
 
 
-def test_a_pdf_arriving_for_an_xml_paper_is_kept_for_its_figures_and_read(tmp_path, capsys):
+def test_a_pdf_arriving_for_an_xml_paper_is_kept_for_its_figures_and_read(tmp_path, capsys, _never_asked):
     from litrag_parser.worker import Worker
 
     from test_worker import by, talk
@@ -423,7 +430,7 @@ def test_a_pdf_arriving_for_an_xml_paper_is_kept_for_its_figures_and_read(tmp_pa
     assert by(talk(tmp_path, [{"id": "1", "op": "init", "name": "Threads"}]), "1")[0]["event"] == "library"
     lib = tmp_path / "threads"
     conn = open_store(lib / "store.sqlite")
-    key = _xml_paper(conn)
+    key = _xml_paper(conn, title=PRINTED)  # a line page_paper.pdf prints, which prints no DOI: its first pages name the paper by its title
     (lib / "papers" / "paper.xml").write_text("<article/>")
     assert [w["key"] for w in figures.figures_wanted(conn)] == [key]
     conn.close()
@@ -433,15 +440,19 @@ def test_a_pdf_arriving_for_an_xml_paper_is_kept_for_its_figures_and_read(tmp_pa
                                 "known": {str(dropped): {"doi": "10.3390/mi15070851"}}})
     events = [json.loads(line) for line in capsys.readouterr().out.splitlines() if line.strip()]
     paper = next(e for e in events if e["event"] == "paper")
-    assert paper["kept"] and paper["figures_file"].endswith(".figures.pdf") and paper["by"] == "doi"
+    assert paper["kept"] and paper["figures_file"] == "doi_10.3390_mi15070851.figures.pdf" and paper["by"] == "doi"
+    assert (paper["aside"], paper["same"], paper["file"], paper["status"]) == (None, False, "paper.xml", "parsed")
+    assert (paper["paper"], paper["existed"], paper["doi"], paper["pmcid"]) == (key, True, "10.3390/mi15070851", None)  # the paper's row, not the PDF's
     conn = open_store(lib / "store.sqlite")
     row = conn.execute("SELECT file, format, figures_file FROM papers WHERE key = ?", (key,)).fetchone()
     assert (row["file"], row["format"]) == ("paper.xml", "jats")  # the paper is its XML still
-    assert conn.execute("SELECT detail FROM events WHERE paper = ? AND stage = 'filed'", (key,)).fetchone()[0] == "a PDF of the XML (by DOI), kept for its figures: from-the-publisher.pdf"
+    assert conn.execute("SELECT detail FROM events WHERE paper = ? AND stage = 'filed'", (key,)).fetchone()[0] == \
+        "a PDF of the XML, kept for its figures: from-the-publisher.pdf (its pages print the captions of 2 of its 3 figures)"
     assert (lib / "papers" / row["figures_file"]).exists() and not dropped.exists()
     assert conn.execute("SELECT COUNT(*) FROM charts WHERE paper = ? AND status = 'read'", (key,)).fetchone()[0] == 3
-    assert figures.figures_wanted(conn) == [] and figures.is_read(conn, key)
+    assert figures.figures_wanted(conn, lib / "papers") == [] and figures.is_read(conn, key)
     assert any(e["event"] == "log" and "charts read from the PDF beside the XML" in e["message"] for e in events)
+    assert (events[-1]["event"], events[-1]["figures"]) == ("done", [key])  # the window draws the figure shown again
     conn.close()
 
 
@@ -553,6 +564,460 @@ def test_a_pdf_with_a_doi_or_a_pmid_of_its_own_is_no_twin(tmp_path, monkeypatch,
     again = _drop(lib, capsys, "c.pdf", known={"pmid": "999"})
     assert (again[0]["paper"], again[0]["existed"], again[0]["by"], again[1:]) == ("pmid:999", True, "pmid", ([], []))
     assert _filed(lib, "pmid:999") == ["new: b.pdf", "seen before (by PMID): c.pdf"]
+
+
+# -- a PDF kept beside an XML paper only when it names the paper ------------------------------------------------
+
+
+THREADS = "doi:10.3390/mi15070851"
+KEPT = "doi_10.3390_mi15070851.figures.pdf"
+
+
+@pytest.fixture
+def _never_asked(monkeypatch):
+    """Offline, and the title lookup could not answer if it were asked."""
+    from litrag_parser import worker
+
+    def ask(*a, **kw):
+        raise AssertionError("Europe PMC asked for a title")
+
+    monkeypatch.setattr(worker, "lookup_by_title", ask)
+
+
+def _threads(tmp_path, title=PRINTED, **kw):
+    """A new library holding one paper read from XML, its XML on disk: the library."""
+    from litrag_parser.library import create_library
+
+    lib = create_library(tmp_path, f"Threads {len(list(tmp_path.iterdir()))}")
+    conn = open_store(lib.store_path)
+    assert _xml_paper(conn, title=title, **kw) == THREADS
+    conn.close()
+    (lib.papers_dir / "paper.xml").write_text("<article/>")
+    return lib
+
+
+def _attach(lib, capsys, pdf=CHARTS / "page_paper.pdf", name="from-the-publisher.pdf", known=None):
+    """`pdf` dropped into the library's inbox as `name` and filed offline, for the paper by its DOI
+    unless `known` says otherwise: the events, and the dropped file."""
+    from litrag_parser.worker import Worker
+
+    dropped = lib.inbox_dir / name
+    shutil.copy(pdf, dropped)
+    capsys.readouterr()
+    Worker(lib.dir.parent).do_ingest({"id": "i", "op": "ingest", "lib": lib.id, "paths": [str(dropped)], "offline": True,
+                                      "known": {str(dropped): known or {"doi": "10.3390/mi15070851"}}})
+    return [json.loads(line) for line in capsys.readouterr().out.splitlines() if line.strip()], dropped
+
+
+def _one(events, kind):
+    (e,) = [e for e in events if e["event"] == kind]
+    return e
+
+
+def _rows(lib, stage, key=THREADS):
+    conn = open_store(lib.store_path)
+    try:
+        return [r[0] for r in conn.execute("SELECT detail FROM events WHERE paper = ? AND stage = ? ORDER BY id", (key, stage))]
+    finally:
+        conn.close()
+
+
+def test_a_pdf_whose_first_pages_name_neither_the_paper_s_doi_nor_its_title_is_refused_and_changes_nothing(tmp_path, monkeypatch, capsys, _never_asked):
+    from litrag_parser.store import sha256_of
+    from litrag_parser.worker import Worker
+
+    _rereading(monkeypatch)
+    lib = _threads(tmp_path, title="Fold change of fibroblast markers on each substrate")  # a title the page does not print
+    conn = open_store(lib.store_path)
+    stub = file_paper(conn, title="its bytes", file="", sha256=sha256_of(CHARTS / "page_paper.pdf"), fmt="pdf", doi=None, pmid=None, pmcid=None, now="t").key  # filed once under its hash: a stub filing drops
+    conn.commit()
+    cols = "doi, pmid, pmcid, file, sha256, format, figures_file"
+    before = tuple(conn.execute(f"SELECT {cols} FROM papers WHERE key = ?", (THREADS,)).fetchone())
+    conn.close()
+    # another paper filed after it in the same request: whatever was written for the refused PDF would be committed with it
+    dropped, other = lib.inbox_dir / "from-the-publisher.pdf", lib.inbox_dir / "another-paper.pdf"
+    shutil.copy(CHARTS / "page_paper.pdf", dropped)
+    shutil.copy(CHARTS / "bars_simple.pdf", other)
+    capsys.readouterr()
+    Worker(lib.dir.parent).do_ingest({"id": "i", "op": "ingest", "lib": lib.id, "paths": [str(dropped), str(other)], "offline": True,
+                                      "known": {str(dropped): {"doi": "10.3390/mi15070851", "pmid": "39064362", "pmcid": "PMC11278924"}}})  # identifiers filing would fill the XML paper's gaps with
+    events = [json.loads(line) for line in capsys.readouterr().out.splitlines() if line.strip()]
+    reason = "its first pages name neither its DOI nor its title"
+    assert _one(events, "skipped") == {"event": "skipped", "id": "i", "path": str(dropped), "paper": THREADS, "reason": reason}
+    assert not [e for e in events if e["event"] == "paper" and e["paper"] == THREADS] and _one(events, "done")["figures"] == []
+    assert dropped.exists()  # left where it is
+    assert _rows(lib, "figures-refused") == [f"not kept for its figures: from-the-publisher.pdf: {reason}"] and _rows(lib, "figures-pdf") == []
+    conn = open_store(lib.store_path)
+    assert [r[0] for r in conn.execute("SELECT stage FROM events WHERE paper = ?", (THREADS,))] == ["figures-refused"]  # the one row, the caller's
+    assert tuple(conn.execute(f"SELECT {cols} FROM papers WHERE key = ?", (THREADS,)).fetchone()) == before  # figures_file NULL, no gap filled
+    filed = f"sha:{sha256_of(CHARTS / 'bars_simple.pdf')[:16]}"
+    assert sorted(r[0] for r in conn.execute("SELECT key FROM papers")) == sorted([THREADS, stub, filed])  # the stub not dropped; only the other file filed
+    assert [w["key"] for w in figures.figures_wanted(conn, lib.papers_dir)] == [THREADS]
+    conn.close()
+
+
+def test_the_same_pdf_again_is_kept_as_it_is_and_not_read_again(tmp_path, capsys, _never_asked):
+    lib = _threads(tmp_path)
+    _attach(lib, capsys)
+    conn = open_store(lib.store_path)
+    conn.execute("UPDATE figure_reads SET at = 'the first read' WHERE paper = ?", (THREADS,))
+    conn.commit()
+    conn.close()
+    events, dropped = _attach(lib, capsys, name="again.pdf")
+    paper = _one(events, "paper")
+    assert (paper["kept"], paper["same"], paper["aside"], paper["figures_file"]) == (True, True, None, KEPT)
+    assert not dropped.exists() and _one(events, "done")["figures"] == []  # the inbox copy goes; nothing is read
+    conn = open_store(lib.store_path)
+    assert conn.execute("SELECT at FROM figure_reads WHERE paper = ?", (THREADS,)).fetchone()[0] == "the first read"
+    conn.close()
+    assert len(_rows(lib, "filed")) == 1 and not (lib.papers_dir / "doi_10.3390_mi15070851.figures.1.pdf").exists()
+
+
+def test_a_second_pdf_replaces_the_kept_one_only_when_it_prints_more_of_the_paper_s_captions(tmp_path, monkeypatch, capsys, _never_asked):
+    monkeypatch.setenv("LITRAG_FIGURES", "off")  # kept or not is the question here, not what is read
+    lib = _threads(tmp_path)
+    _attach(lib, capsys)  # page_paper.pdf: the captions of figures 1 and 2 of 3
+    longer = tmp_path / "longer.pdf"
+    out = pdfium.PdfDocument.new()
+    for n in ("page_paper", "bars_simple"):
+        out.import_pages(pdfium.PdfDocument(str(CHARTS / f"{n}.pdf")))
+    out.save(str(longer))
+    events, dropped = _attach(lib, capsys, pdf=longer, name="longer.pdf")
+    assert _one(events, "skipped")["reason"] == f"prints the captions of 2 of its 3 figures; the PDF kept, {KEPT}, prints 2"
+    assert dropped.exists() and (lib.papers_dir / KEPT).read_bytes() == (CHARTS / "page_paper.pdf").read_bytes()
+    real = figures.caption_numbers
+    monkeypatch.setattr(figures, "caption_numbers", lambda pdf: {"1", "2", "3"} if pdf.name == "longer.pdf" else real(pdf))
+    events, dropped = _attach(lib, capsys, pdf=longer, name="longer.pdf")
+    aside = "doi_10.3390_mi15070851.figures.1.pdf"
+    paper = _one(events, "paper")
+    assert (paper["kept"], paper["same"], paper["aside"], paper["figures_file"]) == (True, False, aside, KEPT) and not dropped.exists()
+    assert (lib.papers_dir / KEPT).read_bytes() == longer.read_bytes()
+    assert (lib.papers_dir / aside).read_bytes() == (CHARTS / "page_paper.pdf").read_bytes()  # set aside, never deleted
+    assert _rows(lib, "filed")[-1] == f"a PDF of the XML, kept for its figures: longer.pdf (its pages print the captions of 3 of its 3 figures); {KEPT} set aside as {aside}"
+    assert _rows(lib, "figures-refused") == [f"not kept for its figures: longer.pdf: prints the captions of 2 of its 3 figures; the PDF kept, {KEPT}, prints 2"]
+
+
+def test_a_kept_pdf_gone_from_disk_counts_as_none(tmp_path, monkeypatch, capsys, _never_asked):
+    monkeypatch.setenv("LITRAG_FIGURES", "off")
+    lib = _threads(tmp_path)
+    _attach(lib, capsys)
+    (lib.papers_dir / KEPT).unlink()
+    events, _ = _attach(lib, capsys)
+    paper = _one(events, "paper")
+    assert (paper["kept"], paper["same"], paper["aside"]) == (True, False, None)
+    assert (lib.papers_dir / KEPT).exists() and sorted(p.name for p in lib.papers_dir.glob("*.figures*")) == [KEPT]
+
+
+def test_a_pdf_fetched_beside_its_xml_is_that_paper_s_whatever_it_is_named(tmp_path, monkeypatch, capsys, _never_asked):
+    from litrag_parser import worker
+    from litrag_parser.library import create_library
+    from litrag_parser.worker import Worker
+
+    from test_worker import FIXTURES
+
+    def unasked(*a, **kw):
+        raise AssertionError("a PDF beside its XML is not asked what it is")
+
+    def parse_one(self, lib, key, path, *rest, **kw):  # the XML read: its figures, and a title page_paper.pdf prints
+        conn = open_store(lib.store_path)
+        _xml_nodes(conn, key, PRINTED)
+        conn.close()
+
+    monkeypatch.setattr(worker, "sniff_ids", unasked)
+    monkeypatch.setattr(Worker, "parse_one", parse_one)
+    lib = create_library(tmp_path, "Threads")
+    xml, pdf = lib.inbox_dir / "PMC11278924.xml", lib.inbox_dir / "10.9999_other.pdf"  # a name that is another DOI
+    shutil.copy(FIXTURES / "PMC11278924.xml", xml)
+    shutil.copy(CHARTS / "page_paper.pdf", pdf)
+    capsys.readouterr()
+    keys = Worker(tmp_path).do_ingest({"id": "i", "op": "ingest", "lib": lib.id, "paths": [str(pdf), str(xml)], "offline": True,
+                                       "known": {str(pdf): {"beside": str(xml)}}})  # the PDF first
+    events = [json.loads(line) for line in capsys.readouterr().out.splitlines() if line.strip()]
+    assert keys == {str(xml): THREADS, str(pdf): THREADS}
+    kept = [e for e in events if e["event"] == "paper" and e.get("figures_file")]
+    assert [(e["paper"], e["by"], e["figures_file"]) for e in kept] == [(THREADS, None, KEPT)]
+    conn = open_store(lib.store_path)
+    assert [tuple(r) for r in conn.execute("SELECT key, format, figures_file FROM papers")] == [(THREADS, "jats", KEPT)]
+    assert conn.execute("SELECT COUNT(*) FROM charts WHERE paper = ? AND status = 'read'", (THREADS,)).fetchone()[0] == 3
+    conn.close()
+    assert _one(events, "done")["figures"] == [THREADS] and not pdf.exists()
+
+
+def test_the_captions_a_pdf_prints_are_read_from_its_text_layer():
+    assert figures.caption_numbers(CHARTS / "page_paper.pdf") == {"1", "2"}
+    assert figures.caption_numbers(CHARTS / "bars_simple.pdf") == set()
+    assert figures.caption_numbers(CHARTS / "make.py") == set()  # no PDF: none
+
+
+def test_a_paper_whose_kept_pdf_is_gone_is_wanted_again(tmp_path):
+    from litrag_parser.library import create_library
+
+    from test_worker import by, talk
+
+    lib = create_library(tmp_path, "Threads")
+    conn = open_store(lib.store_path)
+    key = _xml_paper(conn)
+    conn.execute("UPDATE papers SET figures_file = 'paper.figures.pdf' WHERE key = ?", (key,))
+    conn.commit()
+    assert figures.figures_wanted(conn) == []  # by the row alone
+    assert figures.figures_wanted(conn, lib.papers_dir) == [{"key": key, "title": "read from XML", "doi": "10.3390/mi15070851", "pmid": None, "pmcid": None, "figures": 3}]  # by the disk: the file is not there
+    assert [w["key"] for w in by(talk(tmp_path, [{"id": "w", "op": "wanted", "lib": lib.id}]), "w")[0]["figures"]] == [key]
+    shutil.copy(CHARTS / "page_paper.pdf", lib.papers_dir / "paper.figures.pdf")
+    assert figures.figures_wanted(conn, lib.papers_dir) == []
+    conn.close()
+
+
+def test_with_the_figures_off_a_pdf_is_kept_and_not_read_and_said_so(tmp_path, monkeypatch, capsys, _never_asked):
+    monkeypatch.setenv("LITRAG_FIGURES", "off")
+    lib = _threads(tmp_path)
+    events, dropped = _attach(lib, capsys)
+    assert _one(events, "paper")["figures_file"] == KEPT and not dropped.exists() and _one(events, "done")["figures"] == []
+    said = f"{KEPT} kept for its figures; not read: LITRAG_FIGURES=off"
+    assert _rows(lib, "figures") == [said]
+    assert [(e["paper"], e["message"]) for e in events if e["event"] == "log"] == [(THREADS, said)]
+    conn = open_store(lib.store_path)
+    figures.ensure_schema(conn)
+    assert conn.execute("SELECT COUNT(*) FROM charts").fetchone()[0] == 0 and not figures.is_read(conn, THREADS)
+    conn.close()
+    events, _ = _attach(lib, capsys, name="again.pdf")  # the same PDF again: kept already, and nothing new to say of the switch
+    assert _one(events, "paper")["same"] and _rows(lib, "figures") == [said] and not [e for e in events if e["event"] == "log"]
+
+
+def test_keeping_a_pdf_beside_an_xml_paper_checks_the_paper_and_loses_no_file(tmp_path):
+    """keep_beside alone: a paper not read from XML, or none, keeps nothing; a PDF printing none of
+    the paper's captions is kept (it is the paper's, and the next caption fix reads it); a file of
+    the kept name the paper no longer keeps is set aside, not overwritten, under the first number
+    free; and the count is of figures, not schemes."""
+    conn = open_store(tmp_path / "store.sqlite")
+    pdf_paper = file_paper(conn, title=PRINTED, file="a.pdf", sha256="a", fmt="pdf", doi="10.1/pdf", pmid=None, pmcid=None, now="t").key
+    page = CHARTS / "page_paper.pdf"
+    assert figures.keep_beside(conn, tmp_path, pdf_paper, page, "t")["why"] == "not a paper read from XML"
+    assert figures.keep_beside(conn, tmp_path, "doi:none", page, "t")["why"] == "no such paper"
+    key = _xml_paper(conn, title=PRINTED, caps=["Figure 7 Not printed.", "Figure 8 Nor this.", "Scheme 1 A scheme, which is no figure to count."])
+    stray = tmp_path / KEPT
+    stray.write_bytes(b"%PDF-1.4 kept once, before a reread")
+    (tmp_path / "doi_10.3390_mi15070851.figures.1.pdf").write_bytes(b"%PDF-1.4 set aside before")
+    out = figures.keep_beside(conn, tmp_path, key, page, "t")
+    assert (out["kept"], out["captions"], out["figures"], out["file"], out["aside"]) == (True, 0, 2, KEPT, "doi_10.3390_mi15070851.figures.2.pdf")  # the first free number
+    assert (tmp_path / out["aside"]).read_bytes() == b"%PDF-1.4 kept once, before a reread" and (tmp_path / KEPT).read_bytes() == page.read_bytes()
+    assert (tmp_path / "doi_10.3390_mi15070851.figures.1.pdf").read_bytes() == b"%PDF-1.4 set aside before"
+    assert conn.execute("SELECT detail FROM events WHERE paper = ? AND stage = 'filed'", (key,)).fetchone()[0] == \
+        f"a PDF of the XML, kept for its figures: page_paper.pdf (its pages print the captions of 0 of its 2 figures); {KEPT} set aside as {out['aside']}"
+    none = _xml_paper(conn, doi="10.1/none", title=PRINTED, caps=["A figure its caption gives no number."])
+    assert figures.keep_beside(conn, tmp_path, none, page, "t")["kept"]
+    assert conn.execute("SELECT detail FROM events WHERE paper = ? AND stage = 'filed'", (none,)).fetchone()[0] == "a PDF of the XML, kept for its figures: page_paper.pdf (its XML numbers no figures)"
+    one = _xml_paper(conn, doi="10.1/one", title=PRINTED, caps=["Figure 1 The one figure."])
+    own = _xml_paper(conn, doi="10.1/own", title=PRINTED)
+    figures.ensure_schema(conn)
+    conn.executemany("INSERT INTO figure_reads(paper, reader, figures, plots, read, values_, at, file) VALUES (?, ?, 1, 0, 0, 0, 't', ?)",
+                     [(one, figures.READER, None), (own, figures.READER, "doi_10.1_own.pdf")])  # a merge's copy, naming no file; a read of the file kept before
+    assert figures.keep_beside(conn, tmp_path, one, page, "t")["kept"]
+    assert conn.execute("SELECT detail FROM events WHERE paper = ? AND stage = 'filed'", (one,)).fetchone()[0] == "a PDF of the XML, kept for its figures: page_paper.pdf (its pages print the captions of 1 of its 1 figure)"
+    # a PDF kept under another name — the paper's own, kept beside it when its XML was read over it (worker._format_changed) — is set aside the same way
+    shutil.copy(CHARTS / "bars_simple.pdf", tmp_path / "doi_10.1_own.pdf")  # prints none of its captions
+    conn.execute("UPDATE papers SET figures_file = 'doi_10.1_own.pdf' WHERE key = ?", (own,))
+    conn.commit()
+    out = figures.keep_beside(conn, tmp_path, own, page, "t")
+    assert (out["kept"], out["file"], out["aside"]) == (True, "doi_10.1_own.figures.pdf", "doi_10.1_own.figures.1.pdf")
+    assert not (tmp_path / "doi_10.1_own.pdf").exists() and (tmp_path / out["aside"]).read_bytes() == (CHARTS / "bars_simple.pdf").read_bytes()
+    assert [r[0] for r in conn.execute("SELECT paper FROM figure_reads")] == [one]  # the read of a file no longer kept goes; one naming none is its caller's
+    assert not list(tmp_path.glob("*.part"))
+
+
+def _longer(tmp_path, monkeypatch, first="page_paper"):
+    """page_paper.pdf and bars_simple.pdf in one PDF, `first` first, taken to print the captions of
+    figures 1, 2 and 3: more than page_paper.pdf alone, so it replaces it."""
+    longer = tmp_path / "longer.pdf"
+    out = pdfium.PdfDocument.new()
+    for n in (first, ({"page_paper", "bars_simple"} - {first}).pop()):
+        out.import_pages(pdfium.PdfDocument(str(CHARTS / f"{n}.pdf")))
+    out.save(str(longer))
+    real = figures.caption_numbers
+    monkeypatch.setattr(figures, "caption_numbers", lambda pdf: {"1", "2", "3"} if pdf.name == "longer.pdf" else real(pdf))
+    return longer
+
+
+def _figures_op(lib, capsys):
+    from litrag_parser.worker import Worker
+
+    capsys.readouterr()
+    Worker(lib.dir.parent).do_figures({"id": "g", "op": "figures", "lib": lib.id})
+    return _one([json.loads(line) for line in capsys.readouterr().out.splitlines() if line.strip()], "done")
+
+
+def _pages_read(lib, key=THREADS):
+    conn = open_store(lib.store_path)
+    try:
+        return figures.is_read(conn, key), sorted({r[0] for r in conn.execute("SELECT page FROM charts WHERE paper = ?", (key,))})
+    finally:
+        conn.close()
+
+
+def test_a_pdf_kept_in_place_of_one_read_is_read_again_though_it_has_the_same_name(tmp_path, monkeypatch, capsys, _never_asked):
+    lib = _threads(tmp_path)
+    _attach(lib, capsys)  # the figures on: page_paper.pdf kept, and read
+    assert _pages_read(lib) == (True, [1, 2])
+    monkeypatch.setenv("LITRAG_FIGURES", "off")  # kept, not read (K6)
+    events, _ = _attach(lib, capsys, pdf=_longer(tmp_path, monkeypatch, first="bars_simple"), name="longer.pdf")
+    assert _one(events, "paper")["aside"] == "doi_10.3390_mi15070851.figures.1.pdf"
+    assert not _pages_read(lib)[0]  # the same name, other bytes: what was read is not what is kept now
+    monkeypatch.delenv("LITRAG_FIGURES")
+    done = _figures_op(lib, capsys)
+    assert (done["papers"], done["read"]) == (1, 3) and _pages_read(lib) == (True, [2, 3])  # page_paper's pages, where the kept PDF has them
+
+
+def test_a_kept_pdf_whose_read_fails_is_left_to_the_figures_op(tmp_path, monkeypatch, capsys, _never_asked):
+    lib = _threads(tmp_path)
+    _attach(lib, capsys)
+    longer = _longer(tmp_path, monkeypatch, first="bars_simple")
+    read_for = figures.read_for
+
+    def fails(*a, **kw):
+        raise RuntimeError("pdfium gave up")
+
+    monkeypatch.setattr(figures, "read_for", fails)
+    events, _ = _attach(lib, capsys, pdf=longer, name="longer.pdf")
+    assert _one(events, "paper")["kept"] and _one(events, "done")["figures"] == []  # kept; its figures not read
+    assert [e["message"] for e in events if e["event"] == "log"] == ["RuntimeError: pdfium gave up"]
+    assert not _pages_read(lib)[0]
+    monkeypatch.setattr(figures, "read_for", read_for)
+    assert _figures_op(lib, capsys)["papers"] == 1 and _pages_read(lib) == (True, [2, 3])
+
+
+def test_two_pdfs_for_one_paper_in_one_request_are_kept_in_turn_and_read_once(tmp_path, monkeypatch, capsys, _never_asked):
+    from litrag_parser.worker import Worker
+
+    read = []
+    monkeypatch.setattr(Worker, "figures_of", lambda self, lib, key, req_id: read.append(key) or {"read": 0})
+    lib = _threads(tmp_path)
+    first, second = lib.inbox_dir / "a.pdf", lib.inbox_dir / "longer.pdf"
+    shutil.copy(CHARTS / "page_paper.pdf", first)
+    shutil.copy(_longer(tmp_path, monkeypatch), second)
+    capsys.readouterr()
+    Worker(lib.dir.parent).do_ingest({"id": "i", "op": "ingest", "lib": lib.id, "paths": [str(first), str(second)], "offline": True,
+                                      "known": {str(first): {"doi": "10.3390/mi15070851"}, str(second): {"doi": "10.3390/mi15070851"}}})
+    events = [json.loads(line) for line in capsys.readouterr().out.splitlines() if line.strip()]
+    assert [(e["aside"], e["same"]) for e in events if e["event"] == "paper"] == [(None, False), ("doi_10.3390_mi15070851.figures.1.pdf", False)]
+    assert read == [THREADS] and _one(events, "done")["figures"] == [THREADS]  # the last kept, read once
+
+
+def test_a_pdf_named_twice_in_one_request_is_kept_once_and_then_not_there(tmp_path, monkeypatch, capsys, _never_asked):
+    from litrag_parser.worker import Worker
+
+    monkeypatch.setenv("LITRAG_FIGURES", "off")
+    lib = _threads(tmp_path)
+    dropped = lib.inbox_dir / "x.pdf"
+    shutil.copy(CHARTS / "page_paper.pdf", dropped)
+    capsys.readouterr()
+    keys = Worker(lib.dir.parent).do_ingest({"id": "i", "op": "ingest", "lib": lib.id, "paths": [str(dropped), str(dropped)], "offline": True,
+                                             "known": {str(dropped): {"doi": "10.3390/mi15070851"}}})
+    events = [json.loads(line) for line in capsys.readouterr().out.splitlines() if line.strip()]
+    assert keys == {str(dropped): THREADS} and _one(events, "paper")["figures_file"] == KEPT
+    assert _one(events, "skipped") == {"event": "skipped", "id": "i", "path": str(dropped), "paper": THREADS, "reason": "not there any more"}
+    assert events[-1]["event"] == "done" and _rows(lib, "figures-refused") == []  # no PDF came the second time, so none was refused
+
+
+def test_a_pdf_kept_beside_its_xml_paper_takes_the_place_of_a_stub_its_bytes_were_filed_as(tmp_path, monkeypatch, capsys, _never_asked):
+    from litrag_parser.store import sha256_of
+
+    monkeypatch.setenv("LITRAG_FIGURES", "off")
+    lib = _threads(tmp_path)
+    conn = open_store(lib.store_path)
+    stub = file_paper(conn, title="its bytes", file="", sha256=sha256_of(CHARTS / "page_paper.pdf"), fmt="pdf", doi=None, pmid=None, pmcid=None, now="t").key
+    conn.commit()
+    cols = "doi, pmid, pmcid, file, sha256, format"
+    before = tuple(conn.execute(f"SELECT {cols} FROM papers WHERE key = ?", (THREADS,)).fetchone())
+    conn.close()
+    events, _ = _attach(lib, capsys, known={"doi": "10.3390/mi15070851", "pmid": "39064362"})
+    assert _one(events, "paper")["figures_file"] == KEPT
+    conn = open_store(lib.store_path)
+    assert [r[0] for r in conn.execute("SELECT key FROM papers")] == [THREADS]  # filed once: the stub went, as filing drops one
+    assert tuple(conn.execute(f"SELECT {cols} FROM papers WHERE key = ?", (THREADS,)).fetchone()) == before  # the XML's identifiers, not the arrival's
+    conn.close()
+    assert _rows(lib, "filed") == [f"a PDF of the XML, kept for its figures: from-the-publisher.pdf (its pages print the captions of 2 of its 3 figures); {stub}, the same bytes filed before for want of an identifier, goes with its rows"]
+
+
+def test_a_pdf_kept_from_outside_the_inbox_is_left_where_it_was(tmp_path, monkeypatch, capsys, _never_asked):
+    from litrag_parser.worker import Worker
+
+    monkeypatch.setenv("LITRAG_FIGURES", "off")
+    lib = _threads(tmp_path)
+    src = tmp_path / "Downloads" / "the-paper.pdf"
+    src.parent.mkdir()
+    shutil.copy(CHARTS / "page_paper.pdf", src)
+    Worker(lib.dir.parent).do_ingest({"id": "i", "op": "ingest", "lib": lib.id, "paths": [str(src)], "offline": True, "known": {str(src): {"doi": "10.3390/mi15070851"}}})
+    assert (lib.papers_dir / KEPT).read_bytes() == src.read_bytes()  # a copy kept; the person's file is theirs
+
+
+def test_a_pdf_beside_an_xml_not_in_the_request_is_told_by_what_it_is(tmp_path, monkeypatch, capsys, _never_asked):
+    monkeypatch.setenv("LITRAG_FIGURES", "off")
+    _rereading(monkeypatch)
+    lib = _threads(tmp_path)
+    events, _ = _attach(lib, capsys, known={"doi": "10.3390/mi15070851", "beside": str(lib.inbox_dir / "gone.xml")})
+    paper = _one(events, "paper")
+    assert (paper["paper"], paper["figures_file"], paper["by"]) == (THREADS, KEPT, "doi")
+
+
+def test_a_pdf_known_by_its_pmid_alone_is_kept_beside_the_xml_paper_of_that_pmid(tmp_path, monkeypatch, capsys, _never_asked):
+    monkeypatch.setenv("LITRAG_FIGURES", "off")
+    _rereading(monkeypatch)
+    lib = _threads(tmp_path)
+    conn = open_store(lib.store_path)
+    conn.execute("UPDATE papers SET pmid = '39064362' WHERE key = ?", (THREADS,))
+    conn.commit()
+    conn.close()
+    events, _ = _attach(lib, capsys, known={"pmid": "39064362"})
+    paper = _one(events, "paper")
+    assert (paper["paper"], paper["figures_file"], paper["by"]) == (THREADS, KEPT, "pmid") and (lib.papers_dir / KEPT).exists()
+
+
+def test_a_pdf_that_names_the_paper_by_its_doi_alone_is_kept(tmp_path, monkeypatch):
+    from litrag_parser import acquire
+
+    conn = open_store(tmp_path / "store.sqlite")
+    key = _xml_paper(conn, title="Fold change of fibroblast markers on each substrate")  # a title the page does not print
+    page = CHARTS / "page_paper.pdf"
+    assert figures.keep_beside(conn, tmp_path, key, page, "t")["why"] == "its first pages name neither its DOI nor its title"
+    monkeypatch.setattr(acquire, "first_pages", lambda path, pages=3: "Micromachines 2024, 15, 851. https://doi.org/10.3390/mi15070851")
+    assert figures.keep_beside(conn, tmp_path, key, page, "t")["kept"]
+
+
+def test_a_fetch_keeps_the_pdf_it_fetched_beside_an_xml_for_that_xml_s_paper(tmp_path, monkeypatch, capsys, _never_asked):
+    from litrag_parser import acquire, worker
+    from litrag_parser.library import create_library
+    from litrag_parser.worker import Worker
+
+    from test_worker import FIXTURES
+
+    def parse_one(self, lib, key, path, *rest, **kw):
+        conn = open_store(lib.store_path)
+        _xml_nodes(conn, key, PRINTED)
+        conn.close()
+
+    def fetch_one(lib, conn, cand_id, **kw):
+        xml, pdf = lib.inbox_dir / "PMC11278924.xml", lib.inbox_dir / "PMC11278924.pdf"
+        shutil.copy(FIXTURES / "PMC11278924.xml", xml)
+        shutil.copy(CHARTS / "page_paper.pdf", pdf)
+        return {"cand_id": cand_id, "status": "fetched", "path": str(xml), "format": "jats", "error": None, "figures": str(pdf)}
+
+    monkeypatch.setenv("LITRAG_FIGURES", "off")
+    monkeypatch.setattr(Worker, "parse_one", parse_one)
+    monkeypatch.setattr(acquire, "fetch_one", fetch_one)
+    monkeypatch.setattr(worker, "lookup_record", lambda *a, **kw: None)  # a fetch is not offline: Europe PMC's record, not asked here
+    monkeypatch.setattr(worker, "sniff_ids", lambda path: ("10.9999/other", None))  # the PDF, asked, would name another paper
+    lib = create_library(tmp_path, "Threads")
+    conn = open_store(lib.store_path)
+    acquire.ensure_schema(conn)
+    conn.execute("INSERT INTO candidates(doi, pmid, pmcid, title, status, found_at, updated_at) VALUES (?, ?, ?, ?, 'found', 't', 't')", ("10.3390/mi15070851", None, "PMC11278924", PRINTED))  # no PMID to meet the paper by
+    conn.commit()
+    cid = conn.execute("SELECT cand_id FROM candidates").fetchone()[0]
+    conn.close()
+    capsys.readouterr()
+    Worker(tmp_path).do_fetch({"id": "f", "op": "fetch", "lib": lib.id, "ids": [cid]})
+    conn = open_store(lib.store_path)
+    assert [tuple(r) for r in conn.execute("SELECT key, format, figures_file FROM papers")] == [(THREADS, "jats", KEPT)]  # the XML's paper's, not a paper of its own
+    assert [tuple(r) for r in conn.execute("SELECT status, paper_key FROM candidates")] == [("ingested", THREADS)]
+    conn.close()
 
 
 # -- plots through a rebuild, a reparse and a reread ----------------------------------------------------------

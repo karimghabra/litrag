@@ -487,16 +487,125 @@ def read_for(conn: sqlite3.Connection, key: str, papers_dir: Path, **kw: Any) ->
     return None
 
 
-def figures_wanted(conn: sqlite3.Connection) -> list[dict[str, Any]]:
+def caption_numbers(pdf_path: Path) -> set[str]:
+    """The keys of the captions a PDF prints, every page's ("2", "S2", "Scheme 1"): its text layer
+    read as `read_pages` reads it for `captions`, and nothing more — no page rendered, no OCR, a
+    hundredth of a second a page. A PDF pdfium will not open prints none."""
+    from .recover import open_pdf
+
+    out: set[str] = set()
+    try:
+        with open_pdf(pdf_path) as pdf:
+            for pno in range(len(pdf)):
+                page = pdf[pno]
+                w, h = page.get_size()
+                out.update(num for num, _ in captions(text_words(page, (0, 0, w, h), 1.0)))
+    except Exception:  # noqa: BLE001 — a PDF that cannot be read prints what was read of it
+        pass
+    return out
+
+
+def _set_aside(papers_dir: Path, safe: str, path: Path) -> str:
+    """A PDF moved out of the way, never deleted: to the first free `<safe>.figures.<n>.pdf`."""
+    import os
+
+    n = 1
+    while (papers_dir / f"{safe}.figures.{n}.pdf").exists():
+        n += 1
+    os.replace(path, papers_dir / f"{safe}.figures.{n}.pdf")
+    return f"{safe}.figures.{n}.pdf"
+
+
+def keep_beside(conn: sqlite3.Connection, papers_dir: Path, key: str, src: Path, now: str) -> dict[str, Any]:
+    """A PDF that arrived for an XML paper's figures, kept beside it as `<safe>.figures.pdf` — or
+    not, and why: `{kept, same, file, aside, why, captions, figures}`. The one gate every such PDF
+    passes, however it came:
+
+    1. The paper must be one read from XML.
+    2. The PDF kept already, on disk and in the same bytes, is kept (`same`), and nothing is done.
+    3. Its first pages must name the paper (acquire.names_the_paper): its DOI, or its whole title
+       not under a supplement's name. Unassignable beats misassigned.
+    4. A PDF kept already gives way only to one whose pages print the captions of strictly more of
+       the paper's figures (`captions` of its `figures`, figure keys only), and is set aside as
+       the first free `<safe>.figures.<n>.pdf` (`aside`), never deleted. A kept file no longer on
+       disk counts as none.
+    5. The PDF is copied in through a temporary file, so no reader meets half of it, and the
+       paper's `figures_file` set. The last read of the paper's figures goes when it names the
+       file it read: that was another file, whatever it was named, and the figures op reads this
+       one (a read that names none, a merge's copy, is left to its caller). The same bytes filed
+       before as a paper of their own, which only their hash could meet (no DOI, no PMID), were a
+       stub of this paper, and go with their rows, as filing drops one (store.file_paper).
+    6. A `filed` row says so, with how many of the paper's figures its pages caption.
+
+    A refusal writes nothing, not even a row: the caller says it, as the arrival it was. The off
+    switch is not looked at: keeping a file is not reading it. (An XML reread over a paper read
+    from its PDF keeps that PDF without passing here, worker._format_changed: it is the paper's own
+    file, filed under the paper's own identifier.)"""
+    import os
+    import shutil
+
+    from .acquire import first_pages, names_the_paper
+    from .library import safe_key
+    from .store import log_event, sha256_of
+
+    out: dict[str, Any] = {"kept": False, "same": False, "file": None, "aside": None, "why": None, "captions": None, "figures": None}
+    row = conn.execute("SELECT title, doi, format, figures_file FROM papers WHERE key = ?", (key,)).fetchone()
+    if row is None:
+        return {**out, "why": "no such paper"}
+    if row["format"] != "jats":
+        return {**out, "why": "not a paper read from XML"}
+    held = papers_dir / row["figures_file"] if row["figures_file"] else None
+    if held is not None and not held.is_file():
+        held = None  # kept once, gone since: none, and nothing to set aside
+    if held is not None and sha256_of(held) == sha256_of(src):
+        return {**out, "kept": True, "same": True, "file": held.name}
+    why = names_the_paper(first_pages(src), {"title": row["title"], "doi": row["doi"]})
+    if why:
+        return {**out, "why": why}
+    numbers = figure_numbers(conn, key)
+    wanted = {k for k in numbers if " " not in k}  # "2" and "S2", not "Scheme 1"
+    printed = len(caption_numbers(src) & wanted)
+    out.update(captions=printed, figures=len(wanted))
+    if held is not None:
+        before = len(caption_numbers(held) & wanted)
+        if printed <= before:
+            return {**out, "why": f"prints the captions of {printed} of its {len(wanted)} figure{'s' if len(wanted) != 1 else ''}; the PDF kept, {held.name}, prints {before}"}
+    safe = safe_key(key)
+    dest = papers_dir / f"{safe}.figures.pdf"
+    tmp = dest.with_name(dest.name + ".part")
+    shutil.copy2(src, tmp)
+    moved: list[tuple[str, str]] = []
+    if held is not None:
+        moved.append((held.name, _set_aside(papers_dir, safe, held)))
+    if dest.exists() and dest.resolve() != src.resolve():
+        moved.append((dest.name, _set_aside(papers_dir, safe, dest)))  # a file of that name the paper no longer keeps: aside too, never overwritten
+    os.replace(tmp, dest)
+    ensure_schema(conn)  # before the writes: it commits what is pending
+    conn.execute("UPDATE papers SET figures_file = ? WHERE key = ?", (dest.name, key))
+    conn.execute("DELETE FROM figure_reads WHERE paper = ? AND file IS NOT NULL", (key,))  # a name is not the bytes: what was read is not what is kept now
+    stub = conn.execute("SELECT key FROM papers WHERE sha256 = ? AND key != ? AND doi IS NULL AND pmid IS NULL", (sha256_of(dest), key)).fetchone()
+    if stub is not None:
+        conn.execute("DELETE FROM papers WHERE key = ?", (stub["key"],))
+    conn.commit()
+    clause = f"its pages print the captions of {printed} of its {len(wanted)} figure{'s' if len(wanted) != 1 else ''}" if numbers else "its XML numbers no figures"
+    log_event(conn, key, now, "filed", f"a PDF of the XML, kept for its figures: {src.name} ({clause})" + "".join(f"; {old} set aside as {new}" for old, new in moved)
+              + (f"; {stub['key']}, the same bytes filed before for want of an identifier, goes with its rows" if stub is not None else ""))
+    return {**out, "kept": True, "file": dest.name, "aside": moved[0][1] if moved else None}
+
+
+def figures_wanted(conn: sqlite3.Connection, papers_dir: Path | None = None) -> list[dict[str, Any]]:
     """The XML papers whose figures no PDF draws yet: read, with figures their captions number,
-    and no figures_file — what the collect window can fetch for them, most figures first. Only
-    figure keys count: a PDF kept for a paper is read for its schemes and charts too, but a paper
-    whose captions number only schemes and charts is not listed."""
+    and no figures_file — or, given the folder the papers are in, none on disk there: a PDF kept
+    once and gone since draws nothing. What the collect window can fetch for them, most figures
+    first. Only figure keys count: a PDF kept for a paper is read for its schemes and charts too,
+    but a paper whose captions number only schemes and charts is not listed."""
     out = []
-    for r in conn.execute("SELECT key, title, doi, pmid, pmcid FROM papers WHERE format = 'jats' AND status = 'parsed' AND (figures_file IS NULL OR figures_file = '')"):
+    for r in conn.execute("SELECT key, title, doi, pmid, pmcid, figures_file FROM papers WHERE format = 'jats' AND status = 'parsed'"):
+        if r["figures_file"] and (papers_dir is None or (papers_dir / r["figures_file"]).is_file()):
+            continue
         n = sum(" " not in k for k in figure_numbers(conn, r["key"]))  # "2" and "S2", not "Scheme 1"
         if n:
-            out.append({**dict(r), "figures": n})
+            out.append({**{c: r[c] for c in ("key", "title", "doi", "pmid", "pmcid")}, "figures": n})
     out.sort(key=lambda d: (-d["figures"], d["key"]))
     return out
 

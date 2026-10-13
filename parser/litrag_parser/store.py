@@ -233,28 +233,40 @@ class Filed:
     by: str | None = None  # which identifier met the paper held: 'doi', 'pmid' or 'sha' (its file's hash); None when new
 
 
-def file_paper(conn: sqlite3.Connection, *, title: str, file: str, sha256: str, fmt: str, doi: str | None, pmid: str | None, pmcid: str | None, now: str) -> Filed:
-    """File a paper once: by DOI, then PMID, then hash. Seeing it again fills gaps, and says
-    which of the three met it.
+def find_paper(conn: sqlite3.Connection, *, doi: str | None, pmid: str | None, sha256: str | None) -> tuple[str, str] | None:
+    """The paper held that a file with these identifiers is, and which of them met it: `(key,
+    by)`, by 'doi', 'pmid' or 'sha' (the file's hash); None when none is held. Only reads: the
+    lookup filing makes (`file_paper` asks this), so a caller that must decide before anything is
+    written — a PDF that may only be kept beside an XML paper, not filed — meets the same paper.
 
-    A DOI is the same in any case (10.1/ABC is 10.1/abc), so it is looked for in any case; the
-    paper keeps the key and the DOI it was first filed under, spelled as they were then. A store
+    A DOI is the same in any case (10.1/ABC is 10.1/abc), so it is looked for in any case. A store
     filed before that may hold one DOI in two spellings, two papers: these bytes meet the one that
     holds them, so the other is never taken for their stub, and other bytes the first filed."""
-    row, by = None, None  # `by` is the step that gave `row`
     if doi:
-        row, by = conn.execute("SELECT key FROM papers WHERE lower(doi) = lower(?) ORDER BY sha256 IS ? DESC, added_at, key LIMIT 1", (doi, sha256)).fetchone(), "doi"
-    if row is None and pmid:
-        row, by = conn.execute("SELECT key FROM papers WHERE pmid = ?", (pmid,)).fetchone(), "pmid"
-    sha_row = conn.execute("SELECT key FROM papers WHERE sha256 = ?", (sha256,)).fetchone()
-    if row is None:
-        row, by = sha_row, "sha"
-    elif sha_row is not None and sha_row["key"] != row["key"]:
-        # The same bytes were filed earlier under a hash, before their DOI was known:
-        # that row was a stub of this paper. It goes, with its rows; the identified paper stays.
-        conn.execute("DELETE FROM papers WHERE key = ?", (sha_row["key"],))
-    if row is not None:
-        key = row["key"]
+        row = conn.execute("SELECT key FROM papers WHERE lower(doi) = lower(?) ORDER BY sha256 IS ? DESC, added_at, key LIMIT 1", (doi, sha256)).fetchone()
+        if row is not None:
+            return row[0], "doi"
+    if pmid:
+        row = conn.execute("SELECT key FROM papers WHERE pmid = ?", (pmid,)).fetchone()
+        if row is not None:
+            return row[0], "pmid"
+    row = conn.execute("SELECT key FROM papers WHERE sha256 = ?", (sha256,)).fetchone()
+    return (row[0], "sha") if row is not None else None
+
+
+def file_paper(conn: sqlite3.Connection, *, title: str, file: str, sha256: str, fmt: str, doi: str | None, pmid: str | None, pmcid: str | None, now: str) -> Filed:
+    """File a paper once: by DOI, then PMID, then hash (`find_paper`). Seeing it again fills
+    gaps, and says which of the three met it. The paper keeps the key and the DOI it was first
+    filed under, spelled as they were then."""
+    found = find_paper(conn, doi=doi, pmid=pmid, sha256=sha256)
+    if found is not None and found[1] != "sha":
+        sha_row = conn.execute("SELECT key FROM papers WHERE sha256 = ?", (sha256,)).fetchone()
+        if sha_row is not None and sha_row["key"] != found[0]:
+            # The same bytes were filed earlier under a hash, before their DOI was known:
+            # that row was a stub of this paper. It goes, with its rows; the identified paper stays.
+            conn.execute("DELETE FROM papers WHERE key = ?", (sha_row["key"],))
+    if found is not None:
+        key, by = found
         # Seeing a paper again fills gaps and never moves it backwards: an identifier it
         # lacked, a file if it had none. The caller decides whether to swap a file it has.
         conn.execute(
