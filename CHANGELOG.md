@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- **Nothing phones Microsoft or Google any more.** ONNX Runtime, the OCR engine the chart reader
+  (and Docling) runs, sent usage events to `mobile.events.data.microsoft.com` on every figure read
+  with OCR, and Electron's spellchecker fetched a dictionary from Google's CDN on every new profile:
+  calls invariant 1 never allowed. The parser now turns ONNX Runtime's telemetry off as it loads,
+  and the app turns the spellchecker off before any window opens.
+
+- **The XML-figures path, end to end** (M11; K17 taken as the plan recommends). `DESIGN.md` R4.5
+  records the decisions; `PIPELINE.md`, `README.md` and `TUTORIAL.md` describe the path and the
+  outcomes; the studio e2e asserts what a person sees (the collect window walking the XML paper for
+  its figures, PMC's answer on the card); the tutorial's figure screenshots are retaken.
+
 - **The window asks PMC for figure PDFs, and says what PMC said** (K15 taken as the plan recommends:
   the Collect window never opens by itself for figure-only papers). **Ask PMC for N figure PDFs**
   beside **Collect PDFs** asks for every XML paper PMC has not answered for; a figure's pane offers

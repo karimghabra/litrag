@@ -89,6 +89,32 @@ when it turns out durable. Mark inference as inference.
 
 ## Short-term memory
 
+- **2026-10-13: two calls invariant 1 never allowed, found by M11's run and stopped** — Run under
+  strace, the studio e2e showed (1) ONNX Runtime 1.30, RapidOCR's engine in the chart reader (and
+  in Docling's OCR), sending usage events to `mobile.events.data.microsoft.com` about a minute after
+  an OCR session starts — on every real figure read, since charts.py first used OCR; and (2)
+  Electron's spellchecker fetching a Hunspell dictionary from Google's CDN (`*.gvt1.com`) on every
+  new profile. Fixed: the parser package sets `ORT_DISABLE_TELEMETRY=1` when it is first imported
+  (the worker, Docling's child and the tests inherit it) and charts.py calls
+  `onnxruntime.disable_telemetry_events()`; the app turns the spellchecker off in both sessions
+  before any window and points its download at 127.0.0.1:9. Checked both ways: a 100 s OCR probe
+  went from `CONNECT mobile.events.data.microsoft.com` to no connection; a fresh profile went from
+  3 CONNECTs to gvt1.com and a `.bdic` file to none. What the telemetry carried was not read (TLS);
+  by ONNX Runtime's own account its events describe the runtime, the session and the model's
+  metadata (RapidOCR's models), not the input. Karim's machine has
+  sent them on every OCR read until this lands.
+
+- **2026-10-13: the studio e2e asserts the figures path, and the shots are retaken (M11)** — K17
+  taken as the plan recommends: assert what a person sees now (the archive holds no PDF of
+  mi15070851, so the end-to-end proof of pinning stays the unit tests and pone's read). The fetch
+  opens the collect window on the closed paper, then the XML paper for its figures ("Paper 1 of
+  2"); PMC is asked once, at filing, and its answer ("PMC Cloud: not in its open-access datasets;
+  bulk area: HTTP 404") is on the card's chip ("6 figures · no PDF"), in the window's title and on
+  the row. Run here with Docling's cached models and no Ollama: steps 1–6, 8 and 10 pass (2.6 min),
+  9 skipped, 7 (Query) needs the embedder; nothing left 127.0.0.1. Tutorial shots 12, 16, 18, 23
+  and 24 are retaken on a recorded copy of the scratch library; 20, 21, 22 and 44 are not, and
+  show the older cards.
+
 - **2026-10-13: the window asks PMC, and says what it said (M10b)** — K15 was waiting; the plan's
   recommendation was taken (Karim's to overturn): the Collect window never opens by itself for
   papers that want a PDF only for their figures — a fetch that leaves some says so in the log.

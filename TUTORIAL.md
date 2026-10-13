@@ -685,6 +685,7 @@ The Papers tab shows every paper of the current project as litrag read it. Come 
 | Type pill | The type, with the subtype after a dot (`research · rct`). `untyped` when no source typed a parsed paper; `type when read` before it is read. |
 | `by …` | Who decided the type, such as `record` (Europe PMC's record), `jats` (the XML's own article type), `title`, `shape` or `default`. |
 | PDF or XML | The format the paper was read from. |
+| Figures chip | What its figures came to: "plots in 10 of 16 figures", "no plots in 3 figures", "6 figures · no PDF", "figures not read" or "figures PDF missing". Hover for the counts behind it and, for an XML paper, what PMC answered. None for a paper with no figure, and none with `LITRAG_FIGURES=off` for a paper whose figures were never read. |
 | Key line | The key (`doi:…`, `pmid:…`, `pmcid:…` or `sha:…`) and, for a PDF, its page count. |
 | Byline | Up to three authors, journal and year. |
 | Status badge | QUEUED, PARSING (with the stage and seconds), PARSED (with nodes and seconds) or FAILED (with the error). |
@@ -697,7 +698,8 @@ The Papers tab shows every paper of the current project as litrag read it. Come 
 | Mark | Meaning |
 | --- | --- |
 | Coloured dot | The node's lane: abstract violet, introduction grey, methods green, results orange, results-discussion ochre, discussion crimson, other slate, references and back pale beige. Hover for its name. |
-| Small tag | The node's type when it is not a section or paragraph: `list_item`, `caption`, `picture`, `table`, `formula`, `footnote`, `meta`, `code`. A table reads `table 5×3`, a picture `figure`. |
+| Small tag | The node's type when it is not a section or paragraph: `list_item`, `caption`, `picture`, `table`, `formula`, `footnote`, `meta`, `code`. A table reads `table 5×3`, a picture `figure 2` (or `scheme 1`) by its caption's number, or `figure` when the caption gives none. |
+| Tag on the right of a figure | What the figure came to: `3 plots`, `2 of 3 plots read`, `no chart`, `not in PDF` (the PDF kept beside an XML paper prints no caption with its number), `no number`, `number taken`, `small`, `no place` or `not read`. None for an XML paper's figure with no PDF. See Figures as numbers. |
 | `[built]` | A heading the reader built for a paper that printed none, never the author's. In the example library all seven are an Introduction. |
 | `(untitled section)` | A section whose heading the reader could not find, shown untitled rather than merged into its neighbour. `3. (heading not detected)` stands in for a numbered heading the layout dropped. |
 | `[Materials and methods]` | The catalogue's name for a heading when it differs from the printed one, as in `4. Experimental Section [Materials and methods]`. |
