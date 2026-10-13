@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- **A new op, `figures_fetch`, asks PMC for the PDFs of XML papers already held** (no choice was
+  waiting). Since M7 a paper filed as XML is asked of PMC once; the papers filed before were never
+  asked, and a paper's settled answer could not be asked again. `figures_fetch {lib, keys?,
+  again?}` asks for the papers named, or every one Collect lists for its figures, as a filing
+  asks — the PMC Cloud Service, then EBI's bulk area, through the same gate, the first
+  unreachable ask stopping the rest — and says `{papers, asked, kept, missed, refused,
+  unreachable, already}` before it reads the charts of the PDFs it kept. It runs with
+  `LITRAG_FIGURES=off` too: asked for, not automatic.
+
 - **What each figure came to is recorded, and the ops answer it** (K16 taken as the plan
   recommends: recorded by `figures {record: true}` on Karim's word, never on first touch). A read
   kept its charts and nothing of the figures it found none in, or whose caption the PDF did not

@@ -393,6 +393,8 @@ class Worker:
                     self.do_model_label(req)
                 elif op == "figures":
                     self.do_figures(req)
+                elif op == "figures_fetch":
+                    self.do_figures_fetch(req)
                 elif op == "round":
                     self.do_round(req)
                 elif op == "expand":
@@ -567,9 +569,8 @@ class Worker:
             conn = open_store(lib.store_path)
             try:
                 for key in dict.fromkeys(k for k, path in filed if path.suffix == ".xml"):
-                    row = conn.execute("SELECT status, format, pmcid, figures_file, figures_note FROM papers WHERE key = ?", (key,)).fetchone()
-                    if (row and row["status"] == "parsed" and row["format"] == "jats" and row["pmcid"] and row["figures_note"] is None
-                            and not (row["figures_file"] and (lib.papers_dir / row["figures_file"]).is_file())):
+                    row = self._askable(conn, lib, key)
+                    if row is not None and row["figures_note"] is None:
                         ask.append(key)
             finally:
                 conn.close()
@@ -622,6 +623,17 @@ class Worker:
 
     #: Where PMC's PDF came from, as the `filed` row of a PDF kept from it says.
     _PMC_SOURCE = {"pmc-cloud": "from the PMC Cloud Service", "europepmc": "from EBI's bulk area"}
+
+    @staticmethod
+    def _askable(conn: Any, lib: Library, key: str) -> Any:
+        """The paper's row when PMC can be asked for its PDF — read from XML, read, with a PMCID,
+        and no PDF on disk drawing its figures (one kept once and gone since draws nothing) — or
+        None. Whether PMC settled the question before (`figures_note`) is the caller's to weigh."""
+        row = conn.execute("SELECT status, format, pmcid, figures_file, figures_note FROM papers WHERE key = ?", (key,)).fetchone()
+        if (row and row["status"] == "parsed" and row["format"] == "jats" and row["pmcid"]
+                and not (row["figures_file"] and (lib.papers_dir / row["figures_file"]).is_file())):
+            return row
+        return None
 
     def _ask_pmc_each(self, lib: Library, keys: list[str], req_id: Any, op: str) -> dict[str, str]:
         """PMC asked for the PDF of each paper named, in turn (`_ask_pmc`), each ask shown as
@@ -1052,6 +1064,42 @@ class Worker:
             conn.close()
         emit({"event": "done", "id": req_id, "op": "figures", "lib": lib.id, **totals})
 
+    def do_figures_fetch(self, req: dict[str, Any]) -> None:
+        """PMC asked for the PDFs of XML papers already held, on a person's word: the papers named
+        (`keys`), or else every one Collect lists for its figures (figures.figures_wanted) — for
+        an empty `keys` too, as every op with `keys` takes it. Each is read from XML, read, with a
+        PMCID, and no PDF on disk drawing its figures (`_askable`). One whose ask PMC settled
+        before (`figures_note`) is counted `already` and not asked again, unless `again`. The rest
+        are asked as a filing asks them (`_ask_pmc_each`: progress a paper, the first ask that
+        cannot reach PMC stopping the others); the off switch is not looked at: it stops the work
+        done unasked, and this is asked for. `done` comes once the asks are made, before any
+        reading, so PMC's answers are shown at once: `papers` (those that qualify), `already`,
+        `asked`, and one count per answer — `kept`, `missed`, `refused`, and `unreachable`: the
+        ask that could not reach PMC and every paper passed by after it, so the four add up to the
+        papers not counted `already`. No `paper` event: nothing is filed. Then the PDFs kept are
+        read by the figures op, with its own progress and `done`, whatever read the paper has, as
+        a PDF kept at filing is read (`figures_of`): keep_beside leaves a read that names no file
+        (a merge's copy), which would otherwise stand for a PDF it never saw."""
+        from . import figures
+
+        lib = self._lib(req)
+        req_id = req.get("id")
+        conn = open_store(lib.store_path)
+        try:
+            named = list(dict.fromkeys(str(k) for k in req.get("keys") or [])) or [w["key"] for w in figures.figures_wanted(conn, lib.papers_dir)]
+            rows = {key: row for key in named if (row := self._askable(conn, lib, key)) is not None}
+        finally:
+            conn.close()
+        ask = [key for key, row in rows.items() if row["figures_note"] is None or req.get("again")]
+        answers = self._ask_pmc_each(lib, ask, req_id, "figures_fetch")
+        said = list(answers.values())
+        kept = [key for key, a in answers.items() if a == "kept"]
+        emit({"event": "done", "id": req_id, "op": "figures_fetch", "lib": lib.id, "papers": len(rows), "asked": len(said) - said.count("not-asked"),
+              "kept": len(kept), "missed": said.count("missed"), "refused": said.count("refused"),
+              "unreachable": said.count("unreachable") + said.count("not-asked"), "already": len(rows) - len(ask)})
+        if kept:  # never an empty list: do_figures takes no keys as every paper's
+            self.do_figures({"id": f"{req_id}-figures", "op": "figures", "lib": lib.id, "keys": kept, "force": True})
+
     # ---- acquisition, projects, retrieval: the long ones, on the ingest thread ----------
 
     def do_fetch(self, req: dict[str, Any]) -> None:
@@ -1371,7 +1419,7 @@ class Worker:
                     emit({"event": "retrieval", "id": req_id, "lib": lib.id, **retrieve.status(conn, retrieve.OllamaEmbedder())})
                 finally:
                     conn.close()
-            elif op in ("fetch", "merge", "embed", "model_label", "figures", "round", "expand"):
+            elif op in ("fetch", "merge", "embed", "model_label", "figures", "figures_fetch", "round", "expand"):
                 if op != "merge":
                     self._lib(req)  # fail fast on a bad library
                 self.ingest_queue.put(req)
