@@ -240,7 +240,7 @@ def _beside(lib, conn, key):
         conn.execute("INSERT INTO charts(paper, figure, figure_label, plot, page, bbox, status, source, reader, at) VALUES (?,?,?,?,?,?,?,?,?,?)",
                      (key, figures.figure_numbers(conn, key)["1"], "1", 1, 2, "[0, 0, 100, 100]", "read", "vector", figures.READER, "t"))
         conn.execute("INSERT INTO figure_reads(paper, reader, figures, plots, read, values_, seconds, at, file, unmatched) VALUES (?,?,?,?,?,?,?,?,?,?)",
-                     (key, figures.READER, 1, 2, 1, 0, 1.0, "the source's read", name, 1))
+                     (key, figures.READER, len(figures.figure_numbers(conn, key)), 2, 1, 0, 1.0, "the source's read", name, 1))  # it looked for every figure the paper numbers
     return name
 
 
@@ -287,6 +287,39 @@ def test_a_paper_new_to_the_target_brings_the_pdf_kept_beside_it_and_its_read(th
     assert [stage for stage, _ in _stages(conn)] == ["merged"]  # no 'filed' row: nothing arrived
     _read_into_rows(conn, KEY)  # as the worker's rebuild leaves it
     assert figures.figures_wanted(conn, t.papers_dir) == [] and figures.is_read(conn, KEY)
+    conn.close()
+
+
+def test_a_paper_new_to_the_target_brings_what_each_of_its_figures_came_to(threads):
+    root, s = threads["root"], threads["threads"]
+    conn = open_store(s.store_path)
+    numbers = figures.figure_numbers(conn, KEY)
+    with conn:
+        conn.executemany("INSERT INTO figure_outcomes(paper, figure, figure_label, outcome, page) VALUES (?,?,?,?,?)",
+                         [(KEY, numbers["1"], "1", "plots", 2), (KEY, numbers["2"], "2", "no-caption", None)])
+    want = [tuple(r) for r in conn.execute("SELECT figure, figure_label, outcome, page FROM figure_outcomes ORDER BY figure")]
+    conn.close()
+    projects.merge(root, ["threads"], "Merged")
+    _, conn = _held(root)
+    assert [tuple(r) for r in conn.execute("SELECT figure, figure_label, outcome, page FROM figure_outcomes WHERE paper = ? ORDER BY figure", (KEY,))] == want
+    conn.close()
+    projects.merge(root, ["threads"], "", into="merged")  # twice is once
+    _, conn = _held(root)
+    assert conn.execute("SELECT COUNT(*) FROM figure_outcomes").fetchone()[0] == 2
+    conn.close()
+
+
+def test_a_merge_copies_what_each_figure_came_to_in_the_columns_both_stores_have(threads):
+    root, s = threads["root"], threads["threads"]
+    conn = open_store(s.store_path)
+    numbers = figures.figure_numbers(conn, KEY)
+    with conn:
+        conn.execute("ALTER TABLE figure_outcomes ADD COLUMN seen_by TEXT")  # a later reader's column the target has not
+        conn.execute("INSERT INTO figure_outcomes(paper, figure, figure_label, outcome, page, seen_by) VALUES (?,?,?,?,?,?)", (KEY, numbers["1"], "1", "plots", 2, "later"))
+    conn.close()
+    projects.merge(root, ["threads"], "Merged")
+    _, conn = _held(root)
+    assert [tuple(r) for r in conn.execute("SELECT figure_label, outcome, page FROM figure_outcomes WHERE paper = ?", (KEY,))] == [("1", "plots", 2)]
     conn.close()
 
 
@@ -627,7 +660,7 @@ def test_a_pdf_paper_s_read_names_its_file_by_the_name_the_target_gives_it(tmp_p
     figures.ensure_schema(conn)
     with conn:
         conn.execute("INSERT INTO figure_reads(paper, reader, figures, plots, read, values_, seconds, at, file, unmatched) VALUES (?,?,?,?,?,?,?,?,?,?)",
-                     (key, figures.READER, 1, 0, 0, 0, 1.0, "t", "Odd Name.PDF", 0))
+                     (key, figures.READER, 0, 0, 0, 0, 1.0, "t", "Odd Name.PDF", 0))  # read with nothing to look for: its rows hold no picture
     conn.close()
     projects.merge(root, ["odd"], "Merged")
     _, conn = _held(root)

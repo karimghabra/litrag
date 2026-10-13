@@ -25,6 +25,8 @@ export interface FiguresWanted {
   figures: number;
   /** PMC's settled answer when it was asked for the PDF and had none to give */
   figures_note?: string | null;
+  /** the open copy OpenAlex named for the candidate the paper was filed from */
+  oa_url?: string | null;
 }
 
 export interface CollectEntry {

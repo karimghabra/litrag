@@ -378,8 +378,9 @@ def _merge_labels(sconn: sqlite3.Connection, s_tables: set[str], tconn: sqlite3.
 
 def _merge_charts(sconn: sqlite3.Connection, s_tables: set[str], tconn: sqlite3.Connection, key: str, tkey: str,
                   dest_name: str | None = None, figures_name: str | None = None) -> None:
-    """The numbers read from a filed paper's figures (figures.py) go with it, figure ids moved to
-    the key the target holds it by; a rebuild there finds each figure again by its place. The read
+    """The numbers read from a filed paper's figures (figures.py) go with it, and what each figure
+    came to, figure ids moved to the key the target holds it by; a rebuild there finds each figure
+    again by its place or its number, as it does the plots. The read
     they came from goes too, in the columns both stores have, naming the file it read by the name
     the target gave it: the paper's own (`dest_name`) or the PDF kept beside its XML
     (`figures_name`). A file the target was not given — gone from the source's disk, or one the
@@ -394,11 +395,12 @@ def _merge_charts(sconn: sqlite3.Connection, s_tables: set[str], tconn: sqlite3.
     def move(node_id: str) -> str:
         return tkey + node_id[len(key):] if tkey != key and node_id.startswith(key + "#") else node_id
 
-    for table in ("charts", "chart_values"):
+    for table in ("charts", "chart_values", "figure_outcomes"):  # the plots, their values, and what each figure came to
         if table not in s_tables:
             continue
-        cols = [r[1] for r in sconn.execute(f"PRAGMA table_info({table})")]
-        for r in sconn.execute(f"SELECT * FROM {table} WHERE paper = ?", (key,)):
+        have = {r[1] for r in tconn.execute(f"PRAGMA table_info({table})")}
+        cols = [r[1] for r in sconn.execute(f"PRAGMA table_info({table})") if r[1] in have]
+        for r in sconn.execute(f"SELECT {', '.join(cols)} FROM {table} WHERE paper = ?", (key,)):
             row = dict(zip(cols, r))
             row["paper"], row["figure"] = tkey, move(row["figure"])
             tconn.execute(f"INSERT OR IGNORE INTO {table}({', '.join(cols)}) VALUES ({', '.join('?' * len(cols))})", [row[c] for c in cols])

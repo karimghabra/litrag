@@ -16,6 +16,11 @@ rebuild or a reparse that renumbers the nodes finds the figure again, or removes
 figure this reading has not (`remap`). Reading a paper again replaces its rows; `READER` names
 the reader, and a paper read by this one is not read again unless asked.
 
+What each figure a read looked for came to is a row too, `figure_outcomes`: plots, no plot, no
+caption in the PDF, or skipped. A figure no read has a row for is told without one — no PDF,
+no number, a number taken, too small, no place, not read (`outcomes`) — and a paper's figures
+are counted from both (`states`), with SQL alone, for the papers, tree and charts ops.
+
 Nothing leaves the machine: the PDF is rendered here, and OCR runs on the models RapidOCR's
 package ships.
 """
@@ -28,7 +33,7 @@ import re
 import sqlite3
 import time
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Iterator
 
 import numpy as np
 
@@ -176,6 +181,12 @@ def crop(pdf: Any, page_no: int, bbox: tuple[float, float, float, float]) -> tup
 
 
 def ensure_schema(conn: sqlite3.Connection) -> None:
+    """The figures' tables, made on the first call that needs them; a call that finds them made
+    writes nothing (the papers op calls it, beside the ingest thread's writes)."""
+    tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('charts', 'chart_values', 'figure_reads', 'figure_outcomes')")}
+    if len(tables) == 4 and {"pages", "pages_read"} <= {r[1] for r in conn.execute("PRAGMA table_info(figure_reads)")}:
+        conn.commit()  # as the script would: what is pending is committed before the caller's writes
+        return
     conn.executescript(
         """
 CREATE TABLE IF NOT EXISTS charts (
@@ -219,10 +230,27 @@ CREATE TABLE IF NOT EXISTS figure_reads (
   reader TEXT NOT NULL, figures INTEGER NOT NULL, plots INTEGER NOT NULL, read INTEGER NOT NULL, values_ INTEGER NOT NULL,
   seconds REAL, at TEXT NOT NULL,
   file TEXT,                        -- the PDF read: the paper's own, or an XML paper's figures_file
-  unmatched INTEGER                 -- plots in that PDF pinned to no figure of the paper
+  unmatched INTEGER,                -- plots in that PDF pinned to no figure of the paper
+  pages INTEGER,                    -- the pages of that PDF; NULL when not counted
+  pages_read INTEGER                -- an XML paper's: the pages printing a caption of one of its floats, the only ones looked at
+);
+CREATE TABLE IF NOT EXISTS figure_outcomes (
+  paper TEXT NOT NULL REFERENCES papers(key) ON DELETE CASCADE,
+  figure TEXT NOT NULL,             -- one row per figure the last read looked for: a PDF paper's picture, an XML paper's float by its key
+  figure_label TEXT,                -- an XML paper's key looked for, "2" or "Scheme 1"; NULL for a PDF paper's picture
+  outcome TEXT NOT NULL,            -- plots | no-plot | no-caption | skipped (how many plots, and read: `charts`)
+  page INTEGER,                     -- a picture's page; for an XML paper's float, the PDF's page its plots are on, or its caption
+  bbox TEXT,                        -- a picture's [left, top, right, bottom] in points from the top
+  detail TEXT,                      -- why it was skipped
+  PRIMARY KEY(paper, figure)
 );
 """
     )
+    have = {r[1] for r in conn.execute("PRAGMA table_info(figure_reads)")}
+    for col in ("pages", "pages_read"):
+        if col not in have:  # a store made before the pages were counted
+            conn.execute(f"ALTER TABLE figure_reads ADD COLUMN {col} INTEGER")
+    conn.commit()
 
 
 def _hex(c: list[int] | tuple[int, ...]) -> str:
@@ -261,22 +289,36 @@ def _rows(key: str, figure: str, label: str | None, j: int, page: int, bbox: lis
     return row, values
 
 
-def _store(conn: sqlite3.Connection, key: str, rows: list[dict[str, Any]], values: list[tuple[Any, ...]], figures_n: int, seconds: float, stamp: str, file: str, unmatched: int = 0) -> dict[str, Any]:
-    """A paper's chart rows in place of the ones it had."""
+def _store(conn: sqlite3.Connection, key: str, rows: list[dict[str, Any]], values: list[tuple[Any, ...]], figures_n: int, seconds: float, stamp: str, file: str, unmatched: int = 0,
+           outcomes: list[tuple[Any, ...]] | None = None, pages: int | None = None, pages_read: int | None = None) -> dict[str, Any]:
+    """A paper's chart rows in place of the ones it had, and what each figure looked for came to
+    (`outcomes`: figure, figure_label, outcome, page, bbox, detail)."""
     n_read = sum(r["status"] == "read" for r in rows)
     with conn:
         conn.execute("DELETE FROM chart_values WHERE paper = ?", (key,))
         conn.execute("DELETE FROM charts WHERE paper = ?", (key,))
+        conn.execute("DELETE FROM figure_outcomes WHERE paper = ?", (key,))
         conn.executemany(f"INSERT INTO charts({', '.join(_CHART_COLS)}) VALUES ({', '.join('?' * len(_CHART_COLS))})", [tuple(r[c] for c in _CHART_COLS) for r in rows])
         conn.executemany(f"INSERT INTO chart_values VALUES ({', '.join('?' * 12)})", values)
-        conn.execute("INSERT OR REPLACE INTO figure_reads(paper, reader, figures, plots, read, values_, seconds, at, file, unmatched) VALUES (?,?,?,?,?,?,?,?,?,?)",
-                     (key, READER, figures_n, len(rows), n_read, len(values), seconds, stamp, file, unmatched))
-    return {"figures": figures_n, "plots": len(rows), "read": n_read, "values": len(values), "seconds": seconds, "unmatched": unmatched}
+        conn.executemany("INSERT INTO figure_outcomes(paper, figure, figure_label, outcome, page, bbox, detail) VALUES (?,?,?,?,?,?,?)", [(key, *o) for o in outcomes or []])
+        conn.execute("INSERT OR REPLACE INTO figure_reads(paper, reader, figures, plots, read, values_, seconds, at, file, unmatched, pages, pages_read) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                     (key, READER, figures_n, len(rows), n_read, len(values), seconds, stamp, file, unmatched, pages, pages_read))
+    return {"figures": figures_n, "plots": len(rows), "read": n_read, "values": len(values), "seconds": seconds, "unmatched": unmatched, "pages": pages, "pages_read": pages_read}
+
+
+def _box(f: sqlite3.Row) -> tuple[float, float, float, float]:
+    """A picture node's box, (left, top, right, bottom) from the top of the page whichever way its rows give it."""
+    return (f["bbox_l"], min(f["bbox_t"], f["bbox_b"]), f["bbox_r"], max(f["bbox_t"], f["bbox_b"]))
+
+
+def _place(box: tuple[float, ...] | list[float]) -> str:
+    return json.dumps([round(v, 2) for v in box])
 
 
 def read_paper(conn: sqlite3.Connection, key: str, pdf_path: Path, *, ocr: charts.Ocr | None = None, on_figure: Callable[[int, int], None] | None = None) -> dict[str, Any]:
     """Every figure of a PDF paper read, its rows replacing the ones it had: `{figures, plots,
-    read, values, seconds}`."""
+    read, values, seconds}`; and each picture's outcome, plots or none — or skipped, and why, a
+    picture on a page the PDF has not."""
     import pypdfium2 as pdfium
 
     from .library import now_iso
@@ -287,22 +329,27 @@ def read_paper(conn: sqlite3.Connection, key: str, pdf_path: Path, *, ocr: chart
     stamp = now_iso()
     rows: list[dict[str, Any]] = []
     values: list[tuple[Any, ...]] = []
+    outcomes: list[tuple[Any, ...]] = []
     pdf = pdfium.PdfDocument(str(pdf_path))
     try:
+        n_pages = len(pdf)
         for i, f in enumerate(figs):
             if on_figure:
                 on_figure(i, len(figs))
-            bbox = (f["bbox_l"], min(f["bbox_t"], f["bbox_b"]), f["bbox_r"], max(f["bbox_t"], f["bbox_b"]))
-            if f["page"] > len(pdf):
+            bbox = _box(f)
+            if f["page"] > n_pages:
+                outcomes.append((f["node_id"], None, "skipped", f["page"], _place(bbox), f"page {f['page']} is past the end of {pdf_path.name}"))
                 continue
             img, words, source, scale = crop(pdf, f["page"], bbox)
-            for j, p in enumerate(charts.read(img, words, ocr=ocr or charts.ocr_words)):
+            plots = charts.read(img, words, ocr=ocr or charts.ocr_words)
+            for j, p in enumerate(plots):
                 row, vals = _rows(key, f["node_id"], None, j, f["page"], list(bbox), p, source, scale, stamp)
                 rows.append(row)
                 values += vals
+            outcomes.append((f["node_id"], None, "plots" if plots else "no-plot", f["page"], _place(bbox), None))
     finally:
         pdf.close()
-    return _store(conn, key, rows, values, len(figs), round(time.time() - t0, 2), stamp, pdf_path.name)
+    return _store(conn, key, rows, values, len(figs), round(time.time() - t0, 2), stamp, pdf_path.name, outcomes=outcomes, pages=n_pages)
 
 
 # -- an XML paper's figures, from a PDF of it ------------------------------------------------------------------
@@ -321,19 +368,51 @@ def figure_key(kind: str, number: str) -> str:
     return _KINDS.get(kind[:1].casefold(), "") + number.upper()
 
 
+def _figure_rows(conn: sqlite3.Connection, keys: list[str] | None = None) -> list[sqlite3.Row]:
+    """The picture and chart nodes of the papers (`keys`, or every paper), in reading order, each
+    with its captions' text and its place."""
+    where = f"AND p.paper IN ({', '.join('?' * len(keys))})" if keys is not None else ""
+    return conn.execute(
+        "SELECT p.paper, p.node_id, p.text, p.page, p.bbox_l, p.bbox_t, p.bbox_r, p.bbox_b, "
+        "(SELECT group_concat(c.text, ' ') FROM nodes c WHERE c.parent = p.node_id AND c.type = 'caption') AS cap "
+        f"FROM nodes p WHERE p.type IN ('picture', 'chart') {where} ORDER BY p.rowid",
+        list(keys or []),
+    ).fetchall()
+
+
+def _key_of(r: sqlite3.Row) -> str | None:
+    m = _LABEL.match(r["cap"] or r["text"] or "")
+    return figure_key(m.group(1), m.group(2)) if m else None
+
+
+def _labelled(rows: list[sqlite3.Row]) -> dict[str, tuple[str | None, bool]]:
+    out: dict[str, tuple[str | None, bool]] = {}
+    seen: set[str] = set()
+    for r in rows:
+        k = _key_of(r)
+        out[r["node_id"]] = (k, k is not None and k not in seen)  # the first to give a key keeps it
+        if k is not None:
+            seen.add(k)
+    return out
+
+
+def figure_labels(conn: sqlite3.Connection, key: str) -> dict[str, tuple[str | None, bool]]:
+    """Each picture or chart node of the paper by the key its caption gives it (`figure_key`) —
+    None when it gives no number — and whether it is the first to give that key: one that repeats
+    an earlier caption's kind and number is no float a PDF's captions can be matched to, the
+    earlier one is."""
+    return _labelled(_figure_rows(conn, [key]))
+
+
+def is_figure_key(k: str | None) -> bool:
+    """A figure's key, "2" or "S2": not a scheme's or a chart's."""
+    return k is not None and " " not in k
+
+
 def figure_numbers(conn: sqlite3.Connection, key: str) -> dict[str, str]:
     """The keys looked for in a PDF of the paper: its figures, schemes and charts by the key their
     captions give them (`figure_key`), {"2": picture node, "Scheme 1": picture node}."""
-    out: dict[str, str] = {}
-    for r in conn.execute(
-        "SELECT p.node_id, p.text, (SELECT group_concat(c.text, ' ') FROM nodes c WHERE c.parent = p.node_id AND c.type = 'caption') AS cap "
-        "FROM nodes p WHERE p.paper = ? AND p.type IN ('picture', 'chart') ORDER BY p.rowid",
-        (key,),
-    ):
-        m = _LABEL.match(r["cap"] or r["text"] or "")
-        if m:
-            out.setdefault(figure_key(m.group(1), m.group(2)), r["node_id"])  # the first to give a key keeps it
-    return out
+    return {k: node for node, (k, first) in figure_labels(conn, key).items() if first and k is not None}
 
 
 _CAPTION_UPPER = re.compile(r"^\s*(FIGURE|FIG\.|SCHEME|CHART)\s*(S?\d+)(?![\d.]*\d)")  # set in capitals: a caption, punctuated or not
@@ -399,14 +478,41 @@ def _images(page: Any, w: float, h: float) -> list[tuple[Any, tuple[float, float
     return out
 
 
+def caption_pages(pdf: Any, numbers: dict[str, str], on_page: Callable[[int, int], None] | None = None) -> Iterator[tuple[int, Any, list[Word], list[tuple[str, Word]]]]:
+    """The pages of an open PDF that print the caption of one of the paper's floats (`numbers`),
+    as (page index, the page, its words in points from the top left, every caption on it — the
+    paper's or not: each claims what it sits under). Its text layer alone decides: no page is
+    rendered. A page printing none is closed and passed by; the caller closes each page given."""
+    for pno in range(len(pdf)):
+        if on_page:
+            on_page(pno, len(pdf))
+        page = pdf[pno]
+        w, h = page.get_size()
+        words = text_words(page, (0, 0, w, h), 1.0)
+        caps = captions(words)
+        if not any(n in numbers for n, _ in caps):
+            page.close()
+            continue
+        yield pno, page, words, caps
+
+
+def _xml_outcomes(numbers: dict[str, str], plotted: dict[str, int], found: dict[str, int]) -> list[tuple[Any, ...]]:
+    """An XML paper's outcome rows, one per key looked for: plots pinned to it (on the first page
+    they are), its caption found and nothing pinned (on the page it is), or no caption printed."""
+    return [(node, k, "plots", plotted[k], None, None) if k in plotted else (node, k, "no-plot", found[k], None, None) if k in found else (node, k, "no-caption", None, None, None)
+            for k, node in numbers.items()]
+
+
 def read_pages(conn: sqlite3.Connection, key: str, pdf_path: Path, *, ocr: charts.Ocr | None = None, on_page: Callable[[int, int], None] | None = None) -> dict[str, Any]:
     """An XML paper's figures read from a PDF of it, on each page that prints the caption of one
-    of its figures, schemes or charts: an image there large enough to be a figure is read whole,
-    at its own resolution, with OCR, and pinned with all its plots to the caption it sits over
-    ("Figure 2", so to the XML's figure 2; "Scheme 1" to its scheme 1); the rest of the page, the
-    images blanked, is read at PAGE_DPI with its own text layer, and each plot drawn there pinned
-    the same way. A plot under no caption, or under one the paper has no float for, is counted,
-    not kept (`claimed`)."""
+    of its figures, schemes or charts (`caption_pages`): an image there large enough to be a
+    figure is read whole, at its own resolution, with OCR, and pinned with all its plots to the
+    caption it sits over ("Figure 2", so to the XML's figure 2; "Scheme 1" to its scheme 1); the
+    rest of the page, the images blanked, is read at PAGE_DPI with its own text layer, and each
+    plot drawn there pinned the same way. A plot under no caption, or under one the paper has no
+    float for, is counted, not kept (`claimed`). Each key looked for comes to plots, no plot under
+    a caption found, or no caption printed; with none to look for the PDF is opened only to count
+    its pages."""
     import pypdfium2 as pdfium
 
     from .library import now_iso
@@ -419,6 +525,8 @@ def read_pages(conn: sqlite3.Connection, key: str, pdf_path: Path, *, ocr: chart
     values: list[tuple[Any, ...]] = []
     unmatched = 0
     count: dict[str, int] = {}
+    found: dict[str, int] = {}
+    pages_read = 0
     ocr = ocr or charts.ocr_words
 
     def keep(num: str, plots: list[tuple[dict[str, Any], list[float], str, float]], pno: int) -> None:
@@ -432,16 +540,13 @@ def read_pages(conn: sqlite3.Connection, key: str, pdf_path: Path, *, ocr: chart
 
     pdf = pdfium.PdfDocument(str(pdf_path))
     try:
-        for pno in range(len(pdf)):
-            if on_page:
-                on_page(pno, len(pdf))
-            page = pdf[pno]
+        n_pages = len(pdf)
+        for pno, page, words_pt, caps in (caption_pages(pdf, numbers, on_page) if numbers else ()):
+            pages_read += 1
+            for n, _ in caps:
+                if n in numbers:
+                    found.setdefault(n, pno + 1)
             w, h = page.get_size()
-            words_pt = text_words(page, (0, 0, w, h), 1.0)
-            caps = captions(words_pt)  # every caption on the page, the paper's or not: each claims what it sits under
-            if not any(n in numbers for n, _ in caps):
-                page.close()
-                continue
             # the images: each a figure of its own, read whole
             images = _images(page, w, h)
             for _, box in images:
@@ -471,7 +576,11 @@ def read_pages(conn: sqlite3.Connection, key: str, pdf_path: Path, *, ocr: chart
                 keep(num, plots, pno)
     finally:
         pdf.close()
-    return _store(conn, key, rows, values, len(numbers), round(time.time() - t0, 2), stamp, pdf_path.name, unmatched)
+    plotted: dict[str, int] = {}
+    for r in rows:
+        plotted[r["figure_label"]] = min(plotted.get(r["figure_label"], r["page"]), r["page"])
+    return _store(conn, key, rows, values, len(numbers), round(time.time() - t0, 2), stamp, pdf_path.name, unmatched,
+                  outcomes=_xml_outcomes(numbers, plotted, found), pages=n_pages, pages_read=pages_read)
 
 
 def read_for(conn: sqlite3.Connection, key: str, papers_dir: Path, **kw: Any) -> dict[str, Any] | None:
@@ -625,28 +734,287 @@ def figures_wanted(conn: sqlite3.Connection, papers_dir: Path | None = None) -> 
     """The XML papers whose figures no PDF draws yet: read, with figures their captions number,
     and no figures_file — or, given the folder the papers are in, none on disk there: a PDF kept
     once and gone since draws nothing. What the collect window can fetch for them, most figures
-    first, with PMC's settled answer when it was asked for the PDF and had none (`figures_note`).
-    Only figure keys count: a PDF kept for a paper is read for its schemes and charts too, but a
-    paper whose captions number only schemes and charts is not listed."""
-    out = []
-    for r in conn.execute("SELECT key, title, doi, pmid, pmcid, figures_file, figures_note FROM papers WHERE format = 'jats' AND status = 'parsed'"):
-        if r["figures_file"] and (papers_dir is None or (papers_dir / r["figures_file"]).is_file()):
-            continue
-        n = sum(" " not in k for k in figure_numbers(conn, r["key"]))  # "2" and "S2", not "Scheme 1"
-        if n:
-            out.append({**{c: r[c] for c in ("key", "title", "doi", "pmid", "pmcid", "figures_note")}, "figures": n})
+    first, with PMC's settled answer when it was asked for the PDF and had none (`figures_note`),
+    and the open copy OpenAlex named for the candidate the paper was filed from (`oa_url`). Only
+    figure keys count: a PDF kept for a paper is read for its schemes and charts too, but a paper
+    whose captions number only schemes and charts is not listed. The off switch is not looked at
+    (`states` is asked as if the figures were on): the `wanted` op's own check empties its answer."""
+    told = states(conn, papers_dir, True)
+    rows = {r["key"]: r for r in conn.execute("SELECT key, title, doi, pmid, pmcid, figures_note FROM papers WHERE format = 'jats' AND status = 'parsed'")}
+    out = [{**{c: r[c] for c in ("key", "title", "doi", "pmid", "pmcid", "figures_note")}, "figures": told[k]["numbered"], "oa_url": None}
+           for k, r in rows.items() if told[k]["kind"] in ("no-pdf", "missing-file") and told[k]["numbered"]]
+    if out and conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'candidates'").fetchone() \
+            and "oa_url" in {r[1] for r in conn.execute("PRAGMA table_info(candidates)")}:
+        urls: dict[str, str] = {}
+        for r in conn.execute("SELECT paper_key, oa_url FROM candidates WHERE paper_key IS NOT NULL AND oa_url IS NOT NULL ORDER BY cand_id"):
+            urls.setdefault(r["paper_key"], r["oa_url"])
+        for w in out:
+            w["oa_url"] = urls.get(w["key"])
     out.sort(key=lambda d: (-d["figures"], d["key"]))
     return out
 
 
-def is_read(conn: sqlite3.Connection, key: str) -> bool:
-    """Whether the paper's figures were read by this reader from the file that draws them now."""
-    ensure_schema(conn)
-    row = conn.execute("SELECT f.reader, f.file, p.format, p.file AS own, p.figures_file FROM figure_reads f JOIN papers p ON p.key = f.paper WHERE f.paper = ?", (key,)).fetchone()
-    if row is None or row["reader"] != READER:
+def _read_now(fr: Any, fmt: str | None, own: str | None, figures_file: str | None, looked: set[str], stored: set[str]) -> bool:
+    """Read by this reader, from the file that draws the figures now (a read naming none, a
+    merge's copy, stands for it), looking for as many figures as there are to look for now — and,
+    where it kept what each came to, for the same ones."""
+    if fr is None or fr["reader"] != READER:
         return False
-    source = row["own"] if row["format"] == "pdf" else row["figures_file"]
-    return row["file"] is None or row["file"] == source
+    source = own if fmt == "pdf" else figures_file
+    if fr["file"] is not None and fr["file"] != source:
+        return False
+    if fr["figures"] != len(looked):
+        return False
+    return not stored or stored == looked
+
+
+def _looked(fmt: str | None, rows: list[sqlite3.Row], labels: dict[str, tuple[str | None, bool]]) -> set[str]:
+    """The figures a read looks for now: an XML paper's floats by their keys (`figure_numbers`),
+    a PDF paper's pictures large enough and placed (`pictures`)."""
+    if fmt == "pdf":
+        return {r["node_id"] for r in rows if _placed(r) and not _small(r)}
+    return {node for node, (k, first) in labels.items() if first}
+
+
+def _placed(r: sqlite3.Row) -> bool:
+    return r["page"] is not None and r["bbox_l"] is not None
+
+
+def _small(r: sqlite3.Row) -> bool:
+    return not (r["bbox_r"] - r["bbox_l"] >= MIN_SIDE_PT and abs(r["bbox_b"] - r["bbox_t"]) >= MIN_SIDE_PT)
+
+
+def is_read(conn: sqlite3.Connection, key: str) -> bool:
+    """Whether the paper's figures were read by this reader from the file that draws them now,
+    looking for the figures there are now: as many (`figure_reads.figures`), and, where what each
+    came to was kept, the same ones. A figure the reading gained since, or a caption that numbers
+    one now, is a figure not read."""
+    ensure_schema(conn)
+    row = conn.execute("SELECT f.reader, f.file, f.figures, p.format, p.file AS own, p.figures_file FROM figure_reads f JOIN papers p ON p.key = f.paper WHERE f.paper = ?", (key,)).fetchone()
+    if row is None:
+        return False
+    rows = _figure_rows(conn, [key])
+    stored = {r[0] for r in conn.execute("SELECT figure FROM figure_outcomes WHERE paper = ?", (key,))}
+    return _read_now(row, row["format"], row["own"], row["figures_file"], _looked(row["format"], rows, _labelled(rows)), stored)
+
+
+def _outcome(fmt: str | None, drawn: bool, read_now: bool, node: str, r: sqlite3.Row, label: tuple[str | None, bool], stored: dict[str, Any], plotted: set[str]) -> str:
+    """What one figure came to: its row, kept by the read the paper's figures stand on, or what is
+    known without one. A read made before rows were kept tells what `backfill` would record from
+    SQL: a figure with plots has plots, a PDF's picture with none has none; only an XML figure with
+    none, whose caption the PDF may not print, waits for its row (unrecorded)."""
+    k, first = label
+    if fmt == "jats":
+        if k is None:
+            return "unnumbered"  # no number to match a PDF's captions by
+        if not first:
+            return "same-number"  # an earlier caption's kind and number: a PDF's plots go to that one
+        if not drawn:
+            return "no-pdf"
+    elif not _placed(r):
+        return "unplaced"
+    elif _small(r):
+        return "small"
+    if not read_now:
+        return "unread"
+    if node in stored:
+        return str(stored[node]["outcome"])
+    if node in plotted:
+        return "plots"
+    return "no-plot" if fmt != "jats" else "unrecorded"  # read before outcomes were kept: `backfill`
+
+
+_TALLY = ("figures", "numbered", "pinned", "no_plot", "no_caption", "unnumbered", "same_number", "small", "unplaced", "unread")
+_COUNTED = {"plots": "pinned", "no-plot": "no_plot", "no-caption": "no_caption", "unnumbered": "unnumbered", "same-number": "same_number", "small": "small",
+            "unplaced": "unplaced", "unread": "unread", "unrecorded": "unread", "skipped": "unread"}
+
+
+def _paper_outcomes(fmt: str | None, figures_file: str | None, fr: Any, own: str | None, rows: list[sqlite3.Row], stored: dict[str, Any],
+                    plotted: set[str]) -> tuple[bool, dict[str, tuple[str, str | None]], dict[str, int]]:
+    """A paper's figures, each by what it came to (`plotted`: the nodes with `charts` rows): (read
+    now, {node: (outcome, its key)}, the counts the window shows). An XML paper's are counted over
+    its figures — not its schemes or charts, whose rows tag their own nodes — as `figures_wanted`
+    counts them; a PDF paper's over the pictures a read looks for, its small and unplaced ones
+    counted apart. The one count the read message and the papers op both give."""
+    labels = _labelled(rows)
+    read_now = _read_now(fr, fmt, own, figures_file, _looked(fmt, rows, labels), set(stored))
+    drawn = fmt != "jats" or bool(figures_file)
+    each: dict[str, tuple[str, str | None]] = {}
+    c = dict.fromkeys(_TALLY, 0)
+    for r in rows:
+        node = r["node_id"]
+        o = _outcome(fmt, drawn, read_now, node, r, labels[node], stored, plotted)
+        k, first = labels[node]
+        each[node] = (o, k)
+        if fmt == "jats" and k is not None and not is_figure_key(k):
+            continue  # "Scheme 1": looked for, and not counted
+        if o in ("small", "unplaced"):
+            c[_COUNTED[o]] += 1  # a PDF's picture no read looks for: not one of its figures
+            continue
+        c["figures"] += 1
+        c["numbered"] += is_figure_key(k) and first
+        if o in _COUNTED:
+            c[_COUNTED[o]] += 1
+    return read_now, each, c
+
+
+def states(conn: sqlite3.Connection, papers_dir: Path | None, enabled: bool, keys: list[str] | None = None) -> dict[str, dict[str, Any]]:
+    """What each paper's figures came to (`keys`, or every paper's), from a few grouped queries —
+    SQL only, no PDF opened: `{kind, figures, numbered, pinned, no_plot, no_caption, unnumbered,
+    same_number, small, unplaced, unread, plots, read, values, unmatched, pages, pages_read, file,
+    at, note, asked}`. The kind:
+
+    - none: no figure — for a PDF paper, no picture a read looks for (`small` and `unplaced`
+      count the rest).
+    - Then the file decides: an XML paper with no PDF kept beside it is no-pdf; a file that draws
+      the figures not on disk in `papers_dir` (none given: taken as there) is missing-file —
+      whatever was read of it.
+    - read, when the read stands (`is_read`), else unread.
+    - off in place of no-pdf, missing-file and unread when `enabled` is false — the switch, which
+      the caller reads, stops the work, not the answers: a read paper is read either way.
+
+    `plots`, `read` and `values` count `charts` rows, a scheme's too; `unmatched`, `pages` and
+    `pages_read` are the last read's; `note` is PMC's settled answer (`figures_note`); `asked`
+    the last word on asking PMC for its PDF (a `figures-pdf` row: an ask, never a refused drop)."""
+    ensure_schema(conn)
+    where = f"IN ({', '.join('?' * len(keys))})" if keys is not None else "IS NOT NULL"
+    args = list(keys or [])
+    papers = conn.execute(f"SELECT key, format, file, figures_file, figures_note FROM papers WHERE key {where}", args).fetchall()
+    figs: dict[str, list[sqlite3.Row]] = {}
+    for r in _figure_rows(conn, keys):
+        figs.setdefault(r["paper"], []).append(r)
+    reads = {r["paper"]: r for r in conn.execute(f"SELECT * FROM figure_reads WHERE paper {where}", args)}
+    stored: dict[str, dict[str, Any]] = {}
+    for r in conn.execute(f"SELECT paper, figure, outcome FROM figure_outcomes WHERE paper {where}", args):
+        stored.setdefault(r["paper"], {})[r["figure"]] = r
+    plots = {r["paper"]: r for r in conn.execute(f"SELECT paper, COUNT(*) AS plots, SUM(status = 'read') AS read FROM charts WHERE paper {where} GROUP BY paper", args)}
+    plotted: dict[str, set[str]] = {}
+    for r in conn.execute(f"SELECT DISTINCT paper, figure FROM charts WHERE paper {where}", args):
+        plotted.setdefault(r[0], set()).add(r[1])
+    values = {r[0]: r[1] for r in conn.execute(f"SELECT paper, COUNT(*) FROM chart_values WHERE paper {where} GROUP BY paper", args)}
+    asked = {r[0]: r[1] for r in conn.execute(f"SELECT paper, detail FROM events WHERE id IN (SELECT MAX(id) FROM events WHERE stage = 'figures-pdf' AND paper {where} GROUP BY paper)", args)}
+    out: dict[str, dict[str, Any]] = {}
+    for p in papers:
+        key, fmt = p["key"], p["format"]
+        fr = reads.get(key)
+        read_now, _, c = _paper_outcomes(fmt, p["figures_file"], fr, p["file"], figs.get(key, []), stored.get(key, {}), plotted.get(key, set()))
+        file = p["file"] if fmt == "pdf" else p["figures_file"]
+        if not c["figures"]:
+            kind = "none"
+        elif fmt == "jats" and not file:
+            kind = "no-pdf"
+        elif not file or (papers_dir is not None and not (papers_dir / file).is_file()):
+            kind = "missing-file"
+        else:
+            kind = "read" if read_now else "unread"
+        if not enabled and kind in ("no-pdf", "missing-file", "unread"):
+            kind = "off"
+        pl = plots.get(key)
+        out[key] = {"kind": kind, **c, "plots": pl["plots"] if pl else 0, "read": (pl["read"] or 0) if pl else 0, "values": values.get(key, 0),
+                    "unmatched": fr["unmatched"] if fr else None, "pages": fr["pages"] if fr else None, "pages_read": fr["pages_read"] if fr else None,
+                    "file": file, "at": fr["at"] if fr else None, "note": p["figures_note"], "asked": asked.get(key)}
+    return out
+
+
+def outcomes(conn: sqlite3.Connection, key: str) -> dict[str, dict[str, Any]]:
+    """Each picture or chart node of the paper by what it came to: `{outcome, label, plots, read,
+    page, bbox, detail}` — the row its read kept when the paper's read stands, else what is known
+    without one (no-pdf, unnumbered, same-number, small, unplaced, unrecorded, unread; for a read
+    made before rows were kept, plots and a PDF picture's no-plot, as `backfill` would record them). `label` is
+    the key its caption gives it ("2", "Scheme 1"); `plots` and `read` count its `charts` rows;
+    `page` is a picture's, or the PDF page an XML figure's plots or caption are on. SQL only."""
+    ensure_schema(conn)
+    p = conn.execute("SELECT format, file, figures_file FROM papers WHERE key = ?", (key,)).fetchone()
+    if p is None:
+        return {}
+    rows = _figure_rows(conn, [key])
+    stored = {r["figure"]: r for r in conn.execute("SELECT * FROM figure_outcomes WHERE paper = ?", (key,))}
+    fr = conn.execute("SELECT * FROM figure_reads WHERE paper = ?", (key,)).fetchone()
+    counts = {r["figure"]: r for r in conn.execute("SELECT figure, COUNT(*) AS plots, SUM(status = 'read') AS read, MIN(page) AS page FROM charts WHERE paper = ? GROUP BY figure", (key,))}
+    _, each, _ = _paper_outcomes(p["format"], p["figures_file"], fr, p["file"], rows, stored, set(counts))
+    out: dict[str, dict[str, Any]] = {}
+    for r in rows:
+        node = r["node_id"]
+        o, k = each[node]
+        s = stored[node] if node in stored and stored[node]["outcome"] == o else None  # the row it came to, when the read it was kept by stands
+        c = counts.get(node)
+        page, bbox = (s["page"], json.loads(s["bbox"]) if s["bbox"] else None) if s else (r["page"], None)
+        if s is None and o in ("plots", "no-plot"):  # a read made before rows were kept: told where `backfill` would place it
+            page, bbox = (c["page"], None) if p["format"] == "jats" else (r["page"], json.loads(_place(_box(r))))
+        out[node] = {"outcome": o, "label": k, "plots": c["plots"] if c else 0, "read": (c["read"] or 0) if c else 0,
+                     "page": page, "bbox": bbox, "detail": s["detail"] if s else None}
+    return out
+
+
+def outcome_of(conn: sqlite3.Connection, figure: str) -> dict[str, Any] | None:
+    """What one figure came to (`outcomes`); None for a node that is no picture or chart."""
+    row = conn.execute("SELECT paper FROM nodes WHERE node_id = ?", (figure,)).fetchone()
+    return outcomes(conn, row[0]).get(figure) if row is not None else None
+
+
+def backfill(conn: sqlite3.Connection, key: str, papers_dir: Path) -> bool:
+    """What each figure came to, for a paper whose figures were read before it was kept: a PDF
+    paper's from its rows alone (a picture with plots, or with none), an XML paper's by finding
+    again the page of each caption in the kept PDF's text layer (`caption_pages`): no page
+    rendered, no chart read. Only for a read that stands (`is_read`, whose guards say it looked
+    for the figures there are now) and that kept no outcome yet; True when rows were written.
+    pdfium runs here, so only the ingest thread calls it (the figures op, a rebuild)."""
+    import pypdfium2 as pdfium
+
+    ensure_schema(conn)
+    if conn.execute("SELECT 1 FROM figure_outcomes WHERE paper = ? LIMIT 1", (key,)).fetchone() is not None or not is_read(conn, key):
+        return False
+    p = conn.execute("SELECT format, figures_file FROM papers WHERE key = ?", (key,)).fetchone()
+    pages = pages_read = None
+    if p["format"] == "pdf":
+        figs = pictures(conn, key)
+        plotted = {r[0] for r in conn.execute("SELECT DISTINCT figure FROM charts WHERE paper = ?", (key,))}
+        rows = [(f["node_id"], None, "plots" if f["node_id"] in plotted else "no-plot", f["page"], _place(_box(f)), None) for f in figs]
+    else:
+        numbers = figure_numbers(conn, key)
+        kept = papers_dir / p["figures_file"] if p["figures_file"] else None
+        if not numbers or kept is None or not kept.is_file():
+            return False
+        found: dict[str, int] = {}
+        try:
+            pdf = pdfium.PdfDocument(str(kept))
+            try:
+                pages, pages_read = len(pdf), 0
+                for pno, page, _, caps in caption_pages(pdf, numbers):
+                    page.close()
+                    pages_read += 1
+                    for n, _ in caps:
+                        if n in numbers:
+                            found.setdefault(n, pno + 1)
+            finally:
+                pdf.close()
+        except Exception:  # noqa: BLE001 — a PDF that will not open now records nothing; the read stands
+            return False
+        plotted_at = {r[0]: r[1] for r in conn.execute("SELECT figure_label, MIN(page) FROM charts WHERE paper = ? AND figure_label IS NOT NULL GROUP BY figure_label", (key,))}
+        rows = _xml_outcomes(numbers, plotted_at, found)
+    if not rows:
+        return False
+    with conn:
+        conn.executemany("INSERT INTO figure_outcomes(paper, figure, figure_label, outcome, page, bbox, detail) VALUES (?,?,?,?,?,?,?)", [(key, *o) for o in rows])
+        if pages is not None:
+            conn.execute("UPDATE figure_reads SET pages = ?, pages_read = ? WHERE paper = ?", (pages, pages_read, key))
+    return True
+
+
+def read_message(out: dict[str, Any], c: dict[str, Any], xml: bool) -> str | None:
+    """What a read of a paper's figures came to, in the words the window uses: `out` the read's
+    totals (`_store`), `c` the paper's counts (`states`), so the line and the chip count the same
+    figures. None when there was nothing to look for and nothing to say of it."""
+    if xml and c["figures"] and not c["numbered"]:
+        n = c["figures"]
+        return f"{n} figure{'s' if n != 1 else ''}, none with a number (“Figure 2”) to match the PDF’s captions by"
+    if not out["figures"]:
+        return None
+    clauses = [(c["no_plot"], "with no chart under their caption" if xml else "with no chart in them"), (c["no_caption"] if xml else 0, "whose caption the PDF does not print"),
+               (out.get("unmatched") or 0, "plots under no caption of the paper’s")]
+    within = f", in {c['pinned']} of {c['figures']} figures" if c["figures"] else ""  # only schemes and charts looked for: no figure to count
+    return (f"{out['read']} of {out['plots']} charts read{within}: {out['values']} values, in {out['seconds']}s"
+            + "".join(f"; {n} {words}" for n, words in clauses if n))
 
 
 def overlap(a: list[float] | tuple[float, ...], b: list[float] | tuple[float, ...]) -> float:
@@ -665,8 +1033,9 @@ def remap(conn: sqlite3.Connection, key: str) -> dict[str, Any]:
     node's id alone never keeps a plot: another reading may give it to another picture. A figure
     claimed by two, or by one while it keeps plots of its own, takes none: the incoming plots are
     removed. The whole mapping is made before a row moves, so two figures that trade ids trade
-    their plots. When any plot is removed the paper's read goes too, and the figures op reads it
-    again (`is_read`). Returns `{moved, removed, lost}`: the plots moved and removed, and what the
+    their plots. What each figure came to (`figure_outcomes`) moves and goes with it, by the same
+    mapping. When any plot, or any figure's outcome, is removed the paper's read goes too, and the
+    figures op reads it again (`is_read`). Returns `{moved, removed, lost}`: the plots moved and removed, and what the
     removed were plotted for ("2", "Scheme 1", "page 4")."""
     ensure_schema(conn)
     on_page: dict[int, list[tuple[str, tuple[float, ...]]]] = {}
@@ -682,7 +1051,9 @@ def remap(conn: sqlite3.Connection, key: str) -> dict[str, Any]:
     to: dict[str, str | None] = {}
     plots: dict[str, int] = {}
     named: dict[str, str] = {}
-    for r in conn.execute("SELECT figure, figure_label, page, bbox, COUNT(*) AS n FROM charts WHERE paper = ? GROUP BY figure, figure_label, page, bbox ORDER BY MIN(rowid)", (key,)).fetchall():
+    held = conn.execute("SELECT figure, figure_label, page, bbox, COUNT(*) AS n FROM charts WHERE paper = ? GROUP BY figure, figure_label, page, bbox ORDER BY MIN(rowid)", (key,)).fetchall()
+    told = conn.execute("SELECT figure, figure_label, page, bbox, 0 AS n FROM figure_outcomes WHERE paper = ? ORDER BY rowid", (key,)).fetchall()  # what a figure came to goes where its plots go
+    for r in [*held, *told]:
         old = r["figure"]
         now = numbers.get(r["figure_label"]) if r["figure_label"] else placed(old, r["page"], r["bbox"])
         to[old] = now if old not in to or to[old] == now else None  # a figure's plots that part ways keep none of it
@@ -701,16 +1072,17 @@ def remap(conn: sqlite3.Connection, key: str) -> dict[str, Any]:
     moving = {old: now for old, now in to.items() if now is not None and now != old}
     with conn:
         for old in gone:
-            conn.execute("DELETE FROM chart_values WHERE paper = ? AND figure = ?", (key, old))
-            conn.execute("DELETE FROM charts WHERE paper = ? AND figure = ?", (key, old))
-        for table in ("charts", "chart_values"):
+            for table in ("chart_values", "charts", "figure_outcomes"):
+                conn.execute(f"DELETE FROM {table} WHERE paper = ? AND figure = ?", (key, old))
+        for table in ("charts", "chart_values", "figure_outcomes"):
             for old in moving:  # out of the way first, so a figure another one leaves is free when it is moved into
                 conn.execute(f"UPDATE {table} SET figure = 'remap:' || figure WHERE paper = ? AND figure = ?", (key, old))
             for old, now in moving.items():
                 conn.execute(f"UPDATE {table} SET figure = ? WHERE paper = ? AND figure = ?", (now, key, "remap:" + old))
-        if gone:
+        lost = [old for old in gone if plots[old]]
+        if gone:  # a figure gone with no plot goes too: the read looked for what is not there now, and its last row gone would leave is_read nothing to tell it by
             conn.execute("DELETE FROM figure_reads WHERE paper = ?", (key,))
-    return {"moved": sum(plots[old] for old in moving), "removed": sum(plots[old] for old in gone), "lost": list(dict.fromkeys(named[old] for old in gone))}
+    return {"moved": sum(plots[old] for old in moving), "removed": sum(plots[old] for old in gone), "lost": list(dict.fromkeys(named[old] for old in lost))}
 
 
 def figure_name(key: str) -> str:

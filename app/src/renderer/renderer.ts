@@ -35,6 +35,8 @@ interface Paper {
   figures_file?: string | null;
   /** PMC's settled answer that it has no PDF to draw an XML paper's figures; null when never asked, unsettled, or a PDF is kept */
   figures_note?: string | null;
+  /** what the paper's figures came to (figures.states); null for a paper the worker has no row of */
+  figure_state?: FigureState | null;
   pages: number | null;
   status: string;
   error: string | null;
@@ -57,6 +59,63 @@ interface Paper {
   message?: string;
   elapsed?: number;
   roles?: Record<string, number>;
+}
+
+/** a paper's figures, counted (figures.states): an XML paper's over its figures (not its schemes or charts), a PDF paper's over the pictures a read looks for (small and unplaced counted apart) */
+interface FigureState {
+  /** none: no figure; no-pdf: XML with no PDF kept; missing-file: the file that draws them is not on disk; off: not read, LITRAG_FIGURES=off; unread; read */
+  kind: 'none' | 'no-pdf' | 'missing-file' | 'off' | 'unread' | 'read';
+  figures: number;
+  /** figures whose caption gives a number to match a PDF's captions by */
+  numbered: number;
+  /** figures with plots pinned to them */
+  pinned: number;
+  no_plot: number;
+  no_caption: number;
+  unnumbered: number;
+  same_number: number;
+  small: number;
+  unplaced: number;
+  /** figures not read: unread, skipped, or an XML figure with no plot read before outcomes were kept */
+  unread: number;
+  /** charts rows, a scheme's too */
+  plots: number;
+  read: number;
+  values: number;
+  /** plots in the PDF under no caption of the paper's */
+  unmatched: number | null;
+  /** the PDF's pages, and an XML paper's pages printing a caption of its floats (the only ones looked at) */
+  pages: number | null;
+  pages_read: number | null;
+  /** the file that draws the figures: the paper's own PDF, or the PDF kept beside its XML */
+  file: string | null;
+  at: string | null;
+  /** PMC's settled answer that it has no PDF (papers.figures_note) */
+  note: string | null;
+  /** the last word on asking PMC for its PDF (a figures-pdf events row) */
+  asked: string | null;
+}
+
+/** what one figure came to (figures.outcomes): the row its read kept, or what is known without one */
+type FigureOutcomeKind = 'plots' | 'no-plot' | 'no-caption' | 'skipped' | 'no-pdf' | 'unnumbered' | 'same-number' | 'small' | 'unplaced' | 'unrecorded' | 'unread';
+
+/** a picture or chart node's outcome in the tree: its tag and its placeholder */
+interface FigureTag {
+  outcome: FigureOutcomeKind;
+  /** the key its caption gives it: "2", "S2", "Scheme 1"; null when it gives no number */
+  label: string | null;
+  plots: number;
+  read: number;
+  /** a picture's page, or the PDF page an XML figure's plots or caption are on */
+  page: number | null;
+}
+
+/** one figure's outcome, as the charts op gives it */
+interface FigureOutcome extends FigureTag {
+  /** a picture's box, [left, top, right, bottom] in points from the top */
+  bbox: number[] | null;
+  /** why it was skipped */
+  detail: string | null;
 }
 
 interface Node {
@@ -141,6 +200,8 @@ interface Tree {
   pages: { page_no: number; width: number; height: number }[];
   roles: Record<string, number>;
   root: Node;
+  /** each picture and chart node by what it came to */
+  figures?: Record<string, FigureTag>;
 }
 
 // ---- state ------------------------------------------------------------------------------
@@ -752,9 +813,9 @@ let chartsSeq = 0;
 async function loadCharts(n: Node, into: HTMLElement) {
   if (!ctx.lib) return;
   const seq = ++chartsSeq;
-  let r: { plots: Plot[] };
+  let r: { plots: Plot[]; outcome?: FigureOutcome | null };
   try {
-    r = await request<{ plots: Plot[] }>('charts', { lib: ctx.lib, figure: n.node_id });
+    r = await request<{ plots: Plot[]; outcome?: FigureOutcome | null }>('charts', { lib: ctx.lib, figure: n.node_id });
   } catch {
     return;
   }
