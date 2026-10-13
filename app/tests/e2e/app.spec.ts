@@ -9,12 +9,19 @@
  * which needs Docling's models and takes minutes; `LITRAG_E2E_MIN_METHODS=0.7` and
  * `LITRAG_E2E_MIN_TITLES=0.9` are the corpus thresholds (reviews have no methods; a
  * folder of them wants the first lowered).
+ *
+ * On the fixture, PMC — asked for the paper's PDF when it is filed, then from the Search tab and
+ * from a figure's pane — is the stand-in of epmc-fixture.ts (LITRAG_PMC_CLOUD_URL,
+ * LITRAG_EPMC_PDF_URL), which holds none, so what the window says of its figures is the same on
+ * every machine. It cannot be reached when the paper is filed (`cloudDown`), so the Search tab has
+ * a paper to ask PMC for.
  */
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test';
 import { copyFileSync, existsSync, mkdtempSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { figureLabel, figuresOn, paneNote, placeholder, stateChip, treeTag, type FigureOutcome, type FigureState, type FigureTag } from '../../src/renderer/figstate.ts';
+import { askedDone, figureLabel, figuresOn, paneButton, paneNote, placeholder, stateChip, treeTag, type FigureOutcome, type FigureState, type FigureTag } from '../../src/renderer/figstate.ts';
+import { startFixture, type Fixture } from './epmc-fixture.ts';
 
 const APP_DIR = resolve(import.meta.dirname, '..', '..');
 const FIXTURE = resolve(APP_DIR, '..', 'parser', 'tests', 'fixtures', 'PMC11278924.xml');
@@ -72,6 +79,10 @@ let app: ElectronApplication;
 let page: Page;
 let root: string;
 let lib: string;
+/** PMC's stand-in, for the fixture: no PDF of any paper, and out of reach until the Search tab asks it (none on a folder of real papers) */
+let pmc: Fixture | undefined;
+/** what the stand-in answers when asked for a paper's PDF (epmc-fixture.ts: an empty Cloud listing, the bulk area's 404) */
+const NO_PDF = 'PMC Cloud: not in its open-access datasets; bulk area: HTTP 404';
 const papers = papersToTest();
 const minMethods = Number(process.env['LITRAG_E2E_MIN_METHODS'] ?? (process.env['LITRAG_E2E_PAPERS'] ? 0.7 : 1));
 const minTitles = Number(process.env['LITRAG_E2E_MIN_TITLES'] ?? (process.env['LITRAG_E2E_PAPERS'] ? 0.9 : 1));
@@ -80,13 +91,17 @@ test.describe.configure({ mode: 'serial' });
 
 test.beforeAll(async () => {
   root = mkdtempSync(join(tmpdir(), 'litrag-e2e-'));
-  app = await electron.launch({ args: [APP_DIR, '--no-sandbox'], env: { ...process.env, LITRAG_ROOT: root } });
+  pmc = process.env['LITRAG_E2E_PAPERS'] ? undefined : await startFixture([]);
+  if (pmc) pmc.cloudDown = true; // the ask made as the paper is filed cannot reach PMC: it settles nothing
+  const asked: Record<string, string> = pmc ? { LITRAG_PMC_CLOUD_URL: pmc.cloudUrl, LITRAG_EPMC_PDF_URL: pmc.pdfUrl } : {};
+  app = await electron.launch({ args: [APP_DIR, '--no-sandbox'], env: { ...process.env, LITRAG_ROOT: root, ...asked } });
   page = await app.firstWindow();
   await page.waitForLoadState('domcontentloaded');
 });
 
 test.afterAll(async () => {
   await app?.close();
+  await pmc?.close();
 });
 
 test('the window opens and the worker answers', async () => {
@@ -239,7 +254,7 @@ async function expectFigureWords(key: string): Promise<void> {
     const note = paneNote(outcome, row, figuresOn(figures_on, rows));
     if (note.line) await expect(pane.locator(':scope > .muted').first()).toHaveText(note.line, soon);
     else await expect(pane.locator(':scope > .muted')).toHaveCount(0, soon);
-    await expect(pane.getByRole('button', { name: 'Read the figures' })).toHaveCount(note.button === 'read' ? 1 : 0, soon);
+    for (const b of ['read', 'ask', 'ask-again'] as const) await expect(pane.getByRole('button', { name: paneButton(b, key)!.label, exact: true })).toHaveCount(note.button === b ? 1 : 0, soon);
   }).toPass({ timeout: 120_000 });
 }
 
@@ -285,6 +300,103 @@ test('a PDF dropped on a figure of an XML paper goes to that paper, and is check
   const after = ((await request(page, 'papers', { lib })) as { papers: PaperRow[] }).papers;
   expect(after.map((p) => p.key), 'nothing filed in its place').toEqual(rows.map((p) => p.key));
   expect(existsSync(pdf), 'a PDF not kept is left where it was').toBe(true);
+});
+
+/** the clicked button's own state the moment its click is handled: whether it was disabled at once */
+const clickDisables = (b: ReturnType<Page['locator']>) =>
+  b.evaluate((el: HTMLButtonElement) => {
+    el.click();
+    return el.disabled;
+  });
+
+const cloudAsks = () => pmc!.requests.filter((r) => r.startsWith('/cloud/')).length;
+
+test('the Search tab asks PMC for the PDFs its XML papers’ figures want, beside Collect PDFs', async () => {
+  test.skip(!pmc, 'the fixture paper, asked of PMC’s stand-in');
+  const rows = ((await request(page, 'papers', { lib })) as { papers: PaperRow[] }).papers;
+  const row = rows.find((p) => p.format === 'jats')!;
+  // asked once when it was filed, and PMC could not be reached: nothing settled, so it can be asked
+  expect([row.pmcid, row.figure_state?.kind, row.figure_state?.note]).toEqual(['PMC11278924', 'no-pdf', null]);
+  expect(row.figure_state?.asked).toMatch(/^could not ask PMC: PMC Cloud: /);
+  await page.locator('#nav button[data-view="search"]').click();
+  const ask = page.locator('#ask-pmc');
+  const collect = page.locator('#collect');
+  await expect(collect).toHaveText('Collect PDFs (1 for figures)');
+  await expect(ask).toBeVisible();
+  await expect(ask).toHaveText('Ask PMC for 1 figure PDF');
+  await expect(ask).toBeEnabled();
+  // the two sit side by side whatever the candidates' chips take of the head: the pair wraps as one, inside it
+  const apart = await page.evaluate(() => {
+    const a = document.getElementById('ask-pmc')!;
+    const c = document.getElementById('collect')!;
+    const head = c.closest('.col-head') as HTMLElement;
+    const filler = document.createElement('span');
+    filler.style.display = 'inline-block';
+    filler.style.height = '1px';
+    document.getElementById('cand-filter')!.append(filler);
+    const out: string[] = [];
+    for (let w = 0; w <= head.clientWidth; w += 4) {
+      filler.style.width = `${w}px`;
+      const [ra, rc, rh] = [a.getBoundingClientRect(), c.getBoundingClientRect(), head.getBoundingClientRect()];
+      if (Math.abs(ra.top - rc.top) > 1 || ra.right > rc.left || rc.left - ra.right > 12 || rc.right > rh.right) out.push(`chips + ${w}px: Ask PMC at (${ra.left}, ${ra.top}), Collect PDFs at (${rc.left}, ${rc.top})`);
+    }
+    filler.remove();
+    return out;
+  });
+  expect(apart, 'Ask PMC beside Collect PDFs').toEqual([]);
+  const line = (said: string) => page.locator('#log .log-line').filter({ hasText: said });
+  // PMC still out of reach: the button is disabled at once and until the run ends, then offered again
+  const before = cloudAsks();
+  expect(await clickDisables(ask), 'one ask a click').toBe(true);
+  const down = askedDone({ asked: 1, kept: 0, missed: 0, refused: 0, unreachable: 1 });
+  expect(down).toBe('figures: asked PMC for 1, 0 PDFs kept, 0 with none, PMC could not be reached for 1');
+  await expect(line(down)).toHaveCount(1, { timeout: 60_000 });
+  expect(cloudAsks(), 'the stand-in for PMC was asked').toBeGreaterThan(before);
+  await expect(ask).toBeEnabled({ timeout: 15_000 });
+  await expect(ask).toHaveText('Ask PMC for 1 figure PDF');
+  // PMC there again: it has no PDF of the paper, and says so for good, so the Search tab has none left to ask for
+  pmc!.cloudDown = false;
+  expect(await clickDisables(ask)).toBe(true);
+  const none = askedDone({ asked: 1, kept: 0, missed: 1, refused: 0, unreachable: 0 });
+  await expect(line(none)).toHaveCount(1, { timeout: 60_000 });
+  await expect(ask).toHaveText('Ask PMC for 0 figure PDFs', { timeout: 15_000 });
+  await expect(ask).toBeDisabled();
+  await expect(collect).toHaveText('Collect PDFs (1 for figures)'); // still walked by Collect: a person may find the PDF
+  await page.locator('#nav button[data-view="papers"]').click();
+});
+
+test('a figure no PDF draws asks PMC for the paper’s PDF from its pane, and the log and the pane say what PMC answered', async () => {
+  test.skip(!pmc, 'the fixture paper, asked of PMC’s stand-in');
+  const rows = ((await request(page, 'papers', { lib })) as { papers: PaperRow[] }).papers;
+  const row = rows.find((p) => p.format === 'jats')!;
+  // asked from the Search tab: the stand-in has no PDF of it, and said so for good (the paper's note)
+  expect([row.pmcid, row.figure_state?.kind, row.figure_state?.note]).toEqual(['PMC11278924', 'no-pdf', NO_PDF]);
+  await openPaper(row.key);
+  const tree = (await request(page, 'tree', { lib, key: row.key })) as { root: NodeRow; figures?: Record<string, FigureTag> };
+  const fig = flat(tree.root).find((n) => n.type === 'picture' && tree.figures?.[n.node_id]?.outcome === 'no-pdf')!;
+  expect(fig, 'a figure of the fixture that only a PDF draws').toBeTruthy();
+  const figure = page.locator(`#page-reading figure.picture[data-id="${fig.node_id}"]`);
+  await figure.scrollIntoViewIfNeeded();
+  await figure.click();
+  const pane = page.locator(`#node-detail .charts[data-figures-for="${row.key}"]`);
+  await expect(pane.locator(':scope > .muted').first()).toHaveText(`PMC has no PDF of it (${NO_PDF}). A PDF of the paper draws its figures: drop one on this figure, or use Collect PDFs on the Search tab.`);
+  const again = pane.getByRole('button', { name: paneButton('ask-again', row.key)!.label, exact: true });
+  await expect(again).toBeEnabled();
+  const before = cloudAsks();
+  await pane.evaluate((box) => (box.dataset['drawn'] = 'before'));
+  const said = askedDone({ asked: 1, kept: 0, missed: 1, refused: 0, unreachable: 0 });
+  expect(said).toBe('figures: asked PMC for 1, 0 PDFs kept, 1 with none, PMC could not be reached for 0');
+  const lines = page.locator('#log .log-line').filter({ hasText: said });
+  const had = await lines.count(); // the Search tab's ask said it once
+  expect(await clickDisables(again), 'one ask a click').toBe(true);
+  await expect(lines).toHaveCount(had + 1, { timeout: 60_000 });
+  expect(cloudAsks(), 'the stand-in for PMC was asked again').toBeGreaterThan(before);
+  // the figure's pane drawn again from the paper's row: PMC's answer, and the ask offered once more
+  await expect(page.locator('#node-detail .charts:not([data-drawn])')).toHaveCount(1, { timeout: 15_000 });
+  await expect(pane.locator(':scope > .muted').first()).toContainText(`PMC has no PDF of it (${NO_PDF}).`);
+  await expect(pane.getByRole('button', { name: paneButton('ask-again', row.key)!.label, exact: true })).toBeEnabled();
+  const after = ((await request(page, 'papers', { lib })) as { papers: PaperRow[] }).papers.find((p) => p.key === row.key)!;
+  expect([after.figures_file ?? null, after.figure_state?.note]).toEqual([null, NO_PDF]);
 });
 
 test('a finding shows the method it was measured by, or says none was found', async () => {

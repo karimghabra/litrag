@@ -2,10 +2,11 @@
  * What a paper's figures came to, in the window's words: the chip on its card, the tag on each
  * figure in its tree, the placeholder an XML paper's reading shows where a figure's image would
  * be, the line under a figure's pane of numbers and the one button it offers, the drop overlay's
- * text over a figure, and the log line a figures run ends with. Every word is here, so the wording
- * changes in one place; each function reads only what the worker answered (figures.states,
- * figures.outcomes, the `wanted` op's switch) or, for the overlay, what lies under the drag, so
- * each can be tested apart from the DOM.
+ * text over a figure, the log line a figures run ends with, and what asking PMC for the PDFs
+ * comes to (the Search tab's button, a Collect entry's title, the log lines). Every word is here,
+ * so the wording changes in one place; each function reads only what the worker answered
+ * (figures.states, figures.outcomes, the `wanted` op's switch, a done's counts) or, for the
+ * overlay, what lies under the drag, so each can be tested apart from the DOM.
  */
 
 import { figuresTarget } from './figuredrop.ts';
@@ -264,6 +265,13 @@ export function figuresOn(said: boolean | null | undefined, papers: Iterable<Fig
  *  reader is deterministic); no button at all with the figures off (`figuresOn` false), which
  *  stop the work done unasked — a PDF dropped on an XML paper's figure is kept, not read; a PDF
  *  paper's figure takes no drop of its own (figuredrop.ts). */
+/** PMC's settled answer in the pane: it had no PDF, or (M7's "PMC's PDF: ‹why›") it served one the
+ *  gate did not keep — which "has no PDF" would contradict. */
+function pmcSaid(note: string): string {
+  const refused = /^PMC's PDF: (.*)$/s.exec(note);
+  return refused ? `PMC’s PDF of it was not kept (${refused[1]}).` : `PMC has no PDF of it (${note}).`;
+}
+
 export function paneNote(outcome: FigureOutcome | null | undefined, paper: Figured | undefined, figuresOn: boolean): PaneNote {
   const none = (line: string | null): PaneNote => ({ line, button: null });
   if (!outcome) return none(null);
@@ -275,7 +283,7 @@ export function paneNote(outcome: FigureOutcome | null | undefined, paper: Figur
   const file = fileOf(paper);
   switch (o) {
     case 'no-pdf':
-      if (s?.note) return offer(`PMC has no PDF of it (${s.note}). ${ADVICE}`, paper?.pmcid ? 'ask-again' : null);
+      if (s?.note) return offer(`${pmcSaid(s.note)} ${ADVICE}`, paper?.pmcid ? 'ask-again' : null);
       if (paper?.pmcid && s?.asked) return offer(`PMC could not be asked (${s.asked}). ${ADVICE}`, 'ask-again');
       if (paper?.pmcid) return offer(`No answer from PMC on record. ${ADVICE}`, 'ask');
       return none('Read from XML, which names its figures but holds none. A PDF of the paper draws them: drop one here, or fetch it with Collect PDFs on the Search tab, and its charts are read and pinned to these figures.');
@@ -309,6 +317,36 @@ export function paneNote(outcome: FigureOutcome | null | undefined, paper: Figur
   }
 }
 
+/** The button a figure's pane draws for paneNote's `button`: its words, its hover text, what the
+ *  activity bar says while it works, and what it asks of the worker (op and params, the caller adding
+ *  the library) — Read the figures reads this paper's; Ask PMC asks for this paper's PDF alone, again
+ *  whatever PMC said before (figures_fetch's `again`). None for no button. */
+export interface PaneButton {
+  label: string;
+  title: string;
+  doing: string;
+  op: 'figures' | 'figures_fetch';
+  params: Record<string, unknown>;
+}
+
+export function paneButton(button: PaneNote['button'], key: string): PaneButton | null {
+  switch (button) {
+    case 'read':
+      return { label: 'Read the figures', title: 'Read the charts in this paper’s figures into numbers (bars, points, error bars), on this machine', doing: 'Reading the figures', op: 'figures', params: { keys: [key], force: true } };
+    case 'ask':
+    case 'ask-again':
+      return {
+        label: button === 'ask' ? 'Ask PMC for its PDF' : 'Ask PMC again',
+        title: 'Ask PMC, by its PMCID, for this paper’s PDF: kept beside the XML if its first pages name the paper, and its figures read',
+        doing: 'Asking PMC for its PDF',
+        op: 'figures_fetch',
+        params: { keys: [key], again: true },
+      };
+    default:
+      return null;
+  }
+}
+
 // ---- the drop overlay and the log ------------------------------------------------------------
 
 /** The drop overlay's text: over a figure of a paper read from XML, the PDF dropped is kept for that paper's figures (figuredrop.ts). */
@@ -327,4 +365,39 @@ export function figuresDone(done: Record<string, unknown>): string {
   const unmatched = n('unmatched');
   const recorded = n('recorded');
   return `figures: ${n('read')} of ${n('plots')} charts read in ${n('papers')} papers (plots in ${n('pinned')} of ${n('figures')} figures), ${n('values')} values${unmatched > 0 ? `, ${unmatched} plots under no caption` : ''}${recorded > 0 ? `, what each figure came to recorded for ${recorded} papers` : ''}`;
+}
+
+// ---- asking PMC for the PDFs -----------------------------------------------------------------
+
+/** What PMC said when it had no PDF to give, after a Collect entry's title: " — PMC: ‹note›", or nothing when it has not said. */
+export function pmcSuffix(note: string | null | undefined): string {
+  return note ? ` — PMC: ${note}` : '';
+}
+
+/** The Search tab's button beside Collect PDFs: the papers read from XML whose figures PMC can be asked a PDF for (collectlist.ts, askable). */
+export function askLabel(n: number): string {
+  return `Ask PMC for ${n} figure PDF${n === 1 ? '' : 's'}`;
+}
+
+/** That button's hover text. */
+export const ASK_TITLE = 'Ask PMC, by PMCID, for the PDF of each paper read from XML whose figures want one: a PDF whose first pages name the paper is kept beside its XML, and its figures are read';
+
+/** What the activity bar says while it asks. */
+export function askingLabel(n: number): string {
+  return `Asking PMC for ${n} figure PDF${n === 1 ? '' : 's'}`;
+}
+
+/** The log line a figures_fetch's `done` says, once the asks are made and before the PDFs kept are
+ *  read: one count per answer, the refused left out when there are none. `unreachable` is the ask
+ *  that could not reach PMC and every paper passed by after it, that one ask counted in `asked`
+ *  too: so PMC "could not be reached for" them, not "could not be asked". */
+export function askedDone(done: Record<string, unknown>): string {
+  const n = (k: string) => Number(done[k] ?? 0) || 0;
+  const refused = n('refused');
+  return `figures: asked PMC for ${n('asked')}, ${n('kept')} PDFs kept, ${n('missed')} with none${refused > 0 ? `, ${refused} whose PDF does not name the paper` : ''}, PMC could not be reached for ${n('unreachable')}`;
+}
+
+/** After a fetch: the papers it read from XML that still want a PDF for their figures, which the collect window walks when a person opens it (K15: it does not open by itself for them). */
+export function fetchedFigures(n: number): string {
+  return n === 1 ? '1 paper read from XML with no PDF for its figures: Collect PDFs walks it' : `${n} papers read from XML with no PDF for their figures: Collect PDFs walks them`;
 }

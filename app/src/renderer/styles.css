@@ -95,6 +95,8 @@ h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: v
 .split { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; padding: 0 18px 12px; min-height: 0; flex: 1; }
 .col { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; display: flex; flex-direction: column; min-height: 0; min-width: 0; }
 .col-head { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+/* buttons that belong together (Ask PMC beside Collect PDFs): they wrap onto a line of their own as one, at its right, and apart only when that line is too narrow for both */
+.col-acts { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: flex-end; margin-left: auto; }
 .col-foot { padding: 8px 12px; border-top: 1px solid var(--line); }
 .list .hit { display: grid; grid-template-columns: 22px 1fr; gap: 4px 8px; padding: 9px 12px; border-bottom: 1px solid var(--line); }
 .hit .t { font-weight: 600; line-height: 1.3; }

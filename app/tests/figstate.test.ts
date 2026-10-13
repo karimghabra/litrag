@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  dropLabel, figureLabel, figureName, figureOf, figuresDone, figuresOn, outcomeTag, overlayText, paneNote, placeholder, readsFigures, stateChip, treeTag,
+  askLabel, askedDone, askingLabel, dropLabel, fetchedFigures, figureLabel, figureName, figureOf, figuresDone, figuresOn, outcomeTag, overlayText, paneButton, paneNote, placeholder, pmcSuffix, readsFigures, stateChip, treeTag,
   type FigureOutcome, type FigureOutcomeKind, type FigureState, type FigureTag, type Figured,
 } from '../src/renderer/figstate';
 
@@ -210,6 +210,8 @@ describe('the line under a figure’s pane, and its one button', () => {
       'Read from XML, which names its figures but holds none. A PDF of the paper draws them: drop one here, or fetch it with Collect PDFs on the Search tab, and its charts are read and pinned to these figures.', null],
     // beyond §4's table: PMC's note on a paper with no PMCID (none the worker gives: a note is PMC's answer to a PMCID), and nothing to ask it again by
     ['no-pdf, PMC’s note, no PMCID', fig('no-pdf'), xml({ kind: 'no-pdf', note }), `PMC has no PDF of it (${note}). ${ADVICE}`, null],
+    // beyond §4's table: a PDF PMC served and the gate did not keep (M7's note "PMC's PDF: ‹why›"), which "has no PDF" would contradict
+    ['no-pdf, PMC’s PDF refused', fig('no-pdf'), xml({ kind: 'no-pdf', note: "PMC's PDF: its first pages name neither its DOI nor its title" }, { pmcid: 'PMC1' }), `PMC’s PDF of it was not kept (its first pages name neither its DOI nor its title). ${ADVICE}`, 'ask-again'],
     ['no-pdf, an unsettled ask, no PMCID', fig('no-pdf'), xml({ kind: 'no-pdf', asked }),
       'Read from XML, which names its figures but holds none. A PDF of the paper draws them: drop one here, or fetch it with Collect PDFs on the Search tab, and its charts are read and pinned to these figures.', null],
     ['unnumbered', fig('unnumbered', { label: null }), xml({ kind: 'no-pdf' }, { pmcid: 'PMC1' }), 'Its caption gives it no number (“Figure 2”), so no PDF’s charts can be pinned to it.', null],
@@ -297,6 +299,25 @@ describe('the line under a figure’s pane, and its one button', () => {
   it('says nothing of a figure it has no word on', () => {
     expect(paneNote(null, xml({ kind: 'no-pdf' }), true)).toEqual({ line: null, button: null });
   });
+
+  it('draws the button paneNote names, and asks the worker for that paper alone', () => {
+    const ask = 'Ask PMC, by its PMCID, for this paper’s PDF: kept beside the XML if its first pages name the paper, and its figures read';
+    expect(paneButton('read', 'doi:10.1/a')).toEqual({
+      label: 'Read the figures', title: 'Read the charts in this paper’s figures into numbers (bars, points, error bars), on this machine',
+      doing: 'Reading the figures', op: 'figures', params: { keys: ['doi:10.1/a'], force: true },
+    });
+    // the first ask and the next take the same request: `again`, since a person asking means it whatever PMC said
+    expect(paneButton('ask', 'doi:10.1/a')).toEqual({ label: 'Ask PMC for its PDF', title: ask, doing: 'Asking PMC for its PDF', op: 'figures_fetch', params: { keys: ['doi:10.1/a'], again: true } });
+    expect(paneButton('ask-again', 'doi:10.1/a')).toEqual({ label: 'Ask PMC again', title: ask, doing: 'Asking PMC for its PDF', op: 'figures_fetch', params: { keys: ['doi:10.1/a'], again: true } });
+    expect(paneButton(null, 'doi:10.1/a')).toBeNull();
+    // whatever a figure's pane says, the button drawn is the one paneNote names, and none when it names none
+    for (const o of KINDS) {
+      for (const [name, paper] of papers) {
+        const note = paneNote(fig(o), paper, true);
+        expect(paneButton(note.button, 'k')?.label ?? null, `${o} on ${name}`).toBe({ read: 'Read the figures', ask: 'Ask PMC for its PDF', 'ask-again': 'Ask PMC again', none: null }[note.button ?? 'none']);
+      }
+    }
+  });
 });
 
 describe('the drop overlay and the log', () => {
@@ -321,5 +342,41 @@ describe('the drop overlay and the log', () => {
     expect(figuresDone(record)).toBe('figures: 0 of 0 charts read in 0 papers (plots in 0 of 0 figures), 0 values, what each figure came to recorded for 73 papers');
     expect(figuresDone({ ...record, recorded: 0 })).toBe('figures: 0 of 0 charts read in 0 papers (plots in 0 of 0 figures), 0 values');
     expect(figuresDone({ event: 'done', op: 'figures', read: 'x' })).toBe('figures: 0 of 0 charts read in 0 papers (plots in 0 of 0 figures), 0 values'); // a count it cannot read is none
+  });
+});
+
+describe('asking PMC for the PDFs', () => {
+  it('puts what PMC said after a Collect entry’s title, and nothing when it has not said', () => {
+    expect(pmcSuffix('PMC Cloud: not in its open-access datasets; bulk area: HTTP 404')).toBe(' — PMC: PMC Cloud: not in its open-access datasets; bulk area: HTTP 404');
+    expect(pmcSuffix(null)).toBe('');
+    expect(pmcSuffix(undefined)).toBe('');
+    expect(pmcSuffix('')).toBe('');
+  });
+
+  it('counts on the button the PDFs PMC can be asked for, and on the activity bar while it asks', () => {
+    expect(askLabel(6)).toBe('Ask PMC for 6 figure PDFs');
+    expect(askLabel(1)).toBe('Ask PMC for 1 figure PDF');
+    expect(askLabel(0)).toBe('Ask PMC for 0 figure PDFs'); // disabled at 0
+    expect(askingLabel(6)).toBe('Asking PMC for 6 figure PDFs');
+    expect(askingLabel(1)).toBe('Asking PMC for 1 figure PDF');
+  });
+
+  it('ends the asking with one count per answer, the refused only when there are any', () => {
+    const done = { event: 'done', op: 'figures_fetch', lib: 'l', papers: 3, asked: 3, kept: 1, missed: 2, refused: 0, unreachable: 0, already: 0 };
+    expect(askedDone(done)).toBe('figures: asked PMC for 3, 1 PDFs kept, 2 with none, PMC could not be reached for 0');
+    expect(askedDone({ ...done, missed: 1, refused: 1 })).toBe('figures: asked PMC for 3, 1 PDFs kept, 1 with none, 1 whose PDF does not name the paper, PMC could not be reached for 0');
+    expect(askedDone({ ...done, papers: 4, asked: 0, kept: 0, missed: 0, already: 4 })).toBe('figures: asked PMC for 0, 0 PDFs kept, 0 with none, PMC could not be reached for 0'); // every one settled before: none asked again
+  });
+
+  it('says PMC could not be reached for the ask that failed and every paper passed by after it', () => {
+    // three papers: the first ask cannot reach PMC (asked, and unreachable), and the breaker passes the other two by
+    const tripped = { event: 'done', op: 'figures_fetch', lib: 'l', papers: 3, asked: 1, kept: 0, missed: 0, refused: 0, unreachable: 3, already: 0 };
+    expect(askedDone(tripped)).toBe('figures: asked PMC for 1, 0 PDFs kept, 0 with none, PMC could not be reached for 3');
+    expect(askedDone({ event: 'done', op: 'figures_fetch', asked: 'x' })).toBe('figures: asked PMC for 0, 0 PDFs kept, 0 with none, PMC could not be reached for 0'); // a count it cannot read is none
+  });
+
+  it('names after a fetch the papers it read from XML that want a PDF for their figures', () => {
+    expect(fetchedFigures(3)).toBe('3 papers read from XML with no PDF for their figures: Collect PDFs walks them');
+    expect(fetchedFigures(1)).toBe('1 paper read from XML with no PDF for its figures: Collect PDFs walks it');
   });
 });
