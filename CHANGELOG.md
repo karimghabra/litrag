@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- **An XML paper asks PMC for its PDF when it is filed, and keeps PMC's answer** (Karim,
+  2026-10-13: "yes, move onto M7"). Only a fresh fetch used to ask for an XML paper's figures PDF,
+  and a miss was thrown away; 151 of 152 XML papers in a scratch library had been dropped, so
+  none was ever asked. Now every XML paper filed with a PMCID, fetched or dropped, is asked of the
+  PMC Cloud Service and then EBI's bulk area after it is read, through the same gate as any PDF,
+  each ask shown as progress — not offline, not with `LITRAG_FIGURES=off`, not with
+  `figures_pdf: false`, not when a PDF draws its figures already, and not again once PMC's answer
+  is settled: that answer is kept as `papers.figures_note` ("PMC Cloud: not in its open-access
+  datasets; bulk area: HTTP 404"), cleared when a PDF is kept. Each answer is a `figures-pdf` row
+  and a log line; an ask that cannot reach PMC stops the rest of the batch and keeps no note. A
+  merge carries the note. Collect's figure entries carry it, and the `wanted` answer says
+  `figures_on`. A fetch no longer fetches the PDF itself.
+
 - **A merge carries the PDF kept beside an XML paper** (Karim, 2026-10-13: "squash merge, then move
   onto the next milestone"). A merged project lost an XML paper's figures PDF: `figures_file` was
   not copied, the read came without its file, and the paper went back onto Collect's list while

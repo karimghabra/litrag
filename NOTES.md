@@ -89,6 +89,19 @@ when it turns out durable. Mark inference as inference.
 
 ## Short-term memory
 
+- **2026-10-13: an XML paper asks PMC for its PDF when it is filed (M7)** — Karim: "yes, move onto
+  M7" (K5: a dropped XML asks at once, by default). An XML paper read with a PMCID is asked of the PMC
+  Cloud Service, then EBI's bulk area (the PMCID out, the PDF in, invariant 1's hosts), unless
+  offline, figures off, `figures_pdf: false`, a PDF already drawing its figures, or PMC's settled
+  answer on record (`papers.figures_note`, kept until a PDF is; an unsettled or unreachable ask
+  writes a `figures-pdf` row and no note, so the next asks again). A fetch no longer fetches the
+  PDF itself; the ingest after it asks the same way. The first unreachable ask stops the rest of a
+  batch. Live from this container, five XML papers filed new: all five PDFs came from the PMC
+  Cloud Service (15 GETs, the bulk area never needed), all kept (one with "0 of its 4 figures"
+  captioned, kept under K11; one whose XML numbers no figure), and their charts read: 10 of 11,
+  15 of 32, 2 of 2 plots — about 10 minutes, nearly all of it chart reading. Papers already held
+  are asked by M9's op, not yet built.
+
 - **2026-10-13: a merge carries the PDF kept beside an XML paper (M6)** — No choices were waiting.
   A paper new to the merged project brings its kept figures PDF, its charts and their read (the
   read's `file` renamed to the target's names, in the columns both stores have); a paper the

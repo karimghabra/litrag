@@ -13,19 +13,8 @@ import pytest
 from litrag_parser import acquire, graph
 from litrag_parser.library import create_library
 from litrag_parser.store import file_paper, open_store, save_refs, set_record
-from test_acquire import Canned
+from conftest import Canned
 from test_worker import by, talk
-
-
-@pytest.fixture
-def epmc(monkeypatch):
-    c = Canned()
-    monkeypatch.setenv("LITRAG_EPMC_URL", f"{c.url}/rest")
-    monkeypatch.setenv("LITRAG_EPMC_PDF_URL", f"{c.url}/oa")
-    monkeypatch.setenv("LITRAG_NCBI_URL", f"{c.url}/ncbi")
-    monkeypatch.setenv("LITRAG_PMC_CLOUD_URL", f"{c.url}/cloud")
-    yield c
-    c.close()
 
 
 @pytest.fixture

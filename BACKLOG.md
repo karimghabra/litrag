@@ -27,7 +27,9 @@ wants as they are voiced.
   name and initial.
 - **More sources for PDFs and figures** (Karim to decide, 2026-10-04; NOTES.md has the survey) —
   each a new host for invariant 1. ~~The PMC Cloud Service bucket~~ (*built 2026-10-04*: asked
-  before EBI's bulk area for every open PDF, an XML paper's figures PDF included). Still open, no
+  before EBI's bulk area for every open PDF, an XML paper's figures PDF included; asked for a
+  dropped XML too since 2026-10-13). OpenAlex's open copy is never asked for an XML paper's
+  figures PDF: PMC answers first, and none of 152 XML papers in a scratch library had one to ask. Still open, no
   licence: ~~OpenAlex's open copies outside PMC~~ (*built 2026-10-04*, Karim: "yes, fetch the open
   copies too": asked last, filed only when the first pages name the paper; from a cloud container 5
   in 100 came, 77 were bot checks — next, measured from Karim's machine, and `best_oa_location`'s own
@@ -663,6 +665,10 @@ Each one wants a fixture or a test before its fix, as the spot-check does.
   Invariant 4 says running a stage twice changes nothing. One list of the
   note stages, kept where notes are made, and a test that a rebuild twice
   is one set; history rows ('filed', 'figures', 'saved') stay.
+- **Asking PMC for a paper with no figures** (2026-10-13) — filing asks PMC for any XML paper's
+  PDF with a PMCID, even one whose XML numbers no figure; Collect's list skips such papers. One in
+  five of a small live run was one (its PDF kept, 0 plots). Asking only when the XML numbers a
+  figure would save a download and a read.
 - **A merge's duplicate brings no charts** (2026-10-13) — when a source
   keeps a PDF beside an XML paper the target holds already, the PDF is kept
   there and its figures read again, even when the source's charts were read

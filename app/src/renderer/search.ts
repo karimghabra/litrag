@@ -337,7 +337,8 @@ export async function loadCandidates(): Promise<void> {
     const r = await request<{ candidates: Candidate[] }>('candidates', { lib });
     if (ctx.lib !== lib) return;
     state.candidates = r.candidates;
-    const w = await request<{ figures?: FiguresWanted[] }>('wanted', { lib }).catch(() => ({ figures: [] as FiguresWanted[] }));
+    // with the figures off the worker lists none (`figures_on` false): Collect offers candidates alone
+    const w = await request<{ figures?: FiguresWanted[]; figures_on?: boolean }>('wanted', { lib }).catch(() => ({ figures: [] as FiguresWanted[] }));
     if (ctx.lib !== lib) return;
     state.figuresWanted = w.figures ?? [];
   } catch (e) {
@@ -440,7 +441,7 @@ async function collect(): Promise<void> {
   }
   let wanted: CollectEntry[];
   try {
-    const r = await request<{ candidates: Candidate[]; figures?: FiguresWanted[] }>('wanted', { lib });
+    const r = await request<{ candidates: Candidate[]; figures?: FiguresWanted[]; figures_on?: boolean }>('wanted', { lib });
     wanted = collectList(r.candidates, r.figures ?? []);
   } catch (e) {
     log('error', `collect: ${(e as Error).message}`);

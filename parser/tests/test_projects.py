@@ -290,6 +290,19 @@ def test_a_paper_new_to_the_target_brings_the_pdf_kept_beside_it_and_its_read(th
     conn.close()
 
 
+def test_a_paper_new_to_the_target_brings_pmc_s_answer_for_its_figures(threads):
+    root, bare = threads["root"], threads["bare"]
+    note = "PMC Cloud: not in its open-access datasets; bulk area: HTTP 404"
+    conn = open_store(bare.store_path)
+    conn.execute("UPDATE papers SET figures_note = ? WHERE key = ?", (note, KEY))
+    conn.commit()
+    conn.close()
+    assert projects.merge(root, ["bare"], "Merged")["filed"] == 1
+    t, conn = _held(root)
+    assert tuple(conn.execute("SELECT figures_file, figures_note FROM papers WHERE key = ?", (KEY,)).fetchone()) == (None, note)
+    conn.close()
+
+
 def test_a_pdf_the_source_names_but_no_longer_has_is_not_carried(threads):
     root, s = threads["root"], threads["threads"]
     (s.papers_dir / threads["name"]).unlink()

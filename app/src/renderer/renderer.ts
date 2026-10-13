@@ -28,10 +28,13 @@ interface Paper {
   key: string;
   title: string;
   doi: string | null;
+  pmcid?: string | null;
   file: string | null;
   format: string | null;
   /** an XML paper's PDF, kept beside it for its figures */
   figures_file?: string | null;
+  /** PMC's settled answer that it has no PDF to draw an XML paper's figures; null when never asked, unsettled, or a PDF is kept */
+  figures_note?: string | null;
   pages: number | null;
   status: string;
   error: string | null;

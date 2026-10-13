@@ -43,7 +43,8 @@ CREATE TABLE IF NOT EXISTS papers (
   year TEXT,
   confidence REAL,                  -- how far the reading can be trusted, from the reading alone, in (0, 1] (confidence.py)
   confidence_detail TEXT,           -- JSON {reasons: [...], penalties: {check: points}}: why it is not 1
-  figures_file TEXT                 -- an XML paper's PDF in papers/, kept for its figures: the XML is the text, the PDF draws the charts
+  figures_file TEXT,                -- an XML paper's PDF in papers/, kept for its figures: the XML is the text, the PDF draws the charts
+  figures_note TEXT                 -- PMC's settled answer that it has no PDF to draw an XML paper's figures (worker._ask_pmc): NULL when never asked, when the ask settled nothing, or when a PDF is kept
 );
 CREATE UNIQUE INDEX IF NOT EXISTS papers_doi ON papers(doi) WHERE doi IS NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS papers_sha ON papers(sha256) WHERE sha256 IS NOT NULL;
@@ -208,6 +209,8 @@ def open_store(path: Path) -> sqlite3.Connection:
             conn.execute(f"ALTER TABLE papers ADD COLUMN {col} TEXT")
     if "figures_file" not in have:  # an XML paper's PDF, kept for its figures (figures.py)
         conn.execute("ALTER TABLE papers ADD COLUMN figures_file TEXT")
+    if "figures_note" not in have:  # a store from before PMC's answer for an XML paper's figures was kept
+        conn.execute("ALTER TABLE papers ADD COLUMN figures_note TEXT")
     if "confidence" not in have:  # a store from before a reading was scored
         conn.execute("ALTER TABLE papers ADD COLUMN confidence REAL")
         conn.execute("ALTER TABLE papers ADD COLUMN confidence_detail TEXT")
