@@ -714,7 +714,7 @@ The detail opens with the crumbs: the headings open where the line was read, or 
 | --- | --- |
 | Cites N entries of the reference list | The node cites entries. Each row gives the number, first author, year, title and DOI, and a click opens the entry. `→ in the library` opens the cited paper when the library holds it. |
 | `Entry [n]` | The node is a reference entry. It says how many nodes cite it, or that none does, then its DOI and PMID, the work it names, and one row per citing node. |
-| Numbers read from this figure | The node is a figure; see Figures as numbers. When nothing was read from it and the paper has a PDF, **Read the figures** reads the paper's figures again. An XML paper with no PDF beside it says how to add one. |
+| Numbers read from this figure | The node is a figure; see Figures as numbers. Under the head, a line says what the figure came to: no chart the reader knows in it, its caption not printed in the PDF, too small to read, or the page of the PDF its plots came from. Only a figure whose paper was never read offers **Read the figures**; a read figure offers nothing, since reading again gives the same answer. An XML paper with no PDF beside it says how to add one, and what PMC answered. |
 | Measured by, Findings measured here | Links between findings and method sections, with a **Label** button. See Method links and labelling. |
 | Cites, Cited by | The figures and tables a paragraph names, or the paragraphs that name a figure. |
 
@@ -1188,7 +1188,8 @@ A bar chart or a scatter plot often holds numbers the text never prints. litrag 
 ![Further down, the Young's modulus plot is a table, an unread plot gives its reason, and Cited by names the paragraph that cites the figure.](tutorial/24-papers-figure-youngs-modulus.png)
 
 5. Click **CSV** beside a plot's title. It copies the plot's values as `series,category,x,y,err_lo,err_hi`, and the button reads **copied** briefly.
-6. Click a figure with nothing read. A PDF paper shows **No numbers read from this figure** and **Read the figures**, which reads all the paper's figures. An XML paper with no PDF beside it says to drop one or use **Collect PDFs**.
+6. Click a figure with nothing read. Under **No numbers read from this figure** a line says why, such as "Read: nothing in it is a chart the reader knows (bars, points)". A PDF paper whose figures were never read shows **Read the figures** instead, which reads all the paper's figures. An XML paper with no PDF beside it says to drop one or use **Collect PDFs**.
+   Each card in the list carries a chip for its figures, such as "plots in 10 of 16 figures", "6 figures · no PDF", "figures not read" or "figures PDF missing"; hover it for the counts behind it. In the tree each figure carries a tag: "3 plots", "2 of 3 plots read", "no chart", "not in PDF" (the PDF kept beside an XML paper prints no caption with its number), "no number", "number taken", "small" or "not read".
 7. In the **Query** tab, a passage that cites a figure shows it under **Figures cited**, with up to eight rows per read plot. A panel the passage names ("Figure 2B") comes first, marked **cited**.
 
 ### When the charts are read
@@ -1310,7 +1311,7 @@ from charts group by paper, figure order by plots desc
 - **Panel letters can be misread.** "(b)" was stored as Q, so Query cannot match "Figure 2b".
 - **Not read yet:** curves without markers, box, violin and dot plots, horizontal bars. A curve may still give stray points, like Figure 2's "(A) Stress (MPa)".
 - **A cut-off read leaves no numbers.** Run `figures` without `keys`, or click **Read the figures**.
-- **`LITRAG_FIGURES=off`** skips the figures stage and the ask of PMC for an XML paper's PDF, at a fetch or a drop. **Read the figures** and the `figures` op still read, and `figures_fetch` still asks. A PDF you drop for an XML paper is kept, not read, until you ask.
+- **`LITRAG_FIGURES=off`** skips the figures stage and the ask of PMC for an XML paper's PDF, at a fetch or a drop. The window offers no figure action: a figure not read says "Figures are off (LITRAG_FIGURES=off)", and its card has no chip. The `figures` op still reads, and `figures_fetch` still asks. A PDF you drop for an XML paper is kept, not read, until you ask.
 
 ## The citation graph
 
@@ -1701,7 +1702,7 @@ Most upkeep means running one stage of the reading again. Here is which stage to
 1. On the **Papers** tab, click **Reparse all**. A box asks "Read all 226 papers again with Docling?". Click **Cancel** unless you mean it. On a CPU the archive takes about half an hour of Docling, plus its charts. If you confirm, every paper with a file is read again.
 2. On the **Query** tab, the line beside **Embed passages** counts the passages with a vector. Without Ollama the archive reads "0 of 16,157 passages embedded · nomic-embed-text@doc1 · the embedder is not answering".
 3. Start Ollama, with `nomic-embed-text` pulled, and click **Embed passages**. The log ends with "Embedded N passages". When every passage has a vector, the button is disabled.
-4. On **Papers**, select a figure of a PDF paper whose charts were never read. The detail says "No numbers read from this figure". Click **Read the figures** to read all of that paper's figures. On a CPU this can take minutes. The log then ends with a line such as "figures: 0 of 33 charts read in 1 papers, 0 values".
+4. On **Papers**, select a figure of a PDF paper whose charts were never read. The detail says "No numbers read from this figure". Click **Read the figures** to read all of that paper's figures. On a CPU this can take minutes. The log then ends with a line such as "figures: 0 of 33 charts read in 1 papers (plots in 5 of 6 figures), 0 values". The button is offered only while the paper's figures were never read.
 5. On the **Graph** tab, type this in the box under **Ask in SQL** and click **Run**:
 
    ```sql
@@ -2055,7 +2056,7 @@ Each tab works on the project chosen in the header's **Project** picker, and the
 | --- | --- | --- |
 | **Projects** | **New project** (**Name**, **What it is about**, **Create**, **Cancel**); **Merge libraries…** (a box per project, **Name of the merged project**, **Merge**, **Cancel**); on each card **Papers**, **Search**, **Types**, **Query**, and **Describe…** (no effect in this version) | `projects`, `init`, `merge` |
 | **Search** | The query box, **Search**, **Suggest from the project**; under **Results**: a tick box on each hit, **all**, **Fetch & read selected** (**Fetch & read 1** with one hit ticked), **More results**; under **Candidates**: status chips, **Fetch** on a candidate, and **Collect PDFs**, which shows its counts, as in **Collect PDFs (117 for figures)** | `search`, `suggest`, `candidates`, `wanted`, `fetch`, `ingest` |
-| **Papers** | **Add papers…**, **Reparse all**, **Label links**; **Sort** ("as added", "format", "type", "title", "year, newest first", "confidence, lowest first") and format, type and confidence chips; **Printed** and **Canonical** over the tree, with lane chips; **‹** and **›** over the page; **Label** on a finding, **Read the figures** on a figure with no numbers; in the labelling panel **Let the model label**, **Close**, **Skip**, **Save & next** | `papers`, `tree`, `mapping`, `refs`, `edges`, `charts`, `file`, `ingest`, `reparse`, `figures`, `label_queue`, `label`, `model_label`, `truth` |
+| **Papers** | **Add papers…**, **Reparse all**, **Label links**; **Sort** ("as added", "format", "type", "title", "year, newest first", "confidence, lowest first") and format, type and confidence chips; **Printed** and **Canonical** over the tree, with lane chips; **‹** and **›** over the page; **Label** on a finding, **Read the figures** on a figure whose paper was never read; in the labelling panel **Let the model label**, **Close**, **Skip**, **Save & next** | `papers`, `tree`, `mapping`, `refs`, `edges`, `charts`, `file`, `ingest`, `reparse`, `figures`, `label_queue`, `label`, `model_label`, `truth` |
 | **Types** | One tab per type with its count; **Canonical structure**; **How each paper maps onto it**, with a paper picker and **Open in Papers** | `types`, `mapping` |
 | **Query** | The question box, **Passages** (8), **Ask**; **Embed passages** with its count of passages embedded; **Open in the tree** on each hit | `query`, `retrieval`, `embed` |
 | **Graph** | **and what cites them**, **OpenAlex too**, the number to read (10), **Expand: read the most cited**, **Citation round**; **Candidates** ("none", "cited by at least", "all") with its number (2), **Colour** ("round", "year", "held or not"), the find box, **Fit**; in the side panel **Open in Papers**, **Citation round from it**, **here** and **Europe PMC** by each author, **Fetch & read** on a candidate; under **Ask in SQL** the presets **Held, oldest first**, **Next round**, **By an author**, **Authors here**, **Who cites whom**, **Rounds**, then **Run** (Ctrl+Enter) and **Fetch & read selected** | `graph`, `round`, `expand`, `sql`, `passages`, `fetch` |

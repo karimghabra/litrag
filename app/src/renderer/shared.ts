@@ -62,6 +62,8 @@ export interface ProjectSummary {
 
 export const ctx = {
   lib: null as string | null,
+  /** whether the worker reads figures (LITRAG_FIGURES), as a `wanted` answer said it (`figures_on`): one switch for the worker's life; null until one has */
+  figuresOn: null as boolean | null,
   projects: [] as ProjectSummary[],
   view: 'papers' as string,
 };

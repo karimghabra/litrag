@@ -338,7 +338,8 @@ export async function loadCandidates(): Promise<void> {
     if (ctx.lib !== lib) return;
     state.candidates = r.candidates;
     // with the figures off the worker lists none (`figures_on` false): Collect offers candidates alone
-    const w = await request<{ figures?: FiguresWanted[]; figures_on?: boolean }>('wanted', { lib }).catch(() => ({ figures: [] as FiguresWanted[] }));
+    const w = await request<{ figures?: FiguresWanted[]; figures_on?: boolean }>('wanted', { lib }).catch(() => ({ figures: [] as FiguresWanted[], figures_on: undefined }));
+    if (typeof w.figures_on === 'boolean') ctx.figuresOn = w.figures_on; // the switch, for a figure's pane (renderer.ts)
     if (ctx.lib !== lib) return;
     state.figuresWanted = w.figures ?? [];
   } catch (e) {
@@ -442,6 +443,7 @@ async function collect(): Promise<void> {
   let wanted: CollectEntry[];
   try {
     const r = await request<{ candidates: Candidate[]; figures?: FiguresWanted[]; figures_on?: boolean }>('wanted', { lib });
+    if (typeof r.figures_on === 'boolean') ctx.figuresOn = r.figures_on;
     wanted = collectList(r.candidates, r.figures ?? []);
   } catch (e) {
     log('error', `collect: ${(e as Error).message}`);

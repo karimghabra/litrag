@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- **The window says what each paper's and each figure's figures came to** (K13, K14, K6 taken as
+  the plan recommends). Each card carries a chip ("plots in 10 of 16 figures", "6 figures · no
+  PDF", "figures not read", "figures PDF missing"), its title the counts behind it; each figure in
+  the tree a tag ("3 plots", "2 of 3 plots read", "no chart", "not in PDF", "no number", "small",
+  "not read") and a label by its number ("figure 2", "scheme 1"); an XML figure's placeholder and
+  its pane say where its caption is in the PDF kept beside it, or why nothing was pinned to it.
+  **Read the figures** is offered only on a figure whose paper was never read, and nothing is
+  offered with the figures off. Dragged over a figure, the overlay says "Drop to keep the PDF for
+  this paper’s figures". The "figures:" log line counts the figures with plots. Every word lives in
+  `figstate.ts`.
+
 - **A new op, `figures_fetch`, asks PMC for the PDFs of XML papers already held** (no choice was
   waiting). Since M7 a paper filed as XML is asked of PMC once; the papers filed before were never
   asked, and a paper's settled answer could not be asked again. `figures_fetch {lib, keys?,

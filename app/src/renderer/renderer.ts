@@ -11,6 +11,7 @@ import * as pdfjs from 'pdfjs-dist';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { renderPlots, type Plot } from './charts.ts';
 import { droppedOn, figuresFor, ingestParams } from './figuredrop.ts';
+import { dropLabel, figureLabel, figuresDone, figuresOn, overlayText, paneNote, placeholder, stateChip, treeTag, type FigureOutcome, type FigureState, type FigureTag } from './figstate.ts';
 import { initLabels, openLabelling } from './labels.ts';
 import { BANDS, SORT_KEYS, arrived, bandOf, countBy, filedLine, filterPapers, readFiguresOf, sortPapers, validFilters, type SortKey } from './papers.ts';
 import { initProjects, renderProjects } from './projects.ts';
@@ -59,63 +60,6 @@ interface Paper {
   message?: string;
   elapsed?: number;
   roles?: Record<string, number>;
-}
-
-/** a paper's figures, counted (figures.states): an XML paper's over its figures (not its schemes or charts), a PDF paper's over the pictures a read looks for (small and unplaced counted apart) */
-interface FigureState {
-  /** none: no figure; no-pdf: XML with no PDF kept; missing-file: the file that draws them is not on disk; off: not read, LITRAG_FIGURES=off; unread; read */
-  kind: 'none' | 'no-pdf' | 'missing-file' | 'off' | 'unread' | 'read';
-  figures: number;
-  /** figures whose caption gives a number to match a PDF's captions by */
-  numbered: number;
-  /** figures with plots pinned to them */
-  pinned: number;
-  no_plot: number;
-  no_caption: number;
-  unnumbered: number;
-  same_number: number;
-  small: number;
-  unplaced: number;
-  /** figures not read: unread, skipped, or an XML figure with no plot read before outcomes were kept */
-  unread: number;
-  /** charts rows, a scheme's too */
-  plots: number;
-  read: number;
-  values: number;
-  /** plots in the PDF under no caption of the paper's */
-  unmatched: number | null;
-  /** the PDF's pages, and an XML paper's pages printing a caption of its floats (the only ones looked at) */
-  pages: number | null;
-  pages_read: number | null;
-  /** the file that draws the figures: the paper's own PDF, or the PDF kept beside its XML */
-  file: string | null;
-  at: string | null;
-  /** PMC's settled answer that it has no PDF (papers.figures_note) */
-  note: string | null;
-  /** the last word on asking PMC for its PDF (a figures-pdf events row) */
-  asked: string | null;
-}
-
-/** what one figure came to (figures.outcomes): the row its read kept, or what is known without one */
-type FigureOutcomeKind = 'plots' | 'no-plot' | 'no-caption' | 'skipped' | 'no-pdf' | 'unnumbered' | 'same-number' | 'small' | 'unplaced' | 'unrecorded' | 'unread';
-
-/** a picture or chart node's outcome in the tree: its tag and its placeholder */
-interface FigureTag {
-  outcome: FigureOutcomeKind;
-  /** the key its caption gives it: "2", "S2", "Scheme 1"; null when it gives no number */
-  label: string | null;
-  plots: number;
-  read: number;
-  /** a picture's page, or the PDF page an XML figure's plots or caption are on */
-  page: number | null;
-}
-
-/** one figure's outcome, as the charts op gives it */
-interface FigureOutcome extends FigureTag {
-  /** a picture's box, [left, top, right, bottom] in points from the top */
-  bbox: number[] | null;
-  /** why it was skipped */
-  detail: string | null;
 }
 
 interface Node {
@@ -384,6 +328,13 @@ function renderPapers() {
     kind.append(pill);
     if (typed && p.type_source) kind.append(el('span', 'type-by', `by ${p.type_source}`));
     if (p.format) kind.append(el('span', `fmt fmt-${p.format}`, p.format === 'jats' ? 'XML' : p.format.toUpperCase()));
+    // what its figures came to (figstate.ts): none said for a paper with none, or with the figures off and not read
+    const figs = stateChip(p);
+    if (figs) {
+      const chip = el('span', `figs k-${p.figure_state!.kind}`, figs.text);
+      chip.title = figs.title;
+      kind.append(chip);
+    }
     card.append(kind);
     card.append(el('div', 'key', [p.key, p.pages ? `${p.pages} pp` : ''].filter(Boolean).join(' · ')));
     const by = byline(p, 3);
@@ -575,7 +526,8 @@ function renderTree() {
 function nodeLabel(n: Node): string {
   if (n.type === 'section') return (n.heading ?? '(untitled)') + (n.label === 'built' ? ' [built]' : '') + (n.canonical && n.canonical.toLowerCase() !== (n.heading ?? '').replace(/^[\d.\s]+/, '').toLowerCase() ? ` [${n.canonical}]` : '');
   if (n.type === 'table') return n.table ? `table ${n.table.rows}×${n.table.cols}` : 'table';
-  if (n.type === 'picture') return 'figure';
+  const figure = figureLabel(state.tree?.figures, n); // the number its caption gives it: "figure 2", "scheme 1"
+  if (figure) return figure;
   const t = n.text.replace(/\s+/g, ' ').trim();
   return t.length > 110 ? `${t.slice(0, 110)}…` : t || `(${n.label})`;
 }
@@ -612,6 +564,8 @@ function renderNode(n: Node): HTMLElement {
     c.title = cited ? `cited by ${cited} node${cited === 1 ? '' : 's'}` : 'never cited in the text';
     row.append(c);
   }
+  const came = treeTag(state.tree?.figures, n); // what the figure came to (figstate.ts)
+  if (came) row.append(el('span', came.cls, came.text));
   if (n.page) row.append(el('span', 'pg', `p.${n.page}`));
   row.addEventListener('click', () => void selectNode(n.node_id));
   wrap.append(row);
@@ -687,7 +641,7 @@ function renderReading() {
           }
           fig.append(table);
         } else {
-          fig.append(el('div', 'placeholder', 'figure — the image itself is not in the XML'));
+          fig.append(el('div', 'placeholder', placeholder(t.figures?.[c.node_id], state.papers.get(t.paper.key) ?? t.paper)));
           const forFigures = figuresFor(t.paper);
           if (forFigures) fig.dataset['figuresFor'] = forFigures; // a PDF dropped on it goes to this paper (figuredrop.ts)
         }
@@ -807,15 +761,32 @@ function renderDetail(n: Node) {
   void loadEdges(n, d);
 }
 
+/** Whether the worker reads figures (LITRAG_FIGURES), as the `wanted` op says it (`figures_on`):
+ *  asked once, when a figure's pane first needs it, and kept in `ctx` (search.ts keeps what its own
+ *  `wanted` answers say); null when it could not be asked, and the papers op is read instead. */
+let switchAsked: Promise<boolean | null> | null = null;
+function figuresSwitch(lib: string): Promise<boolean | null> {
+  if (ctx.figuresOn !== null) return Promise.resolve(ctx.figuresOn);
+  switchAsked ??= request<{ figures_on?: boolean }>('wanted', { lib }).then(
+    (w) => (ctx.figuresOn = typeof w.figures_on === 'boolean' ? w.figures_on : null),
+    () => {
+      switchAsked = null; // asked again by the next pane
+      return null;
+    },
+  );
+  return switchAsked;
+}
+
 /** The numbers read from a selected figure (figures.py): each plot a table, or why it was not read;
- *  a PDF paper whose figures were never read can have them read here. */
+ *  under the head, what the figure came to (figstate.ts), and a figure not read can be read here. */
 let chartsSeq = 0;
 async function loadCharts(n: Node, into: HTMLElement) {
   if (!ctx.lib) return;
   const seq = ++chartsSeq;
   let r: { plots: Plot[]; outcome?: FigureOutcome | null };
+  let said: boolean | null;
   try {
-    r = await request<{ plots: Plot[]; outcome?: FigureOutcome | null }>('charts', { lib: ctx.lib, figure: n.node_id });
+    [r, said] = await Promise.all([request<{ plots: Plot[]; outcome?: FigureOutcome | null }>('charts', { lib: ctx.lib, figure: n.node_id }), figuresSwitch(ctx.lib)]);
   } catch {
     return;
   }
@@ -826,13 +797,10 @@ async function loadCharts(n: Node, into: HTMLElement) {
   const paper = state.selectedPaper ? state.papers.get(state.selectedPaper) : undefined;
   const forFigures = figuresFor(paper);
   if (forFigures) box.dataset['figuresFor'] = forFigures; // a PDF dropped here goes to this paper (figuredrop.ts)
-  if (!r.plots.length && paper?.format === 'jats' && !paper.figures_file) {
-    box.append(head);
-    box.append(el('div', 'muted', 'Read from XML, which names its figures but holds none. A PDF of the paper draws them: drop one here, or fetch it with Collect PDFs on the Search tab, and its charts are read and pinned to these figures.'));
-    into.append(box);
-    return;
-  }
-  if (!r.plots.length && (paper?.format === 'pdf' || paper?.figures_file)) {
+  // what the figure came to, and the one button offered: Read the figures, only for a figure not read (K14),
+  // and none with the figures off; Ask PMC comes with figures_fetch's buttons
+  const note = paneNote(r.outcome, paper, figuresOn(said, state.papers.values()));
+  if (note.button === 'read' && paper) {
     const b = el('button', 'ghost small label-act', 'Read the figures') as HTMLButtonElement;
     b.title = 'Read the charts in this paper’s figures into numbers (bars, points, error bars), on this machine';
     b.addEventListener('click', (ev) => {
@@ -847,6 +815,7 @@ async function loadCharts(n: Node, into: HTMLElement) {
     head.append(b);
   }
   box.append(head);
+  if (note.line) box.append(el('div', 'muted', note.line));
   renderPlots(box, r.plots);
   into.append(box);
 }
@@ -1123,9 +1092,11 @@ function onEvent(ev: Record<string, unknown>) {
     case 'done': {
       setStatus('ok', 'idle');
       activity.hide();
-      if (ev['op'] === 'figures') log('stage', `figures: ${ev['read'] ?? 0} of ${ev['plots'] ?? 0} charts read in ${ev['papers'] ?? 0} papers, ${ev['values'] ?? 0} values`);
+      if (ev['op'] === 'figures') log('stage', figuresDone(ev));
       if (!foreign) {
-        // the figure shown is drawn again once the paper's row says what draws its figures now
+        // the papers' chips and the shown paper's tree (its figures' tags) come again with the list; the figure shown is
+        // drawn again once the paper's row says what its figures came to: after the figures op, or an ingest that read
+        // the shown paper's figures (its `figures`: the papers whose read logged `figures: true`, figures_of)
         const refigured = state.selectedNode !== null && readFiguresOf(ev, state.selectedPaper);
         void loadPapers().then(() => {
           const n = refigured && state.selectedNode ? state.nodesById.get(state.selectedNode) : undefined;
@@ -1247,18 +1218,27 @@ function wire() {
   window.addEventListener('resize', () => void (state.pdf && ctx.view === 'papers' && showPage(state.page)));
 
   const overlay = $('drop-overlay');
+  const overlayLine = overlay.firstElementChild as HTMLElement;
+  const say = (text: string) => {
+    if (overlayLine.textContent !== text) overlayLine.textContent = text; // dragover comes many times a second
+  };
   window.addEventListener('dragover', (e) => {
     e.preventDefault();
     overlay.hidden = false;
+    // over a figure of a paper read from XML, a PDF dropped is kept for that paper's figures (figuredrop.ts): the overlay says so
+    say(overlayText(document.elementsFromPoint(e.clientX, e.clientY)));
   });
   window.addEventListener('dragleave', (e) => {
-    if (!e.relatedTarget) overlay.hidden = true;
+    if (e.relatedTarget) return;
+    overlay.hidden = true;
+    say(dropLabel(false));
   });
   window.addEventListener('drop', (e) => {
     e.preventDefault();
     // the overlay is what the drop lands on: a paper's figure is looked for under it
     const under = document.elementsFromPoint(e.clientX, e.clientY);
     overlay.hidden = true;
+    say(dropLabel(false));
     const files = [...(e.dataTransfer?.files ?? [])];
     const paths = window.litrag.pathsOf(files).filter((p) => /\.(pdf|xml)$/i.test(p));
     void ingest(paths, droppedOn(paths, under)).then(() => void loadCandidates());
