@@ -774,6 +774,16 @@ _SUPPLEMENT = re.compile(r"supplementa|supportinginformation|supplementinformati
 _TITLE_CHARS = 24
 
 
+def _whole_title(page: str, title: Any) -> bool | None:
+    """Whether a squeezed page prints a title whole: True; False when it does under a
+    supplement's name; None when it does not, or the title is too short to stand for a paper."""
+    title = _squeezed(title)
+    at = page.find(title) if len(title) >= _TITLE_CHARS else -1
+    if at < 0:
+        return None
+    return not _SUPPLEMENT.search(page[max(0, at - 300):at])
+
+
 def names_the_paper(text: str, row: dict[str, Any]) -> str | None:
     """Whether the first pages of a PDF are the candidate's paper: None if they print its DOI or
     its whole title (spaces, marks, line breaks and accents counting for nothing) and the title
@@ -782,17 +792,23 @@ def names_the_paper(text: str, row: dict[str, Any]) -> str | None:
     page = _squeezed(text)
     if not page:
         return "no text to tell it by"
-    title = _squeezed(row.get("title"))
-    at = page.find(title) if len(title) >= _TITLE_CHARS else -1
-    if at >= 0 and _SUPPLEMENT.search(page[max(0, at - 300):at]):
+    whole = _whole_title(page, row.get("title"))
+    if whole is False:
         return "a supplement, not the paper"
     doi = _squeezed(row.get("doi"))
-    if at >= 0 or (doi and len(doi) >= 8 and doi in page):
+    if whole or (doi and len(doi) >= 8 and doi in page):
         return None
     return "its first pages name neither its DOI nor its title"
 
 
-def _first_pages(path: Path, pages: int = 3) -> str:
+def titles_printed(text: str, rows: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The rows whose whole title the first pages of a PDF print, by names_the_paper's rule for a
+    title: at least 24 characters squeezed, and not under a supplement's name."""
+    page = _squeezed(text)
+    return [r for r in rows if page and _whole_title(page, r.get("title"))]
+
+
+def first_pages(path: Path, pages: int = 3) -> str:
     """The text of a PDF's first pages, pdfium's, or "" when it has none to give."""
     from .recover import clean, open_pdf
 
@@ -998,7 +1014,7 @@ def fetch_one(lib: Library, conn: sqlite3.Connection, cand_id: int, *, timeout: 
                     dest = lib.inbox_dir / f"{name}.pdf"
                     unchecked = dest.with_name(dest.name + ".unchecked")
                     _save(unchecked, body)
-                    why = names_the_paper(_first_pages(unchecked), row) or ""
+                    why = names_the_paper(first_pages(unchecked), row) or ""
                     if not why:
                         os.replace(unchecked, dest)
                         _update(conn, cand_id, status="fetched", file=dest.name, error=None)

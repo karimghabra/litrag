@@ -104,6 +104,7 @@ def test_merge_files_a_shared_doi_once(two):
     assert set(papers) == {two["ka"], two["kb_other"], two["kb_unread"]}
     first = papers[two["ka"]]
     assert first["format"] == "jats" and first["status"] == "parsed" and first["file"] == f"{safe_key(two['ka'])}.xml"  # the first one read wins
+    assert first["doi"] == SHARED  # spelled as A filed it, first: B's, in capitals, met it in any case
     assert (t.papers_dir / first["file"]).read_bytes() == (FIXTURES / "PMC11278924.xml").read_bytes()
     assert first["journal"] == "Micromachines" and first["year"] == "2024" and first["type"] == "research"
     assert first["pub_types"] == "research-article; Journal Article" and json.loads(first["authors"])[0]["name"] == "Shengmao Lin"
@@ -132,6 +133,17 @@ def test_merge_files_a_shared_doi_once(two):
     third = projects.merge(root, ["collagen-a", "collagen-b"], "Collagen", into="collagen")
     assert third["filed"] == 0 and third["keys_to_rebuild"] == []
     assert conn.execute("SELECT (SELECT COUNT(*) FROM papers), (SELECT COUNT(*) FROM candidates), (SELECT COUNT(*) FROM events), (SELECT COUNT(*) FROM outlines)").fetchone() == counts
+    conn.close()
+
+
+def test_merge_files_a_doi_in_another_case_once_whichever_source_comes_first(two):
+    out = projects.merge(two["root"], ["collagen-b", "collagen-a"], "Collagen")
+    assert out["filed"] == 3 and out["duplicates"] == 1
+    conn = open_store(open_library(two["root"], "collagen").store_path)
+    held = {r["key"]: r["doi"] for r in conn.execute("SELECT key, doi FROM papers")}
+    assert held == {two["kb_same"]: SHARED.upper(), two["kb_other"]: "10.1/other", two["kb_unread"]: None}  # B's spelling, filed first, is kept
+    again = projects.merge(two["root"], ["collagen-a", "collagen-b"], "Collagen", into="collagen")
+    assert again["filed"] == 0 and conn.execute("SELECT COUNT(*) FROM papers").fetchone()[0] == 3
     conn.close()
 
 

@@ -89,6 +89,18 @@ when it turns out durable. Mark inference as inference.
 
 ## Short-term memory
 
+- **2026-10-13: a DOI is the same in any case; filing says what met a paper (M5a)** — Karim:
+  "squash merge, then move onto the next milestone". The plan's choice was taken (his to overturn):
+  the DOI is matched in any case, and no PMCID step is added (invariant 4 unchanged; BACKLOG.md says
+  why). A filing row now names the identifier that met the paper held — "seen before (by DOI)", by
+  PMID, by file hash — and the `paper` event carries `by`. A PDF filed new for want of a DOI or PMID
+  whose first pages print one XML paper's whole title gets a `twin` row. The review found that a
+  store already holding one DOI in two spellings would, on a case-blind lookup, have taken the
+  later paper's own bytes for a stub of the earlier and deleted it with its rows; the lookup now
+  prefers the row that holds the same bytes. To check a library for such pairs (0 in the 226-paper
+  scratch library, which has 12 mixed-case DOIs): `SELECT lower(doi), count(*) FROM papers WHERE doi
+  IS NOT NULL GROUP BY 1 HAVING count(*) > 1` and the same over `upper(pmcid)`.
+
 - **2026-10-13: plots follow their figure, or go (M4)** — Karim: "move onto M4"; the plan's choice
   for a reread that changes format was taken (his to overturn): read from its PDF now, a PDF kept
   beside its XML is no longer read; read from its XML now, its own PDF is kept beside it for its

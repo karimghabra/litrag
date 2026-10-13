@@ -3,8 +3,9 @@
 Everything the parser learns about a paper is a row a person can SELECT. The
 raw Docling document is kept beside the store as JSON and never edited; the
 rows are built from it and can be rebuilt from it. Filing is idempotent — a
-paper is keyed by DOI, then PMID, then the hash of its file — and parsing a
-paper again replaces its rows in one transaction.
+paper is keyed by DOI, then PMID, then the hash of its file, a DOI met in
+any case and kept as it was first written — and parsing a paper again
+replaces its rows in one transaction.
 """
 
 from __future__ import annotations
@@ -229,18 +230,25 @@ def open_store(path: Path) -> sqlite3.Connection:
 class Filed:
     key: str
     existed: bool
+    by: str | None = None  # which identifier met the paper held: 'doi', 'pmid' or 'sha' (its file's hash); None when new
 
 
 def file_paper(conn: sqlite3.Connection, *, title: str, file: str, sha256: str, fmt: str, doi: str | None, pmid: str | None, pmcid: str | None, now: str) -> Filed:
-    """File a paper once: by DOI, then PMID, then hash. Seeing it again fills gaps."""
-    row = None
+    """File a paper once: by DOI, then PMID, then hash. Seeing it again fills gaps, and says
+    which of the three met it.
+
+    A DOI is the same in any case (10.1/ABC is 10.1/abc), so it is looked for in any case; the
+    paper keeps the key and the DOI it was first filed under, spelled as they were then. A store
+    filed before that may hold one DOI in two spellings, two papers: these bytes meet the one that
+    holds them, so the other is never taken for their stub, and other bytes the first filed."""
+    row, by = None, None  # `by` is the step that gave `row`
     if doi:
-        row = conn.execute("SELECT key FROM papers WHERE doi = ?", (doi,)).fetchone()
+        row, by = conn.execute("SELECT key FROM papers WHERE lower(doi) = lower(?) ORDER BY sha256 IS ? DESC, added_at, key LIMIT 1", (doi, sha256)).fetchone(), "doi"
     if row is None and pmid:
-        row = conn.execute("SELECT key FROM papers WHERE pmid = ?", (pmid,)).fetchone()
+        row, by = conn.execute("SELECT key FROM papers WHERE pmid = ?", (pmid,)).fetchone(), "pmid"
     sha_row = conn.execute("SELECT key FROM papers WHERE sha256 = ?", (sha256,)).fetchone()
     if row is None:
-        row = sha_row
+        row, by = sha_row, "sha"
     elif sha_row is not None and sha_row["key"] != row["key"]:
         # The same bytes were filed earlier under a hash, before their DOI was known:
         # that row was a stub of this paper. It goes, with its rows; the identified paper stays.
@@ -253,7 +261,7 @@ def file_paper(conn: sqlite3.Connection, *, title: str, file: str, sha256: str, 
             "UPDATE papers SET doi = COALESCE(doi, ?), pmid = COALESCE(pmid, ?), pmcid = COALESCE(pmcid, ?), file = COALESCE(file, ?), sha256 = COALESCE(sha256, ?), format = COALESCE(format, ?) WHERE key = ?",
             (doi, pmid, pmcid, file or None, sha256, fmt, key),
         )
-        return Filed(key=key, existed=True)
+        return Filed(key=key, existed=True, by=by)
     key = f"doi:{doi}" if doi else f"pmid:{pmid}" if pmid else f"pmcid:{pmcid}" if pmcid else f"sha:{sha256[:16]}"
     conn.execute(
         "INSERT INTO papers(key, doi, pmid, pmcid, title, file, sha256, format, status, added_at) VALUES (?,?,?,?,?,?,?,?, 'queued', ?)",

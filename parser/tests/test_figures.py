@@ -433,15 +433,126 @@ def test_a_pdf_arriving_for_an_xml_paper_is_kept_for_its_figures_and_read(tmp_pa
                                 "known": {str(dropped): {"doi": "10.3390/mi15070851"}}})
     events = [json.loads(line) for line in capsys.readouterr().out.splitlines() if line.strip()]
     paper = next(e for e in events if e["event"] == "paper")
-    assert paper["kept"] and paper["figures_file"].endswith(".figures.pdf")
+    assert paper["kept"] and paper["figures_file"].endswith(".figures.pdf") and paper["by"] == "doi"
     conn = open_store(lib / "store.sqlite")
     row = conn.execute("SELECT file, format, figures_file FROM papers WHERE key = ?", (key,)).fetchone()
     assert (row["file"], row["format"]) == ("paper.xml", "jats")  # the paper is its XML still
+    assert conn.execute("SELECT detail FROM events WHERE paper = ? AND stage = 'filed'", (key,)).fetchone()[0] == "a PDF of the XML (by DOI), kept for its figures: from-the-publisher.pdf"
     assert (lib / "papers" / row["figures_file"]).exists() and not dropped.exists()
     assert conn.execute("SELECT COUNT(*) FROM charts WHERE paper = ? AND status = 'read'", (key,)).fetchone()[0] == 3
     assert figures.figures_wanted(conn) == [] and figures.is_read(conn, key)
     assert any(e["event"] == "log" and "charts read from the PDF beside the XML" in e["message"] for e in events)
     conn.close()
+
+
+#: Lines page_paper.pdf prints, each long enough to stand for a paper's title, and one that is not.
+PRINTED = "Fold change of tenogenic markers on each substrate"
+ALSO_PRINTED = "The threads were stronger when aligned"
+SHORT = "Young's modulus (MPa)"
+
+
+def _holding(tmp_path, monkeypatch, held):
+    """A new library holding `held` papers — (title, format, pmcid) each, read — with parse_one
+    stood in for."""
+    from litrag_parser.library import create_library
+
+    _rereading(monkeypatch)
+    lib = create_library(tmp_path, f"Twins {len(list(tmp_path.iterdir()))}")
+    conn = open_store(lib.store_path)
+    for i, (title, fmt, pmcid) in enumerate(held):
+        key = file_paper(conn, title=title, file="", sha256=f"held{i}", fmt=fmt, doi=f"10.1/held{i}", pmid=None, pmcid=pmcid, now="t").key
+        conn.execute("UPDATE papers SET file = ?, status = 'parsed' WHERE key = ?", (f"held{i}.{'xml' if fmt == 'jats' else 'pdf'}", key))
+    conn.commit()
+    conn.close()
+    return lib
+
+
+def _drop(lib, capsys, name="scan.pdf", known=None):
+    """page_paper.pdf, which prints no DOI and no PMID, dropped into the library's inbox as `name`
+    and filed offline, `known` what the caller knows of it: its `paper` event, the library's
+    `twin` rows, and the log lines said of it."""
+    from litrag_parser.worker import Worker
+
+    dropped = lib.inbox_dir / name
+    shutil.copy(CHARTS / "page_paper.pdf", dropped)
+    capsys.readouterr()
+    Worker(lib.dir.parent).do_ingest({"id": "i", "op": "ingest", "lib": lib.id, "paths": [str(dropped)], "offline": True,
+                                      "known": {str(dropped): known} if known else {}})
+    events = [json.loads(line) for line in capsys.readouterr().out.splitlines() if line.strip()]
+    conn = open_store(lib.store_path)
+    twins = [tuple(r) for r in conn.execute("SELECT paper, detail FROM events WHERE stage = 'twin'")]
+    conn.close()
+    return next(e for e in events if e["event"] == "paper"), twins, [e for e in events if e["event"] == "log" and e.get("logger") == "twin"]
+
+
+def _scan_dropped(tmp_path, monkeypatch, capsys, held, name="scan.pdf"):
+    """page_paper.pdf dropped into a new library holding `held`: its key, the `twin` rows, and the
+    log lines said of it."""
+    paper, twins, said = _drop(_holding(tmp_path, monkeypatch, held), capsys, name)
+    return paper["paper"], twins, said
+
+
+def _filed(lib, key):
+    conn = open_store(lib.store_path)
+    try:
+        return [r[0] for r in conn.execute("SELECT detail FROM events WHERE paper = ? AND stage = 'filed' ORDER BY id", (key,))]
+    finally:
+        conn.close()
+
+
+def test_a_pdf_naming_nothing_that_prints_an_xml_paper_s_whole_title_is_said_to_be_its_twin(tmp_path, monkeypatch, capsys):
+    key, twins, said = _scan_dropped(tmp_path, monkeypatch, capsys, [(PRINTED, "jats", None), ("read from XML", "jats", None)])
+    note = "its first pages print the whole title of doi:10.1/held0, read from XML; filed apart, since no DOI or PMID was found for it"
+    assert key.startswith("sha:") and twins == [(key, note)]  # filed as today, by its hash: only said
+    assert [(e["paper"], e["message"]) for e in said] == [(key, note)]
+    # the same PDF dropped where that paper is titled otherwise is said to be nobody's
+    assert _scan_dropped(tmp_path, monkeypatch, capsys, [("Fold change of fibroblast markers on each substrate", "jats", None)])[1:] == ([], [])
+
+
+def test_a_twin_is_said_only_when_one_paper_read_from_xml_is_the_only_one_printed(tmp_path, monkeypatch, capsys):
+    def twins(*held, name="scan.pdf"):
+        return _scan_dropped(tmp_path, monkeypatch, capsys, list(held), name=name)[1]
+
+    assert twins((PRINTED, "jats", None), (ALSO_PRINTED, "jats", None)) == []  # two XML papers printed: which is not known
+    assert twins((SHORT, "jats", None)) == []  # too short to stand for a paper
+    assert twins((PRINTED, "pdf", None)) == []  # a paper read from its PDF is not an XML paper's twin
+    assert twins((PRINTED, "jats", None), (ALSO_PRINTED, "pdf", None)) == []  # nor is one printed beside another paper's title
+    assert twins((PRINTED, "jats", "PMC7654321"), name="PMC1234567.pdf") == []  # a PMCID that is not the paper's
+    same = twins((PRINTED, "jats", "PMC1234567"), name="PMC1234567.pdf")
+    assert [k for k, _ in same] == ["pmcid:PMC1234567"]  # filed apart under the PMCID it names, which filing does not go by
+
+
+def test_a_twin_dropped_again_is_met_by_its_hash_and_said_once(tmp_path, monkeypatch, capsys):
+    from litrag_parser import worker
+
+    lib = _holding(tmp_path, monkeypatch, [(PRINTED, "jats", None)])
+    first, said_first, _ = _drop(lib, capsys)
+    again, said_again, logged = _drop(lib, capsys)
+    assert (first["existed"], first["by"]) == (False, None)
+    assert (again["paper"], again["existed"], again["by"], again["kept"]) == (first["paper"], True, "sha", False)
+    assert len(said_first) == len(said_again) == 1 and logged == []  # said once: dropping it again changes nothing
+    # read now, and dropped a third time: kept as it was read, and still said once
+    conn = open_store(lib.store_path)
+    conn.execute("UPDATE papers SET status = 'parsed' WHERE key = ?", (first["paper"],))
+    conn.commit()
+    conn.close()
+    monkeypatch.setattr(worker, "_has_a_tree", lambda *a: True)
+    kept, said_kept, _ = _drop(lib, capsys)
+    assert (kept["paper"], kept["kept"], kept["by"]) == (first["paper"], True, "sha") and said_kept == said_first
+    assert _filed(lib, first["paper"]) == ["new: scan.pdf", "seen before (by file hash): scan.pdf", "seen before (by file hash), kept: scan.pdf"]
+
+
+def test_a_pdf_with_a_doi_or_a_pmid_of_its_own_is_no_twin(tmp_path, monkeypatch, capsys):
+    # filed by its own identifier, not apart for want of one: the note would not be true of it
+    by_doi = _drop(_holding(tmp_path, monkeypatch, [(PRINTED, "jats", None)]), capsys, "a.pdf", known={"doi": "10.9/its-own"})
+    assert (by_doi[0]["paper"], by_doi[1:]) == ("doi:10.9/its-own", ([], []))
+    lib = _holding(tmp_path, monkeypatch, [(PRINTED, "jats", None)])
+    by_pmid = _drop(lib, capsys, "b.pdf", known={"pmid": "999"})
+    assert (by_pmid[0]["paper"], by_pmid[1:]) == ("pmid:999", ([], []))
+    # and the same paper again, met by its PMID before its file's hash, says so
+    again = _drop(lib, capsys, "c.pdf", known={"pmid": "999"})
+    assert (again[0]["paper"], again[0]["existed"], again[0]["by"], again[1:]) == ("pmid:999", True, "pmid", ([], []))
+    assert _filed(lib, "pmid:999") == ["new: b.pdf", "seen before (by PMID): c.pdf"]
 
 
 # -- plots through a rebuild, a reparse and a reread ----------------------------------------------------------
@@ -590,7 +701,7 @@ def test_a_pdf_reread_over_an_xml_paper_no_longer_reads_the_pdf_kept_beside_it(t
     assert tuple(conn.execute("SELECT file, format, figures_file FROM papers WHERE key = ?", (key,)).fetchone()) == (own, "pdf", None)
     assert read == [(key, own)]
     filed = [r[0] for r in conn.execute("SELECT detail FROM events WHERE paper = ? AND stage = 'filed' ORDER BY id", (key,))]
-    assert filed == ["read from its PDF now: paper.figures.pdf, kept beside its XML for its figures, is no longer read", "seen before: the-paper.pdf"]
+    assert filed == ["read from its PDF now: paper.figures.pdf, kept beside its XML for its figures, is no longer read", "seen before (by DOI): the-paper.pdf"]
     assert (lib.papers_dir / "paper.figures.pdf").exists()  # not read, not thrown away
     conn.close()
 
@@ -620,7 +731,7 @@ def test_an_xml_reread_over_a_pdf_paper_keeps_its_pdf_beside_it_for_its_figures(
     assert tuple(conn.execute("SELECT file, format, figures_file FROM papers WHERE key = ?", (key,)).fetchone()) == (f"{safe_key(key)}.xml", "jats", own)
     assert read == [(key, f"{safe_key(key)}.xml")]
     filed = [r[0] for r in conn.execute("SELECT detail FROM events WHERE paper = ? AND stage = 'filed' ORDER BY id", (key,))]
-    assert filed == [f"read from its XML now: its PDF {own} is kept beside it for its figures", "seen before: PMC11278924.xml"]
+    assert filed == [f"read from its XML now: its PDF {own} is kept beside it for its figures", "seen before (by DOI): PMC11278924.xml"]
     # the same file draws its figures, but read as the paper's own pictures: the XML's are read from its pages, again
     assert not figures.is_read(conn, key)
     conn.close()

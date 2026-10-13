@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- **A DOI is the same paper in any case, and filing says what met a paper** (Karim, 2026-10-13:
+  "squash merge, then move onto the next milestone"). `store.file_paper` matches a DOI case-blind
+  (10.1/ABC is 10.1/abc), keeping the key and spelling first filed; a store that already holds one
+  DOI in two spellings meets the row holding the same bytes, so neither is ever taken for the
+  other's stub and deleted. A merge needs no lookup of its own for it. `Filed.by` says which
+  identifier met the paper held; the `filed` row reads "seen before (by DOI)", by PMID or by file
+  hash, and the `paper` event carries `by`. No PMCID step is added. A PDF filed as a new paper for
+  want of a DOI or PMID, whose first pages print the whole title of exactly one paper held and read
+  from XML, gets a `twin` events row and a log line; nothing is merged on a title.
+
 - **A paper's plots follow their figures when its nodes are replaced, or go with a note** (Karim,
   2026-10-13: "move onto M4"). Two figures that traded node ids in a rebuild made the plots' move
   collide (`chart_values`' UNIQUE constraint), and the rebuild refused the paper after its nodes

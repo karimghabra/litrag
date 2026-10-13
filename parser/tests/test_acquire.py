@@ -832,3 +832,15 @@ def test_names_the_paper_by_its_doi_or_its_whole_title():
     assert acquire.names_the_paper("Cell migration\nA review", {"title": "Cell migration"}) is not None  # too short to stand for one paper
     assert acquire.names_the_paper("Putting Tumors in Context", {"title": "Putting tumours in context", "doi": "10.1038/35094059"}) is not None
     assert acquire.names_the_paper("", row) == "no text to tell it by"
+    assert acquire.names_the_paper("Supplementary Information for\n" + row["title"], {"title": row["title"]}) == "a supplement, not the paper"
+
+
+def test_the_titles_a_pdf_prints_are_told_by_the_same_rule():
+    rows = [{"key": "whole", "title": "Distinct regimes of elastic response and deformation modes"}, {"key": "short", "title": "Cell migration"},
+            {"key": "none", "title": None}, {"key": "elsewhere", "title": "A title these pages never print at all"}]
+    page = "Distinct regimes of elastic\nresponse and deformation modes\nCell migration"
+    assert [r["key"] for r in acquire.titles_printed(page, rows)] == ["whole"]
+    assert acquire.titles_printed("Supporting Information\n" + page, rows) == []  # under a supplement's name
+    assert acquire.titles_printed("", rows) == []
+    at_floor = [{"key": "24", "title": "abcdefghij klmnopqrst uvwx"}, {"key": "23", "title": "abcdefghij klmnopqrst uvw"}]
+    assert [r["key"] for r in acquire.titles_printed("abcdefghij klmnopqrst uvwx", at_floor)] == ["24"]  # 24 squeezed characters stand for a paper; 23 do not

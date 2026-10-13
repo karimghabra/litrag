@@ -19,6 +19,45 @@ def test_filing_is_idempotent_by_doi_then_hash(tmp_path):
     assert conn.execute("SELECT COUNT(*) FROM papers").fetchone()[0] == 2
 
 
+def test_a_doi_in_another_case_is_the_same_paper_and_filing_says_what_met_it(tmp_path):
+    conn = open_store(tmp_path / "store.sqlite")
+    first = file_paper(conn, title="x", file="a.pdf", sha256="aa", fmt="pdf", doi="10.1/ABC", pmid=None, pmcid=None, now="t1")
+    again = file_paper(conn, title="x", file="b.pdf", sha256="bb", fmt="pdf", doi="10.1/abc", pmid=None, pmcid=None, now="t2")
+    assert (first.key, first.existed, first.by) == ("doi:10.1/ABC", False, None)
+    assert (again.key, again.existed, again.by) == ("doi:10.1/ABC", True, "doi")
+    assert [tuple(r) for r in conn.execute("SELECT key, doi FROM papers")] == [("doi:10.1/ABC", "10.1/ABC")]  # spelled as first filed
+    # each step says itself: a PMID, then the file's hash; a DOI before a PMID that names another paper
+    p = file_paper(conn, title="y", file="c.pdf", sha256="cc", fmt="pdf", doi=None, pmid="123", pmcid=None, now="t3")
+    assert (p.key, p.existed, p.by) == ("pmid:123", False, None)
+    by_pmid = file_paper(conn, title="y", file="d.pdf", sha256="dd", fmt="pdf", doi="10.2/new", pmid="123", pmcid=None, now="t4")
+    assert (by_pmid.key, by_pmid.existed, by_pmid.by) == ("pmid:123", True, "pmid")
+    by_doi = file_paper(conn, title="y", file="e.pdf", sha256="ee", fmt="pdf", doi="10.1/Abc", pmid="123", pmcid=None, now="t5")
+    assert (by_doi.key, by_doi.by) == ("doi:10.1/ABC", "doi")
+    h = file_paper(conn, title="z", file="f.pdf", sha256="ff", fmt="pdf", doi=None, pmid=None, pmcid=None, now="t6")
+    by_sha = file_paper(conn, title="z", file="f.pdf", sha256="ff", fmt="pdf", doi=None, pmid=None, pmcid=None, now="t7")
+    assert (h.existed, h.by) == (False, None) and (by_sha.key, by_sha.existed, by_sha.by) == (h.key, True, "sha")
+
+
+def test_a_doi_held_in_several_cases_meets_its_own_bytes_or_the_one_filed_first(tmp_path):
+    """A store from before DOIs were met in any case may hold one in several spellings, each a
+    paper read: a file of one of them meets that one, and no other is lost as its stub; any other
+    file meets the one filed first, whichever spelling it comes in."""
+    conn = open_store(tmp_path / "store.sqlite")
+    # filed first is Ab: first neither by row nor by key, in either direction
+    held = (("doi:10.1/AB", "2026-01-02"), ("doi:10.1/Ab", "2026-01-01"), ("doi:10.1/ab", "2026-01-03"))
+    for key, at in held:
+        conn.execute("INSERT INTO papers(key, doi, title, sha256, status, added_at) VALUES (?,?,'t',?,'parsed',?)", (key, key[4:], f"bytes of {key}", at))
+        conn.execute("INSERT INTO nodes(node_id, paper, ordinal, depth, type, label, role, ancestry, text) VALUES (?,?,0,0,'paragraph','text','other','[]','read')", (f"{key}#0", key))
+    conn.commit()
+    for spelling in ("10.1/ab", "10.1/AB", "10.1/aB"):
+        f = file_paper(conn, title="t", file="", sha256="other bytes", fmt="pdf", doi=spelling, pmid=None, pmcid=None, now="2026-01-04")
+        assert (f.key, f.by) == ("doi:10.1/Ab", "doi")
+    for key, _ in held:  # each one's own file, dropped again
+        f = file_paper(conn, title="t", file="", sha256=f"bytes of {key}", fmt="pdf", doi=key[4:], pmid=None, pmcid=None, now="2026-01-04")
+        assert (f.key, f.existed, f.by) == (key, True, "doi")
+    assert [tuple(r) for r in conn.execute("SELECT paper, COUNT(*) FROM nodes GROUP BY paper ORDER BY paper")] == [(k, 1) for k, _ in sorted(held)]
+
+
 def test_a_hash_stub_gives_way_to_the_identified_paper(tmp_path):
     conn = open_store(tmp_path / "store.sqlite")
     stub = file_paper(conn, title="stub", file="s.xml", sha256="s1", fmt="jats", doi=None, pmid=None, pmcid=None, now="t")
