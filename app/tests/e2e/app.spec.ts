@@ -14,6 +14,7 @@ import { _electron as electron, expect, test, type ElectronApplication, type Pag
 import { copyFileSync, existsSync, mkdtempSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { figureLabel, figuresOn, paneNote, placeholder, stateChip, treeTag, type FigureOutcome, type FigureState, type FigureTag } from '../../src/renderer/figstate.ts';
 
 const APP_DIR = resolve(import.meta.dirname, '..', '..');
 const FIXTURE = resolve(APP_DIR, '..', 'parser', 'tests', 'fixtures', 'PMC11278924.xml');
@@ -44,6 +45,9 @@ interface PaperRow {
   authors?: string | null;
   journal?: string | null;
   year?: string | null;
+  pmcid?: string | null;
+  figures_file?: string | null;
+  figure_state?: FigureState | null;
 }
 
 interface NodeRow {
@@ -192,8 +196,52 @@ test('the tree, the detail pane and the page (PDF) or the paper as read (XML)', 
       await expect(page.locator(`#node-detail .charts[data-figures-for="${row.key}"]`)).toBeVisible({ timeout: 15_000 });
     }
   }
+  await expectFigureWords(row.key);
   }
 });
+
+/** What a paper's figures came to, in the window's words (figstate.ts) from what the worker answers, whatever they
+ *  came to here: the chip on its card, each figure's name and tag in the tree and its placeholder in the reading, and
+ *  under a figure's pane of numbers the line and the one button offered (Read the figures only for a figure not read).
+ *  A read may still be under way (a PDF PMC gave, kept beside the XML), so the two are compared until they agree. */
+async function expectFigureWords(key: string): Promise<void> {
+  const soon = { timeout: 5_000 };
+  await expect(async () => {
+    const rows = ((await request(page, 'papers', { lib })) as { papers: PaperRow[] }).papers;
+    const row = rows.find((p) => p.key === key)!;
+    const chip = stateChip(row);
+    const figs = page.locator(`#papers .paper[data-key="${key.replace(/"/g, '\\"')}"] .figs`);
+    if (chip) {
+      await expect(figs).toHaveText(chip.text, soon);
+      await expect(figs).toHaveAttribute('title', chip.title, soon);
+      await expect(figs).toHaveClass(new RegExp(`\\bk-${row.figure_state!.kind}\\b`), soon);
+    } else await expect(figs).toHaveCount(0, soon);
+    const tree = (await request(page, 'tree', { lib, key })) as { root: NodeRow; figures?: Record<string, FigureTag> };
+    const shown = flat(tree.root).filter((n) => n.type === 'picture' || n.type === 'chart');
+    if (!process.env['LITRAG_E2E_PAPERS'] && row.format === 'jats') expect(shown.length, 'the fixture paper has figures').toBeGreaterThan(0);
+    let first: string | null = null;
+    for (const n of shown) {
+      const tr = page.locator(`#tree .tree-node[data-id="${n.node_id}"]`);
+      if (!(await tr.count())) continue; // under a section folded away
+      await expect(tr.locator('.label')).toHaveText(figureLabel(tree.figures, n) ?? /./, soon);
+      const tag = treeTag(tree.figures, n);
+      if (tag) await expect(tr.locator('.figout')).toHaveText(tag.text, soon);
+      else await expect(tr.locator('.figout')).toHaveCount(0, soon);
+      if (row.format === 'jats' && n.type === 'picture') await expect(page.locator(`#page-reading figure.picture[data-id="${n.node_id}"] .placeholder`)).toHaveText(placeholder(tree.figures?.[n.node_id], row), soon);
+      first ??= n.node_id;
+    }
+    if (!first) return;
+    await page.locator(`#tree .tree-node[data-id="${first}"]`).click();
+    const pane = page.locator('#node-detail .charts');
+    await expect(pane).toBeVisible({ timeout: 15_000 });
+    const { outcome } = (await request(page, 'charts', { lib, figure: first })) as { outcome?: FigureOutcome | null };
+    const { figures_on } = (await request(page, 'wanted', { lib })) as { figures_on?: boolean };
+    const note = paneNote(outcome, row, figuresOn(figures_on, rows));
+    if (note.line) await expect(pane.locator(':scope > .muted').first()).toHaveText(note.line, soon);
+    else await expect(pane.locator(':scope > .muted')).toHaveCount(0, soon);
+    await expect(pane.getByRole('button', { name: 'Read the figures' })).toHaveCount(note.button === 'read' ? 1 : 0, soon);
+  }).toPass({ timeout: 120_000 });
+}
 
 test('a PDF dropped on a figure of an XML paper goes to that paper, and is checked there', async () => {
   test.skip(Boolean(process.env['LITRAG_E2E_PAPERS']), 'a test PDF dropped on the fixture paper\'s figure');
@@ -214,17 +262,21 @@ test('a PDF dropped on a figure of an XML paper goes to that paper, and is check
     document.body.append(input);
   });
   await page.setInputFiles('#e2e-files', pdf);
-  const landed = await page.evaluate(({ x, y }) => {
+  const { landed, over, dropped } = await page.evaluate(({ x, y }) => {
     const dt = new DataTransfer();
     for (const f of (document.getElementById('e2e-files') as HTMLInputElement).files ?? []) dt.items.add(f);
     const drag = (type: string) => new DragEvent(type, { dataTransfer: dt, clientX: x, clientY: y, bubbles: true, cancelable: true });
+    const overlay = document.getElementById('drop-overlay')!;
     document.elementFromPoint(x, y)!.dispatchEvent(drag('dragover'));
+    const over = overlay.textContent;
     const top = document.elementFromPoint(x, y)!;
     top.dispatchEvent(drag('drop'));
     document.getElementById('e2e-files')!.remove();
-    return top.id || top.parentElement?.id;
+    return { landed: top.id || top.parentElement?.id, over, dropped: overlay.textContent };
   }, { x: at.x + at.width / 2, y: at.y + at.height / 2 });
   expect(landed, 'the drop lands on the overlay, not on the figure').toBe('drop-overlay');
+  expect(over, 'over a figure, the overlay says where the PDF goes').toBe('Drop to keep the PDF for this paper’s figures');
+  expect(dropped, 'and says the plain thing again once it is dropped').toBe('Drop to ingest');
   // sent to the paper unasked, and refused there: its first pages do not name it (keep_beside)
   await expect(page.locator('#log .log-line').filter({ hasText: 'dropped on a figure of' })).toHaveCount(1);
   const refused = page.locator('#log .log-line.failed').filter({ hasText: `skipped ${pdf}: its first pages name neither its DOI nor its title` });

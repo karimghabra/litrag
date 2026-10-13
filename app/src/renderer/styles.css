@@ -151,6 +151,9 @@ h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: v
 .fmt { font-size: 10px; letter-spacing: .05em; padding: 0 5px; border-radius: 3px; border: 1px solid var(--line); color: var(--muted); }
 .fmt.fmt-jats { color: var(--ok); border-color: var(--ok); }
 .fmt.fmt-pdf { color: var(--accent); border-color: var(--accent); }
+/* what a paper's figures came to (figstate.ts): quiet, beside the format; a file gone from papers/ in the warning colour */
+.figs { font-size: 10px; letter-spacing: .02em; padding: 0 5px; border-radius: 3px; border: 1px dashed var(--line); color: var(--muted); white-space: nowrap; }
+.figs.k-missing-file { color: var(--warn); border-color: var(--warn); }
 .paper .byline { color: var(--muted); font-size: 11px; margin-top: 2px; }
 .paper .stage { margin-top: 6px; display: flex; align-items: center; gap: 8px; font-size: 12px; flex-wrap: wrap; }
 .badge { display: inline-block; font-size: 10px; text-transform: uppercase; letter-spacing: .05em; padding: 1px 6px; border-radius: 10px; border: 1px solid var(--line); color: var(--muted); }
@@ -193,6 +196,10 @@ h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: v
 .tree-node.section .label { font-weight: 600; }
 .tree-node .count { color: var(--muted); font-size: 11px; }
 .tree-node .pg { color: var(--muted); font-size: 11px; margin-left: auto; flex: none; }
+/* what a figure came to, beside its page: muted, its plots in the accent */
+.tree-node .figout { color: var(--muted); font-size: 11px; margin-left: auto; flex: none; white-space: nowrap; }
+.tree-node .figout.o-plots { color: var(--accent); }
+.tree-node .figout + .pg { margin-left: 0; }
 .children { margin-left: 16px; border-left: 1px solid var(--line); }
 
 /* the canonical tree: the paper re-hung under its type's structure */
