@@ -1737,7 +1737,7 @@ uv run --project parser --no-sync litrag-parser --root=$HOME/.protracker/library
 An installed litrag runs `~/.local/share/litrag/venv/bin/litrag-parser` instead (`%LOCALAPPDATA%\litrag\venv\Scripts\litrag-parser.exe` on Windows). Always name `lib`.
 
 - **`rebuild`** derives the rows again from the saved Docling documents in `parsed/`. It ends with `done`, listing `rebuilt` papers and `refused` ones with a reason.
-- **`reread`** replaces the file of a paper already read and reads it again. Without it, the file is "seen before, kept" and nothing changes.
+- **`reread`** replaces the file of a paper already read and reads it again. Without it, the file is "seen before (by DOI), kept" — or by PMID, or by file hash — and nothing changes.
 - **`figures`** without `keys` reads every paper whose charts are not read yet; `"force": true` reads them again.
 - **`merge` with `into`** adds the sources to an existing library. `side` is another project.
 
@@ -1767,7 +1767,8 @@ The paper was filed at 05:13 and read two hours later. Its tree was saved, but t
 
 | Stage | What it records |
 | --- | --- |
-| `filed` | the file arrived: "new", "seen before", "seen before, kept", or "a PDF of the XML, kept for its figures" |
+| `filed` | the file arrived: "new", "seen before (by DOI)" (or by PMID, or by file hash; a DOI matches in any case), the same with ", kept" when the earlier reading stays, or "a PDF of the XML (by DOI), kept for its figures" |
+| `twin` | a PDF that names no DOI or PMID was filed as a new paper, and its first pages print the whole title of one paper held as XML |
 | `unfiled` | a paper marked read had no tree, so it is read again |
 | `opening`, `layout`, `tree`, `recover`, `figures`, `saved` | the steps of a reading (see How a paper is read) |
 | `judge`, `outline` | the local chat model was asked, or gave no answer (both off by default) |
@@ -1938,7 +1939,7 @@ This is the place to look when something goes wrong. Make the four checks below,
 | A **failed** card, and the tree pane says "Parsing failed: the worker stopped while reading this paper" | The worker quit or crashed in the middle of that paper; the next worker marked it failed | Add the file again, or reparse it by key |
 | A **failed** card with "the layout child took more than 300s", "and again in a fresh child", or "Docling read nothing from the file: no text, no tables" | Docling hung or crashed twice on the file, or found no text: a scanned page (OCR is off) or not a paper | Reparse it alone, by key. For a very long PDF, raise `LITRAG_LAYOUT_TIMEOUT` (300 s by default). For a scan, find the paper's XML or a PDF with a text layer |
 | **Describe…** on a project card does nothing, and the log says "unhandled: prompt() is not supported." **Suggest from the project** then answers "The project has no description to draft queries from: describe it first." | The button opens a browser prompt, which Electron does not support | Write the description in **What it is about** when you click **New project**. For an existing project, send `{"op":"describe","lib":"<id>","description":"…"}` (see Maintenance for sending a request from the window) |
-| A PDF reads badly: the title is the file name, the confidence chip is low, "No methods section detected", or sections hang under the wrong heading | A scan with text on few pages, a heading the layout model missed, or a running header. "doi\_10.1097\_00002480-199609000-00075" (ASAIO J, 1996) has text on page 2 only and scores 0.063 | Hover the confidence chip for its reasons and compare the boxes on the page. If Europe PMC has the paper's XML, read that instead: send `ingest` with its path and `"reread": true`. A plain add keeps the old reading ("seen before, kept") |
+| A PDF reads badly: the title is the file name, the confidence chip is low, "No methods section detected", or sections hang under the wrong heading | A scan with text on few pages, a heading the layout model missed, or a running header. "doi\_10.1097\_00002480-199609000-00075" (ASAIO J, 1996) has text on page 2 only and scores 0.063 | Hover the confidence chip for its reasons and compare the boxes on the page. If Europe PMC has the paper's XML, read that instead: send `ingest` with its path and `"reread": true`. A plain add keeps the old reading ("seen before (by DOI), kept") |
 | A figure's numbers do not match the chart on the page | One of the chart reader's failure patterns (see Figures below) | Compare the table with the page, and check the caption for a second y axis. Reading again gives the same rows, and nothing in the window corrects or hides a value: leave that plot out |
 | A figure says "No numbers read from this figure" | An XML paper: JATS XML names its figures but holds no image. A PDF paper: the picture holds no chart, or its charts were never read because the reading was cut off or `LITRAG_FIGURES` was `off` | For XML, drop the paper's PDF on the window, or run **Collect PDFs** on the Search tab: the PDF is kept beside the XML and its charts are read. For a PDF whose charts were never read, click **Read the figures**: it reads all of that paper's figures. A photograph stays without numbers |
 | After clicking a queued, parsing or failed paper, the page pane still shows the previous paper's page, boxes and node detail. Two quick clicks can also put one paper's page under another's tree | The window clears the tree but not the page for a paper with no tree, and two tree requests can finish out of order | Trust the tree pane. Click another parsed paper, or the same paper again |

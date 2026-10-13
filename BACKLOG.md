@@ -663,6 +663,15 @@ Each one wants a fixture or a test before its fix, as the spot-check does.
   Invariant 4 says running a stage twice changes nothing. One list of the
   note stages, kept where notes are made, and a test that a rebuild twice
   is one set; history rows ('filed', 'figures', 'saved') stay.
+- **A PMCID step in filing** (planned for the XML figures work, 2026-10-13)
+  — invariant 4 files a paper by DOI, then PMID, then file hash; a PDF
+  that prints only its PMCID (an author manuscript's) is filed apart from
+  the XML paper with that PMCID. Taking the PMCID as a fourth step wants
+  guards: a DOI that contradicts blocks it, and a PDF met by PMCID alone
+  must print the paper's DOI or whole title. Not done: dropping a PDF on a
+  paper's figure (planned) meets the main need, and the PMCID a PDF's
+  first pages print is the weakest of the identifiers. The `twin` note
+  says when a PDF that names nothing prints an XML paper's title.
 - **An XML arriving for a paper read from its PDF** (2026-10-13) — it is
   filed as the same paper and not read, since a paper already read stays as
   it was read; only `reread` takes it. The XML is the better reading (its
