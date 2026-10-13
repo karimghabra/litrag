@@ -603,12 +603,15 @@ category, and above them the axis's title and unit and the panel's letter.
   in another colour. A whisker that cannot be seen is null, never assumed.
   Names come from the labels under the axis and the legend's swatches.
 - **Where it shows.** A picture in the Papers tab lists its plots as tables
-  — value ± error, a CSV of each a click away — and a figure read before
-  this existed has **Read the figures**. In Query, a passage that cites a
-  figure (or is its caption) carries its numbers, the panel it names first
-  ("Figure 2B"). `select c.y_label, v.category, v.y, v.err_hi from
-  chart_values v join charts c using (paper, figure, plot)` is the shape of
-  the question.
+  — value ± error, a CSV of each a click away — and a line saying what
+  the figure came to (no chart in it, its caption not in the PDF, too
+  small); each card and each figure in the tree says the same in a word or
+  two. A figure whose paper was never read has **Read the figures**, and
+  nothing else does: reading again gives the same answer. In Query, a
+  passage that cites a figure (or is its caption) carries its numbers, the
+  panel it names first ("Figure 2B"). `select c.y_label, v.category, v.y,
+  v.err_hi from chart_values v join charts c using (paper, figure, plot)`
+  is the shape of the question.
 
 On six synthetic charts with known values — simple, grouped, outlined with
 slanted labels, points over days, two panels, a log axis — every value is

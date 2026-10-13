@@ -89,6 +89,26 @@ when it turns out durable. Mark inference as inference.
 
 ## Short-term memory
 
+- **2026-10-13: the window shows what each figure came to (M10a)** — K13, K14 and K6 were waiting;
+  the plan's recommendations were taken (Karim's to overturn): §4's words as written, in one file
+  (`app/src/renderer/figstate.ts`); **Read the figures** only on a figure whose paper was never
+  read (K14(a)); with figures off, no figure action (K6(a)). Lines beyond §4, where M8's counts or
+  a case §4 did not name needed one: on a read card's title "N smaller than an inch each way: not
+  read for charts.", "N with no place on a page.", "N not read." (skipped, or read before outcomes
+  were kept); a PDF paper whose own file is gone, "‹file›, the PDF the paper was read from, is not
+  in papers/."; an unplaced figure's pane "No place on a page: not read for charts."; a gone kept
+  PDF named "‹file›, kept for its figures and not in papers/ now"; a PDF paper's off line "Figures
+  are off (LITRAG_FIGURES=off): they are not read."; ", what each figure came to recorded for N
+  papers" on the log line after `record`; singulars ("1 figure", "under its caption"); and a
+  settled no from PMC offers no button when the paper has no PMCID. The window takes the switch
+  from the `wanted` answer's `figures_on`. Headless in the real window on a recorded copy of the
+  scratch library: pone "plots in 10 of 16 figures", 117 cards "N figures · no PDF" (mi15070851
+  "6 figures · no PDF", as M11's e2e expects), 4 "none numbered", 61 "plots in …", 12 "no plots
+  in …", 1 "figures not read", 32 with no chip; the overlay says "Drop to keep the PDF for this
+  paper’s figures" over a figure and goes back on leave and drop. Not fixed, seen in passing:
+  choosing another paper leaves the last paper's figure pane up until a node is clicked (an
+  older fault; its button still acts on the right paper).
+
 - **2026-10-13: `figures_fetch` asks PMC for the XML papers already held (M9)** — No choice was
   waiting (K6 as before: the op is asked for, so it runs with figures off). The op asks the PMC
   Cloud Service, then EBI's bulk area, for the papers named, or every one Collect lists for its
