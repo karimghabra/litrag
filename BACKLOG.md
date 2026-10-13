@@ -663,6 +663,14 @@ Each one wants a fixture or a test before its fix, as the spot-check does.
   Invariant 4 says running a stage twice changes nothing. One list of the
   note stages, kept where notes are made, and a test that a rebuild twice
   is one set; history rows ('filed', 'figures', 'saved') stay.
+- **A merge's duplicate brings no charts** (2026-10-13) — when a source
+  keeps a PDF beside an XML paper the target holds already, the PDF is kept
+  there and its figures read again, even when the source's charts were read
+  from exactly those bytes (a 390 s read for pone.0359084). The charts and
+  their read could come with the PDF when its hash matches the source's
+  read. A source paper read from its own PDF, while the target holds it as
+  XML, gives the target nothing for its figures either: that PDF could be
+  offered to the gate too.
 - **Holding a twin unfiled** (2026-10-13) — a PDF that names no DOI or
   PMID is filed as a paper of its own (`sha:`) even when its first pages
   print the whole title of an XML paper held; the `twin` note says so, and

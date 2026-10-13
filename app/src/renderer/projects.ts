@@ -42,7 +42,11 @@ export function initProjects(loadAll: () => Promise<void>): void {
     if (ev['event'] === 'done' && ev['op'] === 'merge') {
       activity.hide();
       const target = String(ev['target'] ?? '');
-      log('stage', `Merged into ${target}: ${ev['filed']} papers filed, ${ev['duplicates']} already there, ${(ev['rebuilt'] as unknown[] | undefined)?.length ?? 0} rebuilt`);
+      // a PDF a source keeps beside an XML paper the target held without one: kept there, or not
+      const kept = (ev['figures'] as unknown[] | undefined)?.length ?? 0;
+      const notKept = (ev['figures_not_kept'] as unknown[] | undefined)?.length ?? 0;
+      const figures = kept || notKept ? `, ${kept} PDF${kept === 1 ? '' : 's'} kept beside an XML paper for its figures, ${notKept} not kept` : '';
+      log('stage', `Merged into ${target}: ${ev['filed']} papers filed, ${ev['duplicates']} already there, ${(ev['rebuilt'] as unknown[] | undefined)?.length ?? 0} rebuilt${figures}`);
       void reload?.().then(() => {
         if (target) setProject(target);
       });
