@@ -663,6 +663,13 @@ Each one wants a fixture or a test before its fix, as the spot-check does.
   Invariant 4 says running a stage twice changes nothing. One list of the
   note stages, kept where notes are made, and a test that a rebuild twice
   is one set; history rows ('filed', 'figures', 'saved') stay.
+- **Holding a twin unfiled** (2026-10-13) — a PDF that names no DOI or
+  PMID is filed as a paper of its own (`sha:`) even when its first pages
+  print the whole title of an XML paper held; the `twin` note says so, and
+  dropping it on one of that paper's figures keeps it there and removes the
+  `sha:` paper. Holding such a PDF unfiled until a person says which it is
+  would save the paper being read at all; refused under the caption rule
+  (a kept PDF printing as many captions), the `sha:` paper stays.
 - **Detaching a kept figures PDF** (2026-10-13) — a PDF kept beside an
   XML paper (`figures_file`) can be replaced only by one that prints more
   of its figures' captions; there is no op to set it aside by hand when it

@@ -89,6 +89,16 @@ when it turns out durable. Mark inference as inference.
 
 ## Short-term memory
 
+- **2026-10-13: a PDF dropped on a figure goes to that paper (M5c)** — No choices were waiting. In
+  the window every figure of an XML paper (in the reading view and the figure pane) takes a drop:
+  the PDF is sent with `known.paper`, never identified or filed, and M5b's gate still checks that
+  its first pages name the paper. Collect PDFs' figure entries send the paper the same way. The
+  `twin` note now ends "if it is that paper, drop it on one of that paper's figures" when the paper
+  has a figure to drop on, and following it removes the `sha:` paper the PDF was filed as (also when
+  those bytes were kept already). Run headless in the real window: the drop lands on the overlay
+  and the figure under it is found; a PDF that does not name the paper is refused with its reason
+  and left where it was. The studio e2e and a real Collect window were not driven.
+
 - **2026-10-13: a PDF is kept beside an XML paper only when it names the paper (M5b)** — Karim's
   standing word: squash-merge each milestone once green and move on. The plan's choices were taken
   (his to overturn): with `LITRAG_FIGURES=off` a PDF is kept but not read; a second PDF replaces
