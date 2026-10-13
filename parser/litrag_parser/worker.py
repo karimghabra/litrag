@@ -1050,7 +1050,11 @@ class Worker:
 
     def do_merge(self, req: dict[str, Any]) -> None:
         """Several projects' libraries into one (projects.merge), then its rows derived again from
-        the saved readings — Docling only for a paper that came without one."""
+        the saved readings — Docling only for a paper that came without one — and the figures read
+        of each paper the merge kept a PDF beside, unless the figures are off (the PDF is kept, and
+        the figures op reads it) or the paper is read again, which reads them as it goes. `done`
+        names the papers a PDF was kept beside (`figures`) and the PDFs not kept, and why
+        (`figures_not_kept`)."""
         req_id = req.get("id")
         emit({"event": "progress", "id": req_id, "op": "merge", "done": 0, "total": 0, "label": "Merging libraries"})
         out = project_rows.merge(self.root, [str(s) for s in req.get("sources") or []], str(req.get("name") or ""), into=req.get("into"))
@@ -1062,7 +1066,15 @@ class Worker:
             rebuilt = out["keys_to_rebuild"]
         if out["keys_to_parse"]:
             self.do_reparse({"id": f"{req_id}-reparse", "op": "reparse", "lib": target, "keys": out["keys_to_parse"]})
-        emit({"event": "done", "id": req_id, "op": "merge", "lib": target, "target": target, "filed": out["filed"], "duplicates": out["duplicates"], "skipped": out["skipped"], "rebuilt": rebuilt, "reparsed": out["keys_to_parse"], "candidates_merged": out["candidates_merged"]})
+        if not figures_enabled():
+            if out["keys_to_read_figures"]:
+                emit({"event": "stage", "id": req_id, "lib": target, "stage": "figures", "message": f"{len(out['keys_to_read_figures'])} kept for their figures; not read: LITRAG_FIGURES=off"})
+        else:
+            read = [k for k in out["keys_to_read_figures"] if k not in out["keys_to_parse"]]  # a paper read again has read its figures
+            if read:  # never an empty list: do_figures takes no keys as every paper's
+                self.do_figures({"id": f"{req_id}-figures", "op": "figures", "lib": target, "keys": read, "force": True})
+        emit({"event": "done", "id": req_id, "op": "merge", "lib": target, "target": target, "filed": out["filed"], "duplicates": out["duplicates"], "skipped": out["skipped"], "rebuilt": rebuilt, "reparsed": out["keys_to_parse"],
+              "figures": out["figures_kept"], "figures_not_kept": out["figures_not_kept"], "candidates_merged": out["candidates_merged"]})
 
     def do_embed(self, req: dict[str, Any]) -> None:
         """Every passage of a library embedded once, locally (retrieve.py); a passage already

@@ -537,12 +537,17 @@ def keep_beside(conn: sqlite3.Connection, papers_dir: Path, key: str, src: Path,
        one (a read that names none, a merge's copy, is left to its caller). The same bytes filed
        before as a paper of their own, which only their hash could meet (no DOI, no PMID), were a
        stub of this paper, and go with their rows, as filing drops one (store.file_paper).
-    6. A `filed` row says so, with how many of the paper's figures its pages caption.
+    6. A `filed` row says so, with how many of the paper's figures its pages caption — or that
+       there is no reading to count them in yet: a merge keeps a PDF for a paper its rebuild has
+       still to read (projects.merge).
 
     A refusal writes nothing, not even a row: the caller says it, as the arrival it was. The off
-    switch is not looked at: keeping a file is not reading it. (An XML reread over a paper read
-    from its PDF keeps that PDF without passing here, worker._format_changed: it is the paper's own
-    file, filed under the paper's own identifier.)"""
+    switch is not looked at: keeping a file is not reading it. (Two PDFs are kept without passing
+    here. An XML reread over a paper read from its PDF keeps that PDF, worker._format_changed: it
+    is the paper's own file, filed under the paper's own identifier. A merge copies a paper new to
+    its target with the PDF its source keeps beside it, and that PDF's reads, projects.merge: a
+    copy of what the source admitted, not an arrival. A merge's PDF for a paper its target holds
+    already does pass here.)"""
     import os
     import shutil
 
@@ -590,7 +595,12 @@ def keep_beside(conn: sqlite3.Connection, papers_dir: Path, key: str, src: Path,
     conn.execute("DELETE FROM figure_reads WHERE paper = ? AND file IS NOT NULL", (key,))  # a name is not the bytes: what was read is not what is kept now
     stub = _drop_stub(conn, key, dest)
     conn.commit()
-    clause = f"its pages print the captions of {printed} of its {len(wanted)} figure{'s' if len(wanted) != 1 else ''}" if numbers else "its XML numbers no figures"
+    if numbers:
+        clause = f"its pages print the captions of {printed} of its {len(wanted)} figure{'s' if len(wanted) != 1 else ''}"
+    elif conn.execute("SELECT 1 FROM nodes WHERE paper = ? LIMIT 1", (key,)).fetchone() is not None:
+        clause = "its XML numbers no figures"
+    else:
+        clause = "its XML not yet read into rows"  # a merge's paper, its rebuild to come: its figures are not counted, not none
     log_event(conn, key, now, "filed", f"a PDF of the XML, kept for its figures: {src.name} ({clause})" + "".join(f"; {old} set aside as {new}" for old, new in moved)
               + (f"; {stub}, the same bytes filed before for want of an identifier, goes with its rows" if stub is not None else ""))
     return {**out, "kept": True, "file": dest.name, "aside": moved[0][1] if moved else None}

@@ -4,9 +4,12 @@
 names it and writes the description — the research context Karim writes for it — into its
 manifest; `merge` makes one project from several, filing each paper once (DOI, then PMID, then
 hash, so the same paper held by two libraries files once — the first one read wins) and bringing
-its raw Docling document, its record and the model's stored answers with it, so the worker's
-`rebuild` derives its rows again without running Docling. Sources are only ever read. There is
-no delete here: nothing in this module destroys anything.
+its raw Docling document, its record, the PDF kept beside it for its figures and the model's
+stored answers with it, so the worker's `rebuild` derives its rows again without running Docling.
+Sources are only ever read. The target loses only what filing a paper, or keeping a PDF beside
+one, drops wherever it happens: a paper filed before as the same bytes alone, for want of an
+identifier (store.file_paper, figures.keep_beside), and a read of a paper's figures that is no
+read of the PDF it keeps now.
 """
 
 from __future__ import annotations
@@ -119,15 +122,24 @@ _RECORD = ("pub_types", "authors", "journal", "year", "type", "type_source", "ty
 
 def merge(root: Path, source_ids: list[str], target_name: str, into: str | None = None) -> dict[str, Any]:
     """Make one library of several: `{target, filed, duplicates, keys_to_rebuild, keys_to_parse,
-    skipped, candidates_merged, queries_merged}`.
+    figures_kept, keys_to_read_figures, figures_not_kept, skipped, candidates_merged,
+    queries_merged}`.
 
     Each source's papers, in the order they were added, are filed in the target by
     `store.file_paper` — so a DOI two sources hold, in whatever case each writes it, files once,
     the first one read wins, and the second counts as a duplicate. A paper new to the target
     brings its file, its raw Docling document (and then its status is `parsed`, so `rebuild` will
-    read it), its record, and its `outlines` and `judgments` rows (so a rebuild replays the model's
-    answers rather than asking again). Candidates merge without duplicates, keeping their status;
-    the manifests' `queries` are united. The sources are opened read-only.
+    read it), its record, the PDF kept beside it for its figures when it is read from XML, its
+    `outlines` and `judgments` rows (so a rebuild replays the model's answers rather than asking
+    again), and its charts with the read they came from. Candidates merge without duplicates,
+    keeping their status; the manifests' `queries` are united. The sources are opened read-only.
+
+    A paper the target holds already, read from XML with no PDF beside it on disk, takes the one a
+    source keeps beside it, through the gate every PDF arriving for an XML paper's figures passes
+    (figures.keep_beside), which drops a paper filed before as those bytes alone, as filing does:
+    `figures_kept` are those papers, `keys_to_read_figures` those whose figures the worker reads
+    from it now, and `figures_not_kept` the PDFs refused, `{library, paper, reason}` — said there
+    and written nowhere, so merging twice changes nothing.
 
     `keys_to_rebuild` is every paper of this merge the target holds as parsed with its raw
     document and no rows yet: the worker runs `rebuild` on them. `keys_to_parse` has a file and
@@ -158,6 +170,9 @@ def merge(root: Path, source_ids: list[str], target_name: str, into: str | None 
     filed = duplicates = candidates_merged = 0
     touched: list[str] = []
     skipped: list[dict[str, str]] = []
+    figures_kept: list[str] = []
+    keys_to_read_figures: list[str] = []
+    figures_not_kept: list[dict[str, str]] = []
     queries: list[dict[str, Any]] = []
     now = now_iso()
     try:
@@ -179,6 +194,12 @@ def merge(root: Path, source_ids: list[str], target_name: str, into: str | None 
                             skipped.append({"library": src.id, "paper": row["key"], "reason": outcome["reason"]})
                         if outcome.get("key"):
                             touched.append(outcome["key"])
+                        if outcome.get("beside"):
+                            figures_kept.append(outcome["key"])
+                            if outcome["beside"] == "read":
+                                keys_to_read_figures.append(outcome["key"])
+                        if outcome.get("refused"):
+                            figures_not_kept.append({"library": src.id, "paper": row["key"], "reason": outcome["refused"]})
                 if "candidates" in s_tables:
                     candidates_merged += _merge_candidates(sconn, tconn, now)
             finally:
@@ -224,6 +245,9 @@ def merge(root: Path, source_ids: list[str], target_name: str, into: str | None 
         "skipped": skipped,
         "keys_to_rebuild": keys_to_rebuild,
         "keys_to_parse": keys_to_parse,
+        "figures_kept": figures_kept,
+        "keys_to_read_figures": keys_to_read_figures,
+        "figures_not_kept": figures_not_kept,
         "candidates_merged": candidates_merged,
         "queries_merged": len(new_queries),
     }
@@ -243,17 +267,29 @@ def _merge_paper(src: Library, sconn: sqlite3.Connection, s_tables: set[str], ta
     result = file_paper(tconn, title=row.get("title") or key, file="", sha256=sha, fmt=row.get("format") or "", doi=row.get("doi"),
                         pmid=row.get("pmid"), pmcid=row.get("pmcid"), now=row.get("added_at") or now)
     tkey = result.key
-    have = tconn.execute("SELECT file, status FROM papers WHERE key = ?", (tkey,)).fetchone()
+    have = tconn.execute("SELECT file, status, format, figures_file FROM papers WHERE key = ?", (tkey,)).fetchone()
     if result.existed and have is not None and (have["file"] or have["status"] == "parsed"):
         _merge_labels(sconn, s_tables, tconn, t_tables, key, tkey)
         tconn.commit()
-        return {"kind": "duplicate", "key": tkey}
+        return {"kind": "duplicate", "key": tkey, **_merge_beside(src, row, target, tconn, tkey, have, now)}
 
     dest_name = None
     if file is not None:
         dest = target.papers_dir / f"{safe_key(tkey)}{file.suffix.lower()}"
         _copy(file, dest)
         dest_name = dest.name
+    figures_name = None
+    beside = src.papers_dir / row["figures_file"] if row.get("format") == "jats" and row.get("figures_file") else None
+    # a paper new again (the target filed it with no file and no reading) keeps the PDF kept beside
+    # it already, and the read of it: the first one kept wins, as the first one read does
+    held = have is not None and bool(have["figures_file"]) and (target.papers_dir / have["figures_file"]).is_file()
+    if beside is not None and beside.is_file() and not held:
+        # The PDF the source keeps beside the XML for its figures comes with the paper and its
+        # reads: a copy of what the source admitted, not a PDF arriving for the paper, so it does
+        # not pass figures.keep_beside again (one of that gate's two stated exceptions).
+        kept = target.papers_dir / f"{safe_key(tkey)}.figures.pdf"
+        _copy(beside, kept)
+        figures_name = kept.name
     raw_came = False
     if raw.exists():
         _copy(raw, target.parsed_dir / f"{safe_key(tkey)}.docling.json")
@@ -264,6 +300,8 @@ def _merge_paper(src: Library, sconn: sqlite3.Connection, s_tables: set[str], ta
             # saved keeps its failure's reason and is read again, never passed off as read
             "status": "parsed" if raw_came and row.get("status") == "parsed" else "queued",
             "error": None if raw_came and row.get("status") == "parsed" else row.get("error")}
+    if figures_name:
+        sets["figures_file"] = figures_name
     for col in _RECORD:
         if col in row:
             sets[col] = row[col]
@@ -278,10 +316,42 @@ def _merge_paper(src: Library, sconn: sqlite3.Connection, s_tables: set[str], ta
         for j in sconn.execute("SELECT pair, same, model, at FROM judgments WHERE paper = ?", (key,)):
             tconn.execute("INSERT OR IGNORE INTO judgments(paper, pair, same, model, at) VALUES (?,?,?,?,?)", (tkey, *tuple(j)))
     _merge_labels(sconn, s_tables, tconn, t_tables, key, tkey)
-    _merge_charts(sconn, s_tables, tconn, key, tkey)
+    _merge_charts(sconn, s_tables, tconn, key, tkey, dest_name, figures_name)
     tconn.commit()
     log_event(tconn, tkey, now, "merged", f"from {src.id} ({key}){'' if raw_came else ', no raw document: to be read again'}")
     return {"kind": "filed", "key": tkey}
+
+
+def _merge_beside(src: Library, row: dict[str, Any], target: Library, tconn: sqlite3.Connection, tkey: str, have: sqlite3.Row, now: str) -> dict[str, Any]:
+    """The PDF a source keeps beside a paper the target holds already, read from XML there with
+    none beside it on disk: kept through the gate every PDF arriving for an XML paper's figures
+    passes (figures.keep_beside), since the target's paper is its own reading, not the source's.
+    `{}` when there is nothing to keep. `{"beside": "read"}` when kept: the worker reads its
+    figures, and a read that names no file and holds no charts — such a copy of a read that found
+    none — goes, so the figures op reads them when the worker does not. `{"beside": "kept"}` when
+    kept where the target holds the paper's charts already under a read that names no file — an
+    earlier merge's copy, made before a merge carried the PDF — which is now that file's read, so
+    nothing is read again. `{"refused": why}` when not kept: said in the merge's answer and
+    written nowhere, so merging twice changes nothing."""
+    from . import figures
+
+    pdf = src.papers_dir / row["figures_file"] if row.get("figures_file") else None
+    if pdf is None or not pdf.is_file() or have["format"] != "jats":
+        return {}
+    if have["figures_file"] and (target.papers_dir / have["figures_file"]).is_file():
+        return {}  # one is kept there already: the target's own, which a merge leaves as it is
+    figures.ensure_schema(tconn)
+    copied = tconn.execute("SELECT 1 FROM figure_reads WHERE paper = ? AND file IS NULL", (tkey,)).fetchone() is not None \
+        and tconn.execute("SELECT 1 FROM charts WHERE paper = ? LIMIT 1", (tkey,)).fetchone() is not None
+    out = figures.keep_beside(tconn, target.papers_dir, tkey, pdf, now)
+    if not out["kept"]:
+        return {"refused": out["why"]}
+    with tconn:
+        if copied:
+            tconn.execute("UPDATE figure_reads SET file = ? WHERE paper = ? AND file IS NULL", (out["file"], tkey))
+            return {"beside": "kept"}
+        tconn.execute("DELETE FROM figure_reads WHERE paper = ? AND file IS NULL", (tkey,))  # nothing it read is held: no read of this file
+    return {"beside": "read"}
 
 
 def _merge_labels(sconn: sqlite3.Connection, s_tables: set[str], tconn: sqlite3.Connection, t_tables: set[str], key: str, tkey: str) -> None:
@@ -303,9 +373,15 @@ def _merge_labels(sconn: sqlite3.Connection, s_tables: set[str], tconn: sqlite3.
             )
 
 
-def _merge_charts(sconn: sqlite3.Connection, s_tables: set[str], tconn: sqlite3.Connection, key: str, tkey: str) -> None:
+def _merge_charts(sconn: sqlite3.Connection, s_tables: set[str], tconn: sqlite3.Connection, key: str, tkey: str,
+                  dest_name: str | None = None, figures_name: str | None = None) -> None:
     """The numbers read from a filed paper's figures (figures.py) go with it, figure ids moved to
-    the key the target holds it by; a rebuild there finds each figure again by its place."""
+    the key the target holds it by; a rebuild there finds each figure again by its place. The read
+    they came from goes too, in the columns both stores have, naming the file it read by the name
+    the target gave it: the paper's own (`dest_name`) or the PDF kept beside its XML
+    (`figures_name`). A file the target was not given — gone from the source's disk, or one the
+    source kept no longer — keeps the name it had, so its read is never taken for a read of
+    whatever the target keeps later (figures.is_read)."""
     if "charts" not in s_tables:
         return
     from .figures import ensure_schema
@@ -324,8 +400,17 @@ def _merge_charts(sconn: sqlite3.Connection, s_tables: set[str], tconn: sqlite3.
             row["paper"], row["figure"] = tkey, move(row["figure"])
             tconn.execute(f"INSERT OR IGNORE INTO {table}({', '.join(cols)}) VALUES ({', '.join('?' * len(cols))})", [row[c] for c in cols])
     if "figure_reads" in s_tables:
-        for r in sconn.execute("SELECT reader, figures, plots, read, values_, seconds, at FROM figure_reads WHERE paper = ?", (key,)):
-            tconn.execute("INSERT OR IGNORE INTO figure_reads(paper, reader, figures, plots, read, values_, seconds, at) VALUES (?,?,?,?,?,?,?,?)", (tkey, *tuple(r)))
+        held = sconn.execute("SELECT * FROM papers WHERE key = ?", (key,)).fetchone()
+        held = dict(held) if held is not None else {}
+        renamed = {old: new for old, new in ((held.get("file"), dest_name), (held.get("figures_file"), figures_name)) if old and new}
+        have = {r[1] for r in tconn.execute("PRAGMA table_info(figure_reads)")}
+        cols = [r[1] for r in sconn.execute("PRAGMA table_info(figure_reads)") if r[1] in have]
+        for r in sconn.execute(f"SELECT {', '.join(cols)} FROM figure_reads WHERE paper = ?", (key,)):
+            got = dict(zip(cols, r))
+            got["paper"] = tkey
+            if got.get("file"):
+                got["file"] = renamed.get(got["file"], got["file"])
+            tconn.execute(f"INSERT OR IGNORE INTO figure_reads({', '.join(cols)}) VALUES ({', '.join('?' * len(cols))})", [got[c] for c in cols])
 
 
 def _merge_candidates(sconn: sqlite3.Connection, tconn: sqlite3.Connection, now: str) -> int:
