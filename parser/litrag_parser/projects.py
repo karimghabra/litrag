@@ -117,7 +117,10 @@ def _copy(src: Path, dest: Path) -> None:
     os.replace(tmp, dest)
 
 
-_RECORD = ("pub_types", "authors", "journal", "year", "type", "type_source", "type_detail", "subtype")
+#: What a paper new to the target brings of its row beside its file and its reading: its record, its
+#: type, and PMC's settled answer that it had no PDF to draw its figures (`figures_note`), so the
+#: target knows what its source was told. A column either store lacks is left out.
+_RECORD = ("pub_types", "authors", "journal", "year", "type", "type_source", "type_detail", "subtype", "figures_note")
 
 
 def merge(root: Path, source_ids: list[str], target_name: str, into: str | None = None) -> dict[str, Any]:

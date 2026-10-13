@@ -776,8 +776,9 @@ def test_a_paper_whose_kept_pdf_is_gone_is_wanted_again(tmp_path):
     conn.execute("UPDATE papers SET figures_file = 'paper.figures.pdf' WHERE key = ?", (key,))
     conn.commit()
     assert figures.figures_wanted(conn) == []  # by the row alone
-    assert figures.figures_wanted(conn, lib.papers_dir) == [{"key": key, "title": "read from XML", "doi": "10.3390/mi15070851", "pmid": None, "pmcid": None, "figures": 3}]  # by the disk: the file is not there
-    assert [w["key"] for w in by(talk(tmp_path, [{"id": "w", "op": "wanted", "lib": lib.id}]), "w")[0]["figures"]] == [key]
+    assert figures.figures_wanted(conn, lib.papers_dir) == [{"key": key, "title": "read from XML", "doi": "10.3390/mi15070851", "pmid": None, "pmcid": None, "figures_note": None, "figures": 3}]  # by the disk: the file is not there
+    wanted = by(talk(tmp_path, [{"id": "w", "op": "wanted", "lib": lib.id}]), "w")[0]
+    assert [w["key"] for w in wanted["figures"]] == [key] and wanted["figures_on"] is True
     shutil.copy(CHARTS / "page_paper.pdf", lib.papers_dir / "paper.figures.pdf")
     assert figures.figures_wanted(conn, lib.papers_dir) == []
     conn.close()
@@ -1202,6 +1203,306 @@ def test_a_pdf_dropped_from_elsewhere_for_a_paper_keyed_by_its_pmcid_is_kept_and
     assert elsewhere.exists() and (lib.papers_dir / "pmcid_PMC11278924.figures.pdf").exists()  # copied in; the person's file left where it was
 
 
+# -- PMC asked for an XML paper's PDF when the paper is filed -------------------------------------------------
+
+PMCID = "PMC11278924"
+#: What the canned PMC is asked for PMC11278924's PDF: the Cloud Service's listing, then the bulk area's zip.
+LISTING, BULK = f"/cloud/?list-type=2&prefix={PMCID}.&delimiter=%2F", "/oa/PMCxxxx1128/PMC11278924.zip"
+#: A second paper read from XML, with a PMCID of its own.
+TWO = ("two.xml", b'<?xml version="1.0" encoding="UTF-8"?><article><front><article-meta><article-id pub-id-type="pmcid">PMC100002</article-id>'
+                  b'<article-id pub-id-type="doi">10.1/two</article-id><title-group><article-title>Two</article-title></title-group></article-meta></front><body/></article>')
+NOTE = "PMC Cloud: not in its open-access datasets; bulk area: HTTP 404"
+
+
+def _asked_lib(tmp_path, monkeypatch, title=PRINTED):
+    """A new library, and parse_one stood in for: each XML read into its three figures under `title`
+    (one page_paper.pdf prints, unless said), as often as it is read."""
+    from litrag_parser.library import create_library
+    from litrag_parser.worker import Worker
+
+    def parse_one(self, lib, key, path, *rest, **kw):
+        conn = open_store(lib.store_path)
+        conn.execute("DELETE FROM nodes WHERE paper = ?", (key,))
+        _xml_nodes(conn, key, title)
+        conn.close()
+
+    monkeypatch.setattr(Worker, "parse_one", parse_one)
+    return create_library(tmp_path, f"Asked {len(list(tmp_path.iterdir()))}")
+
+
+def _file_xml(lib, capsys, *xmls, **req):
+    """XMLs dropped into the library's inbox — PMC11278924.xml, unless others are given as (name,
+    bytes) — and filed, online unless `req` says otherwise: the events."""
+    from litrag_parser.worker import Worker
+
+    paths = []
+    for name, body in xmls or [("PMC11278924.xml", (CHARTS.parent / "PMC11278924.xml").read_bytes())]:
+        (lib.inbox_dir / name).write_bytes(body)
+        paths.append(str(lib.inbox_dir / name))
+    capsys.readouterr()
+    Worker(lib.dir.parent).do_ingest({"id": "i", "op": "ingest", "lib": lib.id, "paths": paths, **req})
+    return [json.loads(line) for line in capsys.readouterr().out.splitlines() if line.strip()]
+
+
+def _paper_row(lib, key=THREADS):
+    conn = open_store(lib.store_path)
+    try:
+        return tuple(conn.execute("SELECT figures_file, figures_note FROM papers WHERE key = ?", (key,)).fetchone())
+    finally:
+        conn.close()
+
+
+def _pmc_asked(epmc):
+    return [p for p in epmc.seen if p.startswith(("/cloud/", "/oa/"))]
+
+
+def test_an_xml_filed_asks_pmc_for_its_pdf_and_keeps_a_settled_no(tmp_path, monkeypatch, capsys, epmc):
+    from litrag_parser.store import list_papers
+
+    lib = _asked_lib(tmp_path, monkeypatch)
+    events = _file_xml(lib, capsys)  # an empty Cloud listing, and a 404 from the bulk area
+    assert _pmc_asked(epmc) == [LISTING, BULK]
+    assert [(e["op"], e["done"], e["total"], e["label"]) for e in events if e["event"] == "progress" and e["label"].startswith("Asking")] == [("ingest", 0, 1, "Asking PMC for the PDF of paper 1 of 1")]  # the window's bar
+    assert [(e["paper"], e["logger"], e["message"]) for e in events if e["event"] == "log"] == [(THREADS, "figures", f"no PDF for its figures: {NOTE}")]
+    assert _one(events, "done")["figures"] == []
+    assert _paper_row(lib) == (None, NOTE) and _rows(lib, "figures-pdf") == [f"no PDF for its figures: {NOTE}"]
+    conn = open_store(lib.store_path)
+    assert figures.figures_wanted(conn, lib.papers_dir)[0]["figures_note"] == NOTE  # what Collect is told
+    assert list_papers(conn)[0]["figures_note"] == NOTE  # and the papers op
+    conn.close()
+    # a PDF kept for its figures since: PMC's answer goes with it
+    events, _ = _attach(lib, capsys)
+    assert _one(events, "paper")["figures_file"] == KEPT and _paper_row(lib) == (KEPT, None)
+
+
+def test_a_pdf_pmc_has_is_kept_beside_the_xml_and_read(tmp_path, monkeypatch, capsys, epmc):
+    epmc.cloud(PMCID, pdf=(CHARTS / "page_paper.pdf").read_bytes())
+    lib = _asked_lib(tmp_path, monkeypatch)
+    events = _file_xml(lib, capsys)
+    assert _pmc_asked(epmc) == [LISTING, f"/cloud/{PMCID}.1/{PMCID}.1.json", f"/cloud/{PMCID}.1/{PMCID}.1.pdf"]  # had: the bulk area is not asked
+    assert _paper_row(lib) == (KEPT, None) and (lib.papers_dir / KEPT).read_bytes() == (CHARTS / "page_paper.pdf").read_bytes()
+    assert _rows(lib, "filed") == ["new: PMC11278924.xml", "a PDF of the XML, kept for its figures: from the PMC Cloud Service (its pages print the captions of 2 of its 3 figures)"]
+    assert _rows(lib, "figures-pdf") == [] and list(lib.inbox_dir.iterdir()) == []  # the file it was checked under is gone
+    assert [e["message"] for e in events if e["event"] == "log"][0] == f"{KEPT} kept for its figures, from the PMC Cloud Service"
+    conn = open_store(lib.store_path)
+    assert conn.execute("SELECT COUNT(*) FROM charts WHERE paper = ? AND status = 'read'", (THREADS,)).fetchone()[0] == 3
+    assert figures.figures_wanted(conn, lib.papers_dir) == [] and figures.is_read(conn, THREADS)
+    conn.close()
+    assert _one(events, "done")["figures"] == [THREADS]
+
+
+def test_a_pdf_pmc_has_that_does_not_name_the_paper_is_not_kept_and_its_reason_is(tmp_path, monkeypatch, capsys, epmc):
+    epmc.cloud(PMCID, pdf=(CHARTS / "page_paper.pdf").read_bytes())
+    lib = _asked_lib(tmp_path, monkeypatch, title="Fold change of fibroblast markers on each substrate")  # a title the page does not print
+    events = _file_xml(lib, capsys, ("PMC11278924.xml", (CHARTS.parent / "PMC11278924.xml").read_bytes()), TWO)
+    why = "its first pages name neither its DOI nor its title"
+    assert _paper_row(lib) == (None, f"PMC's PDF: {why}")  # PMC answered: settled
+    assert _rows(lib, "figures-pdf") == [f"PMC's PDF not kept for its figures: {why}"] and _rows(lib, "figures-refused") == []  # no drop was refused
+    assert list(lib.inbox_dir.iterdir()) == [] and not list(lib.papers_dir.glob("*.pdf")) and _one(events, "done")["figures"] == []
+    assert any("PMC100002" in p for p in epmc.seen) and _paper_row(lib, "doi:10.1/two") == (None, NOTE)  # PMC was there to answer: the next paper is asked
+
+
+def test_an_answer_that_settles_nothing_is_kept_as_a_row_and_stops_no_other_ask(tmp_path, monkeypatch, capsys, epmc):
+    epmc.cloud(PMCID, md5="0" * 32)  # a PDF that fails its MD5
+    lib = _asked_lib(tmp_path, monkeypatch)
+    events = _file_xml(lib, capsys, ("PMC11278924.xml", (CHARTS.parent / "PMC11278924.xml").read_bytes()), TWO)
+    assert _paper_row(lib) == (None, None) and _rows(lib, "figures-pdf") == [f"no settled answer from PMC: PMC Cloud: the PDF failed its MD5; bulk area: HTTP 404"]
+    assert any("PMC100002" in p for p in epmc.seen) and _paper_row(lib, "doi:10.1/two") == (None, NOTE)  # the next paper asked all the same
+    assert [e["label"] for e in events if e["event"] == "progress" and e["label"].startswith("Asking")] == ["Asking PMC for the PDF of paper 1 of 2", "Asking PMC for the PDF of paper 2 of 2"]
+
+
+def test_pmc_out_of_reach_is_asked_once_a_batch(tmp_path, monkeypatch, capsys):
+    # no `epmc`: conftest points the Cloud Service and the bulk area at a port nothing answers on
+    # (a refused connection, which `_get` does not ask again), as a network that is down would
+    from litrag_parser import acquire
+
+    asked: list[str] = []
+    get = acquire._get
+
+    def recorded(url, timeout, retries=3):
+        asked.append(url)
+        return get(url, timeout, retries)
+
+    monkeypatch.setattr(acquire, "_get", recorded)
+    lib = _asked_lib(tmp_path, monkeypatch)
+    events = _file_xml(lib, capsys, ("PMC11278924.xml", (CHARTS.parent / "PMC11278924.xml").read_bytes()), TWO)
+    assert [u for u in asked if "list-type=2" in u] == [f"http://127.0.0.1:9/?list-type=2&prefix={PMCID}.&delimiter=%2F"]
+    assert not any("PMC100002" in u for u in asked)  # the second paper is not asked
+    (first,) = _rows(lib, "figures-pdf")
+    assert first.startswith("could not ask PMC: PMC Cloud: URLError: ") and "; bulk area: URLError: " in first
+    assert [(e["paper"], e["logger"], e["message"]) for e in events if e["event"] == "log"] == [(THREADS, "figures", first)]  # said as it is kept
+    assert _rows(lib, "figures-pdf", "doi:10.1/two") == ["not asked: PMC could not be reached earlier in this batch"]
+    assert _paper_row(lib) == (None, None) and _paper_row(lib, "doi:10.1/two") == (None, None)  # nothing said of either paper: the next ask tries again
+    assert _one(events, "done")["parsed"] == [THREADS, "doi:10.1/two"]
+
+
+def test_an_xml_and_its_pdf_in_one_request_ask_pmc_nothing(tmp_path, monkeypatch, capsys, epmc):
+    from litrag_parser.worker import Worker
+
+    lib = _asked_lib(tmp_path, monkeypatch)
+    xml, pdf = lib.inbox_dir / "PMC11278924.xml", lib.inbox_dir / "PMC11278924.pdf"
+    shutil.copy(CHARTS.parent / "PMC11278924.xml", xml)
+    shutil.copy(CHARTS / "page_paper.pdf", pdf)
+    Worker(tmp_path).do_ingest({"id": "i", "op": "ingest", "lib": lib.id, "paths": [str(xml), str(pdf)], "known": {str(pdf): {"beside": str(xml)}}})
+    assert _paper_row(lib) == (KEPT, None) and _pmc_asked(epmc) == [] and _rows(lib, "figures-pdf") == []
+
+
+def test_a_settled_answer_is_not_asked_again_when_the_xml_is_read_again(tmp_path, monkeypatch, capsys, epmc):
+    lib = _asked_lib(tmp_path, monkeypatch)
+    _file_xml(lib, capsys)
+    assert _paper_row(lib) == (None, NOTE)
+    epmc.seen.clear()
+    events = _file_xml(lib, capsys, reread=True)
+    assert _one(events, "done")["parsed"] == [THREADS] and _pmc_asked(epmc) == []  # read again, and not asked again
+    assert _rows(lib, "figures-pdf") == [f"no PDF for its figures: {NOTE}"]
+
+
+def test_with_the_figures_off_pmc_is_not_asked_and_collect_offers_no_figures(tmp_path, monkeypatch, capsys, epmc):
+    from test_worker import by, talk
+
+    monkeypatch.setenv("LITRAG_FIGURES", "off")
+    lib = _asked_lib(tmp_path, monkeypatch)
+    _file_xml(lib, capsys)
+    assert _pmc_asked(epmc) == [] and _paper_row(lib) == (None, None) and _rows(lib, "figures-pdf") == []
+    conn = open_store(lib.store_path)
+    assert [w["key"] for w in figures.figures_wanted(conn, lib.papers_dir)] == [THREADS]  # wanting a PDF, by its rows
+    conn.close()
+    wanted = by(talk(tmp_path, [{"id": "w", "op": "wanted", "lib": lib.id}]), "w")[0]
+    assert (wanted["figures"], wanted["figures_on"]) == ([], False)
+
+
+def test_a_dropped_xml_asks_pmc_unless_offline_or_told_not_to(tmp_path, monkeypatch, capsys, epmc):
+    # K5 (Karim, 2026-10-13): a drop asks as a fetch does
+    epmc.cloud(PMCID, pdf=(CHARTS / "page_paper.pdf").read_bytes())
+    for req in ({"offline": True}, {"figures_pdf": False}):
+        lib = _asked_lib(tmp_path, monkeypatch)
+        _file_xml(lib, capsys, **req)
+        assert _pmc_asked(epmc) == [] and _paper_row(lib) == (None, None) and _rows(lib, "figures-pdf") == []
+    lib = _asked_lib(tmp_path, monkeypatch)
+    _file_xml(lib, capsys)  # by default
+    assert _paper_row(lib) == (KEPT, None) and _pmc_asked(epmc)[0] == LISTING
+
+
+def test_a_fetch_files_its_xml_asking_pmc_for_its_pdf(tmp_path, monkeypatch):
+    from litrag_parser import acquire
+    from litrag_parser.library import create_library
+    from litrag_parser.worker import Worker
+
+    def fetch_one(lib, conn, cand_id, **kw):
+        xml = lib.inbox_dir / "PMC11278924.xml"
+        shutil.copy(CHARTS.parent / "PMC11278924.xml", xml)
+        return {"cand_id": cand_id, "status": "fetched", "path": str(xml), "format": "jats", "error": None}
+
+    asked: list[dict] = []
+    monkeypatch.setattr(acquire, "fetch_one", fetch_one)
+    monkeypatch.setattr(Worker, "do_ingest", lambda self, req: asked.append(req) or {})
+    lib = create_library(tmp_path, "Threads")
+    conn = open_store(lib.store_path)
+    acquire.ensure_schema(conn)
+    conn.execute("INSERT INTO candidates(doi, pmcid, title, status, found_at, updated_at) VALUES ('10.3390/mi15070851', 'PMC11278924', 't', 'found', 't', 't')")
+    conn.commit()
+    conn.close()
+    Worker(tmp_path).do_fetch({"id": "f", "op": "fetch", "lib": lib.id, "ids": [1]})
+    assert [r["figures_pdf"] for r in asked] == [True]
+
+
+def test_a_pdf_pmc_gave_that_cannot_be_kept_settles_nothing(tmp_path, monkeypatch, capsys, epmc):
+    def full(*a, **kw):
+        raise OSError(28, "No space left on device")
+
+    epmc.cloud(PMCID, pdf=(CHARTS / "page_paper.pdf").read_bytes())
+    monkeypatch.setattr(figures, "keep_beside", full)
+    lib = _asked_lib(tmp_path, monkeypatch)
+    events = _file_xml(lib, capsys)
+    assert _rows(lib, "figures-pdf") == ["no settled answer from PMC: its PDF, from the PMC Cloud Service, could not be kept: OSError: [Errno 28] No space left on device"]
+    assert _paper_row(lib) == (None, None) and list(lib.inbox_dir.iterdir()) == [] and _one(events, "done")["parsed"] == [THREADS]
+
+
+def test_a_pdf_from_the_bulk_area_is_kept_and_its_filed_row_says_so(tmp_path, monkeypatch, capsys, epmc):
+    import io
+    import zipfile
+
+    zipped = io.BytesIO()
+    with zipfile.ZipFile(zipped, "w") as z:
+        z.writestr(f"{PMCID}.pdf", (CHARTS / "page_paper.pdf").read_bytes())
+    epmc.routes[BULK] = (200, "application/zip", zipped.getvalue())  # and nothing in the Cloud
+    lib = _asked_lib(tmp_path, monkeypatch)
+    events = _file_xml(lib, capsys)
+    assert _pmc_asked(epmc) == [LISTING, BULK] and _paper_row(lib) == (KEPT, None)
+    assert _rows(lib, "filed")[-1] == "a PDF of the XML, kept for its figures: from EBI's bulk area (its pages print the captions of 2 of its 3 figures)"
+    assert [e["message"] for e in events if e["event"] == "log"][0] == f"{KEPT} kept for its figures, from EBI's bulk area"
+
+
+def test_a_file_in_the_way_of_pmc_s_pdf_is_set_aside_and_said(tmp_path, monkeypatch, capsys, epmc):
+    epmc.cloud(PMCID, pdf=(CHARTS / "page_paper.pdf").read_bytes())
+    lib = _asked_lib(tmp_path, monkeypatch)
+    (lib.papers_dir / KEPT).write_bytes(b"%PDF-1.5 a file the paper no longer keeps")  # left by a reread from its PDF, say
+    events = _file_xml(lib, capsys)
+    aside = "doi_10.3390_mi15070851.figures.1.pdf"
+    assert _paper_row(lib) == (KEPT, None) and (lib.papers_dir / aside).read_bytes() == b"%PDF-1.5 a file the paper no longer keeps"
+    assert [e["message"] for e in events if e["event"] == "log"][0] == f"{KEPT} kept for its figures, from the PMC Cloud Service; the one kept before set aside as {aside}"
+
+
+def test_a_settled_answer_is_kept_to_its_first_400_characters(tmp_path, monkeypatch, capsys):
+    from litrag_parser import acquire
+
+    monkeypatch.setattr(acquire, "figures_pdf", lambda pmcid, timeout: (None, None, "x" * 500, True, False))
+    lib = _asked_lib(tmp_path, monkeypatch)
+    _file_xml(lib, capsys)
+    assert _paper_row(lib) == (None, "x" * 400) and _rows(lib, "figures-pdf") == [f"no PDF for its figures: {'x' * 500}"]  # the row says it whole
+
+
+def test_a_pdf_kept_once_and_gone_since_does_not_stop_the_ask(tmp_path, monkeypatch, capsys, epmc):
+    epmc.cloud(PMCID, pdf=(CHARTS / "page_paper.pdf").read_bytes())
+    lib = _asked_lib(tmp_path, monkeypatch)
+    _file_xml(lib, capsys)
+    assert _paper_row(lib) == (KEPT, None)
+    epmc.seen.clear()
+    _file_xml(lib, capsys, reread=True)
+    assert _pmc_asked(epmc) == []  # on disk: it draws the figures
+    (lib.papers_dir / KEPT).unlink()
+    _file_xml(lib, capsys, reread=True)
+    assert _pmc_asked(epmc)[0] == LISTING  # gone: it draws nothing, and PMC is asked again
+    assert _paper_row(lib) == (KEPT, None) and (lib.papers_dir / KEPT).is_file()
+
+
+def test_an_xml_whose_reading_failed_is_not_asked(tmp_path, monkeypatch, capsys, epmc):
+    from litrag_parser.store import set_status
+    from litrag_parser.worker import Worker
+
+    lib = _asked_lib(tmp_path, monkeypatch)
+
+    def parse_one(self, lib, key, path, *rest, **kw):
+        conn = open_store(lib.store_path)
+        set_status(conn, key, "failed", error="Docling could not read it")
+        conn.close()
+
+    monkeypatch.setattr(Worker, "parse_one", parse_one)
+    events = _file_xml(lib, capsys)
+    assert _pmc_asked(epmc) == [] and _rows(lib, "figures-pdf") == [] and _paper_row(lib) == (None, None)  # its title is its file's: nothing to check a PDF against
+    assert not [e for e in events if e["event"] == "progress" and e["label"].startswith("Asking")]
+
+
+def test_an_xml_without_a_pmcid_is_not_asked_and_not_counted(tmp_path, monkeypatch, capsys, epmc):
+    lib = _asked_lib(tmp_path, monkeypatch)
+    nameless = ("nameless.xml", TWO[1].replace(b'<article-id pub-id-type="pmcid">PMC100002</article-id>', b""))
+    events = _file_xml(lib, capsys, ("PMC11278924.xml", (CHARTS.parent / "PMC11278924.xml").read_bytes()), nameless)
+    assert _one(events, "done")["parsed"] == [THREADS, "doi:10.1/two"]
+    assert [e["label"] for e in events if e["event"] == "progress" and e["label"].startswith("Asking")] == ["Asking PMC for the PDF of paper 1 of 1"]
+    assert _pmc_asked(epmc) == [LISTING, BULK]
+    assert _rows(lib, "figures-pdf", "doi:10.1/two") == [] and _paper_row(lib, "doi:10.1/two") == (None, None)  # no question was put: nothing written
+
+
+def test_a_pdf_paper_with_a_pmcid_is_not_asked(tmp_path, monkeypatch, capsys, epmc):
+    from litrag_parser import worker
+
+    monkeypatch.setattr(worker, "sniff_ids", lambda path: ("10.3390/mi15070851", PMCID))
+    lib = _asked_lib(tmp_path, monkeypatch)
+    events = _file_xml(lib, capsys, ("paper.pdf", (CHARTS / "page_paper.pdf").read_bytes()))
+    assert _one(events, "done")["parsed"] == [THREADS]
+    assert _pmc_asked(epmc) == [] and _rows(lib, "figures-pdf") == [] and _paper_row(lib) == (None, None)  # its own PDF draws its figures
+
+
 # -- plots through a rebuild, a reparse and a reread ----------------------------------------------------------
 
 
@@ -1336,7 +1637,7 @@ def test_a_pdf_reread_over_an_xml_paper_no_longer_reads_the_pdf_kept_beside_it(t
     key = _xml_paper(conn)
     (lib.papers_dir / "paper.xml").write_text("<article/>")
     shutil.copy(CHARTS / "page_paper.pdf", lib.papers_dir / "paper.figures.pdf")
-    conn.execute("UPDATE papers SET figures_file = 'paper.figures.pdf' WHERE key = ?", (key,))
+    conn.execute("UPDATE papers SET figures_file = 'paper.figures.pdf', figures_note = ? WHERE key = ?", (NOTE, key))  # and PMC's answer kept on it
     conn.commit()
     conn.close()
     dropped = lib.inbox_dir / "the-paper.pdf"
@@ -1345,7 +1646,7 @@ def test_a_pdf_reread_over_an_xml_paper_no_longer_reads_the_pdf_kept_beside_it(t
                                 "known": {str(dropped): {"doi": "10.3390/mi15070851"}}})
     conn = open_store(lib.store_path)
     own = f"{safe_key(key)}.pdf"
-    assert tuple(conn.execute("SELECT file, format, figures_file FROM papers WHERE key = ?", (key,)).fetchone()) == (own, "pdf", None)
+    assert tuple(conn.execute("SELECT file, format, figures_file, figures_note FROM papers WHERE key = ?", (key,)).fetchone()) == (own, "pdf", None, None)  # its own PDF draws its figures: PMC's answer goes
     assert read == [(key, own)]
     filed = [r[0] for r in conn.execute("SELECT detail FROM events WHERE paper = ? AND stage = 'filed' ORDER BY id", (key,))]
     assert filed == ["read from its PDF now: paper.figures.pdf, kept beside its XML for its figures, is no longer read", "seen before (by DOI): the-paper.pdf"]
@@ -1365,7 +1666,7 @@ def test_an_xml_reread_over_a_pdf_paper_keeps_its_pdf_beside_it_for_its_figures(
     key = file_paper(conn, title="x", file="", sha256="p1", fmt="pdf", doi="10.3390/mi15070851", pmid=None, pmcid=None, now="t").key
     own = f"{safe_key(key)}.pdf"
     shutil.copy(CHARTS / "page_paper.pdf", lib.papers_dir / own)
-    conn.execute("UPDATE papers SET file = ?, status = 'parsed' WHERE key = ?", (own, key))
+    conn.execute("UPDATE papers SET file = ?, status = 'parsed', figures_note = ? WHERE key = ?", (own, NOTE, key))  # and PMC's answer kept on it
     figures.ensure_schema(conn)
     conn.execute("INSERT INTO figure_reads(paper, reader, figures, plots, read, values_, at, file) VALUES (?,?,?,?,?,?,?,?)", (key, figures.READER, 2, 0, 0, 0, "t", own))
     conn.commit()
@@ -1375,7 +1676,7 @@ def test_an_xml_reread_over_a_pdf_paper_keeps_its_pdf_beside_it_for_its_figures(
     shutil.copy(FIXTURES / "PMC11278924.xml", dropped)
     Worker(tmp_path).do_ingest({"id": "i", "op": "ingest", "lib": lib.id, "paths": [str(dropped)], "offline": True, "reread": True})
     conn = open_store(lib.store_path)
-    assert tuple(conn.execute("SELECT file, format, figures_file FROM papers WHERE key = ?", (key,)).fetchone()) == (f"{safe_key(key)}.xml", "jats", own)
+    assert tuple(conn.execute("SELECT file, format, figures_file, figures_note FROM papers WHERE key = ?", (key,)).fetchone()) == (f"{safe_key(key)}.xml", "jats", own, None)  # a PDF draws its figures: PMC's answer goes
     assert read == [(key, f"{safe_key(key)}.xml")]
     filed = [r[0] for r in conn.execute("SELECT detail FROM events WHERE paper = ? AND stage = 'filed' ORDER BY id", (key,))]
     assert filed == [f"read from its XML now: its PDF {own} is kept beside it for its figures", "seen before (by DOI): PMC11278924.xml"]

@@ -95,6 +95,21 @@ def test_a_hash_stub_gives_way_to_the_identified_paper(tmp_path):
     assert (row["file"], row["sha256"], row["format"]) == ("r.pdf", "r1", "pdf")  # gaps filled, nothing moved backwards
 
 
+def test_a_store_from_before_pmc_s_answer_was_kept_opens_and_gains_its_column(tmp_path):
+    import sqlite3
+
+    old = sqlite3.connect(tmp_path / "store.sqlite")  # a store made before it was a column
+    old.execute("CREATE TABLE papers (key TEXT PRIMARY KEY, doi TEXT, pmid TEXT, pmcid TEXT, title TEXT NOT NULL, file TEXT, sha256 TEXT, format TEXT, pages INTEGER,"
+                " status TEXT NOT NULL DEFAULT 'queued', error TEXT, parser TEXT, added_at TEXT NOT NULL, parsed_at TEXT, seconds REAL, has_methods INTEGER, figures_file TEXT)")
+    old.execute("INSERT INTO papers(key, doi, pmcid, title, file, sha256, format, status, added_at) VALUES ('doi:10.1/x', '10.1/x', 'PMC1', 'x', 'a.xml', 'aa', 'jats', 'parsed', 't')")
+    old.commit()
+    old.close()
+    conn = open_store(tmp_path / "store.sqlite")
+    assert "figures_note" in {r[1] for r in conn.execute("PRAGMA table_info(papers)")}
+    assert [tuple(r) for r in conn.execute("SELECT key, figures_note FROM papers")] == [("doi:10.1/x", None)]  # never asked: nothing to fill
+    conn.close()
+
+
 def test_tree_roundtrips_through_rows(tmp_path):
     conn = open_store(tmp_path / "store.sqlite")
     key = file_paper(conn, title="x", file="a.pdf", sha256="aa", fmt="pdf", doi="10.3390/mi15070851", pmid=None, pmcid=None, now="t").key

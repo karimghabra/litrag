@@ -23,6 +23,8 @@ export interface FiguresWanted {
   pmid: string | null;
   pmcid: string | null;
   figures: number;
+  /** PMC's settled answer when it was asked for the PDF and had none to give */
+  figures_note?: string | null;
 }
 
 export interface CollectEntry {

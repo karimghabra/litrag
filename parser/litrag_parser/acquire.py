@@ -21,10 +21,12 @@ publisher's or the repository's own host (`candidates.oa_url`: a PDF, or a page 
 `citation_pdf_url` names one), taken only when its first pages name the paper — its DOI or its
 whole title — and are not a supplement's; else the candidate `needs-pdf`, with the links a person
 can follow to get it by hand and drop it into the app (a site that answers with a bot check is one:
-it is left to a person's browser, never got round). With an XML, the same paper's PDF
-is fetched too where either holds one: the XML names its figures but holds none, and the PDF is
-kept beside it to read them (figures.py). What is fetched lands in the library's inbox; the worker's `ingest`
-files it (DOI, then PMID, then hash) and `reconcile` marks the candidate `ingested`.
+it is left to a person's browser, never got round). An XML is fetched alone: it names its figures
+but holds none, and the same paper's PDF, which draws them, is asked of the PMC Cloud Service and
+the bulk area once the XML is filed — by the worker's ingest, through `figures_pdf`, for a fetched
+XML and a dropped one alike — and kept beside it to read them (figures.py). What is fetched lands
+in the library's inbox; the worker's `ingest` files it (DOI, then PMID, then hash) and `reconcile`
+marks the candidate `ingested`.
 
 The hosts asked are Europe PMC's (EBI's), NCBI's E-utilities and NLM's PMC Cloud Service, the
 last two only ever sent a PMCID: an identifier out, the article in; and, for an open copy, the
@@ -891,13 +893,13 @@ def fetch_one(lib: Library, conn: sqlite3.Connection, cand_id: int, *, timeout: 
               pdf: str | None = None, ncbi: str | None = None, cloud: str | None = None,
               on_progress: Callable[[dict[str, Any]], None] | None = None) -> dict[str, Any]:
     """One candidate: its JATS from Europe PMC, else PMC's XML from NCBI, else its PDF from the
-    PMC Cloud Service or the bulk area, else `needs-pdf`. With an XML, its PDF as well where
-    there is one, for its figures (`figures` in the answer: the PDF's path, or None; not asked
-    for with `LITRAG_FIGURES=off`). Never raises for the candidate; what went wrong is the
-    answer's `error` and the row's. A route that could not be asked, or whose answer broke off
-    or would not unpack, is passed for the next, and makes a miss a failure to try again."""
-    from .figures import enabled as figures_on
-
+    PMC Cloud Service or the bulk area, else `needs-pdf`. An XML alone: its PDF, for its
+    figures, is asked for once the XML is filed (`figures_pdf`, from the worker's ingest), so a
+    fetch and a drop ask it the same way, once. Only an XML fetched before and still waiting in
+    the inbox answers with `figures`, the PDF fetched beside it then, when it is there still.
+    Never raises for the candidate; what went wrong is the answer's `error` and the row's. A
+    route that could not be asked, or whose answer broke off or would not unpack, is passed for
+    the next, and makes a miss a failure to try again."""
     say = on_progress or (lambda e: None)
     row = _row(conn, cand_id)
     if row is None:
@@ -916,20 +918,6 @@ def fetch_one(lib: Library, conn: sqlite3.Connection, cand_id: int, *, timeout: 
     unreachable = False
     name = file_key(row)
     pmcid = row.get("pmcid")
-
-    def pdf_beside() -> str | None:
-        # the XML's own PDF, saved beside it for its figures; a miss, for whatever reason, or a
-        # PDF that will not save, leaves the XML fetched as it is
-        body, *_ = figures_pdf(pmcid, timeout, pdf=pdf, cloud=cloud)
-        if body is None:
-            return None
-        dest = lib.inbox_dir / f"{name}.pdf"
-        try:
-            _save(dest, body)
-        except OSError:
-            return None
-        return str(dest)
-
     try:
         if pmcid and row.get("has_xml") and row.get("is_open_access"):
             say({"event": "candidate", "cand_id": cand_id, "status": "fetching", "format": "jats", "source": "europepmc"})
@@ -940,8 +928,7 @@ def fetch_one(lib: Library, conn: sqlite3.Connection, cand_id: int, *, timeout: 
                     _save(dest, xml)
                     _update(conn, cand_id, status="fetched", file=dest.name, error=None)
                     say({"event": "candidate", "cand_id": cand_id, "status": "fetched", "format": "jats", "source": "europepmc", "path": str(dest)})
-                    return {"cand_id": cand_id, "status": "fetched", "path": str(dest), "format": "jats", "source": "europepmc", "error": None,
-                            "figures": pdf_beside() if figures_on() else None}
+                    return {"cand_id": cand_id, "status": "fetched", "path": str(dest), "format": "jats", "source": "europepmc", "error": None}
                 tried.append("full text XML: not an article")
             except urllib.error.HTTPError as e:
                 tried.append(f"full text XML: HTTP {e.code}")
@@ -960,8 +947,7 @@ def fetch_one(lib: Library, conn: sqlite3.Connection, cand_id: int, *, timeout: 
                     _save(dest, article)
                     _update(conn, cand_id, status="fetched", file=dest.name, error=None)
                     say({"event": "candidate", "cand_id": cand_id, "status": "fetched", "format": "jats", "source": "ncbi", "path": str(dest)})
-                    return {"cand_id": cand_id, "status": "fetched", "path": str(dest), "format": "jats", "source": "ncbi", "error": None,
-                            "figures": pdf_beside() if figures_on() else None}
+                    return {"cand_id": cand_id, "status": "fetched", "path": str(dest), "format": "jats", "source": "ncbi", "error": None}
                 tried.append("NCBI PMC XML: no full text in the answer")
             except urllib.error.HTTPError as e:
                 tried.append(f"NCBI PMC XML: HTTP {e.code}")  # 400: PMC holds it, NCBI may not give it out

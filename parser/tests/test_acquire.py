@@ -3,15 +3,12 @@
 Service's, then the bulk area's, then the open copy OpenAlex names), else needs-pdf. Nothing here
 touches the network."""
 
-import hashlib
 import http.client
 import io
 import json
 import struct
-import threading
 import urllib.parse
 import zipfile
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import pytest
@@ -50,84 +47,6 @@ CORE = {
          "pubType": "preprint", "isOpenAccess": "Y", "inEPMC": "N", "inPMC": "N", "hasPDF": "Y", "citedByCount": "2"},
     ]},
 }
-
-
-class Canned:
-    """A tiny Europe PMC: routes by path (a callable route answers by the query), every request
-    remembered. Under `/cloud/`, a listing (`?list-type=2&prefix=...&delimiter=/`) is answered as
-    S3 answers one, from the routes there."""
-
-    def __init__(self):
-        self.routes: dict[str, tuple[int, str, bytes]] = {}
-        self.seen: list[str] = []
-        outer = self
-
-        class Handler(BaseHTTPRequestHandler):
-            def do_GET(self):  # noqa: N802
-                outer.seen.append(self.path)
-                split = urllib.parse.urlsplit(self.path)
-                path, q = split.path, urllib.parse.parse_qs(split.query)
-                if path == "/cloud/" and q.get("list-type") == ["2"]:
-                    status, ctype, body, extra = 200, "application/xml", outer.listing(q["prefix"][0]), []
-                else:
-                    route = outer.routes.get(path, (404, "text/html", b"<html>not found</html>"))
-                    status, ctype, body, *extra = route(q) if callable(route) else route  # a route that answers by its query
-                self.send_response(status)
-                for k, v in (extra[0] if extra else {}).items():  # a route's own headers, when it has any
-                    self.send_header(k, v)
-                self.send_header("Content-Type", ctype)
-                self.send_header("Content-Length", str(len(body)))
-                self.end_headers()
-                self.wfile.write(body)
-
-            def log_message(self, *a):
-                pass
-
-        self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
-        self.url = f"http://127.0.0.1:{self.server.server_address[1]}"
-        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
-        self.thread.start()
-
-    def json(self, path, obj, status=200):
-        self.routes[path] = (status, "application/json", json.dumps(obj).encode())
-
-    def listing(self, prefix):
-        folders = sorted({k.removeprefix("/cloud/").split("/")[0] for k in self.routes if k.startswith(f"/cloud/{prefix}")})
-        common = "".join(f"<CommonPrefixes><Prefix>{f}/</Prefix></CommonPrefixes>" for f in folders)
-        return (f'<?xml version="1.0" encoding="UTF-8"?>\n<ListBucketResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/">'
-                f"<Name>pmc-oa-opendata</Name><Prefix>{prefix}</Prefix><KeyCount>{len(folders)}</KeyCount><Delimiter>/</Delimiter>"
-                f"<IsTruncated>false</IsTruncated>{common}</ListBucketResult>").encode()
-
-    def cloud(self, pmcid, version=1, pdf=b"%PDF-1.5 from the cloud", manuscript=False, md5=None):
-        """An article in the Cloud Service, shaped like a live record (PMC11278924.1 and, for an
-        author manuscript, PMC5653421.1, checked 2026-10-04): a PDF with its MD5 in `pdf_url`;
-        a manuscript with XML and text and no PDF."""
-        v = f"{pmcid}.{version}"
-        meta = {"pmcid": pmcid, "version": version, "is_pmc_openaccess": not manuscript, "is_manuscript": manuscript,
-                "license_code": "TDM" if manuscript else "CC BY", "xml_url": f"s3://pmc-oa-opendata/{v}/{v}.xml",
-                "text_url": f"s3://pmc-oa-opendata/{v}/{v}.txt"}
-        if not manuscript:
-            meta["pdf_url"] = f"s3://pmc-oa-opendata/{v}/{v}.pdf?md5={md5 or hashlib.md5(pdf).hexdigest()}"
-            self.routes[f"/cloud/{v}/{v}.pdf"] = (200, "application/pdf", pdf)
-        self.json(f"/cloud/{v}/{v}.json", meta)
-
-    def close(self):
-        self.server.shutdown()
-        self.server.server_close()
-
-
-@pytest.fixture
-def epmc(monkeypatch):
-    c = Canned()
-    monkeypatch.setenv("LITRAG_EPMC_URL", f"{c.url}/rest")
-    monkeypatch.setenv("LITRAG_EPMC_PDF_URL", f"{c.url}/oa")
-    monkeypatch.setenv("LITRAG_NCBI_URL", f"{c.url}/ncbi")
-    monkeypatch.setenv("LITRAG_PMC_CLOUD_URL", f"{c.url}/cloud")
-    monkeypatch.delenv("LITRAG_NCBI_EMAIL", raising=False)
-    monkeypatch.delenv("LITRAG_NCBI_API_KEY", raising=False)
-    monkeypatch.setattr(acquire, "NCBI_GAP", 0)
-    yield c
-    c.close()
 
 
 def _ncbi_asked(seen: list[str]) -> list[str]:
@@ -185,7 +104,7 @@ def _broken_off(monkeypatch, *parts: str) -> None:
     monkeypatch.setattr(acquire, "_get", broken_off)
 
 
-def test_with_an_xml_the_bulk_pdf_is_fetched_beside_it_for_its_figures(epmc, lib):
+def test_an_xml_is_fetched_alone_and_its_pdf_is_asked_for_apart(epmc, lib):
     xml = (FIXTURES / "PMC11278924.xml").read_bytes()
     epmc.routes["/rest/PMC100001/fullTextXML"] = (200, "application/xml", xml)
     epmc.routes["/oa/PMCxxxx11/PMC100001.zip"] = (200, "application/zip", _zip("PMC100001"))
@@ -193,19 +112,19 @@ def test_with_an_xml_the_bulk_pdf_is_fetched_beside_it_for_its_figures(epmc, lib
     ids = _cands(lib, conn)
     events = []
     a = acquire.fetch_one(lib, conn, ids[0], on_progress=events.append)
-    assert a["status"] == "fetched" and a["format"] == "jats" and Path(a["path"]).suffix == ".xml"
-    assert Path(a["figures"]) == lib.inbox_dir / "doi_10.1_xml.pdf" and Path(a["figures"]).read_bytes() == b"%PDF-1.4 the paper itself"
+    assert a["status"] == "fetched" and a["format"] == "jats" and Path(a["path"]).suffix == ".xml" and "figures" not in a
     assert [e["status"] for e in events][-1] == "fetched" and all(e.get("format") != "pdf" for e in events)  # the candidate is its XML
+    # its PDF is not asked for here: the ingest asks it once the XML is filed (worker._ask_pmc), as for a dropped XML
+    assert epmc.seen == ["/rest/PMC100001/fullTextXML"] and [p.name for p in lib.inbox_dir.iterdir()] == ["doi_10.1_xml.xml"]
     assert acquire.figures_pdf("PMC100001", 5) == (b"%PDF-1.4 the paper itself", "europepmc", None, True, False)
-    # no PDF in the bulk area: no figures, and the XML stands as it was
-    epmc.routes.pop("/oa/PMCxxxx11/PMC100001.zip")
-    (lib.inbox_dir / "doi_10.1_xml.pdf").unlink()
-    (lib.inbox_dir / "doi_10.1_xml.xml").unlink()
-    conn.execute("UPDATE candidates SET status = 'found', file = NULL WHERE cand_id = ?", (ids[0],))
-    conn.commit()
+    # fetched again while it waits in the inbox: the same file, with the PDF an earlier fetch left beside it, while it is there
+    assert acquire.fetch_one(lib, conn, ids[0])["figures"] is None
+    beside = lib.inbox_dir / "doi_10.1_xml.pdf"
+    beside.write_bytes(b"%PDF-1.4 fetched beside it before")
     again = acquire.fetch_one(lib, conn, ids[0])
-    assert again["status"] == "fetched" and again["format"] == "jats" and again["figures"] is None
-    # and why, kept: each route answered about the paper, so asking again would change nothing
+    assert (again["status"], again["path"], again["figures"]) == ("fetched", a["path"], str(beside))
+    # no PDF in the bulk area: why, kept; each route answered about the paper, so asking again would change nothing
+    epmc.routes.pop("/oa/PMCxxxx11/PMC100001.zip")
     assert acquire.figures_pdf("PMC100001", 5) == (None, None, "PMC Cloud: not in its open-access datasets; bulk area: HTTP 404", True, False)
     # a 5xx is a service that could not be asked, not an answer; no PMCID asks nothing
     epmc.routes["/oa/PMCxxxx11/PMC100001.zip"] = (500, "text/html", b"<html>internal error</html>")
@@ -248,23 +167,19 @@ def test_what_the_cloud_service_cannot_give_falls_through_to_the_bulk_area(epmc,
     conn.close()
 
 
-def test_with_an_xml_the_figures_pdf_comes_from_the_cloud_service_first(epmc, lib, monkeypatch):
+def test_the_figures_pdf_comes_from_the_cloud_service_first(epmc, lib, monkeypatch):
     epmc.routes["/rest/PMC100001/fullTextXML"] = (200, "application/xml", (FIXTURES / "PMC11278924.xml").read_bytes())
     epmc.cloud("PMC100001", pdf=b"%PDF-1.5 the paper, from the cloud")
     conn = open_store(lib.store_path)
     ids = _cands(lib, conn)
     a = acquire.fetch_one(lib, conn, ids[0])
-    assert a["format"] == "jats" and Path(a["figures"]).read_bytes() == b"%PDF-1.5 the paper, from the cloud"
-    assert not any(p.startswith("/oa/") for p in epmc.seen)
-    assert acquire.figures_pdf("PMC100001", 5) == (b"%PDF-1.5 the paper, from the cloud", "pmc-cloud", None, True, False)
-    # figures off: the XML alone, and PMC is not asked for its PDF
-    monkeypatch.setenv("LITRAG_FIGURES", "off")
-    (lib.inbox_dir / "doi_10.1_xml.pdf").unlink()
-    conn.execute("UPDATE candidates SET status = 'found', file = NULL WHERE cand_id = ?", (ids[0],))
-    conn.commit()
+    assert a["format"] == "jats" and "figures" not in a and epmc.seen == ["/rest/PMC100001/fullTextXML"]  # the XML alone
     epmc.seen.clear()
-    off = acquire.fetch_one(lib, conn, ids[0])
-    assert off["format"] == "jats" and off["figures"] is None and epmc.seen == ["/rest/PMC100001/fullTextXML"]
+    assert acquire.figures_pdf("PMC100001", 5) == (b"%PDF-1.5 the paper, from the cloud", "pmc-cloud", None, True, False)
+    assert not any(p.startswith("/oa/") for p in epmc.seen)
+    # the off switch is its callers' to look at: asked with the figures off, it answers
+    monkeypatch.setenv("LITRAG_FIGURES", "off")
+    assert acquire.figures_pdf("PMC100001", 5)[:2] == (b"%PDF-1.5 the paper, from the cloud", "pmc-cloud")
     conn.close()
 
 
@@ -274,7 +189,7 @@ def test_a_corrupt_zip_of_the_figures_pdf_leaves_the_xml_fetched(epmc, lib):
     conn = open_store(lib.store_path)
     ids = _cands(lib, conn)
     a = acquire.fetch_one(lib, conn, ids[0])
-    assert a["status"] == "fetched" and a["format"] == "jats" and a["figures"] is None and a["error"] is None
+    assert a["status"] == "fetched" and a["format"] == "jats" and "figures" not in a and a["error"] is None
     row = {r["cand_id"]: r for r in acquire.candidates(conn)}[ids[0]]
     assert row["status"] == "fetched" and row["file"] == "doi_10.1_xml.xml" and row["error"] is None
     assert (lib.inbox_dir / "doi_10.1_xml.xml").exists() and not (lib.inbox_dir / "doi_10.1_xml.pdf").exists()
@@ -296,7 +211,7 @@ def test_a_cloud_answer_broken_off_leaves_the_xml_fetched(epmc, lib, monkeypatch
     conn = open_store(lib.store_path)
     ids = _cands(lib, conn)
     a = acquire.fetch_one(lib, conn, ids[0])
-    assert a["status"] == "fetched" and a["format"] == "jats" and a["figures"] is None
+    assert a["status"] == "fetched" and a["format"] == "jats" and "figures" not in a
     assert {r["cand_id"]: r for r in acquire.candidates(conn)}[ids[0]]["status"] == "fetched"
     body, source, why, settled, unreachable = acquire.figures_pdf("PMC100001", 5)
     assert body is None and why.startswith("PMC Cloud: IncompleteRead: ") and why.endswith("; bulk area: HTTP 404")
@@ -325,43 +240,15 @@ def test_only_an_answer_about_the_paper_settles_the_ask_for_its_pdf(epmc):
     assert acquire.figures_pdf("PMC7", 5)[2:] == ("PMC Cloud: not in its open-access datasets; bulk area: no PDF in the answer", True, False)
 
 
-def test_an_xml_from_ncbi_has_its_figures_pdf_beside_it_too(epmc, lib, monkeypatch):
+def test_an_xml_from_ncbi_is_fetched_alone_too(epmc, lib):
     article = (FIXTURES / "PMC11278924.xml").read_bytes().split(b"?>", 1)[1]
     epmc.routes["/ncbi/efetch.fcgi"] = (200, "text/xml", _articleset(article))  # and Europe PMC's fullTextXML answers 404
     epmc.cloud("PMC100001", pdf=b"%PDF-1.5 the paper, from the cloud")
     conn = open_store(lib.store_path)
     ids = _cands(lib, conn)
     a = acquire.fetch_one(lib, conn, ids[0])
-    assert a["source"] == "ncbi" and a["format"] == "jats" and Path(a["figures"]).read_bytes() == b"%PDF-1.5 the paper, from the cloud"
-    # figures off: the XML alone here too
-    monkeypatch.setenv("LITRAG_FIGURES", "off")
-    (lib.inbox_dir / "doi_10.1_xml.pdf").unlink()
-    conn.execute("UPDATE candidates SET status = 'found', file = NULL WHERE cand_id = ?", (ids[0],))
-    conn.commit()
-    epmc.seen.clear()
-    off = acquire.fetch_one(lib, conn, ids[0])
-    assert off["source"] == "ncbi" and off["figures"] is None and not any(p.startswith(("/cloud/", "/oa/")) for p in epmc.seen)
-    conn.close()
-
-
-def test_a_figures_pdf_that_will_not_save_leaves_the_xml_fetched(epmc, lib, monkeypatch):
-    epmc.routes["/rest/PMC100001/fullTextXML"] = (200, "application/xml", (FIXTURES / "PMC11278924.xml").read_bytes())
-    epmc.cloud("PMC100001", pdf=b"%PDF-1.5 the paper, from the cloud")
-    save = acquire._save
-
-    def full(dest, data):
-        if dest.suffix == ".pdf":
-            raise OSError(28, "No space left on device")
-        save(dest, data)
-
-    monkeypatch.setattr(acquire, "_save", full)
-    conn = open_store(lib.store_path)
-    ids = _cands(lib, conn)
-    a = acquire.fetch_one(lib, conn, ids[0])
-    assert a["status"] == "fetched" and a["source"] == "europepmc" and a["figures"] is None
-    row = {r["cand_id"]: r for r in acquire.candidates(conn)}[ids[0]]
-    assert row["status"] == "fetched" and row["file"] == "doi_10.1_xml.xml" and row["error"] is None
-    assert not any(p.startswith("/ncbi/") for p in epmc.seen)  # the XML is not asked for again elsewhere
+    assert a["source"] == "ncbi" and a["format"] == "jats" and "figures" not in a
+    assert not any(p.startswith(("/cloud/", "/oa/")) for p in epmc.seen) and not (lib.inbox_dir / "doi_10.1_xml.pdf").exists()
     conn.close()
 
 

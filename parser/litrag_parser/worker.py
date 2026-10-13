@@ -448,8 +448,15 @@ class Worker:
         is not identified and not filed, `reread` or not: it is not the paper's file, and reading
         an XML paper again from a PDF dropped on its figure is not what the drop asked. A key
         naming no paper, or a paper read from its PDF, is said as `skipped` and nothing else. An
-        XML is a paper of its own whatever is known of it. The `done` event's `figures` are the
-        papers whose figures a PDF kept here was read for."""
+        XML is a paper of its own whatever is known of it.
+
+        An XML paper read here, with a PMCID, is asked of PMC for its PDF once those PDFs are kept
+        (`_ask_pmc`), one paper after another, each ask shown as progress: unless `offline`, the
+        figures are off, or `figures_pdf` is false (it is true unless said: a drop asks as a fetch
+        does), and unless a PDF on disk draws its figures already or PMC's settled answer is kept
+        (`figures_note`) — asked once, not at every reread. The first ask that cannot reach PMC
+        stops the rest of the request's. The `done` event's `figures` are the papers whose figures
+        a PDF kept here, dropped or PMC's, was read for."""
         lib = self._lib(req)
         req_id = req.get("id")
         conn = open_store(lib.store_path)
@@ -543,6 +550,21 @@ class Worker:
                 keys[raw] = key
                 if not kept["same"] and key not in new_beside:
                     new_beside.append(key)
+        ask: list[str] = []
+        if not req.get("offline") and figures_enabled() and req.get("figures_pdf", True):
+            # after the PDFs that came with the request are kept: a paper one of them draws is not asked
+            conn = open_store(lib.store_path)
+            try:
+                for key in dict.fromkeys(k for k, path in filed if path.suffix == ".xml"):
+                    row = conn.execute("SELECT status, format, pmcid, figures_file, figures_note FROM papers WHERE key = ?", (key,)).fetchone()
+                    if (row and row["status"] == "parsed" and row["format"] == "jats" and row["pmcid"] and row["figures_note"] is None
+                            and not (row["figures_file"] and (lib.papers_dir / row["figures_file"]).is_file())):
+                        ask.append(key)
+            finally:
+                conn.close()
+        for key, answer in self._ask_pmc_each(lib, ask, req_id, "ingest").items():
+            if answer == "kept" and key not in new_beside:
+                new_beside.append(key)
         figures_read = [key for key in new_beside if figures_enabled() and self.figures_of(lib, key, req_id) is not None]
         conn = open_store(lib.store_path)
         try:
@@ -587,6 +609,91 @@ class Worker:
         finally:
             conn.close()
 
+    #: Where PMC's PDF came from, as the `filed` row of a PDF kept from it says.
+    _PMC_SOURCE = {"pmc-cloud": "from the PMC Cloud Service", "europepmc": "from EBI's bulk area"}
+
+    def _ask_pmc_each(self, lib: Library, keys: list[str], req_id: Any, op: str) -> dict[str, str]:
+        """PMC asked for the PDF of each paper named, in turn (`_ask_pmc`), each ask shown as
+        progress: `{key: answer}`. The first ask that could not reach PMC stops the rest — a bad
+        network costs one timeout, not one a paper — and each paper left is 'not-asked', with a
+        `figures-pdf` row saying why. An answer that came and settled nothing stops nothing: PMC
+        was there to give it."""
+        out: dict[str, str] = {}
+        if not keys:
+            return out
+        conn = open_store(lib.store_path)
+        down = False
+        try:
+            for i, key in enumerate(keys):
+                if down:
+                    log_event(conn, key, now_iso(), "figures-pdf", "not asked: PMC could not be reached earlier in this batch")
+                    out[key] = "not-asked"
+                    continue
+                emit({"event": "progress", "id": req_id, "op": op, "lib": lib.id, "done": i, "total": len(keys), "label": f"Asking PMC for the PDF of paper {i + 1} of {len(keys)}"})
+                out[key] = self._ask_pmc(conn, lib, key, req_id)
+                down = out[key] == "unreachable"
+        finally:
+            conn.close()
+        return out
+
+    def _ask_pmc(self, conn: Any, lib: Library, key: str, req_id: Any, timeout: float = 20) -> str:
+        """PMC asked once for an XML paper's PDF, by its PMCID — the PMC Cloud Service, then EBI's
+        bulk area (acquire.figures_pdf) — and its answer kept, as one of:
+
+        - 'kept': a PDF came, and keep_beside kept it beside the XML; its `filed` row names the
+          service it came from, and PMC's earlier answer, if any, goes with it.
+        - 'refused': a PDF came, and keep_beside did not keep it (its first pages do not name the
+          paper, say). PMC answered, so it is settled: `figures_note` is "PMC's PDF: ‹why›".
+        - 'missed': no PDF. When every route answered about the paper (settled), `figures_note`
+          is why; when an answer came and settled nothing (a PDF failing its MD5, a record that
+          would not read, a broken zip), the note stays NULL, so the next ask tries again.
+        - 'unreachable': a route could not be asked at all; the note stays NULL.
+
+        Each but 'kept' is a `figures-pdf` row, and each a log line. Through a file in the inbox
+        under a name ingest never takes, gone after. The off switch is not looked at here: the
+        caller asks only when it should. A paper with no PMCID is asked nothing, and nothing is
+        written: no question was put."""
+        from . import figures
+
+        row = conn.execute("SELECT pmcid FROM papers WHERE key = ?", (key,)).fetchone()
+        if row is None or not row["pmcid"]:
+            return "missed"
+
+        def say(message: str) -> None:
+            emit({"event": "log", "id": req_id, "lib": lib.id, "paper": key, "logger": "figures", "message": message})
+
+        def record(note: str | None, detail: str) -> None:
+            if note is not None:
+                conn.execute("UPDATE papers SET figures_note = ? WHERE key = ?", (note[:400], key))
+            log_event(conn, key, now_iso(), "figures-pdf", detail)  # commits the note with it
+            say(detail)
+
+        body, source, why, settled, unreachable = acquire.figures_pdf(row["pmcid"], timeout)
+        if body is not None:
+            came = self._PMC_SOURCE.get(str(source), "from PMC")
+            unchecked = lib.inbox_dir / f"{_safe(key)}.figures.pdf.unchecked"
+            try:
+                unchecked.write_bytes(body)
+                out = figures.keep_beside(conn, lib.papers_dir, key, unchecked, now_iso(), came=came)
+            except OSError as e:  # a disk full or a folder gone: PMC answered, and nothing is known of the PDF
+                record(None, f"no settled answer from PMC: its PDF, {came}, could not be kept: {type(e).__name__}: {e}")
+                return "missed"
+            finally:
+                unchecked.unlink(missing_ok=True)
+            if out["kept"]:
+                say(f"{out['file']} kept for its figures, {came}" + (f"; the one kept before set aside as {out['aside']}" if out["aside"] else ""))
+                return "kept"
+            record(f"PMC's PDF: {out['why']}", f"PMC's PDF not kept for its figures: {out['why']}")
+            return "refused"
+        if settled:
+            record(why, f"no PDF for its figures: {why}")
+            return "missed"
+        if unreachable:
+            record(None, f"could not ask PMC: {why}")
+            return "unreachable"
+        record(None, f"no settled answer from PMC: {why}")
+        return "missed"
+
     @staticmethod
     def _twin(conn: Any, lib: Library, key: str, dest: Path, pmcid: str | None, req_id: Any) -> None:
         """A PDF filed as a new paper, for want of a DOI or a PMID, whose first pages print the
@@ -622,19 +729,20 @@ class Worker:
         XML is no longer read; read from its XML now, its own PDF is kept beside it for its
         figures — the paper's file, under the paper's own identifier, so there is nothing to check
         it against. Either way the last read of its figures was made the other way, and goes, so
-        the figures op reads them again."""
+        the figures op reads them again; and a PDF draws them now, so PMC's answer that it had
+        none to give (`figures_note`) goes too, as it does when keep_beside keeps one."""
         from . import figures
 
         figures.ensure_schema(conn)
         conn.execute("DELETE FROM figure_reads WHERE paper = ?", (key,))
         if fmt == "pdf":
-            conn.execute("UPDATE papers SET figures_file = NULL WHERE key = ?", (key,))
+            conn.execute("UPDATE papers SET figures_file = NULL, figures_note = NULL WHERE key = ?", (key,))
             kept = row["figures_file"]
             log_event(conn, key, now_iso(), "filed", "read from its PDF now" + (f": {kept}, kept beside its XML for its figures, is no longer read" if kept and kept != dest.name else ""))
         else:
             own = row["file"] if (lib.papers_dir / row["file"]).exists() else None  # a PDF no longer on disk is kept for nothing
             if own:
-                conn.execute("UPDATE papers SET figures_file = ? WHERE key = ?", (own, key))
+                conn.execute("UPDATE papers SET figures_file = ?, figures_note = NULL WHERE key = ?", (own, key))
             log_event(conn, key, now_iso(), "filed", "read from its XML now" + (f": its PDF {own} is kept beside it for its figures" if own else ""))
 
     def do_reparse(self, req: dict[str, Any]) -> None:
@@ -916,7 +1024,8 @@ class Worker:
 
     def do_fetch(self, req: dict[str, Any]) -> None:
         """Candidates into the inbox — the XML where it is open, else an open PDF, else marked
-        `needs-pdf` with its links (acquire.py) — then read like any dropped file."""
+        `needs-pdf` with its links (acquire.py) — then read like any dropped file: an XML paper
+        filed is asked of PMC for its PDF, for its figures, by the ingest (`figures_pdf`)."""
         lib = self._lib(req)
         req_id = req.get("id")
         ids = [int(i) for i in req.get("ids") or []]
@@ -929,8 +1038,9 @@ class Worker:
                 got.append(acquire.fetch_one(lib, conn, cid, on_progress=lambda e: emit({**e, "id": req_id, "lib": lib.id})))
         finally:
             conn.close()
-        # the XML first, then any PDF fetched beside it for its figures: ingest files the paper as
-        # its XML and keeps the PDF for the figures, never the other way round
+        # the XML first, then a PDF fetched beside it for its figures by an earlier fetch and still
+        # in the inbox (acquire.fetch_one's shortcut): ingest files the paper as its XML and keeps
+        # the PDF for the figures, never the other way round
         paths = [g["path"] for g in got if g.get("path")] + [g["figures"] for g in got if g.get("path") and g.get("figures")]
         conn = open_store(lib.store_path)
         try:
@@ -944,7 +1054,7 @@ class Worker:
         for g in got:
             counts[str(g.get("status"))] = counts.get(str(g.get("status")), 0) + 1
         emit({"event": "stage", "id": req_id, "lib": lib.id, "stage": "fetched", "message": ", ".join(f"{n} {s}" for s, n in sorted(counts.items())) or "nothing to fetch"})
-        filed = self.do_ingest({"id": req_id, "op": "ingest", "lib": lib.id, "paths": paths, "known": known}) if paths else {}
+        filed = self.do_ingest({"id": req_id, "op": "ingest", "lib": lib.id, "paths": paths, "known": known, "figures_pdf": True}) if paths else {}
         conn = open_store(lib.store_path)
         try:
             # a file filed is its candidate's paper, whatever identifiers it printed of itself; and a
@@ -1197,7 +1307,10 @@ class Worker:
                     elif op == "wanted":
                         from .figures import figures_wanted
 
-                        emit({"event": "wanted", "id": req_id, "lib": lib.id, "candidates": acquire.wanted(conn), "figures": figures_wanted(conn, lib.papers_dir)})
+                        # with the figures off, Collect offers no paper for them: the switch stops the work, and says so
+                        on = figures_enabled()
+                        emit({"event": "wanted", "id": req_id, "lib": lib.id, "candidates": acquire.wanted(conn),
+                              "figures": figures_wanted(conn, lib.papers_dir) if on else [], "figures_on": on})
                     else:
                         fn = acquire.dismiss if op == "dismiss" else acquire.stage
                         emit({"event": "dismissed", "id": req_id, "lib": lib.id, "op": op, **fn(conn, [int(i) for i in req.get("ids") or []])})

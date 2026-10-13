@@ -516,7 +516,7 @@ def _set_aside(papers_dir: Path, safe: str, path: Path) -> str:
     return f"{safe}.figures.{n}.pdf"
 
 
-def keep_beside(conn: sqlite3.Connection, papers_dir: Path, key: str, src: Path, now: str) -> dict[str, Any]:
+def keep_beside(conn: sqlite3.Connection, papers_dir: Path, key: str, src: Path, now: str, *, came: str | None = None) -> dict[str, Any]:
     """A PDF that arrived for an XML paper's figures, kept beside it as `<safe>.figures.pdf` — or
     not, and why: `{kept, same, file, aside, why, captions, figures}`. The one gate every such PDF
     passes, however it came:
@@ -532,14 +532,16 @@ def keep_beside(conn: sqlite3.Connection, papers_dir: Path, key: str, src: Path,
        the first free `<safe>.figures.<n>.pdf` (`aside`), never deleted. A kept file no longer on
        disk counts as none.
     5. The PDF is copied in through a temporary file, so no reader meets half of it, and the
-       paper's `figures_file` set. The last read of the paper's figures goes when it names the
-       file it read: that was another file, whatever it was named, and the figures op reads this
-       one (a read that names none, a merge's copy, is left to its caller). The same bytes filed
-       before as a paper of their own, which only their hash could meet (no DOI, no PMID), were a
-       stub of this paper, and go with their rows, as filing drops one (store.file_paper).
-    6. A `filed` row says so, with how many of the paper's figures its pages caption — or that
-       there is no reading to count them in yet: a merge keeps a PDF for a paper its rebuild has
-       still to read (projects.merge).
+       paper's `figures_file` set; PMC's answer that it had none to give (`figures_note`) goes,
+       since a PDF draws the figures now. The last read of the paper's figures goes when it names
+       the file it read: that was another file, whatever it was named, and the figures op reads
+       this one (a read that names none, a merge's copy, is left to its caller). The same bytes
+       filed before as a paper of their own, which only their hash could meet (no DOI, no PMID),
+       were a stub of this paper, and go with their rows, as filing drops one (store.file_paper).
+    6. A `filed` row says so — the file's name, or how it `came` when it has no name of its own
+       (worker._ask_pmc: "from the PMC Cloud Service") — with how many of the paper's figures its
+       pages caption, or that there is no reading to count them in yet: a merge keeps a PDF for a
+       paper its rebuild has still to read (projects.merge).
 
     A refusal writes nothing, not even a row: the caller says it, as the arrival it was. The off
     switch is not looked at: keeping a file is not reading it. (Two PDFs are kept without passing
@@ -591,7 +593,7 @@ def keep_beside(conn: sqlite3.Connection, papers_dir: Path, key: str, src: Path,
         moved.append((dest.name, _set_aside(papers_dir, safe, dest)))  # a file of that name the paper no longer keeps: aside too, never overwritten
     os.replace(tmp, dest)
     ensure_schema(conn)  # before the writes: it commits what is pending
-    conn.execute("UPDATE papers SET figures_file = ? WHERE key = ?", (dest.name, key))
+    conn.execute("UPDATE papers SET figures_file = ?, figures_note = NULL WHERE key = ?", (dest.name, key))
     conn.execute("DELETE FROM figure_reads WHERE paper = ? AND file IS NOT NULL", (key,))  # a name is not the bytes: what was read is not what is kept now
     stub = _drop_stub(conn, key, dest)
     conn.commit()
@@ -601,7 +603,7 @@ def keep_beside(conn: sqlite3.Connection, papers_dir: Path, key: str, src: Path,
         clause = "its XML numbers no figures"
     else:
         clause = "its XML not yet read into rows"  # a merge's paper, its rebuild to come: its figures are not counted, not none
-    log_event(conn, key, now, "filed", f"a PDF of the XML, kept for its figures: {src.name} ({clause})" + "".join(f"; {old} set aside as {new}" for old, new in moved)
+    log_event(conn, key, now, "filed", f"a PDF of the XML, kept for its figures: {came or src.name} ({clause})" + "".join(f"; {old} set aside as {new}" for old, new in moved)
               + (f"; {stub}, the same bytes filed before for want of an identifier, goes with its rows" if stub is not None else ""))
     return {**out, "kept": True, "file": dest.name, "aside": moved[0][1] if moved else None}
 
@@ -623,15 +625,16 @@ def figures_wanted(conn: sqlite3.Connection, papers_dir: Path | None = None) -> 
     """The XML papers whose figures no PDF draws yet: read, with figures their captions number,
     and no figures_file — or, given the folder the papers are in, none on disk there: a PDF kept
     once and gone since draws nothing. What the collect window can fetch for them, most figures
-    first. Only figure keys count: a PDF kept for a paper is read for its schemes and charts too,
-    but a paper whose captions number only schemes and charts is not listed."""
+    first, with PMC's settled answer when it was asked for the PDF and had none (`figures_note`).
+    Only figure keys count: a PDF kept for a paper is read for its schemes and charts too, but a
+    paper whose captions number only schemes and charts is not listed."""
     out = []
-    for r in conn.execute("SELECT key, title, doi, pmid, pmcid, figures_file FROM papers WHERE format = 'jats' AND status = 'parsed'"):
+    for r in conn.execute("SELECT key, title, doi, pmid, pmcid, figures_file, figures_note FROM papers WHERE format = 'jats' AND status = 'parsed'"):
         if r["figures_file"] and (papers_dir is None or (papers_dir / r["figures_file"]).is_file()):
             continue
         n = sum(" " not in k for k in figure_numbers(conn, r["key"]))  # "2" and "S2", not "Scheme 1"
         if n:
-            out.append({**{c: r[c] for c in ("key", "title", "doi", "pmid", "pmcid")}, "figures": n})
+            out.append({**{c: r[c] for c in ("key", "title", "doi", "pmid", "pmcid", "figures_note")}, "figures": n})
     out.sort(key=lambda d: (-d["figures"], d["key"]))
     return out
 
