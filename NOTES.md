@@ -89,6 +89,24 @@ when it turns out durable. Mark inference as inference.
 
 ## Short-term memory
 
+- **2026-10-13: what each figure came to is recorded (M8)** — K16 was waiting; the plan's
+  recommendation was taken (Karim's to overturn): the outcomes of reads made before are recorded by
+  `figures {lib, record: true}`, run once per library on his word, and at the start of every
+  figures op and after a rebuild's remap — never on the worker's first touch, which is on the
+  stdin thread, where pdfium must not run. **Karim's own libraries are not recorded yet**: until
+  `record` runs, a PDF paper's outcomes are told from its charts rows, and an XML paper's figures
+  with no plot read as unrecorded. On a copy of the scratch library, `record` took 2.55 s and
+  recorded 73 papers: the 72 PDF papers got 545 rows (232 plots, 313 no-plot; their 106 pictures
+  under an inch are told as small, not written), and pone.0359084 got 16 (10 plots, 6 no-plot,
+  0 no-caption; pages 34, pages_read 16, from a 2.1–2.4 s caption scan under load). A second
+  run recorded 0 in 21 ms. No charts row changed (727 charts, 2473 values, same checksums).
+  `states()` over the library took 30–35 ms; the papers op answered in 70–101 ms under load. The
+  kinds: read 73, unread 1 (doi:10.1172/JCI106711, a PDF paper never read), none 32, no-pdf 121
+  (117 of them on Collect: 4 number no figure); with `LITRAG_FIGURES=off`, off 122 and read 73
+  still. `figures_wanted` is the same 117 papers and 842 figures, in the same order as before;
+  `oa_url` is null for all 117 (none of the 18 candidates with an open copy is an XML paper).
+  A PDF paper's `figure_reads.pages` stays null until it is read again.
+
 - **2026-10-13: an XML paper asks PMC for its PDF when it is filed (M7)** — Karim: "yes, move onto
   M7" (K5: a dropped XML asks at once, by default). An XML paper read with a PMCID is asked of the PMC
   Cloud Service, then EBI's bulk area (the PMCID out, the PDF in, invariant 1's hosts), unless

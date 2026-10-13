@@ -96,7 +96,11 @@ ingest` cuts chunks into `lit.sqlite`, never a tree.
    bar, on a scale fitted to the axis's own tick labels — the PDF's text
    layer for a vector figure, OCR for an image — or `unread`, with why.
 9. **Saved.** Rows in `store.sqlite`: `papers`, `pages`, `nodes` with
-   `nodes_fts`, `refs`, `citations`, `edges`, `charts`, `chart_values`, `judgments`, `events`. The
+   `nodes_fts`, `refs`, `citations`, `edges`, `charts`, `chart_values`, `judgments`, `events`, and
+   for the figures `figure_reads` (the last read: which reader, which file, how many pages it
+   looked at) and `figure_outcomes` (what each figure that read looked for came to: plots, no
+   plot, no caption in the PDF, skipped). What no row says (no PDF, no number, a number taken,
+   too small, not read) is told from the rows on asking (`figures.states`, `outcomes`). The
    audit (`audit.py`) reads them when asked.
 
 **Rounds.** A library grows in rounds (`graph.py`, the `round` op, the
