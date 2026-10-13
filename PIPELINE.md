@@ -95,6 +95,12 @@ ingest` cuts chunks into `lit.sqlite`, never a tree.
    numbers (`figures.py`, `charts.py`): every bar and point with its error
    bar, on a scale fitted to the axis's own tick labels — the PDF's text
    layer for a vector figure, OCR for an image — or `unread`, with why.
+   An XML paper's come from a PDF of it kept beside the XML
+   (`papers.figures_file`), asked of PMC by PMCID when the paper is filed:
+   only the pages printing one of its captions are read, and each plot is
+   pinned to its float by the caption's number, never by order. What each
+   figure came to — plots, no plot, no caption in the PDF, skipped — is a
+   row (`figure_outcomes`), and the window says it.
 9. **Saved.** Rows in `store.sqlite`: `papers`, `pages`, `nodes` with
    `nodes_fts`, `refs`, `citations`, `edges`, `charts`, `chart_values`, `judgments`, `events`, and
    for the figures `figure_reads` (the last read: which reader, which file, how many pages it

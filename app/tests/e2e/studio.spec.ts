@@ -1,15 +1,21 @@
 /**
  * The studio, end to end, the way a person uses it: the real window, the real worker, Docling
- * on real PDFs, the real embedder. Only Europe PMC is stood in for, by a server on 127.0.0.1
- * (epmc-fixture.ts), so a search, a fetch of open XML, a fetch of an open PDF and a paper with
- * nothing open all happen along the real code paths without the network.
+ * on real PDFs, the real embedder. Only Europe PMC is stood in for, with PMC, NCBI, OpenAlex and a
+ * publisher's pages, by a server on 127.0.0.1 (epmc-fixture.ts), so a search, a fetch of open
+ * XML, a fetch of an open PDF, a paper with nothing open and PMC asked for the XML paper's PDF
+ * all happen along the real code paths without the network.
  *
  *   1. a project is made from the Projects tab, with a description;
  *   2. a literature search from the Search tab finds three papers: XML, PDF only, nothing open;
  *   3. "Fetch & read" takes the XML, then the open PDF, and marks the third as needing a PDF;
- *   4. Collect PDFs opens a window on the third paper's page; a click on its PDF link is caught,
- *      filed under that paper and read, and its candidate turns to "in library";
- *   5. the Papers tab: every paper read, a tree, the page with its boxes, the canonical face;
+ *      PMC, asked for the XML paper's PDF as it is filed, for its figures, has none to give;
+ *   4. the fetch opens the collect window by itself, and it walks the closed paper, then the XML
+ *      paper for its figures: a click on the closed paper's PDF link is caught, filed under that
+ *      paper and read, and its candidate turns to "in library"; the window moves on to the XML
+ *      paper's page, which has no PDF to click, and is closed: Collect PDFs still offers that
+ *      paper, for its figures;
+ *   5. the Papers tab: every paper read, a tree, the page with its boxes, the canonical face; the
+ *      XML paper's card says its figures have no PDF, and what PMC said;
  *   6. the Types tab: the kinds of paper, a canonical structure, a paper's mapping onto it;
  *   7. the Query tab: passages embedded, a question answered with passages hydrated from the
  *      tree — the paragraphs around each, and the methods a finding was measured by;
@@ -25,6 +31,8 @@ import { _electron as electron, expect, test, type ElectronApplication, type Pag
 import { existsSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { collectLabel, collectList, type FiguresWanted } from '../../src/renderer/collectlist.ts';
+import { stateChip, type FigureState } from '../../src/renderer/figstate.ts';
 import { startFixture, type Fixture } from './epmc-fixture.ts';
 
 const APP_DIR = resolve(import.meta.dirname, '..', '..');
@@ -33,12 +41,30 @@ const ARCHIVE = resolve(APP_DIR, '..', '..', 'litrag-archive', 'looped-ligament'
 const PDF_OPEN = process.env['LITRAG_E2E_PDF_OPEN'] ?? join(ARCHIVE, 'doi_10.1016_j.actbio.2017.05.058.pdf');
 const PDF_CLOSED = process.env['LITRAG_E2E_PDF_CLOSED'] ?? join(ARCHIVE, 'doi_10.1016_j.biomaterials.2008.04.028.pdf');
 const MODELS = process.env['LITRAG_E2E_MODELS'] !== '0';
+/** the paper read from open XML, whose figures want a PDF */
+const XML_KEY = 'doi:10.3390/mi15070851';
+/** what PMC says when the worker asks it for that paper's PDF: the stand-in's Cloud listing is empty and its bulk area a 404 (epmc-fixture.ts) */
+const NO_PDF = 'PMC Cloud: not in its open-access datasets; bulk area: HTTP 404';
 
 const request = <T = Record<string, unknown>>(page: Page, op: string, params: Record<string, unknown> = {}) =>
   page.evaluate(([op, params]) => (window as unknown as { litrag: { request: (op: string, p: Record<string, unknown>) => Promise<unknown> } }).litrag.request(op, params), [op, params] as const) as Promise<T>;
 
 interface Cand { cand_id: number; doi: string | null; status: string; title: string | null; paper_key: string | null }
-interface PaperRow { key: string; title: string; status: string; format: string | null; nodes: number; has_methods: number | null; type: string | null; error: string | null }
+interface PaperRow {
+  key: string;
+  title: string;
+  status: string;
+  format: string | null;
+  nodes: number;
+  has_methods: number | null;
+  type: string | null;
+  error: string | null;
+  pmcid: string | null;
+  figures_file: string | null;
+  /** PMC's settled answer that it has no PDF to draw an XML paper's figures */
+  figures_note: string | null;
+  figure_state?: FigureState | null;
+}
 
 let app: ElectronApplication;
 let page: Page;
@@ -59,7 +85,7 @@ test.beforeAll(async () => {
   root = mkdtempSync(join(tmpdir(), 'litrag-studio-'));
   app = await electron.launch({
     args: [APP_DIR, '--no-sandbox'],
-    env: { ...process.env, LITRAG_ROOT: root, LITRAG_EPMC_URL: fixture.url, LITRAG_EPMC_PDF_URL: fixture.pdfUrl, LITRAG_NCBI_URL: fixture.ncbiUrl, LITRAG_PMC_CLOUD_URL: fixture.cloudUrl, LITRAG_OPENALEX_URL: fixture.openalexUrl, LITRAG_DOI_RESOLVER: fixture.doiUrl },
+    env: { ...process.env, LITRAG_ROOT: root, LITRAG_EPMC_URL: fixture.url, LITRAG_EPMC_PDF_URL: fixture.pdfUrl, LITRAG_NCBI_URL: fixture.ncbiUrl, LITRAG_PMC_CLOUD_URL: fixture.cloudUrl, LITRAG_OPENALEX_URL: fixture.openalexUrl, LITRAG_DOI_RESOLVER: fixture.doiUrl, LITRAG_FIGURES: 'on' },
   });
   page = await app.firstWindow();
   await page.waitForLoadState('domcontentloaded');
@@ -132,32 +158,55 @@ test('3. Fetch & read: the XML, then the open PDF; the closed paper is marked as
   // filed is "in library"; read is every paper parsed into its tree
   await expect.poll(async () => (await papersOf()).filter((p) => p.status === 'parsed').length, { timeout: 15 * 60 * 1000, intervals: [2000] }).toBe(2);
   const byDoi = new Map((await candidates()).map((c) => [c.doi, c]));
-  expect(byDoi.get('10.3390/mi15070851')!.paper_key).toBe('doi:10.3390/mi15070851');
+  expect(byDoi.get('10.3390/mi15070851')!.paper_key).toBe(XML_KEY);
   expect(byDoi.get('10.1016/j.actbio.2017.05.058')!.paper_key).toMatch(/actbio\.2017\.05\.058/i);
   expect(fixture.requests.some((r) => r.includes('/PMC11278924/fullTextXML'))).toBe(true);
   expect(fixture.requests.some((r) => r.startsWith('/cloud/?') && r.includes('prefix=PMC9000001.'))).toBe(true); // the PMC Cloud Service first
   expect(fixture.requests.some((r) => r.includes('/PMC9000001.zip'))).toBe(true);
+  // the XML paper, once the papers filed with it are read (the PDF's figures too), is asked of PMC for its PDF, for its
+  // figures: the Cloud Service, then the bulk area, both the stand-in's; PMC's answer, that it has none, is kept
+  await expect.poll(async () => (await papersOf()).find((p) => p.key === XML_KEY)?.figures_note, { timeout: 10 * 60 * 1000, intervals: [2000] }).toBe(NO_PDF);
+  expect(fixture.requests.some((r) => r.startsWith('/cloud/?') && r.includes('prefix=PMC11278924.'))).toBe(true);
+  expect(fixture.requests.some((r) => r.includes('/PMC11278924.zip'))).toBe(true);
   await expect(page.locator('#candidates .pill.st-needs-pdf')).toHaveCount(1, { timeout: 30_000 });
   await expect(page.locator('#candidates .pill.st-ingested')).toHaveCount(2);
   // the closed paper offers its publisher's page to download from
   await expect(page.locator('#candidates .hit', { has: page.locator('.pill.st-needs-pdf') }).locator('a', { hasText: 'publisher' })).toHaveCount(1);
 });
 
-test('4. Collect PDFs: the window walks the closed paper, a click on its PDF is caught, filed under it and read', async () => {
+test('4. Collect PDFs: the window walks the closed paper, then the XML paper for its figures; a click on the closed paper’s PDF is caught, filed under it and read', async () => {
   test.setTimeout(10 * 60 * 1000);
-  // opened by the fetch itself, on the one paper that wants a PDF; the button says a walk is on
+  // opened by the fetch itself, which left a paper with no open copy (afterFetch's 'open'): that paper first, then the
+  // XML paper, whose figures want a PDF PMC had none of (collectList); the button says a walk is on
   const collect = await collectOpened!;
   await expect(page.locator('#collect')).toHaveText('Collecting…', { timeout: 20_000 });
   await collect.waitForLoadState('domcontentloaded');
   await expect(collect.locator('h1')).toContainText('anisotropically oriented collagen bundles'); // the paper's own page, by its DOI
-  await expect(page.locator('#collect-status')).toContainText('Paper 1 of 1');
+  await expect(page.locator('#collect-status')).toContainText('Paper 1 of 2');
   await collect.click('#pdf'); // what a person does: click the publisher's PDF link
+  // the download caught, the window moves on to the XML paper's own page, by its DOI: no PDF to click there
+  await expect(collect.locator('h1')).toContainText('Aligned Collagen across Varied Crosslinking Degrees', { timeout: 30_000 });
+  await expect(page.locator('#collect-status')).toContainText('Paper 2 of 2');
+  // its title bar says what the PDF is wanted for, and what PMC said when it was asked (collectlist.ts, figstate.ts)
+  const { figures } = await request<{ figures: FiguresWanted[] }>(page, 'wanted', { lib: LIB });
+  expect(figures.map((f) => [f.key, f.figures_note])).toEqual([[XML_KEY, NO_PDF]]);
+  const entry = collectList([], figures)[0]!;
+  expect((entry.title ?? '').endsWith(` — PMC: ${NO_PDF}`), entry.title ?? '').toBe(true); // what a person sees, in words: PMC's answer after the title
+  await expect.poll(() => app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().map((w) => w.getTitle()))).toContain(`Collect 2 of 2 — ${entry.title}`);
   await expect.poll(async () => (await candidates()).filter((c) => c.status === 'ingested').length, { timeout: 8 * 60 * 1000, intervals: [2000] }).toBe(3);
   await expect.poll(async () => (await papersOf()).filter((p) => p.status === 'parsed').length, { timeout: 8 * 60 * 1000, intervals: [2000] }).toBe(3);
   const caught = (await papersOf()).find((p) => /biomaterials\.2008\.04\.028/i.test(p.key));
   expect(caught, 'filed under the DOI of the candidate it was caught for').toBeTruthy();
-  await expect(page.locator('#collect-status')).toContainText('1 caught', { timeout: 30_000 });
-  await expect(page.locator('#collect')).toHaveText('Collect PDFs', { timeout: 30_000 }); // nothing left waiting
+  // the person closes the window on the XML paper's page, as its close button does
+  const closed = collect.waitForEvent('close');
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find((w) => w.getTitle().startsWith('Collect '))?.close());
+  await closed;
+  await expect(page.locator('#collect-status')).toContainText('Collect window closed', { timeout: 30_000 });
+  await expect(page.locator('#collect-status')).toContainText('1 caught');
+  // no paper left with no copy at all; the XML paper's figures still want a PDF, so Collect PDFs still offers it
+  await expect(page.locator('#collect')).toHaveText(collectLabel(0, 1, false), { timeout: 30_000 }); // "Collect PDFs (1 for figures)"
+  // PMC was asked once, when the XML paper was filed: the closed paper's read and the walk asked it nothing more
+  expect(fixture.requests.filter((r) => r.startsWith('/cloud/?') && r.includes('prefix=PMC11278924.'))).toHaveLength(1);
   // the same PDF dropped in by hand afterwards is the same paper: filed once
   await request(page, 'ingest', { lib: LIB, paths: [PDF_CLOSED] });
   await expect.poll(async () => (await papersOf()).length, { timeout: 60_000 }).toBe(3);
@@ -172,6 +221,16 @@ test('5. Papers: every paper read into a tree, the page drawn, the canonical fac
   expect(rows.map((p) => `${p.key}: ${p.status} ${p.error ?? ''}`).filter((s) => !s.includes('parsed'))).toEqual([]);
   expect(rows.every((p) => p.nodes > 20), 'every paper has a tree of some size').toBe(true);
   expect(rows.filter((p) => p.has_methods).length, 'three research papers, each with its methods found').toBe(3);
+  // the XML paper: PMC, asked for its PDF as it was filed, had none, and the paper keeps its answer; its card says so (figstate.ts)
+  const xml = rows.find((p) => p.key === XML_KEY)!;
+  expect([xml.format, xml.pmcid, xml.figures_file ?? null, xml.figures_note]).toEqual(['jats', 'PMC11278924', null, NO_PDF]);
+  expect([xml.figure_state?.kind, xml.figure_state?.numbered, xml.figure_state?.note]).toEqual(['no-pdf', 6, NO_PDF]);
+  const chip = stateChip(xml)!;
+  expect(chip.title.endsWith(` PMC: ${NO_PDF}.`), chip.title).toBe(true);
+  const figs = page.locator(`#papers .paper[data-key="${XML_KEY}"] .figs`);
+  expect(chip.text).toBe('6 figures · no PDF'); // what a person sees, in words
+  await expect(figs).toHaveText(chip.text);
+  await expect(figs).toHaveAttribute('title', chip.title);
   for (const fmt of ['pdf', 'jats']) {
     const row = rows.find((p) => p.format === fmt)!;
     await page.locator(`#papers .paper[data-key="${row.key}"]`).click();

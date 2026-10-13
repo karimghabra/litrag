@@ -4,6 +4,7 @@ to what they were drawn from; the scale, the words and the gate on their own."""
 
 import json
 import math
+import os
 import re
 from pathlib import Path
 
@@ -134,3 +135,15 @@ def test_a_scale_that_will_not_hold_is_said_and_no_value_given():
     words = [Word(60, y - 8, 90, y + 8, t) for y, t in [(347, "0"), (272, "40"), (197, "15"), (122, "90")]]
     (p,) = charts.read(framed, words=words)
     assert p["status"] == "unread" and "no scale holds" in p["reason"] and p["series"] == []
+
+
+def test_onnx_runtime_is_told_to_send_nothing():
+    """ONNX Runtime, RapidOCR's engine, sends usage events to Microsoft unless told not to: a call
+    invariant 1 does not allow. Loading the package tells it, so the worker and its children do."""
+    import subprocess
+    import sys
+
+    env = {k: v for k, v in os.environ.items() if k != "ORT_DISABLE_TELEMETRY"}
+    said = subprocess.run([sys.executable, "-c", "import os, litrag_parser; print(os.environ.get('ORT_DISABLE_TELEMETRY'))"],
+                          env=env, capture_output=True, text=True, check=True)
+    assert said.stdout.strip() == "1"

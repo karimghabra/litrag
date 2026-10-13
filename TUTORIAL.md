@@ -375,7 +375,7 @@ A fetch tries each route in order and stops at the first that gives the paper. R
 | 4 | Europe PMC bulk area | a PMCID, open access or flagged with a PDF | the PDF, from EBI's zip |
 | 5 | Open copy | OpenAlex names one at a publisher's or repository's host | that PDF, kept only if its first three pages print the paper's DOI or whole title |
 
-OpenAlex names open copies for candidates a citation round has met (see The citation graph). An XML paper, once filed, is asked of routes 3 and 4 for its PDF, for its figures (see Figures as numbers), as a dropped XML is; PMC's answer when it has none is kept on the paper, so it is asked once. `LITRAG_FIGURES=off` stops that; `LITRAG_OPEN_COPIES=off` skips route 5.
+OpenAlex names open copies for candidates a citation round has met (see The citation graph). An XML paper, once filed, is asked of routes 3 and 4 for its PDF, for its figures (see Figures as numbers), as a dropped XML is; PMC's answer when it has none is kept on the paper, so it is asked once. Papers filed before are asked with **Ask PMC for N figure PDFs** beside **Collect PDFs** (the `figures_fetch` op), and one paper again from its figure's pane. `LITRAG_FIGURES=off` stops the ask at filing; `LITRAG_OPEN_COPIES=off` skips route 5.
 
 When every route misses, the candidate needs a PDF, and its error lists each route's reason. When Europe PMC, NCBI or the Cloud Service could not be reached, it is "failed" instead: fetch it again later. A bot check ends route 5 with "the site asks for a browser (a bot check)".
 
@@ -685,6 +685,7 @@ The Papers tab shows every paper of the current project as litrag read it. Come 
 | Type pill | The type, with the subtype after a dot (`research · rct`). `untyped` when no source typed a parsed paper; `type when read` before it is read. |
 | `by …` | Who decided the type, such as `record` (Europe PMC's record), `jats` (the XML's own article type), `title`, `shape` or `default`. |
 | PDF or XML | The format the paper was read from. |
+| Figures chip | What its figures came to: "plots in 10 of 16 figures", "no plots in 3 figures", "6 figures · no PDF", "figures not read" or "figures PDF missing". Hover for the counts behind it and, for an XML paper, what PMC answered. None for a paper with no figure, and none with `LITRAG_FIGURES=off` for a paper whose figures were never read. |
 | Key line | The key (`doi:…`, `pmid:…`, `pmcid:…` or `sha:…`) and, for a PDF, its page count. |
 | Byline | Up to three authors, journal and year. |
 | Status badge | QUEUED, PARSING (with the stage and seconds), PARSED (with nodes and seconds) or FAILED (with the error). |
@@ -697,7 +698,8 @@ The Papers tab shows every paper of the current project as litrag read it. Come 
 | Mark | Meaning |
 | --- | --- |
 | Coloured dot | The node's lane: abstract violet, introduction grey, methods green, results orange, results-discussion ochre, discussion crimson, other slate, references and back pale beige. Hover for its name. |
-| Small tag | The node's type when it is not a section or paragraph: `list_item`, `caption`, `picture`, `table`, `formula`, `footnote`, `meta`, `code`. A table reads `table 5×3`, a picture `figure`. |
+| Small tag | The node's type when it is not a section or paragraph: `list_item`, `caption`, `picture`, `table`, `formula`, `footnote`, `meta`, `code`. A table reads `table 5×3`, a picture `figure 2` (or `scheme 1`) by its caption's number, or `figure` when the caption gives none. |
+| Tag on the right of a figure | What the figure came to: `3 plots`, `2 of 3 plots read`, `no chart`, `not in PDF` (the PDF kept beside an XML paper prints no caption with its number), `no number`, `number taken`, `small`, `no place` or `not read`. None for an XML paper's figure with no PDF. See Figures as numbers. |
 | `[built]` | A heading the reader built for a paper that printed none, never the author's. In the example library all seven are an Introduction. |
 | `(untitled section)` | A section whose heading the reader could not find, shown untitled rather than merged into its neighbour. `3. (heading not detected)` stands in for a numbered heading the layout dropped. |
 | `[Materials and methods]` | The catalogue's name for a heading when it differs from the printed one, as in `4. Experimental Section [Materials and methods]`. |
@@ -1220,9 +1222,10 @@ A figure is a `picture` node from the layout, with a page, a box and its `captio
 | --- | --- | --- |
 | `charts` | plot | `figure`, `plot`, `panel`, `kind`, `status`, `reason`, `source`, `y_label`, `y_unit`, `y_scale`, `residual`, `ticks`, `categories` |
 | `chart_values` | bar or marker | `series`, `name`, `colour`, `category`, `x`, `y`, `err_lo`, `err_hi` |
-| `figure_reads` | paper | `reader`, `figures`, `plots`, `read`, `values_`, `seconds`, `file` |
+| `figure_reads` | paper | `reader`, `figures`, `plots`, `read`, `values_`, `seconds`, `file`, `unmatched` (plots under no caption of the paper's), `pages`, `pages_read` (the pages printing one of its captions, the only ones an XML paper's PDF is read on) |
+| `figure_outcomes` | figure the last reading looked for | `figure`, `figure_label` ("2", "Scheme 1"), `outcome` (`plots`, `no-plot`, `no-caption`, `skipped`), `page`, `bbox`, `detail` |
 
-Reading again replaces a paper's chart rows. A `rebuild` or a reparse keeps them: each plot follows its figure, by its caption's number for an XML paper's or by its page and position for a PDF's. A plot whose figure that reading no longer has is removed, the paper's log says so, and the figures op reads the paper again.
+Reading again replaces a paper's chart rows and its outcome rows. A figure no reading has a row for is told from the rows when asked: no PDF, no number, a number taken, small, not read. A `rebuild` or a reparse keeps them: each plot, and what its figure came to, follows its figure, by its caption's number for an XML paper's or by its page and position for a PDF's. A plot whose figure that reading no longer has is removed, the paper's log says so, and the figures op reads the paper again.
 
 A paragraph naming "Fig. 10" or "Figures 2 and 3" gets a `cites_figure` edge to each figure or table whose caption opens with that label. It is pattern matching, rebuilt with the tree.
 
@@ -1944,7 +1947,7 @@ This is the place to look when something goes wrong. Make the four checks below,
 | **Describe…** on a project card does nothing, and the log says "unhandled: prompt() is not supported." **Suggest from the project** then answers "The project has no description to draft queries from: describe it first." | The button opens a browser prompt, which Electron does not support | Write the description in **What it is about** when you click **New project**. For an existing project, send `{"op":"describe","lib":"<id>","description":"…"}` (see Maintenance for sending a request from the window) |
 | A PDF reads badly: the title is the file name, the confidence chip is low, "No methods section detected", or sections hang under the wrong heading | A scan with text on few pages, a heading the layout model missed, or a running header. "doi\_10.1097\_00002480-199609000-00075" (ASAIO J, 1996) has text on page 2 only and scores 0.063 | Hover the confidence chip for its reasons and compare the boxes on the page. If Europe PMC has the paper's XML, read that instead: send `ingest` with its path and `"reread": true`. A plain add keeps the old reading ("seen before (by DOI), kept") |
 | A figure's numbers do not match the chart on the page | One of the chart reader's failure patterns (see Figures below) | Compare the table with the page, and check the caption for a second y axis. Reading again gives the same rows, and nothing in the window corrects or hides a value: leave that plot out |
-| A figure says "No numbers read from this figure" | An XML paper: JATS XML names its figures but holds no image. A PDF paper: the picture holds no chart, or its charts were never read because the reading was cut off or `LITRAG_FIGURES` was `off` | For XML, drop the paper's PDF on one of its figures (or on the window), or run **Collect PDFs** on the Search tab: the PDF is kept beside the XML and its charts are read, if its first pages print the paper's DOI or title (the log says when it is refused). For a PDF whose charts were never read, click **Read the figures**: it reads all of that paper's figures. A photograph stays without numbers |
+| A figure says "No numbers read from this figure" | The line under it, and the figure's tag in the tree, say which. **No PDF** (the card says "6 figures · no PDF"): JATS XML names its figures but holds no image, and no PDF of the paper is kept. **Not read**: the paper's figures were never read, because the reading was cut off or `LITRAG_FIGURES` was `off`. **Not in PDF**: the PDF kept beside the XML prints no caption with the figure's number. **No chart**: its caption was found, or it is a PDF's picture, and nothing under it is a chart the reader knows. **No number**, **number taken**, **small**: there is nothing to match a PDF's caption by, or too little to read | No PDF: click **Ask PMC for its PDF**, drop the paper's PDF on the figure, or run **Collect PDFs** on the Search tab; a PDF is kept beside the XML and read when its first pages print the paper's DOI or title (the log says when it is refused). Not read: click **Read the figures**, which reads all of that paper's figures. Not in PDF: the PDF prints its captions in a style the reader does not know yet (Springer's "Fig. 1 Title"), or it is another paper's; a PDF dropped on the figure replaces it when it prints more of the captions. No chart, no number, small: nothing to do; a photograph stays without numbers |
 | After clicking a queued, parsing or failed paper, the page pane still shows the previous paper's page, boxes and node detail. Two quick clicks can also put one paper's page under another's tree | The window clears the tree but not the page for a paper with no tree, and two tree requests can finish out of order | Trust the tree pane. Click another parsed paper, or the same paper again |
 | **Collect PDFs** skipped a paper, or its window shows a publisher's "Access Denied" or a sign-in page, and the status says "what came back is not a PDF (a sign-in page?)" | The walk moves on as soon as a download starts. A second download from one page, such as a supplement or a double click, is saved under the next paper, and that paper is never opened. Some publishers refuse the network or want a sign-in | Run **Collect PDFs** again: a skipped paper still needs its PDF. Sign in through your institution in that window, which keeps the sign-in. Or download the PDF in your own browser and drop it on the window. Ctrl+→ skips a paper |
 | Search shows an alert that begins "The search failed" and says Europe PMC could not be reached, or a fetch marks candidates **failed** | No network, or a proxy blocks Europe PMC. The window has no offline mode | Reconnect, then fetch the failed candidates again. Files on disk can still be added |
@@ -2179,7 +2182,7 @@ A library's rows live in its `store.sqlite`; the tables from `cites` to `graph_s
 
 | Table | One row is | Key columns |
 | --- | --- | --- |
-| `papers` | A paper filed in the library | `key` (`doi:…`, `pmid:…`, `pmcid:…` or `sha:…`), `title`, `format` (`jats`, `pdf`), `status` (`queued`, `parsing`, `parsed`, `failed`), `type`, `year`, `journal`, `confidence`, `file`, `figures_file`, `seconds` |
+| `papers` | A paper filed in the library | `key` (`doi:…`, `pmid:…`, `pmcid:…` or `sha:…`), `title`, `format` (`jats`, `pdf`), `status` (`queued`, `parsing`, `parsed`, `failed`), `type`, `year`, `journal`, `confidence`, `file`, `figures_file`, `figures_note`, `seconds` |
 | `pages` | A page of a PDF paper | `paper`, `page_no`, `width`, `height` |
 | `nodes` | A node of a paper's tree | `node_id`, `paper`, `parent`, `type`, `role` (the lane), `heading`, `ancestry`, `text`, `page`, `bbox_l` to `bbox_b`, `canonical`, `confidence` |
 | `nodes_fts` | The full-text index of `nodes.text` | `text` |
@@ -2189,7 +2192,8 @@ A library's rows live in its `store.sqlite`; the tables from `cites` to `graph_s
 | `events` | A step in a paper's history | `paper`, `at`, `stage`, `detail` |
 | `charts` | A plot found in a figure | `paper`, `figure`, `plot`, `status` (`read`, `unread`), `reason`, `kind`, `panel`, `y_label`, `y_unit` |
 | `chart_values` | A value read from a plot | `paper`, `figure`, `plot`, `series`, `name`, `category`, `x`, `y`, `err_lo`, `err_hi` |
-| `figure_reads` | A paper's last reading of its charts | `paper`, `figures`, `plots`, `read`, `values_`, `seconds`, `file` |
+| `figure_reads` | A paper's last reading of its charts | `paper`, `figures`, `plots`, `read`, `values_`, `seconds`, `file`, `unmatched`, `pages`, `pages_read` |
+| `figure_outcomes` | A figure that reading looked for | `paper`, `figure`, `figure_label`, `outcome` (`plots`, `no-plot`, `no-caption`, `skipped`), `page`, `bbox`, `detail` |
 | `vectors` | A passage's embedding | `node`, `model`, `dims`, `vec` |
 | `vectors_gen` | A counter of changes to `vectors` | `n` |
 | `judgments` | A verdict on two blocks split at a page break, by the chat model or the boundary scorer | `paper`, `pair`, `same`, `model` |

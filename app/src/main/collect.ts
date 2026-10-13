@@ -113,7 +113,7 @@ export function runCollect(job: CollectJob, send: (e: CollectEvent) => void): Pr
       height: 900,
       title: 'Collect PDFs',
       // no `plugins: true`: without the PDF viewer, a PDF the page serves inline becomes a download — the whole point
-      webPreferences: { partition: 'persist:litrag-collect', sandbox: true },
+      webPreferences: { partition: 'persist:litrag-collect', sandbox: true, spellcheck: false }, // no dictionary fetched from Google (main.ts)
     });
     open = win;
 
