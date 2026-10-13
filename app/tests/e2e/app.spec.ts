@@ -11,12 +11,14 @@
  * folder of them wants the first lowered).
  */
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test';
-import { mkdtempSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdtempSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
 const APP_DIR = resolve(import.meta.dirname, '..', '..');
 const FIXTURE = resolve(APP_DIR, '..', 'parser', 'tests', 'fixtures', 'PMC11278924.xml');
+/** A test PDF whose first pages print neither the fixture's DOI nor its title. */
+const PAGE_PDF = resolve(APP_DIR, '..', 'parser', 'tests', 'fixtures', 'charts', 'page_paper.pdf');
 const GENERIC = new Set(['original research', 'original article', 'research article', 'article', 'review', 'review article', 'abstract', 'introduction', 'letter', 'communication', 'full paper', 'full length article', 'short communication', 'editorial', 'paper', 'research paper', 'original paper', 'major review', 'topical review', 'hhs public access', 'supporting information']);
 
 function papersToTest(): string[] {
@@ -181,8 +183,56 @@ test('the tree, the detail pane and the page (PDF) or the paper as read (XML)', 
     await expect(page.locator('#page-reading')).toBeVisible();
     await expect(page.locator('#page-reading .rv.selected')).toHaveCount(1);
     await expect(page.locator('#page-reading h2, #page-reading h3')).not.toHaveCount(0);
+    // every figure the reading draws takes a PDF dropped on it, for this paper's figures (figuredrop.ts), and so does its pane of numbers
+    const figures = page.locator('#page-reading figure.picture');
+    if (!process.env['LITRAG_E2E_PAPERS']) await expect(figures, 'the fixture paper draws its figures').not.toHaveCount(0);
+    await expect(page.locator(`#page-reading figure.picture:not([data-figures-for="${row.key}"])`)).toHaveCount(0);
+    if (await figures.count()) {
+      await figures.first().click();
+      await expect(page.locator(`#node-detail .charts[data-figures-for="${row.key}"]`)).toBeVisible({ timeout: 15_000 });
+    }
   }
   }
+});
+
+test('a PDF dropped on a figure of an XML paper goes to that paper, and is checked there', async () => {
+  test.skip(Boolean(process.env['LITRAG_E2E_PAPERS']), 'a test PDF dropped on the fixture paper\'s figure');
+  const rows = ((await request(page, 'papers', { lib })) as { papers: PaperRow[] }).papers;
+  const row = rows.find((p) => p.format === 'jats')!;
+  await openPaper(row.key);
+  const figure = page.locator(`#page-reading figure.picture[data-figures-for="${row.key}"]`).first();
+  await figure.scrollIntoViewIfNeeded();
+  const at = (await figure.boundingBox())!;
+  const pdf = join(root, 'dropped-on-a-figure.pdf');
+  copyFileSync(PAGE_PDF, pdf);
+  // a real file, dragged over the figure and dropped: the overlay the drag shows is what the drop lands on
+  await page.evaluate(() => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.id = 'e2e-files';
+    input.hidden = true;
+    document.body.append(input);
+  });
+  await page.setInputFiles('#e2e-files', pdf);
+  const landed = await page.evaluate(({ x, y }) => {
+    const dt = new DataTransfer();
+    for (const f of (document.getElementById('e2e-files') as HTMLInputElement).files ?? []) dt.items.add(f);
+    const drag = (type: string) => new DragEvent(type, { dataTransfer: dt, clientX: x, clientY: y, bubbles: true, cancelable: true });
+    document.elementFromPoint(x, y)!.dispatchEvent(drag('dragover'));
+    const top = document.elementFromPoint(x, y)!;
+    top.dispatchEvent(drag('drop'));
+    document.getElementById('e2e-files')!.remove();
+    return top.id || top.parentElement?.id;
+  }, { x: at.x + at.width / 2, y: at.y + at.height / 2 });
+  expect(landed, 'the drop lands on the overlay, not on the figure').toBe('drop-overlay');
+  // sent to the paper unasked, and refused there: its first pages do not name it (keep_beside)
+  await expect(page.locator('#log .log-line').filter({ hasText: 'dropped on a figure of' })).toHaveCount(1);
+  const refused = page.locator('#log .log-line.failed').filter({ hasText: `skipped ${pdf}: its first pages name neither its DOI nor its title` });
+  await expect(refused).toHaveCount(1, { timeout: 60_000 });
+  await expect(refused.locator('.paper')).toHaveText(row.key);
+  const after = ((await request(page, 'papers', { lib })) as { papers: PaperRow[] }).papers;
+  expect(after.map((p) => p.key), 'nothing filed in its place').toEqual(rows.map((p) => p.key));
+  expect(existsSync(pdf), 'a PDF not kept is left where it was').toBe(true);
 });
 
 test('a finding shows the method it was measured by, or says none was found', async () => {

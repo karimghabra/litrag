@@ -522,7 +522,9 @@ def keep_beside(conn: sqlite3.Connection, papers_dir: Path, key: str, src: Path,
     passes, however it came:
 
     1. The paper must be one read from XML.
-    2. The PDF kept already, on disk and in the same bytes, is kept (`same`), and nothing is done.
+    2. The PDF kept already, on disk and in the same bytes, is kept (`same`): nothing is copied,
+       and nothing is read again. Only a stub of those bytes goes, as in step 5: kept here, then
+       filed again as a paper of its own, since a kept file's hash is not where filing looks.
     3. Its first pages must name the paper (acquire.names_the_paper): its DOI, or its whole title
        not under a supplement's name. Unassignable beats misassigned.
     4. A PDF kept already gives way only to one whose pages print the captions of strictly more of
@@ -558,6 +560,9 @@ def keep_beside(conn: sqlite3.Connection, papers_dir: Path, key: str, src: Path,
     if held is not None and not held.is_file():
         held = None  # kept once, gone since: none, and nothing to set aside
     if held is not None and sha256_of(held) == sha256_of(src):
+        stub = _drop_stub(conn, key, held)
+        if stub is not None:
+            log_event(conn, key, now, "filed", f"the PDF kept for its figures, {held.name}, again: {src.name}; {stub}, the same bytes filed before for want of an identifier, goes with its rows")
         return {**out, "kept": True, "same": True, "file": held.name}
     why = names_the_paper(first_pages(src), {"title": row["title"], "doi": row["doi"]})
     if why:
@@ -583,14 +588,25 @@ def keep_beside(conn: sqlite3.Connection, papers_dir: Path, key: str, src: Path,
     ensure_schema(conn)  # before the writes: it commits what is pending
     conn.execute("UPDATE papers SET figures_file = ? WHERE key = ?", (dest.name, key))
     conn.execute("DELETE FROM figure_reads WHERE paper = ? AND file IS NOT NULL", (key,))  # a name is not the bytes: what was read is not what is kept now
-    stub = conn.execute("SELECT key FROM papers WHERE sha256 = ? AND key != ? AND doi IS NULL AND pmid IS NULL", (sha256_of(dest), key)).fetchone()
-    if stub is not None:
-        conn.execute("DELETE FROM papers WHERE key = ?", (stub["key"],))
+    stub = _drop_stub(conn, key, dest)
     conn.commit()
     clause = f"its pages print the captions of {printed} of its {len(wanted)} figure{'s' if len(wanted) != 1 else ''}" if numbers else "its XML numbers no figures"
     log_event(conn, key, now, "filed", f"a PDF of the XML, kept for its figures: {src.name} ({clause})" + "".join(f"; {old} set aside as {new}" for old, new in moved)
-              + (f"; {stub['key']}, the same bytes filed before for want of an identifier, goes with its rows" if stub is not None else ""))
+              + (f"; {stub}, the same bytes filed before for want of an identifier, goes with its rows" if stub is not None else ""))
     return {**out, "kept": True, "file": dest.name, "aside": moved[0][1] if moved else None}
+
+
+def _drop_stub(conn: sqlite3.Connection, key: str, kept: Path) -> str | None:
+    """The paper the bytes kept for `key`'s figures were filed as before, which only their hash
+    could meet (no DOI, no PMID): a stub of `key`, deleted with its rows, as filing drops one
+    (store.file_paper). Its key, or None. Not committed."""
+    from .store import sha256_of
+
+    stub = conn.execute("SELECT key FROM papers WHERE sha256 = ? AND key != ? AND doi IS NULL AND pmid IS NULL", (sha256_of(kept), key)).fetchone()
+    if stub is None:
+        return None
+    conn.execute("DELETE FROM papers WHERE key = ?", (stub["key"],))
+    return str(stub["key"])
 
 
 def figures_wanted(conn: sqlite3.Connection, papers_dir: Path | None = None) -> list[dict[str, Any]]:

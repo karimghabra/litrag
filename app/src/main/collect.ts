@@ -30,6 +30,8 @@ export interface CollectPaper {
   pmcid: string | null;
   /** where OpenAlex says an open copy is (a repository, the publisher's open PDF): opened first */
   open?: string | null;
+  /** the XML paper whose figures the PDF is wanted for: the caught file goes to that paper, not asked what it is */
+  paper?: string | null;
 }
 
 export interface CollectJob {
@@ -46,6 +48,13 @@ const EXTENSIONS = ['.pdf', '.xml'];
 export function fileNameFor(p: CollectPaper, ext: string): string {
   const key = p.doi ? `doi:${p.doi}` : p.pmid ? `pmid:${p.pmid}` : p.pmcid ? `pmcid:${p.pmcid}` : `cand:${p.cand_id}`;
   return key.replace(/[^A-Za-z0-9._-]+/g, '_') + ext;
+}
+
+/** What the worker is told of a file caught for `p` (the ingest request's `known`): the
+ *  candidate's identifiers, which fill what the file does not say of itself — or, caught for an
+ *  XML paper's figures, that paper's key, which sends the file to it unasked. */
+export function caughtKnown(p: CollectPaper): { doi: string | null; pmid: string | null; pmcid: string | null; paper: string | null } {
+  return { doi: p.doi, pmid: p.pmid, pmcid: p.pmcid, paper: p.paper ?? null };
 }
 
 /** The page a person opens to get the paper: an open copy OpenAlex knows of (measured 2026-10-04: 56 of
@@ -166,7 +175,7 @@ export function runCollect(job: CollectJob, send: (e: CollectEvent) => void): Pr
           return;
         }
         caught += 1;
-        status({ stage: 'caught', cand_id: p.cand_id, title: p.title, path, known: { doi: p.doi, pmid: p.pmid, pmcid: p.pmcid } });
+        status({ stage: 'caught', cand_id: p.cand_id, title: p.title, path, known: caughtKnown(p) });
       });
       advance();
     };

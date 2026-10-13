@@ -511,11 +511,26 @@ def _filed(lib, key):
         conn.close()
 
 
+def _figured(lib, key="doi:10.1/held0", title=PRINTED):
+    """A figure in the paper's reading, as one read from XML has: a picture the window draws, which
+    a PDF can be dropped on."""
+    conn = open_store(lib.store_path)
+    _xml_nodes(conn, key, title, figures_n=1)
+    conn.close()
+
+
 def test_a_pdf_naming_nothing_that_prints_an_xml_paper_s_whole_title_is_said_to_be_its_twin(tmp_path, monkeypatch, capsys):
-    key, twins, said = _scan_dropped(tmp_path, monkeypatch, capsys, [(PRINTED, "jats", None), ("read from XML", "jats", None)])
+    lib = _holding(tmp_path, monkeypatch, [(PRINTED, "jats", None), ("read from XML", "jats", None)])
+    _figured(lib)
+    paper, twins, said = _drop(lib, capsys)
+    key = paper["paper"]
     note = "its first pages print the whole title of doi:10.1/held0, read from XML; filed apart, since no DOI or PMID was found for it"
-    assert key.startswith("sha:") and twins == [(key, note)]  # filed as today, by its hash: only said
-    assert [(e["paper"], e["message"]) for e in said] == [(key, note)]
+    act = "; if it is that paper, drop it on one of that paper's figures"
+    assert key.startswith("sha:") and twins == [(key, note + act)]  # filed as today, by its hash: only said, and what to do
+    assert [(e["paper"], e["message"]) for e in said] == [(key, note + act)]
+    # a paper whose reading holds no figure gives the window none to drop it on: only said
+    key, twins, said = _scan_dropped(tmp_path, monkeypatch, capsys, [(PRINTED, "jats", None)])
+    assert twins == [(key, note)] and [e["message"] for e in said] == [note]
     # the same PDF dropped where that paper is titled otherwise is said to be nobody's
     assert _scan_dropped(tmp_path, monkeypatch, capsys, [("Fold change of fibroblast markers on each substrate", "jats", None)])[1:] == ([], [])
 
@@ -596,16 +611,17 @@ def _threads(tmp_path, title=PRINTED, **kw):
     return lib
 
 
-def _attach(lib, capsys, pdf=CHARTS / "page_paper.pdf", name="from-the-publisher.pdf", known=None):
+def _attach(lib, capsys, pdf=CHARTS / "page_paper.pdf", name="from-the-publisher.pdf", known=None, **req):
     """`pdf` dropped into the library's inbox as `name` and filed offline, for the paper by its DOI
-    unless `known` says otherwise: the events, and the dropped file."""
+    unless `known` says otherwise, `req` anything else the request says: the events, and the
+    dropped file."""
     from litrag_parser.worker import Worker
 
     dropped = lib.inbox_dir / name
     shutil.copy(pdf, dropped)
     capsys.readouterr()
     Worker(lib.dir.parent).do_ingest({"id": "i", "op": "ingest", "lib": lib.id, "paths": [str(dropped)], "offline": True,
-                                      "known": {str(dropped): known or {"doi": "10.3390/mi15070851"}}})
+                                      "known": {str(dropped): known or {"doi": "10.3390/mi15070851"}}, **req})
     return [json.loads(line) for line in capsys.readouterr().out.splitlines() if line.strip()], dropped
 
 
@@ -1018,6 +1034,172 @@ def test_a_fetch_keeps_the_pdf_it_fetched_beside_an_xml_for_that_xml_s_paper(tmp
     assert [tuple(r) for r in conn.execute("SELECT key, format, figures_file FROM papers")] == [(THREADS, "jats", KEPT)]  # the XML's paper's, not a paper of its own
     assert [tuple(r) for r in conn.execute("SELECT status, paper_key FROM candidates")] == [("ingested", THREADS)]
     conn.close()
+
+
+# -- a PDF dropped on a figure, or caught for an XML paper's figures, goes to that paper -------------------------
+
+
+def _unasked(monkeypatch):
+    """Every way the worker has of asking a PDF, or Europe PMC, what a file is: none answers."""
+    from litrag_parser import worker
+
+    def unasked(*a, **kw):
+        raise AssertionError("a PDF named for a paper is not asked what it is")
+
+    for name in ("sniff_ids", "guess_title", "lookup_by_title", "lookup_record"):
+        monkeypatch.setattr(worker, name, unasked)
+
+
+def _held(lib):
+    """Every row of the papers and of their events, to tell that nothing was written."""
+    conn = open_store(lib.store_path)
+    try:
+        return [tuple(r) for r in conn.execute("SELECT * FROM papers ORDER BY key")], [tuple(r) for r in conn.execute("SELECT * FROM events ORDER BY id")]
+    finally:
+        conn.close()
+
+
+def test_a_pdf_named_for_a_paper_is_kept_beside_it_unasked_whatever_it_is_named(tmp_path, monkeypatch, capsys):
+    _unasked(monkeypatch)
+    read = _rereading(monkeypatch)
+    lib = _threads(tmp_path)
+    events, dropped = _attach(lib, capsys, name="10.9999_other.pdf", known={"paper": THREADS}, offline=False)  # a name that is another DOI; online, and nothing asked
+    paper = _one(events, "paper")
+    assert (paper["paper"], paper["existed"], paper["by"], paper["kept"], paper["figures_file"], paper["same"], paper["aside"]) == (THREADS, True, None, True, KEPT, False, None)
+    assert not dropped.exists() and read == [] and _one(events, "done")["figures"] == [THREADS]  # nothing filed, and the figures read
+    conn = open_store(lib.store_path)
+    assert [tuple(r) for r in conn.execute("SELECT key, file, format, figures_file FROM papers")] == [(THREADS, "paper.xml", "jats", KEPT)]
+    assert conn.execute("SELECT COUNT(*) FROM charts WHERE paper = ? AND status = 'read'", (THREADS,)).fetchone()[0] == 3
+    conn.close()
+    assert _rows(lib, "filed") == ["a PDF of the XML, kept for its figures: 10.9999_other.pdf (its pages print the captions of 2 of its 3 figures)"]
+
+
+def test_a_pdf_named_for_a_paper_it_does_not_name_is_refused(tmp_path, monkeypatch, capsys):
+    # named by the person, still checked: unassignable beats misassigned (K10)
+    _unasked(monkeypatch)
+    lib = _threads(tmp_path, title="Fold change of fibroblast markers on each substrate")  # a title the page does not print
+    events, dropped = _attach(lib, capsys, name="10.9999_other.pdf", known={"paper": THREADS})
+    reason = "its first pages name neither its DOI nor its title"
+    assert _one(events, "skipped") == {"event": "skipped", "id": "i", "path": str(dropped), "paper": THREADS, "reason": reason}
+    assert not [e for e in events if e["event"] == "paper"] and _one(events, "done")["figures"] == [] and dropped.exists()
+    assert _rows(lib, "figures-refused") == [f"not kept for its figures: 10.9999_other.pdf: {reason}"]
+    conn = open_store(lib.store_path)
+    assert [tuple(r) for r in conn.execute("SELECT key, format, figures_file FROM papers")] == [(THREADS, "jats", None)]
+    conn.close()
+
+
+def test_a_pdf_named_for_no_paper_or_for_one_read_from_its_pdf_is_skipped_and_writes_nothing(tmp_path, monkeypatch, capsys):
+    _unasked(monkeypatch)
+    lib = _holding(tmp_path, monkeypatch, [(PRINTED, "pdf", None)])  # doi:10.1/held0, read from its PDF, its title one page_paper.pdf prints
+    for key, reason in (("doi:none", "no such paper"), ("doi:10.1/held0", "not a paper read from XML")):
+        before = _held(lib)
+        events, dropped = _attach(lib, capsys, name="for-its-figures.pdf", known={"paper": key})
+        assert _one(events, "skipped") == {"event": "skipped", "id": "i", "path": str(dropped), "paper": key, "reason": reason}
+        assert not [e for e in events if e["event"] == "paper"] and (_one(events, "done")["parsed"], _one(events, "done")["figures"]) == ([], [])
+        # no paper filed in its place, and no row saying a PDF came for figures nobody wanted one for
+        assert _held(lib) == before and dropped.exists() and not list(lib.papers_dir.glob("*.figures*"))
+
+
+def test_a_pdf_named_for_a_paper_is_kept_beside_it_though_the_request_says_reread(tmp_path, monkeypatch, capsys):
+    # reread replaces a paper's reading with its file; a PDF dropped on a figure is not the paper's file
+    monkeypatch.setenv("LITRAG_FIGURES", "off")
+    _unasked(monkeypatch)
+    read = _rereading(monkeypatch)
+    lib = _threads(tmp_path)
+    events, _ = _attach(lib, capsys, known={"paper": THREADS}, reread=True)
+    assert _one(events, "paper")["figures_file"] == KEPT and read == []
+    conn = open_store(lib.store_path)
+    assert tuple(conn.execute("SELECT file, format, figures_file FROM papers WHERE key = ?", (THREADS,)).fetchone()) == ("paper.xml", "jats", KEPT)  # read from its XML still
+    conn.close()
+
+
+def test_an_xml_named_for_a_paper_is_read_as_any_dropped_xml_is(tmp_path, monkeypatch, capsys):
+    from litrag_parser.worker import Worker
+
+    from test_worker import FIXTURES
+
+    def dropped(known):
+        lib = _holding(tmp_path, monkeypatch, [(PRINTED, "jats", None)])  # doi:10.1/held0, read from XML
+        xml = lib.inbox_dir / "PMC11278924.xml"
+        shutil.copy(FIXTURES / "PMC11278924.xml", xml)
+        capsys.readouterr()
+        keys = Worker(tmp_path).do_ingest({"id": "i", "op": "ingest", "lib": lib.id, "paths": [str(xml)], "offline": True, **({"known": {str(xml): known}} if known else {})})
+        events = [{k: v for k, v in json.loads(line).items() if k != "lib"} for line in capsys.readouterr().out.splitlines() if line.strip()]
+        conn = open_store(lib.store_path)
+        rows = [tuple(r) for r in conn.execute("SELECT key, file, format, figures_file FROM papers ORDER BY key")]
+        conn.close()
+        return list(keys.values()), events, rows
+
+    named = dropped({"paper": "doi:10.1/held0"})
+    assert named == dropped(None)  # as though nothing were known of it
+    keys, events, rows = named
+    assert keys == [THREADS] and rows == [("doi:10.1/held0", "held0.xml", "jats", None), (THREADS, "doi_10.3390_mi15070851.xml", "jats", None)]
+    assert not [e for e in events if e["event"] == "skipped"]
+
+
+def test_a_twin_dropped_on_its_paper_s_figure_is_kept_there_and_the_paper_it_was_filed_as_goes(tmp_path, monkeypatch, capsys):
+    # the twin note's advice, followed
+    monkeypatch.setenv("LITRAG_FIGURES", "off")
+    lib = _holding(tmp_path, monkeypatch, [(PRINTED, "jats", None)])
+    _figured(lib)
+    first, twins, _ = _drop(lib, capsys)
+    assert first["paper"].startswith("sha:") and [k for k, _ in twins] == [first["paper"]]
+    assert twins[0][1].endswith("; if it is that paper, drop it on one of that paper's figures")
+    _unasked(monkeypatch)
+    events, dropped = _attach(lib, capsys, name="scan.pdf", known={"paper": "doi:10.1/held0"})
+    assert _one(events, "paper")["figures_file"] == "doi_10.1_held0.figures.pdf" and not dropped.exists()
+    conn = open_store(lib.store_path)
+    assert [r[0] for r in conn.execute("SELECT key FROM papers")] == ["doi:10.1/held0"]  # filed once
+    conn.close()
+    assert _rows(lib, "filed", "doi:10.1/held0") == [f"a PDF of the XML, kept for its figures: scan.pdf (its pages print the captions of 1 of its 1 figure); {first['paper']}, the same bytes filed before for want of an identifier, goes with its rows"]
+
+
+def test_the_pdf_kept_for_a_paper_s_figures_filed_again_apart_goes_when_dropped_on_its_figure(tmp_path, monkeypatch, capsys):
+    # kept through a figure, then dropped where no figure is: filed apart by its hash, which filing
+    # meets only in a paper's own file; the twin note followed finds it kept already, and the stub goes
+    monkeypatch.setenv("LITRAG_FIGURES", "off")
+    lib = _holding(tmp_path, monkeypatch, [(PRINTED, "jats", None)])
+    _figured(lib)
+    _attach(lib, capsys, name="scan.pdf", known={"paper": "doi:10.1/held0"})
+    first, twins, _ = _drop(lib, capsys)
+    assert first["paper"].startswith("sha:") and [k for k, _ in twins] == [first["paper"]]
+    events, dropped = _attach(lib, capsys, name="scan.pdf", known={"paper": "doi:10.1/held0"})
+    paper = _one(events, "paper")
+    assert (paper["paper"], paper["same"], paper["figures_file"], paper["aside"]) == ("doi:10.1/held0", True, "doi_10.1_held0.figures.pdf", None) and not dropped.exists()
+    conn = open_store(lib.store_path)
+    assert [r[0] for r in conn.execute("SELECT key FROM papers")] == ["doi:10.1/held0"]  # filed once
+    conn.close()
+    assert _rows(lib, "filed", "doi:10.1/held0") == [
+        "a PDF of the XML, kept for its figures: scan.pdf (its pages print the captions of 1 of its 1 figure)",
+        f"the PDF kept for its figures, doi_10.1_held0.figures.pdf, again: scan.pdf; {first['paper']}, the same bytes filed before for want of an identifier, goes with its rows",
+    ]
+    # and once more: nothing left to drop, and nothing said
+    events, _ = _attach(lib, capsys, name="scan.pdf", known={"paper": "doi:10.1/held0"})
+    assert _one(events, "paper")["same"] and len(_rows(lib, "filed", "doi:10.1/held0")) == 2
+
+
+def test_a_pdf_dropped_from_elsewhere_for_a_paper_keyed_by_its_pmcid_is_kept_and_left_where_it_was(tmp_path, monkeypatch, capsys):
+    # a window drop comes from anywhere on disk, and the key is the paper's as filed, capitals and all
+    from litrag_parser.library import create_library
+    from litrag_parser.worker import Worker
+
+    _unasked(monkeypatch)
+    _rereading(monkeypatch)
+    lib = create_library(tmp_path, "Threads")
+    conn = open_store(lib.store_path)
+    key = _xml_paper(conn, doi=None, pmcid="PMC11278924", title=PRINTED)
+    conn.close()
+    assert key == "pmcid:PMC11278924"
+    elsewhere = tmp_path / "Downloads" / "article.pdf"
+    elsewhere.parent.mkdir()
+    shutil.copy(CHARTS / "page_paper.pdf", elsewhere)
+    capsys.readouterr()
+    Worker(tmp_path).do_ingest({"id": "i", "op": "ingest", "lib": lib.id, "paths": [str(elsewhere)], "known": {str(elsewhere): {"paper": key}}})
+    events = [json.loads(line) for line in capsys.readouterr().out.splitlines() if line.strip()]
+    assert not [e for e in events if e["event"] == "skipped"]
+    paper = _one(events, "paper")
+    assert (paper["paper"], paper["by"], paper["figures_file"]) == (key, None, "pmcid_PMC11278924.figures.pdf")
+    assert elsewhere.exists() and (lib.papers_dir / "pmcid_PMC11278924.figures.pdf").exists()  # copied in; the person's file left where it was
 
 
 # -- plots through a rebuild, a reparse and a reread ----------------------------------------------------------

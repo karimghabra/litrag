@@ -17,7 +17,7 @@ export interface LitragApi {
   /** A paper's page at its publisher or at Europe PMC, in the system's browser: http(s) only. */
   openExternal(url: string): Promise<void>;
   /** The collect window through the papers that want a PDF (collect.ts); its progress arrives as `collect` events. */
-  collect(job: { lib: string; inboxDir: string; papers: { cand_id: number; title: string | null; doi: string | null; pmid: string | null; pmcid: string | null }[] }): Promise<Record<string, unknown>>;
+  collect(job: { lib: string; inboxDir: string; papers: { cand_id: number; title: string | null; doi: string | null; pmid: string | null; pmcid: string | null; paper?: string | null }[] }): Promise<Record<string, unknown>>;
 }
 
 const api: LitragApi = {
