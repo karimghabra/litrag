@@ -151,13 +151,24 @@ def test_the_worker_reads_a_library_s_figures_and_answers_for_one(tmp_path, caps
     events = [json.loads(line) for line in capsys.readouterr().out.splitlines() if line.strip()]
     done = events[-1]
     assert done["event"] == "done" and done["op"] == "figures" and (done["papers"], done["plots"], done["read"]) == (1, 2, 2)
+    assert (done["figures"], done["pinned"], done["unmatched"], done["recorded"]) == (1, 1, 0, 0)
     Worker(tmp_path).do_figures({"id": "g", "op": "figures", "lib": "figures"})  # read already, by this reader: nothing to do
     assert json.loads(capsys.readouterr().out.splitlines()[-1])["papers"] == 0
     events = talk(tmp_path, [{"id": "c", "op": "charts", "lib": "figures", "figure": f"{key}#section-1#picture-1"},
                              {"id": "p", "op": "charts", "lib": "figures", "key": key}])
     one, paper = by(events, "c")[0], by(events, "p")[0]
     assert one["event"] == "charts" and [p["panel"] for p in one["plots"]] == ["A", "B"]
-    assert [f["figure"] for f in paper["figures"]] == [f"{key}#section-1#picture-1"]
+    assert (one["outcome"]["outcome"], one["outcome"]["plots"], one["outcome"]["read"], one["outcome"]["page"]) == ("plots", 2, 2, 1)
+    assert [f["figure"] for f in paper["figures"]] == [f"{key}#section-1#picture-1"] and paper["outcomes"][f"{key}#section-1#picture-1"]["outcome"] == "plots"
+    # a picture the reading gained since: the read no longer stands, and the figures op reads the paper again
+    conn = open_store(lib / "store.sqlite")
+    conn.execute("INSERT INTO nodes(node_id, paper, parent, ordinal, depth, type, label, role, ancestry, text, page, bbox_l, bbox_t, bbox_r, bbox_b) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                 (f"{key}#section-1#picture-9", key, f"{key}#section-1", 9, 2, "picture", "picture", "results", '["3 Results"]', "", 1, 0.0, 0.0, 200.0, 200.0))
+    conn.commit()
+    assert not figures.is_read(conn, key)
+    conn.close()
+    Worker(tmp_path).do_figures({"id": "h", "op": "figures", "lib": "figures"})
+    assert json.loads(capsys.readouterr().out.splitlines()[-1])["papers"] == 1
 
 
 # -- an XML paper's figures, from a PDF of it ------------------------------------------------------------------
@@ -264,9 +275,10 @@ def test_an_xml_paper_s_figures_are_read_from_a_pdf_of_it_and_pinned_by_their_ca
     conn.execute("UPDATE papers SET figures_file = 'page_paper.pdf' WHERE key = ?", (key,))
     conn.execute("UPDATE nodes SET node_id = replace(node_id, '#picture-', '#fig-'), parent = replace(parent, '#picture-', '#fig-') WHERE paper = ?", (key,))
     conn.commit()
-    assert figures.is_read(conn, key)
+    assert not figures.is_read(conn, key)  # what each figure came to names the ids the read had, until it follows them
     assert figures.remap(conn, key)["moved"] == 3 and {r[0] for r in conn.execute("SELECT DISTINCT figure FROM chart_values")} == {f"{key}#section-1#fig-1", f"{key}#section-1#fig-2"}
     assert figures.is_read(conn, key)
+    assert {r[0] for r in conn.execute("SELECT figure FROM figure_outcomes")} == {f"{key}#section-1#fig-{i}" for i in (1, 2, 3)}
 
 
 def _plots(conn, key, figure, label=None, n=1, page=None, bbox=None, y=0.0):
@@ -312,10 +324,10 @@ def test_a_plot_whose_number_this_reading_has_not_is_removed_and_the_paper_read_
     assert figures.remap(conn, key) == {"moved": 0, "removed": 0, "lost": []}  # twice is once
 
 
-def _read(conn, key, file):
-    """The paper's figures read, by this reader, from `file`."""
+def _read(conn, key, file, n=2):
+    """The paper's figures read, by this reader, from `file`, looking for `n`."""
     figures.ensure_schema(conn)
-    conn.execute("INSERT OR REPLACE INTO figure_reads(paper, reader, figures, plots, read, values_, at, file) VALUES (?,?,?,?,?,?,?,?)", (key, figures.READER, 2, 2, 2, 2, "t", file))
+    conn.execute("INSERT OR REPLACE INTO figure_reads(paper, reader, figures, plots, read, values_, at, file) VALUES (?,?,?,?,?,?,?,?)", (key, figures.READER, n, 2, 2, 2, "t", file))
     conn.commit()
 
 
@@ -367,7 +379,7 @@ def test_two_figures_on_a_page_whose_ids_another_reading_trades_trade_their_plot
     _pictures_at(conn, key, reading)
     assert figures.remap(conn, key) == {"moved": 2, "removed": 0, "lost": []}
     assert [tuple(r) for r in conn.execute("SELECT v.y, n.bbox_t FROM chart_values v JOIN nodes n ON n.node_id = v.figure ORDER BY v.y")] == [(10.0, A[1]), (20.0, B[1])]
-    assert figures.is_read(conn, key)  # moved, every one: nothing to read again
+    assert figures.is_read(conn, key) == (len(reading) == 2)  # moved, every one: nothing to read again — but a picture the reading gained, never read
 
 
 def test_a_node_s_id_alone_never_keeps_a_plot(tmp_path):
@@ -451,9 +463,17 @@ def test_a_pdf_arriving_for_an_xml_paper_is_kept_for_its_figures_and_read(tmp_pa
     assert (lib / "papers" / row["figures_file"]).exists() and not dropped.exists()
     assert conn.execute("SELECT COUNT(*) FROM charts WHERE paper = ? AND status = 'read'", (key,)).fetchone()[0] == 3
     assert figures.figures_wanted(conn, lib / "papers") == [] and figures.is_read(conn, key)
-    assert any(e["event"] == "log" and "charts read from the PDF beside the XML" in e["message"] for e in events)
+    (said,) = [e for e in events if e["event"] == "log" and e.get("figures")]  # the window draws the paper's figures again
+    assert said["message"].startswith("3 of 3 charts read, in 2 of 3 figures: ") and said["message"].endswith("; 1 whose caption the PDF does not print — from the PDF beside the XML")
+    assert (said["counts"]["kind"], said["counts"]["pinned"], said["counts"]["figures"], said["counts"]["no_caption"]) == ("read", 2, 3, 1)
     assert (events[-1]["event"], events[-1]["figures"]) == ("done", [key])  # the window draws the figure shown again
     conn.close()
+    answers = talk(tmp_path, [{"id": "p", "op": "papers", "lib": "threads"}, {"id": "t", "op": "tree", "lib": "threads", "key": key}])
+    (state,) = [p["figure_state"] for p in by(answers, "p")[0]["papers"] if p["key"] == key]
+    assert (state["kind"], state["pinned"], state["numbered"], state["no_caption"], state["file"]) == ("read", 2, 3, 1, "doi_10.3390_mi15070851.figures.pdf")
+    tags = by(answers, "t")[0]["figures"]
+    assert tags[f"{key}#section-1#picture-3"] == {"outcome": "no-caption", "label": "3", "plots": 0, "read": 0, "page": None}
+    assert tags[f"{key}#section-1#picture-1"] == {"outcome": "plots", "label": "1", "plots": 2, "read": 2, "page": 1}
 
 
 #: Lines page_paper.pdf prints, each long enough to stand for a paper's title, and one that is not.
@@ -776,7 +796,7 @@ def test_a_paper_whose_kept_pdf_is_gone_is_wanted_again(tmp_path):
     conn.execute("UPDATE papers SET figures_file = 'paper.figures.pdf' WHERE key = ?", (key,))
     conn.commit()
     assert figures.figures_wanted(conn) == []  # by the row alone
-    assert figures.figures_wanted(conn, lib.papers_dir) == [{"key": key, "title": "read from XML", "doi": "10.3390/mi15070851", "pmid": None, "pmcid": None, "figures_note": None, "figures": 3}]  # by the disk: the file is not there
+    assert figures.figures_wanted(conn, lib.papers_dir) == [{"key": key, "title": "read from XML", "doi": "10.3390/mi15070851", "pmid": None, "pmcid": None, "figures_note": None, "figures": 3, "oa_url": None}]  # by the disk: the file is not there
     wanted = by(talk(tmp_path, [{"id": "w", "op": "wanted", "lib": lib.id}]), "w")[0]
     assert [w["key"] for w in wanted["figures"]] == [key] and wanted["figures_on"] is True
     shutil.copy(CHARTS / "page_paper.pdf", lib.papers_dir / "paper.figures.pdf")
@@ -1548,6 +1568,38 @@ def test_a_rebuild_moves_each_plot_by_its_number_and_removes_the_one_it_has_no_f
     conn.close()
 
 
+def test_a_rebuild_records_what_the_figures_of_a_read_made_before_it_was_kept_came_to(tmp_path, capsys):
+    from litrag_parser.library import safe_key
+    from litrag_parser.worker import Worker
+
+    from test_worker import FIXTURES, by, talk
+
+    assert by(talk(tmp_path, [{"id": "1", "op": "init", "name": "Micromachines"}]), "1")[0]["event"] == "library"
+    lib = tmp_path / "micromachines"
+    conn = open_store(lib / "store.sqlite")
+    key = file_paper(conn, title="x", file="", sha256="aa", fmt="jats", doi="10.3390/mi15070851", pmid=None, pmcid=None, now="t").key
+    shutil.copy(FIXTURES / "PMC11278924.xml", lib / "papers" / "paper.xml")
+    shutil.copy(FIXTURES / "PMC11278924.jats.docling.json", lib / "parsed" / f"{safe_key(key)}.docling.json")
+    shutil.copy(CHARTS / "page_paper.pdf", lib / "papers" / "paper.figures.pdf")  # prints the captions of figures 1 and 2
+    conn.execute("UPDATE papers SET file = 'paper.xml', status = 'parsed', figures_file = 'paper.figures.pdf' WHERE key = ?", (key,))
+    conn.commit()
+    conn.close()
+    Worker(tmp_path).do_rebuild({"id": "r", "op": "rebuild", "lib": "micromachines"})
+    conn = open_store(lib / "store.sqlite")
+    numbers = figures.figure_numbers(conn, key)
+    _plots(conn, key, numbers["1"], "1", page=1)
+    conn.execute("INSERT INTO figure_reads(paper, reader, figures, plots, read, values_, at, file) VALUES (?,?,?,?,?,?,?,?)", (key, figures.READER, len(numbers), 1, 1, 1, "t", "paper.figures.pdf"))
+    conn.commit()  # a read made before outcomes were kept
+    conn.close()
+    capsys.readouterr()
+    Worker(tmp_path).do_rebuild({"id": "s", "op": "rebuild", "lib": "micromachines"})
+    conn = open_store(lib / "store.sqlite")
+    told = dict(conn.execute("SELECT figure_label, outcome FROM figure_outcomes WHERE paper = ?", (key,)).fetchall())
+    assert told == {k: "plots" if k == "1" else "no-plot" if k == "2" else "no-caption" for k in numbers}
+    assert tuple(conn.execute("SELECT pages, pages_read FROM figure_reads").fetchone()) == (2, 2) and figures.is_read(conn, key)
+    conn.close()
+
+
 def test_a_reparse_moves_the_plots_and_removes_those_it_has_no_figure_for_with_the_figures_off(tmp_path, monkeypatch, capsys):
     """parse_one, the layout stood in by the micromachines paper's saved Docling document, over a
     paper an earlier reading had read into three figures, 1, 2 and 9: figure 2's plots follow
@@ -1668,9 +1720,11 @@ def test_an_xml_reread_over_a_pdf_paper_keeps_its_pdf_beside_it_for_its_figures(
     shutil.copy(CHARTS / "page_paper.pdf", lib.papers_dir / own)
     conn.execute("UPDATE papers SET file = ?, status = 'parsed', figures_note = ? WHERE key = ?", (own, NOTE, key))  # and PMC's answer kept on it
     figures.ensure_schema(conn)
-    conn.execute("INSERT INTO figure_reads(paper, reader, figures, plots, read, values_, at, file) VALUES (?,?,?,?,?,?,?,?)", (key, figures.READER, 2, 0, 0, 0, "t", own))
+    conn.execute("INSERT INTO figure_reads(paper, reader, figures, plots, read, values_, at, file) VALUES (?,?,?,?,?,?,?,?)", (key, figures.READER, 0, 0, 0, 0, "t", own))  # its reading has no picture yet: none looked for
     conn.commit()
     assert figures.is_read(conn, key)
+    conn.execute("INSERT INTO figure_outcomes(paper, figure, outcome, page) VALUES (?,?,?,?)", (key, f"{key}#section-1#picture-1", "plots", 1))  # what a picture of the PDF's own came to
+    conn.commit()
     conn.close()
     dropped = lib.inbox_dir / "PMC11278924.xml"
     shutil.copy(FIXTURES / "PMC11278924.xml", dropped)
@@ -1681,7 +1735,7 @@ def test_an_xml_reread_over_a_pdf_paper_keeps_its_pdf_beside_it_for_its_figures(
     filed = [r[0] for r in conn.execute("SELECT detail FROM events WHERE paper = ? AND stage = 'filed' ORDER BY id", (key,))]
     assert filed == [f"read from its XML now: its PDF {own} is kept beside it for its figures", "seen before (by DOI): PMC11278924.xml"]
     # the same file draws its figures, but read as the paper's own pictures: the XML's are read from its pages, again
-    assert not figures.is_read(conn, key)
+    assert not figures.is_read(conn, key) and conn.execute("SELECT COUNT(*) FROM figure_outcomes WHERE paper = ?", (key,)).fetchone()[0] == 0
     conn.close()
 
 
@@ -1719,7 +1773,7 @@ def test_a_reread_in_the_same_format_leaves_what_draws_the_figures_alone(tmp_pat
     shutil.copy(FIXTURES / "PMC11278924.xml", lib.papers_dir / "paper.xml")
     shutil.copy(CHARTS / "page_paper.pdf", lib.papers_dir / "paper.figures.pdf")
     conn.execute("UPDATE papers SET figures_file = 'paper.figures.pdf' WHERE key = ?", (key,))
-    _read(conn, key, "paper.figures.pdf")
+    _read(conn, key, "paper.figures.pdf", n=3)
     conn.close()
     dropped = lib.inbox_dir / "PMC11278924.xml"
     shutil.copy(FIXTURES / "PMC11278924.xml", dropped)
@@ -1816,3 +1870,528 @@ def test_the_judge_s_own_command_moves_the_plots_with_their_figures_too(tmp_path
     assert [r[0] for r in conn.execute("SELECT detail FROM events WHERE paper = ? AND stage = 'figures'", (key,))] == [said]
     assert said in capsys.readouterr().out
     conn.close()
+
+
+# -- what each figure came to ------------------------------------------------------------------------------------
+
+
+@pytest.fixture(scope="module")
+def _read_once(tmp_path_factory):
+    """An `_xml_paper` whose figures were read from page_paper.pdf, kept beside it under that name:
+    the store, to copy, and what the read gave."""
+    d = tmp_path_factory.mktemp("read-once")
+    conn = open_store(d / "store.sqlite")
+    key = _xml_paper(conn)
+    conn.execute("UPDATE papers SET figures_file = 'page_paper.pdf' WHERE key = ?", (key,))
+    conn.commit()
+    out = figures.read_pages(conn, key, CHARTS / "page_paper.pdf")
+    conn.close()
+    return d / "store.sqlite", out
+
+
+def _copied(tmp_path, read_once):
+    """A copy of the store `_read_once` read into, with page_paper.pdf in `tmp_path/papers`: the store."""
+    import sqlite3
+
+    src, dst = sqlite3.connect(read_once[0]), sqlite3.connect(tmp_path / "store.sqlite")
+    src.backup(dst)
+    src.close()
+    dst.close()
+    (tmp_path / "papers").mkdir(exist_ok=True)
+    shutil.copy(CHARTS / "page_paper.pdf", tmp_path / "papers" / "page_paper.pdf")
+    return open_store(tmp_path / "store.sqlite")
+
+
+def _outcomes(conn, key=THREADS):
+    return [tuple(r) for r in conn.execute("SELECT o.figure_label, o.outcome, o.page, COUNT(c.plot) FROM figure_outcomes o LEFT JOIN charts c ON c.paper = o.paper AND c.figure = o.figure "
+                                           "WHERE o.paper = ? GROUP BY o.figure ORDER BY o.rowid", (key,))]
+
+
+def test_an_xml_paper_s_read_keeps_what_each_key_looked_for_came_to(tmp_path, _read_once):
+    conn = _copied(tmp_path, _read_once)
+    assert _outcomes(conn) == [("1", "plots", 1, 2), ("2", "plots", 2, 1), ("3", "no-caption", None, 0)]  # plot counts from the charts
+    assert tuple(conn.execute("SELECT figures, pages, pages_read FROM figure_reads").fetchone()) == (3, 2, 2)
+    assert (_read_once[1]["pages"], _read_once[1]["pages_read"]) == (2, 2)
+    figures.read_pages(conn, THREADS, CHARTS / "page_paper.pdf")  # read again: the same rows, not more
+    assert _outcomes(conn) == [("1", "plots", 1, 2), ("2", "plots", 2, 1), ("3", "no-caption", None, 0)]
+
+
+def test_a_caption_found_with_nothing_pinned_to_it_is_no_plot_on_its_page(tmp_path, monkeypatch):
+    from litrag_parser import charts
+
+    conn = open_store(tmp_path / "store.sqlite")
+    key = _xml_paper(conn)
+    real = charts.read
+    monkeypatch.setattr(charts, "read", lambda img, words, ocr=None: [] if words is None else real(img, words, ocr=ocr))  # no plot found in an image
+    figures.read_pages(conn, key, CHARTS / "page_paper.pdf")
+    assert _outcomes(conn, key) == [("1", "plots", 1, 2), ("2", "no-plot", 2, 0), ("3", "no-caption", None, 0)]
+
+
+def test_a_pdf_paper_s_read_keeps_each_picture_s_outcome_and_place(tmp_path):
+    conn, key, pdf_path = _store(tmp_path, ["panels_two", "bars_grouped"])
+    figures.read_paper(conn, key, pdf_path)
+    rows = [tuple(r) for r in conn.execute("SELECT figure, figure_label, outcome, page, bbox, detail FROM figure_outcomes ORDER BY page")]
+    assert [r[1:4] for r in rows] == [(None, "plots", 1), (None, "plots", 2)] and all(json.loads(r[4])[0] == 0.0 for r in rows) and rows[0][0] == f"{key}#section-1#picture-1"
+    conn.execute("UPDATE nodes SET node_id = replace(node_id, '#picture-', '#figure-x') WHERE type = 'picture'")  # renumbered: each outcome follows its figure by its place
+    conn.commit()
+    figures.remap(conn, key)
+    assert {r[0] for r in conn.execute("SELECT figure FROM figure_outcomes")} == {f"{key}#section-1#figure-x1", f"{key}#section-1#figure-x2"} and figures.is_read(conn, key)
+    conn.execute("UPDATE nodes SET page = 9 WHERE node_id = ?", (f"{key}#section-1#figure-x2",))  # a page the PDF has not
+    conn.commit()
+    figures.read_paper(conn, key, pdf_path)
+    assert tuple(conn.execute("SELECT outcome, page, detail FROM figure_outcomes WHERE figure = ?", (f"{key}#section-1#figure-x2",)).fetchone()) == ("skipped", 9, "page 9 is past the end of paper.pdf")
+    assert figures.outcome_of(conn, f"{key}#section-1#figure-x2")["outcome"] == "skipped"
+
+
+def _told(conn, key, rows):
+    """What each figure came to, as a read keeps it: (figure, label, outcome)."""
+    figures.ensure_schema(conn)
+    conn.executemany("INSERT INTO figure_outcomes(paper, figure, figure_label, outcome) VALUES (?,?,?,?)", [(key, *r) for r in rows])
+    conn.commit()
+
+
+def test_what_each_figure_came_to_follows_it_or_goes_with_its_plots(tmp_path):
+    conn = open_store(tmp_path / "store.sqlite")
+    key = _xml_paper(conn)
+    p1, p2, p3 = (f"{key}#section-1#picture-{i}" for i in (1, 2, 3))
+    _plots(conn, key, p1, "1")
+    _told(conn, key, [(p1, "1", "plots"), (p2, "2", "no-plot"), (p3, "3", "no-caption")])
+    conn.execute("UPDATE nodes SET text = CASE parent WHEN ? THEN 'Figure 2 What figure 2 shows.' ELSE 'Figure 1 What figure 1 shows.' END WHERE parent IN (?, ?)", (p1, p1, p2))
+    conn.commit()
+    assert figures.remap(conn, key) == {"moved": 1, "removed": 0, "lost": []}  # the two trade: no IntegrityError
+    assert [tuple(r) for r in conn.execute("SELECT figure, figure_label, outcome FROM figure_outcomes ORDER BY figure")] == [(p1, "2", "no-plot"), (p2, "1", "plots"), (p3, "3", "no-caption")]
+    # an earlier reading's figure 3, where figure 3 keeps its own row: the incoming row goes, and nothing raises
+    _told(conn, key, [(f"{key}#section-1#picture-7", "3", "plots")])
+    assert figures.remap(conn, key)["removed"] == 0
+    assert [tuple(r) for r in conn.execute("SELECT figure, figure_label FROM figure_outcomes WHERE figure_label = '3'")] == [(p3, "3")]
+    # a figure gone from the reading: its row goes with its plots
+    conn.execute("UPDATE nodes SET text = 'Scheme 9 What was figure 1.' WHERE parent = ?", (p2,))
+    conn.commit()
+    assert figures.remap(conn, key) == {"moved": 0, "removed": 1, "lost": ["1"]}
+    assert [r[0] for r in conn.execute("SELECT figure_label FROM figure_outcomes ORDER BY figure")] == ["2", "3"]
+
+
+def test_what_a_figure_came_to_is_known_without_a_read(tmp_path):
+    conn = open_store(tmp_path / "store.sqlite")
+    key = _xml_paper(conn, caps=["Figure 1 One.", "Figure 2 Two.", "Figure 3 Three.", "1 A bare label", "Scheme 1 A route", "Figure 1 Again"])
+    told = figures.outcomes(conn, key)
+    assert [told[f"{key}#section-1#picture-{i}"]["outcome"] for i in range(1, 7)] == ["no-pdf", "no-pdf", "no-pdf", "unnumbered", "no-pdf", "same-number"]
+    assert [told[f"{key}#section-1#picture-{i}"]["label"] for i in range(1, 7)] == ["1", "2", "3", None, "Scheme 1", "1"]
+    assert figures.figures_wanted(conn)[0]["figures"] == 3
+    state = figures.states(conn, None, True)[key]
+    assert (state["kind"], state["figures"], state["numbered"], state["unnumbered"], state["same_number"]) == ("no-pdf", 5, 3, 1, 1)  # Scheme 1 looked for, not counted
+    # a PDF paper's: too small to hold a chart, no place on a page, or not read yet
+    (tmp_path / "pdf").mkdir()
+    pdf_conn, pdf_key, _ = _store(tmp_path / "pdf", ["panels_two", "bars_grouped"])
+    pdf_conn.execute("UPDATE nodes SET bbox_r = 40, bbox_b = 30 WHERE node_id = ?", (f"{pdf_key}#section-1#picture-1",))
+    pdf_conn.execute("UPDATE nodes SET bbox_l = NULL WHERE node_id = ?", (f"{pdf_key}#section-1#picture-2",))
+    pdf_conn.execute("INSERT INTO nodes(node_id, paper, parent, ordinal, depth, type, label, role, ancestry, text, page, bbox_l, bbox_t, bbox_r, bbox_b) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                     (f"{pdf_key}#section-1#picture-3", pdf_key, f"{pdf_key}#section-1", 3, 2, "picture", "picture", "results", '["3 Results"]', "", 1, 0.0, 0.0, 200.0, 200.0))
+    pdf_conn.commit()
+    assert [o["outcome"] for o in figures.outcomes(pdf_conn, pdf_key).values()] == ["small", "unplaced", "unread"]
+    state = figures.states(pdf_conn, None, True)[pdf_key]
+    assert (state["kind"], state["figures"], state["small"], state["unplaced"], state["unread"]) == ("unread", 1, 1, 1, 1)  # the pictures a read looks for, the rest apart
+    # read before outcomes were kept: told from its plots, as a record would keep it
+    figures.read_paper(pdf_conn, pdf_key, tmp_path / "pdf" / "paper.pdf")
+    pdf_conn.execute("DELETE FROM figure_outcomes")
+    pdf_conn.commit()
+    o = figures.outcome_of(pdf_conn, f"{pdf_key}#section-1#picture-3")
+    assert (o["outcome"], o["page"], o["bbox"]) == ("plots", 1, [0.0, 0.0, 200.0, 200.0])
+    state = figures.states(pdf_conn, None, True)[pdf_key]
+    assert (state["kind"], state["figures"], state["pinned"], state["small"], state["unplaced"], state["unread"]) == ("read", 1, 1, 1, 1, 0)
+    assert figures.outcome_of(pdf_conn, "no such node") is None
+    # an XML paper's: two bare labels and a repeat, each counted as its own
+    bare = _xml_paper(conn, doi="10.1/bare", caps=["Figure 1 One.", "Figure 2 Two.", "Figure 3 Three.", "1 A bare label", "2 Another bare label", "Figure 1 Again"])
+    state = figures.states(conn, None, True)[bare]
+    assert (state["figures"], state["numbered"], state["unnumbered"], state["same_number"]) == (6, 3, 2, 1)
+
+
+def test_each_paper_s_figures_are_one_kind_and_the_file_decides_first(tmp_path, _read_once, monkeypatch):
+    conn = _copied(tmp_path, _read_once)
+    papers = tmp_path / "papers"
+    read = THREADS
+    none = file_paper(conn, title="no figure", file="none.xml", sha256="n", fmt="jats", doi="10.1/none", pmid=None, pmcid=None, now="t").key
+    nopdf = _xml_paper(conn, doi="10.1/nopdf")
+    conn.execute("UPDATE papers SET figures_note = ? WHERE key = ?", (NOTE, nopdf))
+    gone = _xml_paper(conn, doi="10.1/gone")
+    unread = _xml_paper(conn, doi="10.1/unread")
+    conn.execute("UPDATE papers SET figures_file = 'gone.figures.pdf' WHERE key = ?", (gone,))
+    conn.execute("UPDATE papers SET figures_file = 'page_paper.pdf' WHERE key = ?", (unread,))
+    conn.execute("INSERT INTO events(paper, at, stage, detail) VALUES (?, 't1', 'figures-pdf', 'could not ask PMC: URLError')", (nopdf,))
+    conn.execute("INSERT INTO events(paper, at, stage, detail) VALUES (?, 't2', 'figures-pdf', ?)", (nopdf, f"no PDF for its figures: {NOTE}"))
+    conn.execute("INSERT INTO events(paper, at, stage, detail) VALUES (?, 't3', 'figures-refused', 'not kept for its figures: x.pdf: no')", (nopdf,))  # a refused drop is no ask
+    conn.commit()
+    told = figures.states(conn, papers, True)
+    assert {k: told[k]["kind"] for k in (read, none, nopdf, gone, unread)} == {read: "read", none: "none", nopdf: "no-pdf", gone: "missing-file", unread: "unread"}
+    assert {k: v for k, v in told[read].items() if k not in ("at",)} == {
+        "kind": "read", "figures": 3, "numbered": 3, "pinned": 2, "no_plot": 0, "no_caption": 1, "unnumbered": 0, "same_number": 0, "small": 0, "unplaced": 0, "unread": 0,
+        "plots": 3, "read": 3, "values": _read_once[1]["values"], "unmatched": 0, "pages": 2, "pages_read": 2, "file": "page_paper.pdf", "note": None, "asked": None}
+    assert (told[nopdf]["note"], told[nopdf]["asked"]) == (NOTE, f"no PDF for its figures: {NOTE}")
+    assert told[unread]["unread"] == 3 and told[gone]["file"] == "gone.figures.pdf"
+    off = figures.states(conn, papers, False)
+    assert {k: off[k]["kind"] for k in (read, none, nopdf, gone, unread)} == {read: "read", none: "none", nopdf: "off", gone: "off", unread: "off"}  # the switch stops work, not answers
+    monkeypatch.setenv("LITRAG_FIGURES", "off")
+    assert [w["key"] for w in figures.figures_wanted(conn, papers)] == [gone, nopdf]  # never reads the switch
+    monkeypatch.delenv("LITRAG_FIGURES")
+    for k in (read, unread):  # a paper with a file to read: unread exactly when its read does not stand
+        assert (told[k]["kind"] == "unread") == (not figures.is_read(conn, k))
+    # the file decides first, where the read stands: the kept PDF deleted, or a merge's copy of a read naming no file and no PDF kept
+    (papers / "page_paper.pdf").unlink()
+    assert figures.is_read(conn, read) and figures.states(conn, papers, True)[read]["kind"] == "missing-file"
+    assert read in [w["key"] for w in figures.figures_wanted(conn, papers)]
+    conn.execute("UPDATE papers SET figures_file = NULL WHERE key = ?", (read,))
+    conn.execute("UPDATE figure_reads SET file = NULL WHERE paper = ?", (read,))
+    conn.commit()
+    assert figures.is_read(conn, read) and figures.states(conn, papers, True)[read]["kind"] == "no-pdf"
+    assert {(o["outcome"], o["page"]) for o in (figures.outcomes(conn, read)[f"{read}#section-1#picture-{i}"] for i in (1, 2, 3))} == {("no-pdf", None)}  # not the page its stale row gives
+
+
+def test_a_read_stands_only_for_the_figures_there_are_now(tmp_path):
+    conn = open_store(tmp_path / "store.sqlite")
+    key = _xml_paper(conn, caps=["A figure its caption gives no number."])
+    conn.execute("UPDATE papers SET figures_file = 'page_paper.pdf' WHERE key = ?", (key,))
+    conn.commit()
+    out = figures.read_pages(conn, key, CHARTS / "page_paper.pdf")  # nothing to look for: the PDF only counted
+    assert (out["figures"], out["plots"], out["pages"], out["pages_read"]) == (0, 0, 2, 0) and figures.is_read(conn, key)
+    conn.execute("UPDATE nodes SET text = 'Figure 1 Numbered now.' WHERE type = 'caption' AND paper = ?", (key,))
+    conn.commit()
+    assert not figures.is_read(conn, key)  # one to look for now, none looked for then
+    assert not figures.backfill(conn, key, CHARTS) and conn.execute("SELECT COUNT(*) FROM figure_outcomes").fetchone()[0] == 0
+
+
+def test_a_scheme_is_looked_for_and_not_counted_and_the_read_stands(tmp_path, capsys, _never_asked):
+    lib = _threads(tmp_path, caps=["Figure 1 What figure 1 shows.", "Figure 2 What figure 2 shows.", "Figure 3 What figure 3 shows.", "Scheme 1 A route."])
+    events, _ = _attach(lib, capsys)
+    (said,) = [e["message"] for e in events if e["event"] == "log" and e.get("figures")]
+    assert "in 2 of 3 figures" in said and "; 1 whose caption the PDF does not print" in said
+    conn = open_store(lib.store_path)
+    assert conn.execute("SELECT figures FROM figure_reads").fetchone()[0] == 4 and figures.is_read(conn, THREADS)  # the keys looked for
+    assert dict(conn.execute("SELECT figure_label, outcome FROM figure_outcomes").fetchall()) == {"1": "plots", "2": "plots", "3": "no-caption", "Scheme 1": "no-caption"}
+    state = figures.states(conn, lib.papers_dir, True)[THREADS]
+    assert (state["figures"], state["pinned"], state["no_caption"]) == (3, 2, 1)  # figure keys, as figures_wanted counts them
+    conn.close()
+    assert _figures_op(lib, capsys)["papers"] == 0
+
+
+def test_what_reads_made_before_it_was_kept_came_to_is_recorded_reading_no_chart(tmp_path, capsys, monkeypatch):
+    from litrag_parser import charts
+    from litrag_parser.worker import Worker
+
+    from test_worker import by, talk
+
+    assert by(talk(tmp_path, [{"id": "1", "op": "init", "name": "Figures"}]), "1")[0]["event"] == "library"
+    lib = tmp_path / "figures"
+    conn, pdf_key, pdf_path = _store(lib, ["panels_two", "bars_grouped"])
+    shutil.copy(pdf_path, lib / "papers" / "paper.pdf")
+    figures.read_paper(conn, pdf_key, pdf_path)
+    xml_key = _xml_paper(conn)
+    shutil.copy(CHARTS / "page_paper.pdf", lib / "papers" / "paper.figures.pdf")
+    conn.execute("UPDATE papers SET figures_file = 'paper.figures.pdf' WHERE key = ?", (xml_key,))
+    conn.commit()
+    figures.read_pages(conn, xml_key, lib / "papers" / "paper.figures.pdf")
+
+    def snapshot():
+        return [tuple(r) for r in conn.execute("SELECT * FROM figure_outcomes ORDER BY paper, figure")], [tuple(r) for r in conn.execute("SELECT paper, pages, pages_read FROM figure_reads ORDER BY paper")]
+
+    before = snapshot()
+    conn.execute("DELETE FROM figure_outcomes")
+    conn.execute("UPDATE figure_reads SET pages = NULL, pages_read = NULL WHERE paper = ?", (xml_key,))
+    conn.commit()
+
+    def never(*a, **kw):
+        raise AssertionError("a chart was read")
+
+    monkeypatch.setattr(charts, "read", never)
+    monkeypatch.setattr(charts, "ocr_words", never)
+    capsys.readouterr()
+    Worker(tmp_path).do_figures({"id": "r", "op": "figures", "lib": "figures", "record": True})
+    done = json.loads(capsys.readouterr().out.splitlines()[-1])
+    assert (done["event"], done["recorded"], done["papers"]) == ("done", 2, 0)
+    after = snapshot()
+    assert after[0] == before[0] and [r for r in after[1] if r[0] == xml_key] == [r for r in before[1] if r[0] == xml_key]
+    Worker(tmp_path).do_figures({"id": "s", "op": "figures", "lib": "figures", "record": True})
+    assert json.loads(capsys.readouterr().out.splitlines()[-1])["recorded"] == 0  # twice is once
+    # a picture the reading gained after the read: the read does not stand, and nothing is recorded for it
+    conn.execute("DELETE FROM figure_outcomes WHERE paper = ?", (pdf_key,))
+    conn.execute("INSERT INTO nodes(node_id, paper, parent, ordinal, depth, type, label, role, ancestry, text, page, bbox_l, bbox_t, bbox_r, bbox_b) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                 (f"{pdf_key}#section-1#picture-3", pdf_key, f"{pdf_key}#section-1", 3, 2, "picture", "picture", "results", '["3 Results"]', "", 1, 0.0, 0.0, 200.0, 200.0))
+    conn.commit()
+    assert not figures.backfill(conn, pdf_key, lib / "papers") and conn.execute("SELECT COUNT(*) FROM figure_outcomes WHERE paper = ?", (pdf_key,)).fetchone()[0] == 0
+    conn.close()
+
+
+def test_a_read_with_nothing_to_look_for_replaces_the_last_one(tmp_path):
+    from litrag_parser.worker import Worker
+
+    conn, key, pdf_path = _store(tmp_path, ["panels_two"])
+    figures.read_paper(conn, key, pdf_path)
+    assert conn.execute("SELECT COUNT(*) FROM charts").fetchone()[0] == 2
+    conn.execute("DELETE FROM nodes WHERE type = 'picture'")  # a reading with no picture
+    conn.commit()
+    said = []
+    Worker(tmp_path).read_figures(conn, key, pdf_path, lambda name, message, **kw: said.append(message))
+    assert [conn.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0] for t in ("charts", "chart_values", "figure_outcomes")] == [0, 0, 0]
+    assert tuple(conn.execute("SELECT figures, plots, read, values_ FROM figure_reads").fetchone()) == (0, 0, 0, 0) and said == []
+    assert figures.is_read(conn, key) and not figures.backfill(conn, key, tmp_path)  # nothing to record: never counted as recorded
+
+
+def test_the_read_message_counts_as_the_papers_op_does():
+    out = {"figures": 4, "plots": 3, "read": 2, "values": 18, "seconds": 1.5, "unmatched": 2}
+    c = {"figures": 3, "numbered": 3, "pinned": 1, "no_plot": 1, "no_caption": 1}
+    assert figures.read_message(out, c, True) == ("2 of 3 charts read, in 1 of 3 figures: 18 values, in 1.5s; 1 with no chart under their caption; "
+                                                  "1 whose caption the PDF does not print; 2 plots under no caption of the paper’s")
+    assert figures.read_message({**out, "unmatched": 0}, {**c, "no_plot": 0, "no_caption": 0}, True) == "2 of 3 charts read, in 1 of 3 figures: 18 values, in 1.5s"
+    assert figures.read_message({**out, "figures": 0}, {**c, "figures": 5, "numbered": 0}, True) == "5 figures, none with a number (“Figure 2”) to match the PDF’s captions by"
+    assert figures.read_message({**out, "figures": 0}, {**c, "figures": 0, "numbered": 0}, False) is None
+    nothing = {**c, "figures": 0, "numbered": 0, "pinned": 0, "no_plot": 0, "no_caption": 0}  # only schemes looked for: no figure to count
+    assert figures.read_message(out, nothing, True) == "2 of 3 charts read: 18 values, in 1.5s; 2 plots under no caption of the paper’s"
+    assert figures.read_message({**out, "unmatched": 0}, c, False) == "2 of 3 charts read, in 1 of 3 figures: 18 values, in 1.5s; 1 with no chart in them"  # a PDF's picture: no caption looked for
+
+
+def _never(*a, **kw):
+    raise AssertionError("a chart was read")
+
+
+def test_a_figure_gone_with_no_plot_takes_the_read_with_it(tmp_path, monkeypatch):
+    from litrag_parser import charts
+
+    conn, key, pdf_path = _store(tmp_path, ["panels_two", "bars_grouped"])
+    real = charts.read
+    monkeypatch.setattr(charts, "read", lambda img, words, ocr=None: [])  # nothing in either picture is a chart
+    figures.read_paper(conn, key, pdf_path)
+    assert [r[0] for r in conn.execute("SELECT outcome FROM figure_outcomes")] == ["no-plot", "no-plot"]
+    _pictures_at(conn, key, [(1, (300.0, 400.0, 500.0, 600.0)), (2, (300.0, 400.0, 500.0, 600.0))])  # another reading draws both elsewhere on their pages
+    assert figures.remap(conn, key) == {"moved": 0, "removed": 0, "lost": []}
+    assert [conn.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0] for t in ("figure_outcomes", "figure_reads")] == [0, 0] and not figures.is_read(conn, key)
+    monkeypatch.setattr(charts, "read", _never)
+    assert not figures.backfill(conn, key, tmp_path)  # pictures never looked at are not recorded as read
+    # an XML paper's figure 3, which held no plot, given no number by this reading
+    x = _xml_paper(conn)
+    conn.execute("UPDATE papers SET figures_file = 'page_paper.pdf' WHERE key = ?", (x,))
+    conn.commit()
+    monkeypatch.setattr(charts, "read", real)
+    figures.read_pages(conn, x, CHARTS / "page_paper.pdf")
+    conn.execute("UPDATE nodes SET text = 'A caption with no number now.' WHERE type = 'caption' AND parent = ?", (f"{x}#section-1#picture-3",))
+    conn.commit()
+    assert figures.remap(conn, x) == {"moved": 0, "removed": 0, "lost": []}
+    assert [r[0] for r in conn.execute("SELECT figure_label FROM figure_outcomes WHERE paper = ? ORDER BY figure", (x,))] == ["1", "2"]
+    assert conn.execute("SELECT COUNT(*) FROM figure_reads WHERE paper = ?", (x,)).fetchone()[0] == 0 and not figures.is_read(conn, x)
+
+
+def test_a_read_made_before_outcomes_were_kept_is_told_from_its_plots_and_recorded_where_it_was(tmp_path, monkeypatch):
+    from litrag_parser import charts
+
+    conn = open_store(tmp_path / "store.sqlite")
+    key = _xml_paper(conn)
+    (tmp_path / "papers").mkdir()
+    shutil.copy(CHARTS / "page_paper.pdf", tmp_path / "papers" / "page_paper.pdf")
+    conn.execute("UPDATE papers SET figures_file = 'page_paper.pdf' WHERE key = ?", (key,))
+    conn.commit()
+    real = charts.read
+    monkeypatch.setattr(charts, "read", lambda img, words, ocr=None: [] if words is None else real(img, words, ocr=ocr))  # figure 2: its caption found, no plot
+    figures.read_pages(conn, key, tmp_path / "papers" / "page_paper.pdf")
+    before = [tuple(r) for r in conn.execute("SELECT figure, figure_label, outcome, page FROM figure_outcomes ORDER BY figure")]
+    assert [r[2:] for r in before] == [("plots", 1), ("no-plot", 2), ("no-caption", None)]
+    conn.execute("DELETE FROM figure_outcomes")
+    conn.commit()
+    told = figures.outcomes(conn, key)  # the plots tell what figure 1 came to; figures 2 and 3 wait for their rows
+    assert [(told[f"{key}#section-1#picture-{i}"]["outcome"], told[f"{key}#section-1#picture-{i}"]["page"]) for i in (1, 2, 3)] == [("plots", 1), ("unrecorded", None), ("unrecorded", None)]
+    state = figures.states(conn, tmp_path / "papers", True)[key]
+    assert (state["kind"], state["figures"], state["pinned"], state["unread"]) == ("read", 3, 1, 2)
+    monkeypatch.setattr(charts, "read", _never)
+    assert figures.backfill(conn, key, tmp_path / "papers")
+    assert [tuple(r) for r in conn.execute("SELECT figure, figure_label, outcome, page FROM figure_outcomes ORDER BY figure")] == before
+    assert not figures.backfill(conn, key, tmp_path / "papers")  # twice is once, and raises nothing
+
+
+def test_a_figure_whose_plots_are_on_two_pages_is_told_on_the_first(tmp_path):
+    out, src = pdfium.PdfDocument.new(), pdfium.PdfDocument(str(CHARTS / "page_paper.pdf"))
+    out.import_pages(src, [0, 1, 0])
+    (tmp_path / "papers").mkdir()
+    path = tmp_path / "papers" / "three.pdf"
+    out.save(str(path))
+    conn = open_store(tmp_path / "store.sqlite")
+    key = _xml_paper(conn)
+    conn.execute("UPDATE papers SET figures_file = 'three.pdf' WHERE key = ?", (key,))
+    conn.commit()
+    figures.read_pages(conn, key, path)
+    assert [r[0] for r in conn.execute("SELECT DISTINCT page FROM charts WHERE figure_label = '1' ORDER BY page")] == [1, 3]
+
+    def page():
+        return conn.execute("SELECT page FROM figure_outcomes WHERE figure_label = '1'").fetchone()[0]
+
+    assert page() == 1
+    conn.execute("DELETE FROM figure_outcomes")
+    conn.commit()
+    assert figures.outcomes(conn, key)[f"{key}#section-1#picture-1"]["page"] == 1
+    assert figures.backfill(conn, key, tmp_path / "papers") and page() == 1
+
+
+def test_a_pdf_paper_s_pictures_are_counted_by_what_each_came_to(tmp_path, monkeypatch):
+    from litrag_parser import charts
+
+    conn, key, pdf_path = _store(tmp_path, ["panels_two", "bars_grouped"])
+    p1, p2 = f"{key}#section-1#picture-1", f"{key}#section-1#picture-2"
+    real, calls = charts.read, []
+
+    def second_holds_none(img, words, ocr=None):
+        calls.append(1)
+        return [] if len(calls) == 2 else real(img, words, ocr=ocr)
+
+    monkeypatch.setattr(charts, "read", second_holds_none)
+    out = figures.read_paper(conn, key, pdf_path)
+    assert [tuple(r) for r in conn.execute("SELECT outcome, page FROM figure_outcomes ORDER BY page")] == [("plots", 1), ("no-plot", 2)]
+    assert conn.execute("SELECT pages FROM figure_reads").fetchone()[0] == 2
+    state = figures.states(conn, tmp_path, True)[key]
+    assert (state["kind"], state["figures"], state["pinned"], state["no_plot"], state["unread"]) == ("read", 2, 1, 1, 0)
+    assert state["at"] == conn.execute("SELECT at FROM figure_reads").fetchone()[0]
+    assert figures.read_message(out, state, False).endswith("; 1 with no chart in them")
+    before = [tuple(r) for r in conn.execute("SELECT * FROM figure_outcomes ORDER BY figure")]
+    conn.execute("DELETE FROM figure_outcomes")
+    conn.commit()
+    assert [o["outcome"] for o in figures.outcomes(conn, key).values()] == ["plots", "no-plot"]  # from its rows alone, as a record keeps them
+    monkeypatch.setattr(charts, "read", _never)
+    assert figures.backfill(conn, key, tmp_path)
+    assert [tuple(r) for r in conn.execute("SELECT * FROM figure_outcomes ORDER BY figure")] == before
+    conn.execute("UPDATE charts SET status = 'unread' WHERE figure = ? AND plot = 0", (p1,))  # a plot found and not read
+    conn.commit()
+    state, one = figures.states(conn, tmp_path, True)[key], figures.outcome_of(conn, p1)
+    assert (state["plots"], state["read"], one["plots"], one["read"]) == (2, 1, 2, 1)
+    # a picture on a page the PDF has not: skipped, and why, counted as not read
+    monkeypatch.setattr(charts, "read", real)
+    conn.execute("UPDATE nodes SET page = 9 WHERE node_id = ?", (p2,))
+    conn.commit()
+    figures.read_paper(conn, key, pdf_path)
+    o = figures.outcome_of(conn, p2)
+    assert (o["outcome"], o["page"], o["detail"], o["bbox"][0]) == ("skipped", 9, "page 9 is past the end of paper.pdf", 0.0)
+    state = figures.states(conn, tmp_path, True)[key]
+    assert (state["kind"], state["figures"], state["pinned"], state["unread"]) == ("read", 2, 1, 1)
+    pdf_path.unlink()
+    assert figures.states(conn, tmp_path, True)[key]["kind"] == "missing-file"
+
+
+def test_a_caption_that_repeats_a_number_leaves_the_read_standing(tmp_path):
+    conn = open_store(tmp_path / "store.sqlite")
+    key = _xml_paper(conn, caps=["Figure 1 What figure 1 shows.", "Figure 2 What figure 2 shows.", "Figure 3 What figure 3 shows.", "Figure 1 Again."])
+    conn.execute("UPDATE papers SET figures_file = 'page_paper.pdf' WHERE key = ?", (key,))
+    conn.commit()
+    figures.read_pages(conn, key, CHARTS / "page_paper.pdf")
+    assert figures.is_read(conn, key)  # the repeat is not looked for: never read again on every figures op
+    assert figures.outcome_of(conn, f"{key}#section-1#picture-4")["outcome"] == "same-number"
+
+
+def test_the_wanted_name_the_open_copy_of_the_candidate_first_filed_and_only_papers_with_figure_numbers(tmp_path):
+    from litrag_parser import acquire
+
+    conn = open_store(tmp_path / "store.sqlite")
+    key = _xml_paper(conn)
+    acquire.ensure_schema(conn)
+    for cid, doi, url in ((1, "10.1/a", "https://first.example/a.pdf"), (2, "10.1/b", "https://second.example/b.pdf"), (3, "10.1/c", None)):
+        conn.execute("INSERT INTO candidates(cand_id, doi, status, paper_key, found_at, updated_at, oa_url) VALUES (?,?,?,?,?,?,?)", (cid, doi, "ingested", key, "t", "t", url))
+    conn.commit()
+    assert [w["oa_url"] for w in figures.figures_wanted(conn)] == ["https://first.example/a.pdf"]
+    bare = _xml_paper(conn, doi="10.1/bare", caps=["A figure its caption gives no number.", "Scheme 1 A route."])
+    assert figures.states(conn, None, True)[bare]["kind"] == "no-pdf" and [w["key"] for w in figures.figures_wanted(conn)] == [key]  # nothing a PDF could be matched to
+
+
+def test_a_store_made_before_the_pages_were_counted_gains_them(tmp_path):
+    conn = open_store(tmp_path / "store.sqlite")
+    conn.executescript("""CREATE TABLE figure_reads (paper TEXT PRIMARY KEY REFERENCES papers(key) ON DELETE CASCADE,
+      reader TEXT NOT NULL, figures INTEGER NOT NULL, plots INTEGER NOT NULL, read INTEGER NOT NULL, values_ INTEGER NOT NULL,
+      seconds REAL, at TEXT NOT NULL, file TEXT, unmatched INTEGER);""")
+    figures.ensure_schema(conn)
+    assert {"pages", "pages_read"} <= {r[1] for r in conn.execute("PRAGMA table_info(figure_reads)")}
+
+
+def test_the_figures_op_records_first_and_record_reads_no_chart(tmp_path, capsys, monkeypatch):
+    from litrag_parser import charts
+    from litrag_parser.worker import Worker
+
+    from test_worker import by, talk
+
+    assert by(talk(tmp_path, [{"id": "1", "op": "init", "name": "Figures"}]), "1")[0]["event"] == "library"
+    lib = tmp_path / "figures"
+    conn, key, pdf_path = _store(lib, ["panels_two", "bars_grouped"])
+    shutil.copy(pdf_path, lib / "papers" / "paper.pdf")
+    figures.read_paper(conn, key, pdf_path)
+    conn.execute("DELETE FROM figure_outcomes")
+    conn.commit()
+    capsys.readouterr()
+    Worker(tmp_path).do_figures({"id": "f", "op": "figures", "lib": "figures"})  # a plain run records first, and reads nothing it need not
+    done = json.loads(capsys.readouterr().out.splitlines()[-1])
+    assert (done["recorded"], done["papers"]) == (1, 0) and conn.execute("SELECT COUNT(*) FROM figure_outcomes").fetchone()[0] == 2
+    conn.execute("INSERT INTO nodes(node_id, paper, parent, ordinal, depth, type, label, role, ancestry, text, page, bbox_l, bbox_t, bbox_r, bbox_b) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                 (f"{key}#section-1#picture-3", key, f"{key}#section-1", 3, 2, "picture", "picture", "results", '["3 Results"]', "", 1, 0.0, 0.0, 200.0, 200.0))
+    conn.execute("DELETE FROM figure_outcomes")
+    conn.commit()
+    assert not figures.is_read(conn, key)
+    monkeypatch.setattr(charts, "read", _never)
+    Worker(tmp_path).do_figures({"id": "r", "op": "figures", "lib": "figures", "record": True})  # unread: record reads nothing, and records nothing
+    events = [json.loads(line) for line in capsys.readouterr().out.splitlines() if line.strip()]
+    assert (events[-1]["recorded"], events[-1]["papers"]) == (0, 0) and not [e for e in events if e["event"] == "log"]
+    conn.close()
+
+
+def test_the_figures_op_totals_figures_as_the_papers_op_counts_them(tmp_path, capsys, monkeypatch, _never_asked):
+    from litrag_parser.charts import Word
+    from litrag_parser.worker import Worker
+
+    lib = _threads(tmp_path, caps=["Figure 1 What figure 1 shows.", "Figure 2 What figure 2 shows.", "Figure 3 What figure 3 shows.", "Scheme 1 A route."])
+    _attach(lib, capsys)
+    capsys.readouterr()
+    Worker(lib.dir.parent).do_figures({"id": "g", "op": "figures", "lib": lib.id, "force": True})
+    done = _one([json.loads(line) for line in capsys.readouterr().out.splitlines() if line.strip()], "done")
+    assert (done["papers"], done["figures"], done["pinned"], done["unmatched"]) == (1, 3, 2, 0)  # figure keys: the scheme looked for, not counted
+    real = figures.captions
+    lost = {"1": ("7", Word(70, 400, 260, 410, "Figure 7. Lost from the XML")), "2": ("8", Word(60, 400, 400, 410, "Figure 8. Lost from the XML"))}
+
+    def with_lost_ones(words):
+        caps = real(words)
+        return caps + [lost[caps[0][0]]] if len(caps) == 1 and caps[0][0] in lost else caps
+
+    monkeypatch.setattr(figures, "captions", with_lost_ones)
+    Worker(lib.dir.parent).do_figures({"id": "h", "op": "figures", "lib": lib.id, "force": True})
+    done = _one([json.loads(line) for line in capsys.readouterr().out.splitlines() if line.strip()], "done")
+    conn = open_store(lib.store_path)
+    assert done["unmatched"] == conn.execute("SELECT unmatched FROM figure_reads").fetchone()[0] > 0
+    conn.close()
+
+
+def test_the_papers_op_says_off_with_the_switch_and_records_nothing(tmp_path, capsys, monkeypatch, _never_asked):
+    from test_worker import by, talk
+
+    lib = _threads(tmp_path)
+    _attach(lib, capsys)
+    conn = open_store(lib.store_path)
+    conn.execute("DELETE FROM figure_outcomes")  # read before outcomes were kept
+    conn.execute("UPDATE papers SET figures_file = NULL WHERE key = ?", (THREADS,))  # and no PDF kept now: no-pdf, so off with the switch
+    conn.commit()
+    conn.close()
+    monkeypatch.setenv("LITRAG_FIGURES", "off")
+    (state,) = [p["figure_state"] for p in by(talk(tmp_path, [{"id": "p", "op": "papers", "lib": lib.id}]), "p")[0]["papers"]]
+    assert state["kind"] == "off"
+    monkeypatch.delenv("LITRAG_FIGURES")
+    conn = open_store(lib.store_path)
+    conn.execute("UPDATE papers SET figures_file = ? WHERE key = ?", (KEPT, THREADS))
+    conn.commit()
+    conn.close()
+    (state,) = [p["figure_state"] for p in by(talk(tmp_path, [{"id": "p", "op": "papers", "lib": lib.id}]), "p")[0]["papers"]]
+    conn = open_store(lib.store_path)
+    assert (state["kind"], state["pinned"], state["unread"]) == ("read", 2, 1)  # figure 3 waits for its row
+    assert conn.execute("SELECT COUNT(*) FROM figure_outcomes").fetchone()[0] == 0  # never recorded on first touch
+    conn.close()
+
+
+def test_read_figures_says_an_xml_paper_s_read_as_its_chip_counts(tmp_path):
+    from litrag_parser.worker import Worker
+
+    conn = open_store(tmp_path / "store.sqlite")
+    key = _xml_paper(conn, caps=["Figure 1 What figure 1 shows.", "Figure 2 What figure 2 shows.", "Figure 3 What figure 3 shows.", "Scheme 1 A route."])
+    (tmp_path / "papers").mkdir()
+    shutil.copy(CHARTS / "page_paper.pdf", tmp_path / "papers" / "kept.pdf")
+    conn.execute("UPDATE papers SET figures_file = 'kept.pdf' WHERE key = ?", (key,))
+    conn.commit()
+    said = []
+    Worker(tmp_path).read_figures(conn, key, tmp_path / "papers" / "kept.pdf", lambda name, message, **kw: said.append(message), pages=True)
+    (line,) = [m for m in said if "charts read" in m]
+    assert "in 2 of 3 figures" in line and line.endswith("; 1 whose caption the PDF does not print")

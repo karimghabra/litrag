@@ -297,6 +297,17 @@ class Worker:
             emit({"event": "log", "id": req_id, "lib": lib.id, "paper": key, "logger": "figures", "message": message})
         return out
 
+    @staticmethod
+    def _backfill(conn: Any, lib: Library, key: str) -> bool:
+        """What each figure of a read paper came to, recorded when its read was made before it was
+        kept (figures.backfill); never a reason a rebuild fails."""
+        from .figures import backfill
+
+        try:
+            return backfill(conn, key, lib.papers_dir)
+        except Exception:  # noqa: BLE001 — the figures op records it
+            return False
+
     def scorer(self) -> Any:
         """The boundary scorer (boundary.py), built once and only when it is enabled and its
         model can be had; None otherwise. Never consulted by a plain `rebuild`."""
@@ -735,6 +746,7 @@ class Worker:
 
         figures.ensure_schema(conn)
         conn.execute("DELETE FROM figure_reads WHERE paper = ?", (key,))
+        conn.execute("DELETE FROM figure_outcomes WHERE paper = ?", (key,))  # what its figures came to, read the other way
         if fmt == "pdf":
             conn.execute("UPDATE papers SET figures_file = NULL, figures_note = NULL WHERE key = ?", (key,))
             kept = row["figures_file"]
@@ -798,6 +810,7 @@ class Worker:
             judge_outline(tree, conn, key, ask_model=ask, pub_types=row["pub_types"])  # a rebuild replays the outline's row; only the judge op asks the model
         n = save_tree(conn, key, tree, parser=f"{'judge ' + judge.model if ask else 'rebuild'} {__version__}", parsed_at=now_iso(), seconds=0.0)
         self._remap_figures(conn, lib, key, req.get("id"))  # the charts stay; each follows its figure, or goes with a note
+        self._backfill(conn, lib, key)  # a read made before outcomes were kept, and standing still: what each figure came to
         xml = source.read_bytes() if row["format"] == "jats" and source and source.exists() else None
         if xml:
             journal, year = jats_journal(xml)
@@ -956,17 +969,18 @@ class Worker:
 
     def read_figures(self, conn: Any, key: str, path: Path, stage: Any, pages: bool = False) -> dict[str, Any] | None:
         """A PDF's figures read into numbers (figures.py) — the paper's own, or (`pages`) the PDF
-        kept beside its XML; a failure is said and never fails the paper."""
+        kept beside its XML — its rows replaced even when there is nothing to look for, so a
+        reread never leaves the last reading's; a failure is said and never fails the paper."""
         from . import figures
 
         try:
             n = len(figures.figure_numbers(conn, key) if pages else figures.pictures(conn, key))
-            if not n:
-                return None
-            stage("figures", f"Reading the charts in {n} figure{'s' if n != 1 else ''}" + (f" from {path.name}" if pages else ""))
+            if n:
+                stage("figures", f"Reading the charts in {n} figure{'s' if n != 1 else ''}" + (f" from {path.name}" if pages else ""))
             out = figures.read_pages(conn, key, path) if pages else figures.read_paper(conn, key, path)
-            stage("figures", f"{out['read']} of {out['plots']} charts read in {out['figures']} figures: {out['values']} values, in {out['seconds']}s"
-                  + (f"; {out['unmatched']} plots under no caption of the paper's" if out.get("unmatched") else ""), **out)
+            message = figures.read_message(out, figures.states(conn, path.parent, True, [key])[key], pages)
+            if message:
+                stage("figures", message, **out)
             return out
         except Exception as e:  # noqa: BLE001 — the paper is read; only its charts are not
             stage("figures", f"The figures could not be read: {type(e).__name__}: {e}")
@@ -974,7 +988,9 @@ class Worker:
 
     def figures_of(self, lib: Library, key: str, req_id: Any) -> dict[str, Any] | None:
         """A read paper's figures, now (a PDF arrived for its XML): progress and a log line, never
-        a stage, so the paper's own state is left as it was."""
+        a stage, so the paper's own state is left as it was. The line says what the read came to,
+        as a stage would, and carries `figures: true` and the paper's counts (`counts`), so the
+        window draws the paper's figures again."""
         from . import figures
 
         conn = open_store(lib.store_path)
@@ -982,8 +998,10 @@ class Worker:
             emit({"event": "progress", "id": req_id, "op": "figures", "lib": lib.id, "done": 0, "total": 1, "label": "Reading the figures from the PDF beside the XML"})
             out = figures.read_for(conn, key, lib.papers_dir)
             if out is not None:
-                emit({"event": "log", "id": req_id, "lib": lib.id, "paper": key, "logger": "figures",
-                      "message": f"{out['read']} of {out['plots']} charts read from the PDF beside the XML: {out['values']} values"})
+                counts = figures.states(conn, lib.papers_dir, True, [key])[key]
+                said = figures.read_message(out, counts, True) or f"{out['read']} of {out['plots']} charts read"
+                emit({"event": "log", "id": req_id, "lib": lib.id, "paper": key, "logger": "figures", "figures": True, "counts": counts,
+                      "message": f"{said} — from the PDF beside the XML"})
             return out
         except Exception as e:  # noqa: BLE001 — the paper stays read; only its charts are not
             emit({"event": "log", "id": req_id, "lib": lib.id, "paper": key, "logger": "figures", "message": f"{type(e).__name__}: {e}"})
@@ -993,17 +1011,28 @@ class Worker:
 
     def do_figures(self, req: dict[str, Any]) -> None:
         """Every paper's figures read into numbers — a PDF paper's, and an XML paper's from the PDF
-        kept beside it — those not read by this reader, or the papers named; `force` reads them again."""
+        kept beside it — those not read by this reader, or the papers named; `force` reads them again.
+        First, what each figure came to is recorded for every paper read before it was kept
+        (figures.backfill: no chart read); `record` does only that. `done` totals the papers read,
+        their figures and those with plots pinned (counted as the papers op counts them), their
+        plots, read, values and plots under no caption, and the papers recorded."""
         from . import figures
 
         lib = self._lib(req)
         req_id = req.get("id")
         conn = open_store(lib.store_path)
         keys = set(req.get("keys") or [])
-        totals = {"papers": 0, "figures": 0, "plots": 0, "read": 0, "values": 0}
+        totals = {"papers": 0, "figures": 0, "pinned": 0, "plots": 0, "read": 0, "values": 0, "unmatched": 0, "recorded": 0}
         try:
             rows = [r for r in conn.execute("SELECT key, file FROM papers WHERE status = 'parsed' AND (format = 'pdf' OR figures_file IS NOT NULL) ORDER BY added_at") if not keys or r["key"] in keys]
-            todo = [r for r in rows if req.get("force") or not figures.is_read(conn, r["key"])]
+            for i, r in enumerate(rows):
+                if req.get("record"):
+                    emit({"event": "progress", "id": req_id, "op": "figures", "lib": lib.id, "done": i, "total": len(rows), "label": f"Recording what the figures of paper {i + 1} of {len(rows)} came to"})
+                try:
+                    totals["recorded"] += figures.backfill(conn, r["key"], lib.papers_dir)
+                except Exception as e:  # noqa: BLE001 — one paper's record does not stop the rest
+                    emit({"event": "log", "id": req_id, "lib": lib.id, "paper": r["key"], "logger": "figures", "message": f"{type(e).__name__}: {e}"})
+            todo = [] if req.get("record") else [r for r in rows if req.get("force") or not figures.is_read(conn, r["key"])]
             for i, r in enumerate(todo):
                 emit({"event": "progress", "id": req_id, "op": "figures", "lib": lib.id, "done": i, "total": len(todo), "label": f"Reading the charts of paper {i + 1} of {len(todo)}"})
                 try:
@@ -1013,9 +1042,12 @@ class Worker:
                     continue
                 if out is None:
                     continue
+                counts = figures.states(conn, lib.papers_dir, True, [r["key"]])[r["key"]]
                 totals["papers"] += 1
-                for k in ("figures", "plots", "read", "values"):
-                    totals[k] += out[k]
+                for k in ("plots", "read", "values", "unmatched"):
+                    totals[k] += out[k] or 0
+                for k in ("figures", "pinned"):
+                    totals[k] += counts[k]
         finally:
             conn.close()
         emit({"event": "done", "id": req_id, "op": "figures", "lib": lib.id, **totals})
@@ -1349,15 +1381,27 @@ class Worker:
                 self.ingest_queue.put(req)
                 emit({"event": "queued", "id": req_id, "op": op, "ahead": self.ingest_queue.qsize() - 1})
             elif op == "papers":
+                from .figures import states
+
                 lib = self._lib(req)
                 conn = open_store(lib.store_path)
-                emit({"event": "papers", "id": req_id, "lib": lib.id, "papers": list_papers(conn)})
-                conn.close()
+                try:
+                    rows = list_papers(conn)
+                    told = states(conn, lib.papers_dir, figures_enabled())  # SQL only: the real switch, so a paper not read with the figures off is 'off'
+                finally:
+                    conn.close()
+                emit({"event": "papers", "id": req_id, "lib": lib.id, "papers": [{**r, "figure_state": told.get(r["key"])} for r in rows]})
             elif op == "tree":
+                from .figures import outcomes
+
                 lib = self._lib(req)
                 conn = open_store(lib.store_path)
-                t = paper_tree(conn, str(req["key"]))
-                conn.close()
+                try:
+                    t = paper_tree(conn, str(req["key"]))
+                    if t is not None:  # what each picture and chart node came to, for its tag and its placeholder
+                        t["figures"] = {node: {k: o[k] for k in ("outcome", "label", "plots", "read", "page")} for node, o in outcomes(conn, str(req["key"])).items()}
+                finally:
+                    conn.close()
                 if t is None:
                     raise ValueError(f"No paper {req.get('key')!r}")
                 emit({"event": "tree", "id": req_id, "lib": lib.id, **t})
@@ -1441,10 +1485,10 @@ class Worker:
                 try:
                     figures.ensure_schema(conn)
                     if req.get("figure"):
-                        out = {"figure": str(req["figure"]), "plots": figures.of_figure(conn, str(req["figure"]))}
+                        out = {"figure": str(req["figure"]), "plots": figures.of_figure(conn, str(req["figure"])), "outcome": figures.outcome_of(conn, str(req["figure"]))}
                     else:
                         figs = [r[0] for r in conn.execute("SELECT DISTINCT figure FROM charts WHERE paper = ? ORDER BY figure", (str(req.get("key") or ""),))]
-                        out = {"key": req.get("key"), "figures": [{"figure": f, "plots": figures.of_figure(conn, f)} for f in figs]}
+                        out = {"key": req.get("key"), "figures": [{"figure": f, "plots": figures.of_figure(conn, f)} for f in figs], "outcomes": figures.outcomes(conn, str(req.get("key") or ""))}
                 finally:
                     conn.close()
                 emit({"event": "charts", "id": req_id, "lib": lib.id, **out})

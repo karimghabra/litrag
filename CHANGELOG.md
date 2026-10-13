@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- **What each figure came to is recorded, and the ops answer it** (K16 taken as the plan
+  recommends: recorded by `figures {record: true}` on Karim's word, never on first touch). A read
+  kept its charts and nothing of the figures it found none in, or whose caption the PDF did not
+  print. Each read now keeps one `figure_outcomes` row per figure it looked for (plots, no plot,
+  no caption in the PDF, or skipped, with page and box) and the pages it looked at; a figure no
+  read has a row for is told from the rows (no PDF, no number, a number taken, small, unplaced,
+  not read). The papers op gives each paper's `figure_state` (none · no-pdf · missing-file · off ·
+  unread · read, with its counts), the tree op each picture's and chart's outcome, the charts op
+  `outcome`/`outcomes`, and Collect's entries `oa_url`. A read stands only while it looked for the
+  figures there are now; the read message counts what was pinned ("6 of 6 charts read, in 5 of 8
+  figures: …; 3 with no chart in them"); a reread with nothing to look for replaces the last one;
+  a rebuild moves the outcomes with their plots; a merge carries them.
+
 - **An XML paper asks PMC for its PDF when it is filed, and keeps PMC's answer** (Karim,
   2026-10-13: "yes, move onto M7"). Only a fresh fetch used to ask for an XML paper's figures PDF,
   and a miss was thrown away; 151 of 152 XML papers in a scratch library had been dropped, so

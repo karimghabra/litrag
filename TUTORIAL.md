@@ -508,7 +508,7 @@ Then come the stages, in this order. Each is a `stage` event in the window and a
 | `outline` | Only when asked: a local model reads the whole paper for its outline | "Reading the whole paper for its outline with \<model>" |
 | `embedded` | Only when Ollama answers: passages embedded for Query | "\<n> passages embedded for search" |
 | `meaning` | Once per worker, when the embedder does not answer | "The embedder is not answering (…): texts the vocabulary does not know read as `other` and are not stored; a rebuild once it answers will read them" |
-| `figures` | A PDF's charts read into numbers (also a PDF kept beside an XML) | "Reading the charts in 9 figures", then "5 of 7 charts read in 9 figures: 14 values, in 67.35s" |
+| `figures` | A PDF's charts read into numbers (also a PDF kept beside an XML) | "Reading the charts in 9 figures", then "5 of 7 charts read, in 4 of 9 figures: 14 values, in 67.35s; 5 with no chart in them" |
 | `saved` | Everything stored | "102 nodes, 22 references, 26 citation links, 6 of 8 findings linked to a method, a research paper by its record, confidence 1.0 in 33.4s" |
 | `failed` | A stage raised; the reason is kept in `papers.error` | The reason, and the card turns **failed** |
 
@@ -1193,7 +1193,7 @@ A bar chart or a scatter plot often holds numbers the text never prints. litrag 
 
 ### When the charts are read
 
-- **As a PDF is read.** After the tree is saved, a `figures` stage reads every `picture` node at least an inch (72 pt) each way. The log says "Reading the charts in 8 figures", then "6 of 6 charts read in 8 figures: 99 values, in 3.66s".
+- **As a PDF is read.** After the tree is saved, a `figures` stage reads every `picture` node at least an inch (72 pt) each way. The log says "Reading the charts in 8 figures", then "6 of 6 charts read, in 5 of 8 figures: 99 values, in 3.66s; 3 with no chart in them". Each figure's outcome is kept (`figure_outcomes`). For an XML paper read from the PDF kept beside it, the line also counts the figures whose caption the PDF does not print, and the plots under no caption of the paper's.
 - **An XML paper needs its PDF.** JATS XML names its figures but holds no image, so their charts come from a PDF kept beside it (`papers.figures_file`). A fetch takes the open-access PDF when there is one. A PDF you drop for a paper held as XML, on the window or on one of that paper's figures (the reading view's, or the figure pane), is kept and read at once, when its first three pages print the paper's DOI or whole title; otherwise the log says why it was not kept, and the file stays where it was. **Collect PDFs** on the **Search** tab walks the rest: here 117 papers, with 842 numbered figures. Each plot is pinned to the figure whose caption lies below it, else beside or above.
 - **On request.** **Read the figures**, or the `figures` op below.
 
