@@ -11,7 +11,7 @@ import * as pdfjs from 'pdfjs-dist';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { renderPlots, type Plot } from './charts.ts';
 import { droppedOn, figuresFor, ingestParams } from './figuredrop.ts';
-import { dropLabel, figureLabel, figuresDone, figuresOn, overlayText, paneNote, placeholder, stateChip, treeTag, type FigureOutcome, type FigureState, type FigureTag } from './figstate.ts';
+import { askedDone, dropLabel, figureLabel, figuresDone, figuresOn, overlayText, paneButton, paneNote, placeholder, stateChip, treeTag, type FigureOutcome, type FigureState, type FigureTag } from './figstate.ts';
 import { initLabels, openLabelling } from './labels.ts';
 import { BANDS, SORT_KEYS, arrived, bandOf, countBy, filedLine, filterPapers, readFiguresOf, sortPapers, validFilters, type SortKey } from './papers.ts';
 import { initProjects, renderProjects } from './projects.ts';
@@ -778,7 +778,8 @@ function figuresSwitch(lib: string): Promise<boolean | null> {
 }
 
 /** The numbers read from a selected figure (figures.py): each plot a table, or why it was not read;
- *  under the head, what the figure came to (figstate.ts), and a figure not read can be read here. */
+ *  under the head, what the figure came to (figstate.ts); a figure not read can be read here, and
+ *  PMC asked for the PDF of an XML paper's figure no PDF draws. */
 let chartsSeq = 0;
 async function loadCharts(n: Node, into: HTMLElement) {
   if (!ctx.lib) return;
@@ -797,19 +798,20 @@ async function loadCharts(n: Node, into: HTMLElement) {
   const paper = state.selectedPaper ? state.papers.get(state.selectedPaper) : undefined;
   const forFigures = figuresFor(paper);
   if (forFigures) box.dataset['figuresFor'] = forFigures; // a PDF dropped here goes to this paper (figuredrop.ts)
-  // what the figure came to, and the one button offered: Read the figures, only for a figure not read (K14),
-  // and none with the figures off; Ask PMC comes with figures_fetch's buttons
+  // what the figure came to, and the one button offered (figstate.ts, paneButton): Read the figures, only for a
+  // figure not read (K14); Ask PMC for its PDF, or again once PMC answered or could not be asked; none with the figures off
   const note = paneNote(r.outcome, paper, figuresOn(said, state.papers.values()));
-  if (note.button === 'read' && paper) {
-    const b = el('button', 'ghost small label-act', 'Read the figures') as HTMLButtonElement;
-    b.title = 'Read the charts in this paper’s figures into numbers (bars, points, error bars), on this machine';
+  const act = paper ? paneButton(note.button, paper.key) : null;
+  if (act) {
+    const b = el('button', 'ghost small label-act', act.label) as HTMLButtonElement;
+    b.title = act.title;
     b.addEventListener('click', (ev) => {
       ev.stopPropagation();
       b.disabled = true;
-      activity.show('Reading the figures');
-      void request('figures', { lib: ctx.lib, keys: [paper.key], force: true }).catch((e) => {
+      activity.show(act.doing);
+      void request(act.op, { lib: ctx.lib, ...act.params }).catch((e) => {
         activity.hide();
-        log('error', `figures: ${(e as Error).message}`);
+        log('error', `${act.op}: ${(e as Error).message}`);
       });
     });
     head.append(b);
@@ -1093,11 +1095,13 @@ function onEvent(ev: Record<string, unknown>) {
       setStatus('ok', 'idle');
       activity.hide();
       if (ev['op'] === 'figures') log('stage', figuresDone(ev));
+      if (ev['op'] === 'figures_fetch') log('stage', askedDone(ev)); // PMC's answers, before the PDFs it gave are read
       if (!foreign) {
         // the papers' chips and the shown paper's tree (its figures' tags) come again with the list; the figure shown is
         // drawn again once the paper's row says what its figures came to: after the figures op, or an ingest that read
-        // the shown paper's figures (its `figures`: the papers whose read logged `figures: true`, figures_of)
-        const refigured = state.selectedNode !== null && readFiguresOf(ev, state.selectedPaper);
+        // the shown paper's figures (its `figures`: the papers whose read logged `figures: true`, figures_of), or once
+        // PMC was asked for the PDFs (figures_fetch: its answer, the note, is what the figure's pane says)
+        const refigured = state.selectedNode !== null && (ev['op'] === 'figures_fetch' || readFiguresOf(ev, state.selectedPaper));
         void loadPapers().then(() => {
           const n = refigured && state.selectedNode ? state.nodesById.get(state.selectedNode) : undefined;
           if (n) renderDetail(n);

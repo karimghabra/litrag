@@ -3,11 +3,14 @@
  * PDF, or nothing open), and the project's candidates — every hit any search found, with where
  * it stands: found, fetched, read, or waiting for a PDF someone downloads by hand. Fetching
  * takes the XML first, an open PDF second, and hands both to the reader; a paper with neither
- * is listed with its links, and a PDF dropped on the window is filed against it.
+ * is listed with its links, and a PDF dropped on the window is filed against it. A paper read from
+ * XML whose figures want a PDF is offered to the collect window after them, and PMC can be asked
+ * for the PDFs of those with a PMCID (Ask PMC, the worker's figures_fetch).
  */
 
 import { $, activity, ctx, el, hooks, log, onProjectChange, onViewShown, onWorkerEvent, projectName, queryText, request, showView } from './shared.ts';
-import { collectLabel, collectList, type CollectEntry, type FiguresWanted } from './collectlist.ts';
+import { afterFetch, askable, askButton, askRun, collectLabel, collectList, collectTitle, walkable, type CollectEntry, type Fetched, type FiguresWanted } from './collectlist.ts';
+import { askingLabel, fetchedFigures } from './figstate.ts';
 
 export interface Candidate {
   cand_id: number;
@@ -69,11 +72,13 @@ export function initSearch(): void {
   $('search-fetch').addEventListener('click', () => void fetchSelected());
   $('search-suggest').addEventListener('click', () => void suggest());
   $('collect').addEventListener('click', () => void collect());
+  $('ask-pmc').addEventListener('click', () => void askPmc());
   onProjectChange(() => {
     state.hits = [];
     state.total = 0;
     state.next = null;
     state.selected = new Set();
+    state.figuresWanted = []; // another project's, kept only while its own `wanted` cannot be had
     $('search-suggestions').innerHTML = '';
     delete $('search-suggestions').dataset['kind'];
     if (ctx.view === 'search') {
@@ -109,18 +114,32 @@ export function initSearch(): void {
       }
       renderHits();
       renderCandidates();
-    } else if ((kind === 'done' && (ev['op'] === 'fetch' || ev['op'] === 'ingest')) || kind === 'paper') {
-      // a paper filed is a candidate in the library: the list says so as it happens, not when the batch ends
+    } else if ((kind === 'done' && (ev['op'] === 'fetch' || ev['op'] === 'ingest' || ev['op'] === 'figures_fetch' || ev['op'] === 'figures')) || kind === 'paper') {
+      // a paper filed is a candidate in the library: the list says so as it happens, not when the batch ends;
+      // PMC's answers (figures_fetch), and the read of the PDFs it gave (the figures op it goes on to), change
+      // which papers want a PDF for their figures, and which PMC can still be asked
+      if (kind === 'done' && ev['op'] === 'figures_fetch') asking.ended(ev['id']); // the Search tab's own ask, not a figure pane's
       if (ctx.view === 'search') soon();
-      // a fetch that left papers with no open copy goes straight on to the collect window for them
-      if (kind === 'done' && ev['op'] === 'fetch' && ev['lib'] === ctx.lib && !collecting) {
-        const wanting = ((ev['fetched'] as { status?: string }[] | undefined) ?? []).filter((f) => f.status === 'needs-pdf').length;
-        if (wanting) {
-          log('stage', `${wanting} paper${wanting === 1 ? '' : 's'} with no open copy: opening the collect window`);
-          void loadCandidates().then(() => collect());
-        }
-      }
+      if (kind === 'done' && ev['op'] === 'fetch' && ev['lib'] === ctx.lib) onFetched(ev);
+    } else if (kind === 'error' && ev['op'] === 'figures_fetch' && asking.ended(ev['id'])) {
+      renderCandidates(); // the run failed once queued: the button is offered again
     }
+  });
+}
+
+/** After a fetch (collectlist.ts, afterFetch): one that left papers with no open copy goes straight
+ *  on to the collect window for them; else, the papers it read from XML that still want a PDF for
+ *  their figures are named in the log — the window does not open by itself for those (K15). */
+function onFetched(ev: Record<string, unknown>): void {
+  const fetched = (ev['fetched'] as Fetched[] | undefined) ?? [];
+  const lib = ctx.lib;
+  void loadCandidates().then(() => {
+    if (ctx.lib !== lib) return;
+    const next = afterFetch(fetched, state.candidates, state.figuresWanted, collecting);
+    if ('open' in next) {
+      log('stage', `${next.open} paper${next.open === 1 ? '' : 's'} with no open copy: opening the collect window`);
+      void collect();
+    } else if (next.figures) log('stage', fetchedFigures(next.figures));
   });
 }
 
@@ -337,11 +356,15 @@ export async function loadCandidates(): Promise<void> {
     const r = await request<{ candidates: Candidate[] }>('candidates', { lib });
     if (ctx.lib !== lib) return;
     state.candidates = r.candidates;
-    // with the figures off the worker lists none (`figures_on` false): Collect offers candidates alone
-    const w = await request<{ figures?: FiguresWanted[]; figures_on?: boolean }>('wanted', { lib }).catch(() => ({ figures: [] as FiguresWanted[], figures_on: undefined }));
-    if (typeof w.figures_on === 'boolean') ctx.figuresOn = w.figures_on; // the switch, for a figure's pane (renderer.ts)
+    // with the figures off the worker lists none (`figures_on` false): Collect offers candidates alone;
+    // a `wanted` that fails says so, and the list it had stands
+    const w = await request<{ figures?: FiguresWanted[]; figures_on?: boolean }>('wanted', { lib }).catch((e: Error) => {
+      log('error', `wanted: ${e.message}`);
+      return null;
+    });
+    if (typeof w?.figures_on === 'boolean') ctx.figuresOn = w.figures_on; // the switch, for a figure's pane (renderer.ts)
     if (ctx.lib !== lib) return;
-    state.figuresWanted = w.figures ?? [];
+    if (w) state.figuresWanted = w.figures ?? [];
   } catch (e) {
     log('error', `candidates: ${(e as Error).message}`);
     state.candidates = [];
@@ -351,13 +374,19 @@ export async function loadCandidates(): Promise<void> {
 
 function renderCandidates(): void {
   const wanting = state.candidates.filter((c) => c.status === 'needs-pdf').length;
-  const figures = state.figuresWanted.length;
+  // the collect window walks the papers with a page to open: one filed by its file's hash has none
+  const figures = walkable(state.figuresWanted).length;
   const button = $<HTMLButtonElement>('collect');
   button.disabled = !(wanting || figures) || collecting;
   button.textContent = collectLabel(wanting, figures, collecting);
-  button.title = figures
-    ? `Open each paper's page to fetch its PDF by hand: ${wanting} with no open copy, and ${figures} read from XML whose figures need the PDF to be read`
-    : 'Open each paper’s page to fetch its PDF by hand';
+  button.title = collectTitle(wanting, state.figuresWanted);
+  // beside it, PMC asked for those it can be (a PMCID, no answer settled yet); none of it with the figures off
+  const ask = $<HTMLButtonElement>('ask-pmc');
+  const offer = askButton(state.figuresWanted, ctx.figuresOn, asking.lib !== null);
+  ask.hidden = offer.hidden;
+  ask.disabled = offer.disabled;
+  ask.textContent = offer.label;
+  ask.title = offer.title;
   const chips = $('cand-filter');
   chips.innerHTML = '';
   // a project's candidates are every hit of every search it has run; after a search the panel
@@ -421,6 +450,32 @@ function renderCandidates(): void {
     }
     row.append(flags);
     box.append(row);
+  }
+}
+
+// ---- PMC, asked for the PDFs --------------------------------------------------------------------
+
+/** the Search tab's ask, until its own figures_fetch ends (collectlist.ts) */
+const asking = askRun();
+
+/** PMC asked, by PMCID, for the PDF of every paper read from XML whose figures want one and whose
+ *  ask it has not settled (the worker's figures_fetch, with no keys): a PDF that names the paper is
+ *  kept beside its XML and its figures read; what PMC said comes back as a log line (renderer.ts). */
+async function askPmc(): Promise<void> {
+  const lib = ctx.lib;
+  const n = askable(state.figuresWanted);
+  if (!lib || !n || asking.lib) return;
+  asking.start(lib);
+  renderCandidates();
+  activity.show(askingLabel(n), 0, n);
+  try {
+    const q = await request<{ id?: string }>('figures_fetch', { lib });
+    if (!asking.queued(q.id)) renderCandidates(); // over before its id was back
+  } catch (e) {
+    asking.failed();
+    activity.hide();
+    log('error', `figures_fetch: ${(e as Error).message}`);
+    renderCandidates();
   }
 }
 

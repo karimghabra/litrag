@@ -6,7 +6,8 @@
  * without the network; LITRAG_NCBI_URL points NCBI's E-utilities here too, where every `efetch`
  * is not found, LITRAG_PMC_CLOUD_URL points the PMC Cloud Service here, whose every listing is
  * empty, and LITRAG_OPENALEX_URL points OpenAlex here, where no work is found, so no identifier in
- * the suite is ever asked of the real NCBI, NLM or OpenAlex.
+ * the suite is ever asked of the real NCBI, NLM or OpenAlex. While `cloudDown` is set, the PMC
+ * Cloud Service closes every connection unanswered: PMC cannot be reached.
  *
  * Three papers, one for each way a paper can be had:
  *   - open XML: the repository's JATS fixture (PMC11278924);
@@ -42,6 +43,8 @@ export interface Fixture {
   cloudUrl: string;
   openalexUrl: string;
   requests: string[];
+  /** while true, the PMC Cloud Service answers nothing: each connection is closed, as a network down does */
+  cloudDown: boolean;
   close(): Promise<void>;
 }
 
@@ -57,9 +60,14 @@ function core(p: FixturePaper) {
 
 export async function startFixture(papers: FixturePaper[]): Promise<Fixture> {
   const requests: string[] = [];
+  let cloudDown = false;
   const server: Server = createServer((req, res) => {
     const url = new URL(req.url ?? '/', 'http://127.0.0.1');
     requests.push(url.pathname + url.search);
+    if (cloudDown && url.pathname.startsWith('/cloud/')) {
+      req.socket.destroy();
+      return;
+    }
     const send = (code: number, body: string | Buffer, type = 'application/json') => {
       res.writeHead(code, { 'Content-Type': type });
       res.end(body);
@@ -124,6 +132,12 @@ export async function startFixture(papers: FixturePaper[]): Promise<Fixture> {
     cloudUrl: `http://127.0.0.1:${port}/cloud`,
     openalexUrl: `http://127.0.0.1:${port}/openalex`,
     requests,
+    get cloudDown() {
+      return cloudDown;
+    },
+    set cloudDown(down: boolean) {
+      cloudDown = down;
+    },
     close: () => new Promise<void>((resolve) => server.close(() => resolve())),
   };
 }
