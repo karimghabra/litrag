@@ -89,6 +89,21 @@ when it turns out durable. Mark inference as inference.
 
 ## Short-term memory
 
+- **2026-10-13: a PDF is kept beside an XML paper only when it names the paper (M5b)** — Karim's
+  standing word: squash-merge each milestone once green and move on. The plan's choices were taken
+  (his to overturn): with `LITRAG_FIGURES=off` a PDF is kept but not read; a second PDF replaces
+  the first only when it prints the captions of more of the figures, the first set aside, never
+  deleted; a PDF that fails the check is refused with its reason and left where it is; a kept PDF
+  that prints none of the captions is kept. One gate now, `figures.keep_beside`: the first three
+  pages must print the paper's DOI or whole title. A PDF that resolves to an XML paper is found
+  (`store.find_paper`, read-only), never filed, so a refused one changes nothing of the paper's row;
+  a kept one still drops a hash-only stub its bytes were filed under, as filing always did. On a
+  copy of the scratch library: pone's own figures PDF dropped again gave `same` and changed nothing;
+  an unidentified PDF renamed after pone's DOI was refused ("its first pages name neither its DOI
+  nor its title"), the paper's row unchanged. Kept PDFs in a library can be checked by hand:
+  `acquire.names_the_paper(acquire.first_pages(papers/<figures_file>), {title, doi})` returns
+  None for each that names its paper (pone's does).
+
 - **2026-10-13: a DOI is the same in any case; filing says what met a paper (M5a)** — Karim:
   "squash merge, then move onto the next milestone". The plan's choice was taken (his to overturn):
   the DOI is matched in any case, and no PMCID step is added (invariant 4 unchanged; BACKLOG.md says

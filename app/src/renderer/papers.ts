@@ -122,3 +122,66 @@ export function validFilters<T extends Listed>(papers: T[], filters: Filters): F
   const bands = new Set(papers.map(bandOf));
   return { format: filters.format && formats.has(filters.format) ? filters.format : null, type: filters.type && types.has(filters.type) ? filters.type : null, band: filters.band && bands.has(filters.band) ? filters.band : null };
 }
+
+/** what a `paper` event sets of a paper's row, and what it carries over from the row it had */
+export interface Arrived {
+  key: string;
+  title: string;
+  doi: string | null;
+  file: string;
+  format: string;
+  figures_file: string | null;
+  pages: number | null;
+  status: string;
+  error: null;
+  nodes: number;
+  has_methods: number | null;
+  seconds: number | null;
+  roles?: Record<string, number>;
+}
+
+/**
+ * A paper's row as a `paper` event leaves it, over `prev`, what was known of it: the file it was
+ * filed or met as, and its status. A PDF kept beside a paper read from XML names its file
+ * (`figures_file`); an event that names none, or no page count, leaves what was known.
+ */
+export function arrived(key: string, ev: Record<string, unknown>, prev?: Pick<Arrived, 'title' | 'doi' | 'pages' | 'nodes' | 'has_methods' | 'seconds' | 'roles'> & { figures_file?: string | null }): Arrived {
+  return {
+    key,
+    title: prev?.title ?? String(ev['file'] ?? key),
+    doi: (ev['doi'] as string | null) ?? prev?.doi ?? null,
+    file: String(ev['file'] ?? ''),
+    format: String(ev['file'] ?? '').endsWith('.xml') ? 'jats' : 'pdf',
+    figures_file: (ev['figures_file'] as string | null | undefined) ?? prev?.figures_file ?? null,
+    pages: (ev['pages'] as number | null | undefined) ?? prev?.pages ?? null,
+    status: String(ev['status']),
+    error: null,
+    nodes: prev?.nodes ?? 0,
+    has_methods: prev?.has_methods ?? null,
+    seconds: prev?.seconds ?? null,
+    roles: prev?.roles,
+  };
+}
+
+/**
+ * What a `paper` event says, for the log: a paper filed new or met again, or a PDF kept beside a
+ * paper read from XML for its figures — the one kept already, again, or with the one kept before
+ * set aside (`aside`), never deleted.
+ */
+export function filedLine(ev: Record<string, unknown>): string {
+  if (ev['kept'] && ev['figures_file']) {
+    if (ev['same']) return `the PDF kept for its figures, ${ev['figures_file']}, again: nothing new to read`;
+    return `a PDF kept beside its XML for its figures: ${ev['figures_file']}${ev['aside'] ? `; the one kept before set aside as ${ev['aside']}` : ''}`;
+  }
+  return ev['existed'] ? 'seen before' : 'filed as new';
+}
+
+/**
+ * Whether a `done` read figures the paper shown may hold: the figures op's, or an ingest's that
+ * kept a PDF beside that paper's XML and read it (`figures`, the papers whose figures were read).
+ */
+export function readFiguresOf(ev: Record<string, unknown>, shown: string | null): boolean {
+  if (ev['op'] === 'figures') return true;
+  const read = ev['figures'];
+  return ev['op'] === 'ingest' && shown !== null && Array.isArray(read) && read.includes(shown);
+}

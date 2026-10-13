@@ -41,7 +41,7 @@ from .harness import pdf_title
 from .judge import Judge, available as judge_available, default_model as judge_model
 from .recover import recover_from_pdf
 from .citations import summarize as summarize_citations
-from .store import (cited_by, cites_of, edges_of, file_paper, list_papers, log_event, node, node_count, open_store, paper_tree, refs_of, run_select, save_edges, save_refs, save_tree, section, set_confidence, set_record, set_status, set_type, sha256_of, siblings)
+from .store import (cited_by, cites_of, edges_of, file_paper, find_paper, list_papers, log_event, node, node_count, open_store, paper_tree, refs_of, run_select, save_edges, save_refs, save_tree, section, set_confidence, set_record, set_status, set_type, sha256_of, siblings)
 from .tree import build_tree
 from .jats_prep import floats_note
 
@@ -437,52 +437,57 @@ class Worker:
         (path → {doi, pmid, pmcid}) is what the caller already knows of a file — a fetch knows the
         candidate it came for — and fills whatever the file does not say of itself. A file's
         `paper` event says whether its paper was held already (`existed`) and, if so, which
-        identifier met it (`by`: 'doi', 'pmid' or 'sha', its file's hash)."""
+        identifier met it (`by`: 'doi', 'pmid' or 'sha', its file's hash).
+
+        A PDF of a paper read from XML is not filed: it is kept beside the XML for its figures, or
+        refused (figures.keep_beside), once every paper in the request is read — the XML first, so
+        a PDF arriving with its XML finds it filed. `known[path].beside`, the path of an XML in the
+        same request, says which paper a PDF is for without asking the PDF (a fetch knows the XML
+        it fetched it beside). The `done` event's `figures` are the papers whose figures a PDF
+        kept here was read for."""
         lib = self._lib(req)
         req_id = req.get("id")
         conn = open_store(lib.store_path)
         filed: list[tuple[str, Path]] = []
-        figure_sources: list[str] = []  # XML papers given a PDF for their figures
+        beside: list[tuple[str, str, str | None]] = []  # (XML paper, PDF's path, what met it): kept or refused once the papers are read
         keys: dict[str, str] = {}
         known_all: dict[str, dict[str, Any]] = req.get("known") or {}
-        for raw in req.get("paths", []):
+        # the XML first: a PDF beside it, or one naming the same paper, then finds the paper as its XML
+        for raw in sorted(req.get("paths", []), key=lambda p: Path(p).suffix.lower() != ".xml"):
             src = Path(raw)
             if not src.exists() or src.suffix.lower() not in (".pdf", ".xml"):
                 emit({"event": "skipped", "id": req_id, "path": str(src), "reason": "not a PDF or JATS XML file"})
                 continue
-            sha = sha256_of(src)
             fmt = "pdf" if src.suffix.lower() == ".pdf" else "jats"
+            known = known_all.get(str(raw)) or {}
+            if fmt == "pdf" and known.get("beside") and str(known["beside"]) in keys:
+                beside.append((keys[str(known["beside"])], str(raw), None))  # its XML's, whatever it prints of itself; keep_beside still checks it
+                continue
+            sha = sha256_of(src)
             pmid = None
             if fmt == "jats":
                 doi, pmcid, pmid = jats_ids(src)
             else:
                 doi, pmcid = sniff_ids(src)
-                known = known_all.get(str(raw)) or {}
                 if not doi and not pmcid and (known.get("doi") or known.get("pmcid")):
                     doi, pmcid, pmid = known.get("doi"), known.get("pmcid"), known.get("pmid")  # the candidate this file was fetched for
                 if not doi and not pmcid and not req.get("offline"):
                     doi, pmid = lookup_by_title(guess_title(src))  # Europe PMC, by the paper's own title; nothing when offline or unsure
                     if doi or pmid:
                         emit({"event": "identified", "id": req_id, "path": str(src), "doi": doi, "pmid": pmid})
-            known = known_all.get(str(raw)) or {}
+            held = find_paper(conn, doi=doi, pmid=pmid or known.get("pmid"), sha256=sha)
+            if held and fmt == "pdf" and not req.get("reread"):
+                # The paper is its XML: the text, its structure. A PDF of it is kept beside it for
+                # what the XML only names — its figures, drawn — and only when it names the paper.
+                # Found, not filed: filing would fill the XML paper's gaps from a PDF not yet
+                # checked, and drop a stub its bytes were filed under.
+                row = conn.execute("SELECT format FROM papers WHERE key = ?", (held[0],)).fetchone()
+                if row and row["format"] == "jats":
+                    beside.append((held[0], str(raw), held[1]))
+                    continue
             result = file_paper(conn, title=src.stem, file="", sha256=sha, fmt=fmt, doi=doi, pmid=pmid or known.get("pmid"), pmcid=pmcid or known.get("pmcid"), now=now_iso())
             keys[str(raw)] = result.key
             row = conn.execute("SELECT status, file, format, figures_file FROM papers WHERE key = ?", (result.key,)).fetchone()
-            if result.existed and fmt == "pdf" and row and (row["file"] or "").lower().endswith(".xml") and not req.get("reread"):
-                # The paper is its XML: the text, its structure. A PDF of it is kept beside it for
-                # what the XML only names — its figures, drawn — and read for their numbers.
-                dest = lib.papers_dir / f"{_safe(result.key)}.figures.pdf"
-                if src.resolve() != dest.resolve():
-                    shutil.copy2(src, dest)
-                    if src.parent.resolve() == lib.inbox_dir.resolve():
-                        src.unlink()
-                conn.execute("UPDATE papers SET figures_file = ? WHERE key = ?", (dest.name, result.key))
-                conn.commit()
-                log_event(conn, result.key, now_iso(), "filed", f"a PDF of the XML (by {_SEEN_BY[result.by]}), kept for its figures: {src.name}")
-                emit({"event": "paper", "id": req_id, "lib": lib.id, "paper": result.key, "existed": True, "by": result.by, "kept": True, "figures_file": dest.name, "doi": doi, "pmcid": pmcid,
-                      "file": row["file"], "status": row["status"]})
-                figure_sources.append(result.key)
-                continue
             # A paper already read stays as it was read — the same DOI arriving as a second file
             # (a PDF after its JATS, say) is noted, not swapped in. `reread` is the way to replace it.
             #
@@ -523,17 +528,53 @@ class Worker:
         for i, (key, path) in enumerate(filed):
             emit({"event": "progress", "id": req_id, "op": "ingest", "lib": lib.id, "done": i, "total": len(filed), "label": f"Reading paper {i + 1} of {len(filed)}"})
             self.parse_one(lib, key, path, req_id, ask_judge=bool(req.get("judge")), ask_outline=bool(req.get("outline")) or outline_enabled())
-        parsed_now = {k for k, _ in filed}
-        for key in figure_sources:
-            if key not in parsed_now:  # read already: its figures now; one read in this batch read them as it was saved
-                self.figures_of(lib, key, req_id)
+        new_beside: list[str] = []
+        for key, raw, by in beside:  # once read: the paper's figures are numbered, and its title its own
+            kept = self._keep_beside(lib, key, Path(raw), by, req_id)
+            if kept is not None:
+                keys[raw] = key
+                if not kept["same"] and key not in new_beside:
+                    new_beside.append(key)
+        figures_read = [key for key in new_beside if figures_enabled() and self.figures_of(lib, key, req_id) is not None]
         conn = open_store(lib.store_path)
         try:
             acquire.reconcile(conn)  # a candidate whose paper is now filed is `ingested`, whichever way the file came
         finally:
             conn.close()
-        emit({"event": "done", "id": req_id, "op": "ingest", "lib": lib.id, "parsed": [k for k, _ in filed]})
+        emit({"event": "done", "id": req_id, "op": "ingest", "lib": lib.id, "parsed": [k for k, _ in filed], "figures": figures_read})
         return keys
+
+    def _keep_beside(self, lib: Library, key: str, src: Path, by: str | None, req_id: Any) -> dict[str, Any] | None:
+        """A PDF that arrived for an XML paper's figures, through figures.keep_beside. Kept: its
+        `paper` event (`kept`, `figures_file`, and `aside`, `same`), the inbox copy gone, and with
+        the figures off a row and a log line that it is not read. Refused: a `figures-refused` row
+        and a `skipped` event naming the paper, and the file left where it is. Gone since it was
+        listed: a `skipped` event, and nothing else — no PDF arrived. Returns keep_beside's answer
+        when the PDF is kept, None when it is not."""
+        from . import figures
+
+        if not src.is_file():  # named twice in the request and kept from the inbox the first time, or moved while the papers were read
+            emit({"event": "skipped", "id": req_id, "path": str(src), "paper": key, "reason": "not there any more"})
+            return None
+        conn = open_store(lib.store_path)
+        try:
+            out = figures.keep_beside(conn, lib.papers_dir, key, src, now_iso())
+            if not out["kept"]:
+                log_event(conn, key, now_iso(), "figures-refused", f"not kept for its figures: {src.name}: {out['why']}")
+                emit({"event": "skipped", "id": req_id, "path": str(src), "paper": key, "reason": out["why"]})
+                return None
+            row = conn.execute("SELECT status, file, doi, pmcid FROM papers WHERE key = ?", (key,)).fetchone()
+            emit({"event": "paper", "id": req_id, "lib": lib.id, "paper": key, "existed": True, "by": by, "kept": True, "figures_file": out["file"], "aside": out["aside"], "same": out["same"],
+                  "doi": row["doi"], "pmcid": row["pmcid"], "file": row["file"], "status": row["status"]})
+            if src.parent.resolve() == lib.inbox_dir.resolve():
+                src.unlink(missing_ok=True)  # the inbox is a doorway, not a shelf
+            if not out["same"] and not figures_enabled():
+                message = f"{out['file']} kept for its figures; not read: LITRAG_FIGURES=off"
+                log_event(conn, key, now_iso(), "figures", message)
+                emit({"event": "log", "id": req_id, "lib": lib.id, "paper": key, "logger": "figures", "message": message})
+            return out
+        finally:
+            conn.close()
 
     @staticmethod
     def _twin(conn: Any, lib: Library, key: str, dest: Path, pmcid: str | None, req_id: Any) -> None:
@@ -878,7 +919,9 @@ class Worker:
             ids = {g["cand_id"]: dict(conn.execute("SELECT doi, pmid, pmcid FROM candidates WHERE cand_id = ?", (g["cand_id"],)).fetchone() or {}) for g in got if g.get("path")}
         finally:
             conn.close()
-        known = {g["path"]: ids.get(g["cand_id"], {}) for g in got if g.get("path")} | {g["figures"]: ids.get(g["cand_id"], {}) for g in got if g.get("path") and g.get("figures")}
+        # the PDF fetched beside an XML is that XML's paper's, named by the XML's path: kept for its
+        # figures when its first pages name the paper, and never filed as a paper of its own
+        known = {g["path"]: ids.get(g["cand_id"], {}) for g in got if g.get("path")} | {g["figures"]: {**ids.get(g["cand_id"], {}), "beside": g["path"]} for g in got if g.get("path") and g.get("figures")}
         counts: dict[str, int] = {}
         for g in got:
             counts[str(g.get("status"))] = counts.get(str(g.get("status")), 0) + 1
@@ -1124,7 +1167,7 @@ class Worker:
                     elif op == "wanted":
                         from .figures import figures_wanted
 
-                        emit({"event": "wanted", "id": req_id, "lib": lib.id, "candidates": acquire.wanted(conn), "figures": figures_wanted(conn)})
+                        emit({"event": "wanted", "id": req_id, "lib": lib.id, "candidates": acquire.wanted(conn), "figures": figures_wanted(conn, lib.papers_dir)})
                     else:
                         fn = acquire.dismiss if op == "dismiss" else acquire.stage
                         emit({"event": "dismissed", "id": req_id, "lib": lib.id, "op": op, **fn(conn, [int(i) for i in req.get("ids") or []])})

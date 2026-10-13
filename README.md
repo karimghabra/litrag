@@ -631,7 +631,8 @@ is pinned to the caption under it — "Figure 2." to the XML's figure 2 (a
 sentence that begins "Figure 2 shows" is no caption). The PDF comes three
 ways: a fetch takes the paper's open-access PDF beside its XML, from the PMC
 Cloud Service or else EBI's bulk area; a PDF dropped into a project whose
-paper is already its XML is kept for the figures instead of being set aside;
+paper is already its XML is kept for the figures instead of being set aside,
+when its first pages print the paper's DOI or whole title;
 and **Collect PDFs** lists the XML papers whose figures want one, after the
 papers with no copy at all.
 

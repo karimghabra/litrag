@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- **A PDF is kept beside an XML paper only when it names the paper** (Karim, 2026-10-13: "squash
+  merge, then move onto the next milestone"). Any PDF met by an XML paper's DOI, PMID or hash used
+  to be kept as its `figures_file` and read, overwriting the one kept before. One gate now,
+  `figures.keep_beside`, for every way a PDF arrives: its first three pages must print the paper's
+  DOI or whole title (not under a supplement's name); a second PDF replaces the first only when
+  it prints the captions of more of the paper's figures, and the first is set aside as
+  `<key>.figures.<n>.pdf`, never deleted; the same bytes again do nothing. A refused PDF writes a
+  `figures-refused` row and a `skipped` event with the reason, and stays where it was. Such a PDF
+  is found (`store.find_paper`, read-only) and never filed, so a refusal changes nothing of the XML
+  paper's row. A fetch names the XML a companion PDF belongs to (`known.beside`); the paths of a
+  request are read XML first; `done` lists the papers whose figures were read; a `figures_file`
+  missing from disk counts as none on Collect's list. With `LITRAG_FIGURES=off` a PDF is kept, not
+  read, and said.
+
 - **A DOI is the same paper in any case, and filing says what met a paper** (Karim, 2026-10-13:
   "squash merge, then move onto the next milestone"). `store.file_paper` matches a DOI case-blind
   (10.1/ABC is 10.1/abc), keeping the key and spelling first filed; a store that already holds one

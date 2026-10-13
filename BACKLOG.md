@@ -663,6 +663,14 @@ Each one wants a fixture or a test before its fix, as the spot-check does.
   Invariant 4 says running a stage twice changes nothing. One list of the
   note stages, kept where notes are made, and a test that a rebuild twice
   is one set; history rows ('filed', 'figures', 'saved') stay.
+- **Detaching a kept figures PDF** (2026-10-13) — a PDF kept beside an
+  XML paper (`figures_file`) can be replaced only by one that prints more
+  of its figures' captions; there is no op to set it aside by hand when it
+  is the wrong file, or to take back the copy it replaced.
+- **Supplements filed as papers** (2026-10-13) — a supplement's PDF that
+  prints the paper's DOI under a supplement's name is refused as the
+  paper's figures PDF, rightly, but dropped on the window it is filed by
+  that DOI like the paper; two in the 226-paper scratch library.
 - **A PMCID step in filing** (planned for the XML figures work, 2026-10-13)
   — invariant 4 files a paper by DOI, then PMID, then file hash; a PDF
   that prints only its PMCID (an author manuscript's) is filed apart from

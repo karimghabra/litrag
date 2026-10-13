@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-from litrag_parser.store import file_paper, node, open_store, paper_tree, run_select, save_tree, section, siblings
+from litrag_parser.store import file_paper, find_paper, node, open_store, paper_tree, run_select, save_tree, section, siblings
 from litrag_parser.tree import build_tree
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -56,6 +56,32 @@ def test_a_doi_held_in_several_cases_meets_its_own_bytes_or_the_one_filed_first(
         f = file_paper(conn, title="t", file="", sha256=f"bytes of {key}", fmt="pdf", doi=key[4:], pmid=None, pmcid=None, now="2026-01-04")
         assert (f.key, f.existed, f.by) == (key, True, "doi")
     assert [tuple(r) for r in conn.execute("SELECT paper, COUNT(*) FROM nodes GROUP BY paper ORDER BY paper")] == [(k, 1) for k, _ in sorted(held)]
+
+
+def test_finding_a_paper_meets_the_one_filing_meets_and_writes_nothing(tmp_path):
+    """`find_paper` is filing's own lookup, read only: at each step it names the paper and the
+    identifier `file_paper` would, and changes no row — not the gaps filing fills, nor the stub of
+    the same bytes filing drops."""
+    conn = open_store(tmp_path / "store.sqlite")
+    assert find_paper(conn, doi="10.1/abc", pmid=None, sha256="aa") is None
+    file_paper(conn, title="x", file="a.pdf", sha256="aa", fmt="pdf", doi="10.1/ABC", pmid=None, pmcid=None, now="t1")
+    file_paper(conn, title="y", file="c.pdf", sha256="cc", fmt="pdf", doi=None, pmid="123", pmcid=None, now="t2")
+    file_paper(conn, title="z", file="f.pdf", sha256="ff", fmt="pdf", doi=None, pmid=None, pmcid=None, now="t3")
+    stub = file_paper(conn, title="s", file="s.pdf", sha256="ss", fmt="pdf", doi=None, pmid=None, pmcid=None, now="t4").key
+    conn.commit()
+    asks = [
+        ({"doi": "10.1/abc", "pmid": None, "sha256": "bb"}, ("doi:10.1/ABC", "doi")),  # a DOI in another case
+        ({"doi": "10.2/new", "pmid": "123", "sha256": "dd"}, ("pmid:123", "pmid")),  # a DOI held by none, then a PMID
+        ({"doi": None, "pmid": None, "sha256": "ff"}, ("sha:ff", "sha")),  # the file's hash
+        ({"doi": "10.1/Abc", "pmid": "123", "sha256": "ss"}, ("doi:10.1/ABC", "doi")),  # a DOI first, and the bytes of a stub filing would drop
+    ]
+    for ask, meets in asks:
+        changes = conn.total_changes
+        found = find_paper(conn, **ask)
+        assert conn.total_changes == changes  # read only
+        filed = file_paper(conn, title="t", file="", fmt="pdf", pmcid="PMC1", now="t9", **ask)
+        assert found == meets == (filed.key, filed.by) and filed.existed
+    assert conn.execute("SELECT COUNT(*) FROM papers WHERE key = ?", (stub,)).fetchone()[0] == 0  # filing dropped it; finding had not
 
 
 def test_a_hash_stub_gives_way_to_the_identified_paper(tmp_path):

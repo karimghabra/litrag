@@ -11,7 +11,7 @@ import * as pdfjs from 'pdfjs-dist';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { renderPlots, type Plot } from './charts.ts';
 import { initLabels, openLabelling } from './labels.ts';
-import { BANDS, SORT_KEYS, bandOf, countBy, filterPapers, sortPapers, validFilters, type SortKey } from './papers.ts';
+import { BANDS, SORT_KEYS, arrived, bandOf, countBy, filedLine, filterPapers, readFiguresOf, sortPapers, validFilters, type SortKey } from './papers.ts';
 import { initProjects, renderProjects } from './projects.ts';
 import { initGraph } from './graphtab.ts';
 import { initQuery } from './query.ts';
@@ -993,22 +993,8 @@ function onEvent(ev: Record<string, unknown>) {
     case 'paper': {
       if (foreign) break;
       const key = paper!;
-      const prev = state.papers.get(key);
-      state.papers.set(key, {
-        key,
-        title: prev?.title ?? String(ev['file'] ?? key),
-        doi: (ev['doi'] as string | null) ?? prev?.doi ?? null,
-        file: String(ev['file'] ?? ''),
-        format: String(ev['file'] ?? '').endsWith('.xml') ? 'jats' : 'pdf',
-        pages: (ev['pages'] as number | null) ?? null,
-        status: String(ev['status']),
-        error: null,
-        nodes: prev?.nodes ?? 0,
-        has_methods: prev?.has_methods ?? null,
-        seconds: prev?.seconds ?? null,
-        roles: prev?.roles,
-      });
-      log('stage', ev['existed'] ? 'seen before' : 'filed as new', key);
+      state.papers.set(key, arrived(key, ev, state.papers.get(key)));
+      log('stage', filedLine(ev), key);
       renderPapers();
       break;
     }
@@ -1059,22 +1045,26 @@ function onEvent(ev: Record<string, unknown>) {
       else if (!state.selectedPaper && ctx.view === 'papers') void selectPaper(paper);
       break;
     }
-    case 'done':
+    case 'done': {
       setStatus('ok', 'idle');
       activity.hide();
-      if (ev['op'] === 'figures') {
-        log('stage', `figures: ${ev['read'] ?? 0} of ${ev['plots'] ?? 0} charts read in ${ev['papers'] ?? 0} papers, ${ev['values'] ?? 0} values`);
-        const n = state.selectedNode ? state.nodesById.get(state.selectedNode) : undefined;
-        if (n && !foreign) renderDetail(n);
+      if (ev['op'] === 'figures') log('stage', `figures: ${ev['read'] ?? 0} of ${ev['plots'] ?? 0} charts read in ${ev['papers'] ?? 0} papers, ${ev['values'] ?? 0} values`);
+      if (!foreign) {
+        // the figure shown is drawn again once the paper's row says what draws its figures now
+        const refigured = state.selectedNode !== null && readFiguresOf(ev, state.selectedPaper);
+        void loadPapers().then(() => {
+          const n = refigured && state.selectedNode ? state.nodesById.get(state.selectedNode) : undefined;
+          if (n) renderDetail(n);
+        });
       }
-      if (!foreign) void loadPapers();
       void loadLibraries();
       break;
+    }
     case 'log':
       log('log', `${ev['logger']}: ${ev['message']}`, paper);
       break;
     case 'skipped':
-      log('failed', `skipped ${ev['path']}: ${ev['reason']}`);
+      log('failed', `skipped ${ev['path']}: ${ev['reason']}`, paper); // a PDF not kept for a paper's figures names the paper
       break;
     case 'error':
       // a queued op that fails (a merge into a name taken) closes nothing: the bar must not stay up
