@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- **A merge carries the PDF kept beside an XML paper** (Karim, 2026-10-13: "squash merge, then move
+  onto the next milestone"). A merged project lost an XML paper's figures PDF: `figures_file` was
+  not copied, the read came without its file, and the paper went back onto Collect's list while
+  its charts stayed. A paper new to the target now brings its kept PDF (copied under the target's
+  name), its charts and the read they came from, the read's columns those both stores have and its
+  `file` named as the target names it. A paper the target holds already as XML with no PDF beside
+  it takes a source's through the same gate as a dropped PDF; its figures are read after the
+  rebuild, for those papers only, and not with `LITRAG_FIGURES=off`. A PDF the gate refuses is
+  listed in the merge's `done` (`figures_not_kept`) and written nowhere, so merging twice changes
+  nothing.
+
 - **A PDF dropped on a figure, or caught by Collect for one, goes to that paper** (Karim,
   2026-10-13: "squash merge, then move onto the next milestone"). Every figure of an XML paper the
   window draws (the reading view's and the figure pane) carries the paper's key; a PDF dropped on

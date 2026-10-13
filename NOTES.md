@@ -89,6 +89,17 @@ when it turns out durable. Mark inference as inference.
 
 ## Short-term memory
 
+- **2026-10-13: a merge carries the PDF kept beside an XML paper (M6)** — No choices were waiting.
+  A paper new to the merged project brings its kept figures PDF, its charts and their read (the
+  read's `file` renamed to the target's names, in the columns both stores have); a paper the
+  target holds already as XML with no PDF beside it takes a source's through M5b's gate, and its
+  figures are read after the rebuild — only those papers' (an empty list would read the whole
+  library: `do_figures` takes no keys as all of them), and not with `LITRAG_FIGURES=off`, which a
+  stage line says. A real merge of a copy of the scratch library through the worker carried pone's
+  PDF byte for byte, its read and its 29 charts; merging again changed nothing. A merged project
+  made before this keeps no figures PDFs; merging the same sources into it again (`into`) brings
+  them, its charts already there, nothing read again.
+
 - **2026-10-13: a PDF dropped on a figure goes to that paper (M5c)** — No choices were waiting. In
   the window every figure of an XML paper (in the reading view and the figure pane) takes a drop:
   the PDF is sent with `known.paper`, never identified or filed, and M5b's gate still checks that
