@@ -1523,6 +1523,211 @@ def test_a_pdf_paper_with_a_pmcid_is_not_asked(tmp_path, monkeypatch, capsys, ep
     assert _pmc_asked(epmc) == [] and _rows(lib, "figures-pdf") == [] and _paper_row(lib) == (None, None)  # its own PDF draws its figures
 
 
+# -- PMC asked for the PDFs of the XML papers held, on a person's word (figures_fetch) --------------------------
+
+TWO_KEY = "doi:10.1/two"
+NOT_ASKED = "not asked: PMC could not be reached earlier in this batch"
+
+
+def _held_two(tmp_path, title=PRINTED):
+    """A new library holding two papers read from XML, three numbered figures each and no PDF:
+    THREADS (PMC11278924, titled `title`) and doi:10.1/two (PMC100002, which the canned PMC never
+    holds): the library."""
+    lib = _threads(tmp_path, title=title, pmcid=PMCID)
+    conn = open_store(lib.store_path)
+    assert _xml_paper(conn, doi="10.1/two", title="Two", pmcid="PMC100002") == TWO_KEY
+    conn.close()
+    return lib
+
+
+def _figures_fetch(lib, capsys, **req):
+    """The op, as the ingest thread runs it: the events."""
+    from litrag_parser.worker import Worker
+
+    capsys.readouterr()
+    Worker(lib.dir.parent).do_figures_fetch({"id": "ff", "op": "figures_fetch", "lib": lib.id, **req})
+    return [json.loads(line) for line in capsys.readouterr().out.splitlines() if line.strip()]
+
+
+def _fetched(events, **counts):
+    """The op's `done`, its counts as `counts` says them, each one not said 0."""
+    (done,) = [e for e in events if e["event"] == "done" and e["op"] == "figures_fetch"]
+    names = ("papers", "asked", "kept", "missed", "refused", "unreachable", "already")
+    return {k: done[k] for k in names} == {k: counts.get(k, 0) for k in names}
+
+
+def _asking(events):
+    return [(e["op"], e["done"], e["total"], e["label"]) for e in events if e["event"] == "progress" and e["label"].startswith("Asking")]
+
+
+@pytest.fixture
+def _reads(monkeypatch):
+    """Worker.do_figures stood in for: the requests it is given, and nothing read."""
+    from litrag_parser.worker import Worker
+
+    given: list[dict] = []
+    monkeypatch.setattr(Worker, "do_figures", lambda self, req: given.append(req))
+    return given
+
+
+def test_figures_fetch_asks_pmc_for_the_held_papers_and_reads_the_pdf_it_keeps_after_saying_so(tmp_path, capsys, epmc):
+    epmc.cloud(PMCID, pdf=(CHARTS / "page_paper.pdf").read_bytes())  # the one in the Cloud; the other in neither place
+    lib = _held_two(tmp_path)
+    events = _figures_fetch(lib, capsys)
+    assert _fetched(events, papers=2, asked=2, kept=1, missed=1)
+    assert _asking(events) == [("figures_fetch", 0, 2, "Asking PMC for the PDF of paper 1 of 2"), ("figures_fetch", 1, 2, "Asking PMC for the PDF of paper 2 of 2")]  # the window's bar
+    done = [e for e in events if e["event"] == "done"]
+    assert [(e["id"], e["op"], e["lib"]) for e in done] == [("ff", "figures_fetch", lib.id), ("ff-figures", "figures", lib.id)] and done[1]["papers"] == 1  # PMC's answers first, then the reading
+    assert not [e for e in events if e["event"] == "paper"]  # nothing filed
+    assert _paper_row(lib) == (KEPT, None) and _paper_row(lib, TWO_KEY) == (None, NOTE)
+    conn = open_store(lib.store_path)
+    assert conn.execute("SELECT COUNT(*) FROM charts WHERE paper = ? AND status = 'read'", (THREADS,)).fetchone()[0] == 3
+    assert [w["key"] for w in figures.figures_wanted(conn, lib.papers_dir)] == [TWO_KEY]
+    conn.close()
+
+
+def test_figures_fetch_whose_every_ask_misses_reads_nothing(tmp_path, capsys, epmc, _reads):
+    lib = _held_two(tmp_path)  # neither paper in the Cloud
+    events = _figures_fetch(lib, capsys)
+    assert _fetched(events, papers=2, asked=2, missed=2)
+    assert _reads == []  # never the figures op with no keys: that would read every paper
+
+
+def test_figures_fetch_counts_a_pdf_pmc_has_that_does_not_name_the_paper_as_refused(tmp_path, capsys, epmc, _reads):
+    epmc.cloud(PMCID, pdf=(CHARTS / "page_paper.pdf").read_bytes())
+    lib = _held_two(tmp_path, title="Fold change of fibroblast markers on each substrate")  # a title the page does not print
+    events = _figures_fetch(lib, capsys)
+    assert _fetched(events, papers=2, asked=2, refused=1, missed=1)
+    assert _paper_row(lib) == (None, "PMC's PDF: its first pages name neither its DOI nor its title")
+    assert _reads == [] and not list(lib.papers_dir.glob("*.pdf"))
+
+
+def test_figures_fetch_run_again_asks_nothing_pmc_has_answered(tmp_path, capsys, epmc, _reads):
+    epmc.cloud(PMCID, pdf=(CHARTS / "page_paper.pdf").read_bytes())
+    lib = _held_two(tmp_path)
+    _figures_fetch(lib, capsys)
+    assert [r["keys"] for r in _reads] == [[THREADS]]
+    epmc.seen.clear()
+    events = _figures_fetch(lib, capsys)
+    assert _pmc_asked(epmc) == [] and _asking(events) == []
+    assert _fetched(events, papers=1, already=1)  # the kept PDF draws its paper's figures; PMC's no to the other is settled
+    assert len(_reads) == 1
+
+
+def test_figures_fetch_with_again_asks_a_paper_pmc_said_no_to(tmp_path, capsys, epmc, _reads):
+    lib = _held_two(tmp_path)
+    _figures_fetch(lib, capsys, keys=[TWO_KEY])
+    epmc.seen.clear()
+    events = _figures_fetch(lib, capsys, keys=[TWO_KEY], again=True)
+    assert _fetched(events, papers=1, asked=1, missed=1)
+    assert len(_pmc_asked(epmc)) == 2 and all("PMC100002" in p for p in _pmc_asked(epmc))
+    assert _rows(lib, "figures-pdf", TWO_KEY) == [f"no PDF for its figures: {NOTE}"] * 2 and _paper_row(lib, TWO_KEY) == (None, NOTE)
+
+
+def test_figures_fetch_asks_only_the_papers_named(tmp_path, capsys, epmc, _reads):
+    lib = _held_two(tmp_path)
+    events = _figures_fetch(lib, capsys, keys=[THREADS])
+    assert _pmc_asked(epmc) == [LISTING, BULK] and _fetched(events, papers=1, asked=1, missed=1)
+    assert _paper_row(lib, TWO_KEY) == (None, None) and _rows(lib, "figures-pdf", TWO_KEY) == []
+
+
+def test_figures_fetch_asks_and_reads_with_the_figures_off(tmp_path, monkeypatch, capsys, epmc, _reads):
+    monkeypatch.setenv("LITRAG_FIGURES", "off")  # it stops the work done unasked; this is asked for
+    epmc.cloud(PMCID, pdf=(CHARTS / "page_paper.pdf").read_bytes())
+    lib = _held_two(tmp_path)
+    events = _figures_fetch(lib, capsys)
+    assert _fetched(events, papers=2, asked=2, kept=1, missed=1) and _paper_row(lib) == (KEPT, None)
+    assert [(r["id"], r["op"], r["lib"], r["keys"]) for r in _reads] == [("ff-figures", "figures", lib.id, [THREADS])]  # the figures op looks at no switch either
+
+
+def test_figures_fetch_asks_nothing_for_a_named_paper_that_is_not_read_or_not_held(tmp_path, capsys, epmc, _reads):
+    from litrag_parser.store import set_status
+
+    lib = _held_two(tmp_path)
+    conn = open_store(lib.store_path)
+    set_status(conn, TWO_KEY, "failed", error="Docling could not read it")
+    conn.close()
+    events = _figures_fetch(lib, capsys, keys=[TWO_KEY, "doi:10.1/none", THREADS])
+    assert _fetched(events, papers=1, asked=1, missed=1) and _pmc_asked(epmc) == [LISTING, BULK]
+    assert _rows(lib, "figures-pdf", TWO_KEY) == [] and _paper_row(lib, TWO_KEY) == (None, None)
+
+
+def test_figures_fetch_asks_nothing_for_a_named_paper_a_pdf_draws_even_with_again(tmp_path, capsys, epmc, _reads):
+    lib = _held_two(tmp_path)
+    shutil.copy(CHARTS / "page_paper.pdf", lib.papers_dir / KEPT)
+    conn = open_store(lib.store_path)
+    conn.execute("UPDATE papers SET figures_file = ? WHERE key = ?", (KEPT, THREADS))  # its PDF kept beside it, on disk
+    own = file_paper(conn, title="Own", file="own.pdf", sha256="p:own", fmt="pdf", doi="10.1/own", pmid=None, pmcid="PMC100004", now="t").key
+    conn.execute("UPDATE papers SET status = 'parsed' WHERE key = ?", (own,))  # read from its own PDF, PMCID and all
+    conn.commit()
+    conn.close()
+    events = _figures_fetch(lib, capsys, keys=[THREADS, own], again=True)
+    assert _fetched(events) and _pmc_asked(epmc) == [] and _reads == []
+    assert _rows(lib, "figures-pdf", own) == [] and _paper_row(lib, own) == (None, None) and _paper_row(lib) == (KEPT, None)
+
+
+def test_figures_fetch_asks_only_for_the_papers_collect_lists_that_pmc_can_be_asked_about(tmp_path, capsys, epmc, _reads):
+    lib = _held_two(tmp_path)
+    conn = open_store(lib.store_path)
+    none = _xml_paper(conn, figures_n=0, doi="10.1/three", title="Three", pmcid="PMC100003")  # its captions number no figure
+    unknown = _xml_paper(conn, doi="10.1/four", title="Four")  # three figures, and no PMCID to ask by
+    conn.close()
+    events = _figures_fetch(lib, capsys)
+    assert _fetched(events, papers=2, asked=2, missed=2)
+    assert len(_pmc_asked(epmc)) == 4 and not [p for p in _pmc_asked(epmc) if "PMC100003" in p]
+    assert [(_rows(lib, "figures-pdf", k), _paper_row(lib, k)) for k in (none, unknown)] == [([], (None, None))] * 2
+
+
+def test_figures_fetch_reads_the_pdf_it_keeps_over_a_read_that_names_no_file(tmp_path, capsys, epmc):
+    epmc.cloud(PMCID, pdf=(CHARTS / "page_paper.pdf").read_bytes())
+    lib = _held_two(tmp_path)
+    conn = open_store(lib.store_path)
+    figures.ensure_schema(conn)
+    conn.execute("UPDATE papers SET figures_file = 'gone.figures.pdf' WHERE key = ?", (THREADS,))  # a merge's copy of the PDF beside it, gone from disk since
+    conn.execute("INSERT INTO figure_reads(paper, reader, figures, plots, read, values_, at, file) VALUES (?, ?, 3, 0, 0, 0, 't', NULL)", (THREADS, figures.READER))  # and of its read, naming no file
+    conn.commit()
+    assert figures.is_read(conn, THREADS) and figures.states(conn, lib.papers_dir, True, [THREADS])[THREADS]["kind"] == "missing-file"
+    conn.close()
+    events = _figures_fetch(lib, capsys)
+    assert _fetched(events, papers=2, asked=2, kept=1, missed=1) and _paper_row(lib) == (KEPT, None)
+    conn = open_store(lib.store_path)
+    assert conn.execute("SELECT COUNT(*) FROM charts WHERE paper = ? AND status = 'read'", (THREADS,)).fetchone()[0] == 3  # PMC's PDF read, not the copied read taken for it
+    assert conn.execute("SELECT file FROM figure_reads WHERE paper = ?", (THREADS,)).fetchone()[0] == KEPT
+    conn.close()
+
+
+def test_figures_fetch_with_pmc_out_of_reach_asks_once_and_counts_every_paper_it_could_not_ask(tmp_path, monkeypatch, capsys, _reads):
+    # no `epmc`: conftest points the Cloud Service and the bulk area at a port nothing answers on
+    from litrag_parser import acquire
+
+    asked: list[str] = []
+    get = acquire._get
+
+    def recorded(url, timeout, retries=3):
+        asked.append(url)
+        return get(url, timeout, retries)
+
+    monkeypatch.setattr(acquire, "_get", recorded)
+    lib = _held_two(tmp_path)
+    events = _figures_fetch(lib, capsys)
+    assert _fetched(events, papers=2, asked=1, unreachable=2)  # the ask that could not reach PMC, and the paper passed by after it
+    assert len([u for u in asked if "list-type=2" in u]) == 1 and len(_asking(events)) == 1
+    (first,) = {e["paper"] for e in events if e["event"] == "log"}
+    (other,) = {THREADS, TWO_KEY} - {first}
+    assert _rows(lib, "figures-pdf", first)[0].startswith("could not ask PMC: ") and _rows(lib, "figures-pdf", other) == [NOT_ASKED]
+    assert _paper_row(lib) == (None, None) and _paper_row(lib, TWO_KEY) == (None, None) and _reads == []  # nothing said of either paper: the next run asks again
+
+
+def test_figures_fetch_is_queued_and_run_on_the_ingest_thread(tmp_path):
+    from litrag_parser.library import create_library
+
+    from test_reliability import _talk_until_done
+
+    lib = create_library(tmp_path, "Nothing held")
+    events = [e for e in _talk_until_done(tmp_path, {"id": "ff", "op": "figures_fetch", "lib": lib.id}) if e.get("id") == "ff"]
+    assert [e["event"] for e in events] == ["queued", "done"] and _fetched(events)
+
+
 # -- plots through a rebuild, a reparse and a reread ----------------------------------------------------------
 
 
