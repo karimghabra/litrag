@@ -10,6 +10,7 @@
 import * as pdfjs from 'pdfjs-dist';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { renderPlots, type Plot } from './charts.ts';
+import { droppedOn, figuresFor, ingestParams } from './figuredrop.ts';
 import { initLabels, openLabelling } from './labels.ts';
 import { BANDS, SORT_KEYS, arrived, bandOf, countBy, filedLine, filterPapers, readFiguresOf, sortPapers, validFilters, type SortKey } from './papers.ts';
 import { initProjects, renderProjects } from './projects.ts';
@@ -623,6 +624,8 @@ function renderReading() {
           fig.append(table);
         } else {
           fig.append(el('div', 'placeholder', 'figure — the image itself is not in the XML'));
+          const forFigures = figuresFor(t.paper);
+          if (forFigures) fig.dataset['figuresFor'] = forFigures; // a PDF dropped on it goes to this paper (figuredrop.ts)
         }
         for (const cap of c.children) if (cap.type === 'caption') fig.append(el('figcaption', undefined, cap.text));
         into.append(fig);
@@ -757,6 +760,8 @@ async function loadCharts(n: Node, into: HTMLElement) {
   const read = r.plots.filter((p) => p.status === 'read').length;
   const head = el('div', 'links-head', r.plots.length ? `Numbers read from this figure — ${read} of ${r.plots.length} plot${r.plots.length === 1 ? '' : 's'}` : 'No numbers read from this figure');
   const paper = state.selectedPaper ? state.papers.get(state.selectedPaper) : undefined;
+  const forFigures = figuresFor(paper);
+  if (forFigures) box.dataset['figuresFor'] = forFigures; // a PDF dropped here goes to this paper (figuredrop.ts)
   if (!r.plots.length && paper?.format === 'jats' && !paper.figures_file) {
     box.append(head);
     box.append(el('div', 'muted', 'Read from XML, which names its figures but holds none. A PDF of the paper draws them: drop one here, or fetch it with Collect PDFs on the Search tab, and its charts are read and pinned to these figures.'));
@@ -955,7 +960,8 @@ function drawBoxes() {
 
 // ---- ingest -------------------------------------------------------------------------------
 
-async function ingest(paths: string[]) {
+/** `known`: what is known of a file already — a PDF dropped on a paper's figure is for that paper (figuredrop.ts). */
+async function ingest(paths: string[], known: Record<string, { paper: string }> = {}) {
   if (!ctx.lib) {
     log('error', 'Choose or make a project first.');
     window.alert('Choose or make a project first.');
@@ -963,9 +969,14 @@ async function ingest(paths: string[]) {
   }
   if (!paths.length) return;
   log('stage', `Ingesting ${paths.length} file${paths.length === 1 ? '' : 's'}`);
+  const forFigures = Object.values(known);
+  if (forFigures.length) {
+    const key = forFigures[0]!.paper;
+    log('stage', `${forFigures.length === 1 ? 'a PDF' : `${forFigures.length} PDFs`} dropped on a figure of ${state.papers.get(key)?.title || key}: kept beside its XML for its figures if ${forFigures.length === 1 ? 'its' : 'their'} first pages name the paper`, key);
+  }
   activity.show(`Reading ${paths.length} paper${paths.length === 1 ? '' : 's'}`, 0, paths.length);
   try {
-    await window.litrag.request('ingest', { lib: ctx.lib, paths });
+    await window.litrag.request('ingest', ingestParams(ctx.lib, paths, known));
   } catch (e) {
     activity.hide();
     log('error', String((e as Error).message));
@@ -1181,10 +1192,12 @@ function wire() {
   });
   window.addEventListener('drop', (e) => {
     e.preventDefault();
+    // the overlay is what the drop lands on: a paper's figure is looked for under it
+    const under = document.elementsFromPoint(e.clientX, e.clientY);
     overlay.hidden = true;
     const files = [...(e.dataTransfer?.files ?? [])];
     const paths = window.litrag.pathsOf(files).filter((p) => /\.(pdf|xml)$/i.test(p));
-    void ingest(paths).then(() => void loadCandidates());
+    void ingest(paths, droppedOn(paths, under)).then(() => void loadCandidates());
   });
 
   showView(startView);

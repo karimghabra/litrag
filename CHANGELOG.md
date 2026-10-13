@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- **A PDF dropped on a figure, or caught by Collect for one, goes to that paper** (Karim,
+  2026-10-13: "squash merge, then move onto the next milestone"). Every figure of an XML paper the
+  window draws (the reading view's and the figure pane) carries the paper's key; a PDF dropped on
+  one is sent with `known.paper` and is not identified or filed: `figures.keep_beside` checks it
+  as any other, so one that does not name the paper is refused with its reason and stays where it
+  was. Collect PDFs sends the paper a figure entry was caught for. A key naming no paper, or a paper
+  read from its PDF, is a `skipped` event and no row. The `twin` note says to drop the PDF on one
+  of the paper's figures when the paper has one, and doing so removes the `sha:` paper it was
+  filed as, also when those bytes were kept already. `figuredrop.ts` holds the window's choices
+  as pure functions, with unit tests, and the app's e2e drops a PDF on a figure.
+
 - **A PDF is kept beside an XML paper only when it names the paper** (Karim, 2026-10-13: "squash
   merge, then move onto the next milestone"). Any PDF met by an XML paper's DOI, PMID or hash used
   to be kept as its `figures_file` and read, overwriting the one kept before. One gate now,

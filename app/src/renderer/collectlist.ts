@@ -1,7 +1,8 @@
 /**
  * What the collect window walks (app/src/main/collect.ts): the candidates no open copy was found
  * for, then the XML papers whose figures want a PDF — the XML is the paper's text, and the PDF a
- * person fetches for it is kept beside it to read its charts (parser/litrag_parser/figures.py).
+ * person fetches for it goes to that paper by its key, and is kept beside it to read its charts
+ * when its first pages name the paper (parser/litrag_parser/figures.py).
  */
 
 export interface WantedCandidate {
@@ -31,6 +32,8 @@ export interface CollectEntry {
   pmid: string | null;
   pmcid: string | null;
   open?: string | null;
+  /** the XML paper whose figures the PDF is for: the caught file goes to it, not asked what it is */
+  paper?: string | null;
 }
 
 /** The papers in the order the window opens them: those with no copy at all first, then those
@@ -39,7 +42,7 @@ export function collectList(candidates: WantedCandidate[], figures: FiguresWante
   const out: CollectEntry[] = candidates.map((c) => ({ cand_id: c.cand_id, title: c.title ?? null, doi: c.doi ?? null, pmid: c.pmid ?? null, pmcid: c.pmcid ?? null, open: c.oa_url ?? null }));
   for (const f of figures) {
     if (!f.doi && !f.pmid && !f.pmcid) continue;
-    out.push({ cand_id: 0, title: `${f.title ?? f.key} — the PDF, for its ${f.figures} figure${f.figures === 1 ? '' : 's'}`, doi: f.doi, pmid: f.pmid, pmcid: f.pmcid });
+    out.push({ cand_id: 0, title: `${f.title ?? f.key} — the PDF, for its ${f.figures} figure${f.figures === 1 ? '' : 's'}`, doi: f.doi, pmid: f.pmid, pmcid: f.pmcid, paper: f.key });
   }
   return out;
 }

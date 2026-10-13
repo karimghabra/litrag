@@ -443,8 +443,13 @@ class Worker:
         refused (figures.keep_beside), once every paper in the request is read — the XML first, so
         a PDF arriving with its XML finds it filed. `known[path].beside`, the path of an XML in the
         same request, says which paper a PDF is for without asking the PDF (a fetch knows the XML
-        it fetched it beside). The `done` event's `figures` are the papers whose figures a PDF
-        kept here was read for."""
+        it fetched it beside); `known[path].paper`, a paper's key, says it outright (the window
+        knows the figure it was dropped on, Collect the XML paper it was caught for). Such a PDF
+        is not identified and not filed, `reread` or not: it is not the paper's file, and reading
+        an XML paper again from a PDF dropped on its figure is not what the drop asked. A key
+        naming no paper, or a paper read from its PDF, is said as `skipped` and nothing else. An
+        XML is a paper of its own whatever is known of it. The `done` event's `figures` are the
+        papers whose figures a PDF kept here was read for."""
         lib = self._lib(req)
         req_id = req.get("id")
         conn = open_store(lib.store_path)
@@ -460,6 +465,9 @@ class Worker:
                 continue
             fmt = "pdf" if src.suffix.lower() == ".pdf" else "jats"
             known = known_all.get(str(raw)) or {}
+            if fmt == "pdf" and known.get("paper"):
+                beside.append((str(known["paper"]), str(raw), None))  # the paper the person named, whatever the PDF prints of itself; keep_beside still checks it
+                continue
             if fmt == "pdf" and known.get("beside") and str(known["beside"]) in keys:
                 beside.append((keys[str(known["beside"])], str(raw), None))  # its XML's, whatever it prints of itself; keep_beside still checks it
                 continue
@@ -547,10 +555,12 @@ class Worker:
     def _keep_beside(self, lib: Library, key: str, src: Path, by: str | None, req_id: Any) -> dict[str, Any] | None:
         """A PDF that arrived for an XML paper's figures, through figures.keep_beside. Kept: its
         `paper` event (`kept`, `figures_file`, and `aside`, `same`), the inbox copy gone, and with
-        the figures off a row and a log line that it is not read. Refused: a `figures-refused` row
-        and a `skipped` event naming the paper, and the file left where it is. Gone since it was
-        listed: a `skipped` event, and nothing else — no PDF arrived. Returns keep_beside's answer
-        when the PDF is kept, None when it is not."""
+        the figures off a row and a log line that it is not read. Refused: a `skipped` event naming
+        the paper, the file left where it is, and a `figures-refused` row on the paper when it is
+        one read from XML — a key naming no paper, or a paper its own PDF draws, wanted no PDF for
+        its figures, and a row would say one arrived for them. Gone since it was listed: a
+        `skipped` event, and nothing else — no PDF arrived. Returns keep_beside's answer when the
+        PDF is kept, None when it is not."""
         from . import figures
 
         if not src.is_file():  # named twice in the request and kept from the inbox the first time, or moved while the papers were read
@@ -560,7 +570,8 @@ class Worker:
         try:
             out = figures.keep_beside(conn, lib.papers_dir, key, src, now_iso())
             if not out["kept"]:
-                log_event(conn, key, now_iso(), "figures-refused", f"not kept for its figures: {src.name}: {out['why']}")
+                if conn.execute("SELECT 1 FROM papers WHERE key = ? AND format = 'jats'", (key,)).fetchone():
+                    log_event(conn, key, now_iso(), "figures-refused", f"not kept for its figures: {src.name}: {out['why']}")
                 emit({"event": "skipped", "id": req_id, "path": str(src), "paper": key, "reason": out["why"]})
                 return None
             row = conn.execute("SELECT status, file, doi, pmcid FROM papers WHERE key = ?", (key,)).fetchone()
@@ -580,10 +591,15 @@ class Worker:
     def _twin(conn: Any, lib: Library, key: str, dest: Path, pmcid: str | None, req_id: Any) -> None:
         """A PDF filed as a new paper, for want of a DOI or a PMID, whose first pages print the
         whole title of a paper held and read from XML: said, as an events row `twin` and a log
-        line, so a person can tell the two are one paper. Only said: nothing is moved or merged on
-        a title. Not said when those pages print the whole title of any other paper held too
-        (acquire.titles_printed, names_the_paper's rule for a title), nor when the PDF names
-        another PMCID than that paper's."""
+        line, so a person can tell the two are one paper, and, when that paper's reading has a
+        figure the window draws (a picture or a chart), what to do if they are: dropped on one
+        (`known.paper`), the same file is kept beside the XML for them, or found kept there
+        already, and the paper its bytes were filed as goes (figures.keep_beside) — unless another
+        PDF kept there prints as many of their captions. A paper with no figure in its reading
+        gives the window nothing to drop it on, and the note does not say to. Only said: nothing
+        is moved or merged on a title. Not said when those pages print the whole title of any
+        other paper held too (acquire.titles_printed, names_the_paper's rule for a title), nor
+        when the PDF names another PMCID than that paper's."""
         from .acquire import first_pages, titles_printed
 
         held = [dict(r) for r in conn.execute("SELECT key, title, format, pmcid FROM papers WHERE status = 'parsed' AND key != ?", (key,))]
@@ -594,6 +610,8 @@ class Worker:
         if pmcid and twin["pmcid"] and pmcid.upper() != str(twin["pmcid"]).upper():
             return
         message = f"its first pages print the whole title of {twin['key']}, read from XML; filed apart, since no DOI or PMID was found for it"
+        if conn.execute("SELECT 1 FROM nodes WHERE paper = ? AND type IN ('picture', 'chart') LIMIT 1", (twin["key"],)).fetchone():
+            message += "; if it is that paper, drop it on one of that paper's figures"  # each one the window draws takes a drop (renderer.ts, figuredrop.ts)
         log_event(conn, key, now_iso(), "twin", message)
         emit({"event": "log", "id": req_id, "lib": lib.id, "paper": key, "logger": "twin", "message": message})
 

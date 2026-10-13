@@ -13,8 +13,14 @@ describe('what the collect window walks', () => {
     expect(list).toEqual([
       { cand_id: 7, title: 'No copy', doi: '10.1/a', pmid: null, pmcid: null, open: null },
       { cand_id: 8, title: 'An open copy elsewhere', doi: '10.1/c', pmid: null, pmcid: null, open: 'https://repository.example/c.pdf' }, // the window opens it first
-      { cand_id: 0, title: 'Read as XML — the PDF, for its 6 figures', doi: '10.1/b', pmid: null, pmcid: 'PMC1' },
+      { cand_id: 0, title: 'Read as XML — the PDF, for its 6 figures', doi: '10.1/b', pmid: null, pmcid: 'PMC1', paper: 'doi:10.1/b' },
     ]);
+  });
+
+  it('sends the PDF caught for an XML paper\'s figures to that paper, and a candidate\'s to whatever it names', () => {
+    const [cand, fig] = collectList([{ cand_id: 7, title: 'No copy', doi: '10.1/a' }], [{ key: 'doi:10.1/B', title: 'Read as XML', doi: '10.1/b', pmid: null, pmcid: null, figures: 1 }]);
+    expect(fig?.paper).toBe('doi:10.1/B'); // the paper's key as filed, not one made from its DOI
+    expect(cand).not.toHaveProperty('paper');
   });
 
   it('says on the button how many want a PDF, and how many only for their figures', () => {

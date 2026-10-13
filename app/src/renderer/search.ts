@@ -480,7 +480,7 @@ function onCollect(ev: Record<string, unknown>): void {
     if (stage === 'not-a-paper' || stage === 'download-failed') box.append(el('span', 'conf low', String(ev['reason'] ?? 'the download failed')));
   }
   if (stage === 'caught' && ev['path']) {
-    // read at once, as a dropped file is, under the identifiers of the candidate it was caught for
+    // read at once, as a dropped file is, under the identifiers of the candidate it was caught for — or, caught for an XML paper's figures, for that paper
     const path = String(ev['path']);
     log('stage', `caught ${path.split(/[\\/]/).pop()}: reading it`);
     void request('ingest', { lib, paths: [path], known: { [path]: ev['known'] ?? {} } }).catch((e: Error) => log('error', `ingest: ${e.message}`));
