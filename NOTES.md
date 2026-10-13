@@ -89,6 +89,22 @@ when it turns out durable. Mark inference as inference.
 
 ## Short-term memory
 
+- **2026-10-13: `figures_fetch` asks PMC for the XML papers already held (M9)** — No choice was
+  waiting (K6 as before: the op is asked for, so it runs with figures off). The op asks the PMC
+  Cloud Service, then EBI's bulk area, for the papers named, or every one Collect lists for its
+  figures, as a filing asks (M7), says PMC's answers in its `done`, then reads the PDFs it kept
+  (`force`: a merge's read that names no file would otherwise stand for a PDF it never saw). Live
+  on a copy of the scratch library, five held papers by `keys`: all five PDFs came from the PMC
+  Cloud Service (15 GETs to pmc-oa-opendata.s3.amazonaws.com, nothing else), all kept; done at
+  11.7 s, the read after it 158.5 s — 34 figures, plots pinned in 7, 24 plots, 14 read, 58
+  values (mi15070851 6/6 captioned; 2041731420974861 8/8, 11 of 19 plots read; ohx.2022.e00297
+  6/6; 0019-5154.177774 8/8; s13534-026-00561-4 0/6, Springer's "Fig. 1 Title" with nothing
+  after the number — kept under K11, the caption-style item in BACKLOG.md). `figures_wanted`
+  went from 117 to 112. The same keys again: nothing selected, no request. With both PMC bases
+  unreachable: asked 1, unreachable 2, no note on either. **Not run on the whole list**: 112
+  papers at 3 GETs each, then up to an hour of reading on the ingest thread — on Karim's word,
+  best in `keys` batches.
+
 - **2026-10-13: what each figure came to is recorded (M8)** — K16 was waiting; the plan's
   recommendation was taken (Karim's to overturn): the outcomes of reads made before are recorded by
   `figures {lib, record: true}`, run once per library on his word, and at the start of every

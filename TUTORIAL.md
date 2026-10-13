@@ -1294,10 +1294,11 @@ from charts group by paper, figure order by plots desc
 ```json
 {"op": "figures", "lib": "archive"}
 {"op": "figures", "lib": "archive", "keys": ["doi:10.1159/000220598"], "force": true}
+{"op": "figures_fetch", "lib": "archive", "keys": ["doi:10.3390/mi15070851"]}
 {"op": "charts", "lib": "archive", "figure": "doi:10.1159/000220598#section-6#section-6#picture-2"}
 ```
 
-`figures` waits in the reading queue and skips papers already read unless `force` is set. `charts` answers at once, for a `figure` or a paper's `key`.
+`figures` waits in the reading queue and skips papers already read unless `force` is set. `figures_fetch` asks PMC for the PDF of each XML paper named, or of every paper Collect lists for its figures, as a filing asks it; PMC's settled answer is not asked again unless `again` is set. It says what PMC answered before it reads the charts of the PDFs it kept, which can take minutes a paper. `charts` answers at once, for a `figure` or a paper's `key`.
 
 ### Good to know
 
@@ -1309,7 +1310,7 @@ from charts group by paper, figure order by plots desc
 - **Panel letters can be misread.** "(b)" was stored as Q, so Query cannot match "Figure 2b".
 - **Not read yet:** curves without markers, box, violin and dot plots, horizontal bars. A curve may still give stray points, like Figure 2's "(A) Stress (MPa)".
 - **A cut-off read leaves no numbers.** Run `figures` without `keys`, or click **Read the figures**.
-- **`LITRAG_FIGURES=off`** skips the figures stage and the ask of PMC for an XML paper's PDF, at a fetch or a drop. **Read the figures** and the `figures` op still read. A PDF you drop for an XML paper is kept, not read, until you ask.
+- **`LITRAG_FIGURES=off`** skips the figures stage and the ask of PMC for an XML paper's PDF, at a fetch or a drop. **Read the figures** and the `figures` op still read, and `figures_fetch` still asks. A PDF you drop for an XML paper is kept, not read, until you ask.
 
 ## The citation graph
 
@@ -2127,7 +2128,7 @@ Set a switch in the environment before you start the app or the worker, since th
 | `LITRAG_LANES` | on | `off`: no embedder, so what the rules do not name reads `other`, and nothing is embedded at save |
 | `LITRAG_LANES_MODEL` | `nomic-embed-text` | The embedder, for headings and passages |
 | `LITRAG_EMBED` | on | `off`: passages are not embedded as each paper is saved; **Embed passages** still works |
-| `LITRAG_FIGURES` | on | `off`: no chart reading as papers are read, no PMC ask for an XML paper's PDF when it is filed, and no figure entries on Collect PDFs; a PDF dropped for an XML paper is kept, not read; the `figures` op still reads them |
+| `LITRAG_FIGURES` | on | `off`: no chart reading as papers are read, no PMC ask for an XML paper's PDF when it is filed, and no figure entries on Collect PDFs; a PDF dropped for an XML paper is kept, not read; the `figures` op still reads them, and `figures_fetch` still asks PMC |
 | `LITRAG_JUDGE` | off | `1`: the chat model judges page-break pairs on every ingest and reparse |
 | `LITRAG_JUDGE_MODEL` | `qwen3:14b` | The judge's model, unless `library.json` names one under `ollama.chat` |
 | `LITRAG_OUTLINE` | off | `on`: the outline judge reads every paper on ingest and reparse |
