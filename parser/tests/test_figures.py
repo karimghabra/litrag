@@ -94,7 +94,8 @@ def test_a_paper_s_figures_become_rows_and_are_found_again_after_a_rebuild(tmp_p
     # a rebuild renumbers the nodes: the plots follow their figure by its page and place
     conn.execute("UPDATE nodes SET node_id = replace(node_id, '#picture-', '#figure-x') WHERE type = 'picture'")
     conn.commit()
-    assert figures.remap(conn, key) == 3
+    assert figures.remap(conn, key) == {"moved": 3, "removed": 0, "lost": []}
+    assert figures.is_read(conn, key)  # every plot followed its figure: nothing to read again
     assert conn.execute("SELECT COUNT(*) FROM charts WHERE figure LIKE '%#figure-x%'").fetchone()[0] == 3
     assert conn.execute("SELECT COUNT(*) FROM chart_values WHERE figure LIKE '%#picture-%'").fetchone()[0] == 0
     # read again: the rows replaced, not added to
@@ -252,10 +253,166 @@ def test_an_xml_paper_s_figures_are_read_from_a_pdf_of_it_and_pinned_by_their_ca
     names = [s["name"] for s in image["series"]]  # named, or left unnamed: never misnamed
     assert names[:2] == ["TCP", "Circle 50"] and names[2] in ("Rhombus 50", None) and "change" in image["y"]["label"]
     assert abs(next(v["y"] for v in figures.of_figure(conn, f"{key}#section-1#picture-1")[1]["series"][0]["values"] if v["category"] == "ELAC") - 31.0) < 0.6
-    # a rebuild renumbers the XML's figures: the plots follow their number
+    # a rebuild renumbers the XML's figures: the plots follow their number, and the read stands
+    conn.execute("UPDATE papers SET figures_file = 'page_paper.pdf' WHERE key = ?", (key,))
     conn.execute("UPDATE nodes SET node_id = replace(node_id, '#picture-', '#fig-'), parent = replace(parent, '#picture-', '#fig-') WHERE paper = ?", (key,))
     conn.commit()
-    assert figures.remap(conn, key) == 3 and {r[0] for r in conn.execute("SELECT DISTINCT figure FROM chart_values")} == {f"{key}#section-1#fig-1", f"{key}#section-1#fig-2"}
+    assert figures.is_read(conn, key)
+    assert figures.remap(conn, key)["moved"] == 3 and {r[0] for r in conn.execute("SELECT DISTINCT figure FROM chart_values")} == {f"{key}#section-1#fig-1", f"{key}#section-1#fig-2"}
+    assert figures.is_read(conn, key)
+
+
+def _plots(conn, key, figure, label=None, n=1, page=None, bbox=None, y=0.0):
+    """`n` plots of a figure as a read leaves them, one value each (`y`, `y + 1`, …)."""
+    figures.ensure_schema(conn)
+    for j in range(n):
+        conn.execute("INSERT INTO charts(paper, figure, figure_label, plot, page, bbox, status, source, reader, at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                     (key, figure, label, j, page, json.dumps(bbox) if bbox else None, "read", "vector", figures.READER, "t"))
+        conn.execute("INSERT INTO chart_values(paper, figure, plot, series, ordinal, y) VALUES (?,?,?,?,?,?)", (key, figure, j, 0, 0, y + j))
+    conn.commit()
+
+
+def test_two_figures_that_trade_numbers_trade_their_plots(tmp_path):
+    conn = open_store(tmp_path / "store.sqlite")
+    key = _xml_paper(conn)
+    p1, p2 = f"{key}#section-1#picture-1", f"{key}#section-1#picture-2"
+    _plots(conn, key, p1, "1", n=2, y=10)
+    _plots(conn, key, p2, "2", y=20)
+    # a reading that sets the two the other way round: the XML's figure 1 is the second picture now
+    conn.execute("UPDATE nodes SET text = CASE parent WHEN ? THEN 'Figure 2 What figure 2 shows.' ELSE 'Figure 1 What figure 1 shows.' END WHERE parent IN (?, ?)", (p1, p1, p2))
+    conn.commit()
+    assert figures.remap(conn, key) == {"moved": 3, "removed": 0, "lost": []}  # both had a plot 0: moved through a name of their own, never onto each other
+    assert [tuple(r) for r in conn.execute("SELECT figure, figure_label, plot FROM charts ORDER BY figure, plot")] == [(p1, "2", 0), (p2, "1", 0), (p2, "1", 1)]
+    assert [tuple(r) for r in conn.execute("SELECT figure, plot, y FROM chart_values ORDER BY figure, plot")] == [(p1, 0, 20.0), (p2, 0, 10.0), (p2, 1, 11.0)]
+
+
+def test_a_plot_whose_number_this_reading_has_not_is_removed_and_the_paper_read_again(tmp_path):
+    conn = open_store(tmp_path / "store.sqlite")
+    key = _xml_paper(conn)
+    p1, p2 = f"{key}#section-1#picture-1", f"{key}#section-1#picture-2"
+    _plots(conn, key, p1, "1", n=2)
+    _plots(conn, key, p2, "2")
+    conn.execute("UPDATE papers SET figures_file = 'paper.figures.pdf' WHERE key = ?", (key,))
+    conn.execute("INSERT INTO figure_reads(paper, reader, figures, plots, read, values_, at, file) VALUES (?,?,?,?,?,?,?,?)", (key, figures.READER, 3, 3, 3, 3, "t", "paper.figures.pdf"))
+    conn.commit()
+    assert figures.is_read(conn, key)
+    conn.execute("UPDATE nodes SET text = 'Scheme 9 What was figure 2.' WHERE parent = ?", (p2,))  # this reading's caption: figure 2 is a scheme
+    conn.commit()
+    assert figures.remap(conn, key) == {"moved": 0, "removed": 1, "lost": ["2"]}
+    assert [tuple(r) for r in conn.execute("SELECT figure, figure_label FROM charts")] == [(p1, "1"), (p1, "1")]
+    assert conn.execute("SELECT COUNT(*) FROM chart_values WHERE figure = ?", (p2,)).fetchone()[0] == 0
+    assert conn.execute("SELECT COUNT(*) FROM figure_reads").fetchone()[0] == 0 and not figures.is_read(conn, key)  # the figures op reads it again
+    assert figures.remap(conn, key) == {"moved": 0, "removed": 0, "lost": []}  # twice is once
+
+
+def _read(conn, key, file):
+    """The paper's figures read, by this reader, from `file`."""
+    figures.ensure_schema(conn)
+    conn.execute("INSERT OR REPLACE INTO figure_reads(paper, reader, figures, plots, read, values_, at, file) VALUES (?,?,?,?,?,?,?,?)", (key, figures.READER, 2, 2, 2, 2, "t", file))
+    conn.commit()
+
+
+def _pictures_at(conn, key, places):
+    """The paper's pictures as a reading draws them, numbered in the order given: `places`,
+    [(page, (left, top, right, bottom))]."""
+    conn.execute("DELETE FROM nodes WHERE paper = ? AND type = 'picture'", (key,))
+    for i, (page, (l, t, r, b)) in enumerate(places, 1):
+        conn.execute("INSERT INTO nodes(node_id, paper, parent, ordinal, depth, type, label, role, ancestry, text, page, bbox_l, bbox_t, bbox_r, bbox_b) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                     (f"{key}#section-1#picture-{i}", key, f"{key}#section-1", i, 2, "picture", "picture", "results", '["3 Results"]', "", page, l, t, r, b))
+    conn.commit()
+    return [f"{key}#section-1#picture-{i}" for i in range(1, len(places) + 1)]
+
+
+A, B, C = (50.0, 80.0, 400.0, 330.0), (50.0, 400.0, 400.0, 650.0), (225.0, 80.0, 575.0, 330.0)  # two figures one above the other, and one half across the first
+
+
+def _nudged(box, pt):
+    """A box drawn by another reading: its left edge `pt` further in."""
+    return (box[0] + pt, *box[1:])
+
+
+def test_a_pdf_figure_drawn_a_little_differently_keeps_its_plots_whatever_its_id_now(tmp_path):
+    conn, key, _ = _store(tmp_path, ["panels_two", "bars_grouped"])
+    p1, p2 = (f"{key}#section-1#picture-{i}" for i in (1, 2))
+    for i, f in ((1, p1), (2, p2)):
+        r = conn.execute("SELECT bbox_l, bbox_t, bbox_r, bbox_b FROM nodes WHERE node_id = ?", (f,)).fetchone()
+        _plots(conn, key, f, page=i, bbox=[round(v, 2) for v in tuple(r)], y=10 * i)
+    conn.execute("UPDATE nodes SET bbox_r = bbox_r - 3 WHERE type = 'picture'")  # this reading draws both boxes 3 pt narrower
+    conn.execute("UPDATE nodes SET node_id = ? WHERE node_id = ?", (f"{key}#section-1#picture-9", p2))  # and the second under another id
+    conn.commit()
+    assert figures.remap(conn, key) == {"moved": 1, "removed": 0, "lost": []}  # the first where it was; the second found by its place
+    assert [tuple(r) for r in conn.execute("SELECT figure, y FROM chart_values ORDER BY y")] == [(p1, 10.0), (f"{key}#section-1#picture-9", 20.0)]
+
+
+@pytest.mark.parametrize("reading", [
+    [(1, _nudged(B, 1)), (1, _nudged(A, 1))],  # the two the other way round, both a point off
+    [(1, B), (1, _nudged(A, 1))],  # the other way round, only one of them off: the one exactly in place is not crowded out
+    [(1, C), (1, _nudged(A, 0.5)), (1, _nudged(B, 0.5))],  # a picture read before both: every id after it one on
+])
+def test_two_figures_on_a_page_whose_ids_another_reading_trades_trade_their_plots(tmp_path, reading):
+    """Each plot follows the place its figure had, never the id another picture has now — once,
+    a plot kept its id while that was still a picture on its page, whichever."""
+    conn, key, _ = _store(tmp_path, ["panels_two"])
+    a, b = _pictures_at(conn, key, [(1, A), (1, B)])
+    _plots(conn, key, a, page=1, bbox=list(A), y=10)
+    _plots(conn, key, b, page=1, bbox=list(B), y=20)
+    _read(conn, key, "paper.pdf")
+    _pictures_at(conn, key, reading)
+    assert figures.remap(conn, key) == {"moved": 2, "removed": 0, "lost": []}
+    assert [tuple(r) for r in conn.execute("SELECT v.y, n.bbox_t FROM chart_values v JOIN nodes n ON n.node_id = v.figure ORDER BY v.y")] == [(10.0, A[1]), (20.0, B[1])]
+    assert figures.is_read(conn, key)  # moved, every one: nothing to read again
+
+
+def test_a_node_s_id_alone_never_keeps_a_plot(tmp_path):
+    conn, key, _ = _store(tmp_path, ["panels_two"])
+    a, b = _pictures_at(conn, key, [(1, A), (2, B)])
+    _plots(conn, key, a, page=1, bbox=list(A))
+    _plots(conn, key, b, page=2, bbox=list(B), y=5)
+    _plots(conn, key, f"{key}#section-1#picture-8", y=9)  # a plot with neither a number nor a place
+    _read(conn, key, "paper.pdf")
+    _pictures_at(conn, key, [(1, C), (1, B)])  # picture-1 still on page 1, drawn half a figure across; picture-2 on page 1 now, and page 2 holds none
+    assert figures.remap(conn, key) == {"moved": 0, "removed": 3, "lost": ["page 1", "page 2", "no page"]}
+    assert conn.execute("SELECT COUNT(*) FROM charts").fetchone()[0] == 0 and not figures.is_read(conn, key)
+
+
+def test_two_pictures_drawn_in_one_place_keep_their_own_plots_until_neither_is_there(tmp_path):
+    """A picture read twice over: its place cannot tell the two apart, so each keeps its plots
+    while its own id is one of the two there, and none once neither is."""
+    conn, key, _ = _store(tmp_path, ["panels_two"])
+    a, b = _pictures_at(conn, key, [(1, A), (1, A)])
+    _plots(conn, key, a, page=1, bbox=list(A), y=10)
+    _plots(conn, key, b, page=1, bbox=list(A), y=20)
+    _pictures_at(conn, key, [(1, A), (1, _nudged(A, 1))])
+    assert figures.remap(conn, key) == {"moved": 0, "removed": 0, "lost": []}
+    _pictures_at(conn, key, [(1, C), (1, B), (1, A), (1, A)])
+    assert figures.remap(conn, key) == {"moved": 0, "removed": 2, "lost": ["page 1"]}
+
+
+def test_a_plot_pinned_to_a_number_this_reading_lacks_is_removed_even_where_a_picture_sits(tmp_path):
+    conn, key, _ = _store(tmp_path, ["panels_two"])
+    (a,) = _pictures_at(conn, key, [(1, A)])
+    _plots(conn, key, a, "7", page=1, bbox=list(A))  # pinned by its caption: to that number or nowhere, never to a place
+    assert figures.remap(conn, key) == {"moved": 0, "removed": 1, "lost": ["7"]}
+
+
+def test_a_removal_is_said_as_a_person_reads_it():
+    assert [figures.figure_name(k) for k in ("2", "S2", "Scheme 1", "Chart 2", "page 4", "no page")] == ["Figure 2", "Figure S2", "Scheme 1", "Chart 2", "page 4", "no page"]
+    assert figures.removed_note({"moved": 3, "removed": 0, "lost": []}) is None
+    assert figures.removed_note({"moved": 0, "removed": 1, "lost": ["Scheme 1"]}) == "1 plot no longer has a figure in this reading (Scheme 1): removed; the figures op reads it again"
+    assert figures.removed_note({"moved": 0, "removed": 3, "lost": ["2", "page 4"]}) == "3 plots no longer have a figure in this reading (Figure 2, page 4): removed; the figures op reads them again"
+
+
+def test_a_figure_claimed_twice_or_holding_plots_of_its_own_takes_none(tmp_path):
+    conn = open_store(tmp_path / "store.sqlite")
+    key = _xml_paper(conn)
+    p3 = f"{key}#section-1#picture-3"
+    _plots(conn, key, p3, "3")  # figure 3's own plot: it stays
+    _plots(conn, key, f"{key}#section-1#picture-7", "3", n=2)  # an earlier reading's figure 3, and figure 3 already holds a plot 0
+    _plots(conn, key, f"{key}#gone-a", "1")
+    _plots(conn, key, f"{key}#gone-b", "1")  # two figures pinned to "1": which is it is not known
+    assert figures.remap(conn, key) == {"moved": 0, "removed": 4, "lost": ["3", "1"]}  # no IntegrityError
+    assert [tuple(r) for r in conn.execute("SELECT figure, plot FROM charts")] == [(p3, 0)]
+    assert [tuple(r) for r in conn.execute("SELECT figure, plot FROM chart_values")] == [(p3, 0)]
 
 
 def test_a_pdf_arriving_for_an_xml_paper_is_kept_for_its_figures_and_read(tmp_path, capsys):
@@ -284,4 +441,319 @@ def test_a_pdf_arriving_for_an_xml_paper_is_kept_for_its_figures_and_read(tmp_pa
     assert conn.execute("SELECT COUNT(*) FROM charts WHERE paper = ? AND status = 'read'", (key,)).fetchone()[0] == 3
     assert figures.figures_wanted(conn) == [] and figures.is_read(conn, key)
     assert any(e["event"] == "log" and "charts read from the PDF beside the XML" in e["message"] for e in events)
+    conn.close()
+
+
+# -- plots through a rebuild, a reparse and a reread ----------------------------------------------------------
+
+
+def test_a_rebuild_moves_each_plot_by_its_number_and_removes_the_one_it_has_no_figure_for(tmp_path, capsys):
+    """The micromachines paper's saved Docling document rebuilt (the test_studio_ops pattern), its
+    plots left by an earlier reading: figures 1 and 2 on each other's ids, and a figure 99 this
+    reading has not. The two trade their plots — once an IntegrityError that refused the paper's
+    rebuild — and figure 99's go, said in an events row and a log line."""
+    from litrag_parser.library import safe_key
+    from litrag_parser.worker import Worker
+
+    from test_worker import FIXTURES, by, talk
+
+    assert by(talk(tmp_path, [{"id": "1", "op": "init", "name": "Micromachines"}]), "1")[0]["event"] == "library"
+    lib = tmp_path / "micromachines"
+    conn = open_store(lib / "store.sqlite")
+    key = file_paper(conn, title="x", file="", sha256="aa", fmt="jats", doi="10.3390/mi15070851", pmid=None, pmcid=None, now="t").key
+    shutil.copy(FIXTURES / "PMC11278924.xml", lib / "papers" / "paper.xml")
+    shutil.copy(FIXTURES / "PMC11278924.jats.docling.json", lib / "parsed" / f"{safe_key(key)}.docling.json")
+    conn.execute("UPDATE papers SET file = 'paper.xml', status = 'parsed', figures_file = 'paper.figures.pdf' WHERE key = ?", (key,))
+    one, two = f"{key}#section-3#section-8#picture-2", f"{key}#section-3#section-8#picture-4"  # figures 1 and 2, in this reading
+    _plots(conn, key, two, "1", y=10)
+    _plots(conn, key, one, "2", y=20)
+    _plots(conn, key, f"{key}#section-4#section-9#picture-1", "99", n=2)
+    conn.execute("INSERT INTO figure_reads(paper, reader, figures, plots, read, values_, at, file) VALUES (?,?,?,?,?,?,?,?)", (key, figures.READER, 7, 4, 4, 4, "t", "paper.figures.pdf"))
+    conn.commit()
+    conn.close()
+    Worker(tmp_path).do_rebuild({"id": "r", "op": "rebuild", "lib": "micromachines"})
+    events = [json.loads(line) for line in capsys.readouterr().out.splitlines() if line.strip()]
+    assert (events[-1]["rebuilt"], events[-1]["refused"]) == ([key], [])
+    conn = open_store(lib / "store.sqlite")
+    assert [tuple(r) for r in conn.execute("SELECT figure, figure_label FROM charts ORDER BY figure_label")] == [(one, "1"), (two, "2")]
+    assert [tuple(r) for r in conn.execute("SELECT figure, y FROM chart_values ORDER BY y")] == [(one, 10.0), (two, 20.0)]
+    said = "2 plots no longer have a figure in this reading (Figure 99): removed; the figures op reads them again"
+    assert [r[0] for r in conn.execute("SELECT detail FROM events WHERE paper = ? AND stage = 'figures'", (key,))] == [said]
+    assert [(e["id"], e["paper"], e["logger"], e["message"]) for e in events if e["event"] == "log"] == [("r", key, "figures", said)]
+    assert not figures.is_read(conn, key)
+    conn.close()
+    Worker(tmp_path).do_rebuild({"id": "s", "op": "rebuild", "lib": "micromachines"})  # again: every plot where it belongs, nothing to say
+    conn = open_store(lib / "store.sqlite")
+    assert conn.execute("SELECT COUNT(*) FROM events WHERE paper = ? AND stage IN ('figures', 'rebuild-refused')", (key,)).fetchone()[0] == 1
+    assert conn.execute("SELECT COUNT(*) FROM charts").fetchone()[0] == 2
+    conn.close()
+
+
+def test_a_reparse_moves_the_plots_and_removes_those_it_has_no_figure_for_with_the_figures_off(tmp_path, monkeypatch, capsys):
+    """parse_one, the layout stood in by the micromachines paper's saved Docling document, over a
+    paper an earlier reading had read into three figures, 1, 2 and 9: figure 2's plots follow
+    their number into the new nodes and figure 9's go — with the figures off, so before any read."""
+    from litrag_parser.library import create_library
+    from litrag_parser.worker import Worker
+
+    from test_worker import FIXTURES
+
+    monkeypatch.setenv("LITRAG_FIGURES", "off")
+    monkeypatch.setenv("LITRAG_BOUNDARY", "off")
+    monkeypatch.delenv("LITRAG_JUDGE", raising=False)
+    lib = create_library(tmp_path, "Micromachines")
+    conn = open_store(lib.store_path)
+    key = _xml_paper(conn, caps=["Figure 1 What figure 1 shows.", "Figure 2 What figure 2 shows.", "Figure 9 What figure 9 shows."])
+    shutil.copy(FIXTURES / "PMC11278924.xml", lib.papers_dir / "paper.xml")
+    _plots(conn, key, f"{key}#section-1#picture-2", "2", n=2)
+    _plots(conn, key, f"{key}#section-1#picture-3", "9")
+    doc = (FIXTURES / "PMC11278924.jats.docling.json").read_text("utf-8")
+
+    def layout(self, lib, key, path, raw_path, *rest):
+        raw_path.write_text(doc, "utf-8")
+        return json.loads(doc)
+
+    monkeypatch.setattr(Worker, "layout", layout)
+    Worker(tmp_path).parse_one(lib, key, lib.papers_dir / "paper.xml", "p")
+    events = [json.loads(line) for line in capsys.readouterr().out.splitlines() if line.strip()]
+    assert conn.execute("SELECT status FROM papers WHERE key = ?", (key,)).fetchone()[0] == "parsed"
+    assert [tuple(r) for r in conn.execute("SELECT figure, figure_label, plot FROM charts ORDER BY plot")] == [(f"{key}#section-3#section-8#picture-4", "2", 0), (f"{key}#section-3#section-8#picture-4", "2", 1)]
+    assert conn.execute("SELECT COUNT(*) FROM charts WHERE figure_label = '9'").fetchone()[0] == 0
+    said = "1 plot no longer has a figure in this reading (Figure 9): removed; the figures op reads it again"
+    assert [r[0] for r in conn.execute("SELECT detail FROM events WHERE paper = ? AND stage = 'figures'", (key,))] == [said]
+    assert any(e["event"] == "log" and e["logger"] == "figures" and e["message"] == said and e["id"] == "p" for e in events)
+
+
+def test_a_reparse_that_fails_after_the_nodes_are_replaced_leaves_no_plot_on_a_node_that_is_gone(tmp_path, monkeypatch):
+    """The plots follow their figures as soon as the nodes are replaced: a step after that which
+    fails fails the paper, never the plots."""
+    from litrag_parser import worker
+    from litrag_parser.library import create_library
+    from litrag_parser.worker import Worker
+
+    from test_worker import FIXTURES
+
+    monkeypatch.setenv("LITRAG_FIGURES", "off")
+    monkeypatch.setenv("LITRAG_BOUNDARY", "off")
+    monkeypatch.delenv("LITRAG_JUDGE", raising=False)
+    lib = create_library(tmp_path, "Micromachines")
+    conn = open_store(lib.store_path)
+    key = _xml_paper(conn, caps=["Figure 1 What figure 1 shows.", "Figure 2 What figure 2 shows.", "Figure 9 What figure 9 shows."])
+    shutil.copy(FIXTURES / "PMC11278924.xml", lib.papers_dir / "paper.xml")
+    _plots(conn, key, f"{key}#section-1#picture-2", "2")
+    _plots(conn, key, f"{key}#section-1#picture-3", "9")
+    doc = (FIXTURES / "PMC11278924.jats.docling.json").read_text("utf-8")
+
+    def layout(self, lib, key, path, raw_path, *rest):
+        raw_path.write_text(doc, "utf-8")
+        return json.loads(doc)
+
+    def fails(*a, **kw):
+        raise RuntimeError("a later step fails")
+
+    monkeypatch.setattr(Worker, "layout", layout)
+    monkeypatch.setattr(worker, "link_edges", fails)
+    Worker(tmp_path).parse_one(lib, key, lib.papers_dir / "paper.xml", "p")
+    assert conn.execute("SELECT status FROM papers WHERE key = ?", (key,)).fetchone()[0] == "failed"
+    assert [tuple(r) for r in conn.execute("SELECT figure, figure_label FROM charts")] == [(f"{key}#section-3#section-8#picture-4", "2")]
+    assert conn.execute("SELECT COUNT(*) FROM events WHERE paper = ? AND stage = 'figures'", (key,)).fetchone()[0] == 1
+
+
+def _rereading(monkeypatch):
+    """parse_one stood in for: which paper would be read, from which file."""
+    from litrag_parser.worker import Worker
+
+    read = []
+    monkeypatch.setattr(Worker, "parse_one", lambda self, lib, key, path, *rest, **kw: read.append((key, path.name)))
+    return read
+
+
+def test_a_pdf_reread_over_an_xml_paper_no_longer_reads_the_pdf_kept_beside_it(tmp_path, monkeypatch):
+    from litrag_parser.library import create_library, safe_key
+    from litrag_parser.worker import Worker
+
+    read = _rereading(monkeypatch)
+    lib = create_library(tmp_path, "Threads")
+    conn = open_store(lib.store_path)
+    key = _xml_paper(conn)
+    (lib.papers_dir / "paper.xml").write_text("<article/>")
+    shutil.copy(CHARTS / "page_paper.pdf", lib.papers_dir / "paper.figures.pdf")
+    conn.execute("UPDATE papers SET figures_file = 'paper.figures.pdf' WHERE key = ?", (key,))
+    conn.commit()
+    conn.close()
+    dropped = lib.inbox_dir / "the-paper.pdf"
+    shutil.copy(CHARTS / "page_paper.pdf", dropped)
+    Worker(tmp_path).do_ingest({"id": "i", "op": "ingest", "lib": lib.id, "paths": [str(dropped)], "offline": True, "reread": True,
+                                "known": {str(dropped): {"doi": "10.3390/mi15070851"}}})
+    conn = open_store(lib.store_path)
+    own = f"{safe_key(key)}.pdf"
+    assert tuple(conn.execute("SELECT file, format, figures_file FROM papers WHERE key = ?", (key,)).fetchone()) == (own, "pdf", None)
+    assert read == [(key, own)]
+    filed = [r[0] for r in conn.execute("SELECT detail FROM events WHERE paper = ? AND stage = 'filed' ORDER BY id", (key,))]
+    assert filed == ["read from its PDF now: paper.figures.pdf, kept beside its XML for its figures, is no longer read", "seen before: the-paper.pdf"]
+    assert (lib.papers_dir / "paper.figures.pdf").exists()  # not read, not thrown away
+    conn.close()
+
+
+def test_an_xml_reread_over_a_pdf_paper_keeps_its_pdf_beside_it_for_its_figures(tmp_path, monkeypatch):
+    from litrag_parser.library import create_library, safe_key
+    from litrag_parser.worker import Worker
+
+    from test_worker import FIXTURES
+
+    read = _rereading(monkeypatch)
+    lib = create_library(tmp_path, "Micromachines")
+    conn = open_store(lib.store_path)
+    key = file_paper(conn, title="x", file="", sha256="p1", fmt="pdf", doi="10.3390/mi15070851", pmid=None, pmcid=None, now="t").key
+    own = f"{safe_key(key)}.pdf"
+    shutil.copy(CHARTS / "page_paper.pdf", lib.papers_dir / own)
+    conn.execute("UPDATE papers SET file = ?, status = 'parsed' WHERE key = ?", (own, key))
+    figures.ensure_schema(conn)
+    conn.execute("INSERT INTO figure_reads(paper, reader, figures, plots, read, values_, at, file) VALUES (?,?,?,?,?,?,?,?)", (key, figures.READER, 2, 0, 0, 0, "t", own))
+    conn.commit()
+    assert figures.is_read(conn, key)
+    conn.close()
+    dropped = lib.inbox_dir / "PMC11278924.xml"
+    shutil.copy(FIXTURES / "PMC11278924.xml", dropped)
+    Worker(tmp_path).do_ingest({"id": "i", "op": "ingest", "lib": lib.id, "paths": [str(dropped)], "offline": True, "reread": True})
+    conn = open_store(lib.store_path)
+    assert tuple(conn.execute("SELECT file, format, figures_file FROM papers WHERE key = ?", (key,)).fetchone()) == (f"{safe_key(key)}.xml", "jats", own)
+    assert read == [(key, f"{safe_key(key)}.xml")]
+    filed = [r[0] for r in conn.execute("SELECT detail FROM events WHERE paper = ? AND stage = 'filed' ORDER BY id", (key,))]
+    assert filed == [f"read from its XML now: its PDF {own} is kept beside it for its figures", "seen before: PMC11278924.xml"]
+    # the same file draws its figures, but read as the paper's own pictures: the XML's are read from its pages, again
+    assert not figures.is_read(conn, key)
+    conn.close()
+
+
+def _refile(tmp_path, lib, path, reread=True, doi=None):
+    """A file dropped for a paper the library holds, offline, read again when `reread`."""
+    from litrag_parser.worker import Worker
+
+    Worker(tmp_path).do_ingest({"id": "i", "op": "ingest", "lib": lib.id, "paths": [str(path)], "offline": True, "reread": reread, **({"known": {str(path): {"doi": doi}}} if doi else {})})
+
+
+def _pdf_paper(lib, status="parsed", on_disk=True):
+    """A paper read from its own PDF, `<safe>.pdf`: its key and that file's name."""
+    from litrag_parser.library import safe_key
+
+    conn = open_store(lib.store_path)
+    key = file_paper(conn, title="x", file="", sha256="p1", fmt="pdf", doi="10.3390/mi15070851", pmid=None, pmcid=None, now="t").key
+    own = f"{safe_key(key)}.pdf"
+    if on_disk:
+        shutil.copy(CHARTS / "page_paper.pdf", lib.papers_dir / own)
+    conn.execute("UPDATE papers SET file = ?, status = ? WHERE key = ?", (own, status, key))
+    conn.commit()
+    conn.close()
+    return key, own
+
+
+def test_a_reread_in_the_same_format_leaves_what_draws_the_figures_alone(tmp_path, monkeypatch):
+    from litrag_parser.library import create_library
+
+    from test_worker import FIXTURES
+
+    read = _rereading(monkeypatch)
+    lib = create_library(tmp_path, "Micromachines")
+    conn = open_store(lib.store_path)
+    key = _xml_paper(conn)
+    shutil.copy(FIXTURES / "PMC11278924.xml", lib.papers_dir / "paper.xml")
+    shutil.copy(CHARTS / "page_paper.pdf", lib.papers_dir / "paper.figures.pdf")
+    conn.execute("UPDATE papers SET figures_file = 'paper.figures.pdf' WHERE key = ?", (key,))
+    _read(conn, key, "paper.figures.pdf")
+    conn.close()
+    dropped = lib.inbox_dir / "PMC11278924.xml"
+    shutil.copy(FIXTURES / "PMC11278924.xml", dropped)
+    _refile(tmp_path, lib, dropped)
+    conn = open_store(lib.store_path)
+    assert len(read) == 1 and conn.execute("SELECT figures_file FROM papers WHERE key = ?", (key,)).fetchone()[0] == "paper.figures.pdf"
+    assert conn.execute("SELECT COUNT(*) FROM events WHERE paper = ? AND detail LIKE 'read from its%'", (key,)).fetchone()[0] == 0
+    assert figures.is_read(conn, key)
+    conn.close()
+
+
+def test_an_xml_and_then_its_pdf_again_say_nothing_false_about_the_file_read(tmp_path, monkeypatch):
+    """There and back: the PDF kept beside the XML is the paper's own, and read again as the paper
+    is never said to be no longer read."""
+    from litrag_parser.library import create_library
+
+    from test_worker import FIXTURES
+
+    _rereading(monkeypatch)
+    lib = create_library(tmp_path, "Micromachines")
+    key, own = _pdf_paper(lib)
+    dropped = lib.inbox_dir / "PMC11278924.xml"
+    shutil.copy(FIXTURES / "PMC11278924.xml", dropped)
+    _refile(tmp_path, lib, dropped)
+    back = lib.inbox_dir / "again.pdf"
+    shutil.copy(CHARTS / "page_paper.pdf", back)
+    _refile(tmp_path, lib, back, doi="10.3390/mi15070851")
+    conn = open_store(lib.store_path)
+    assert tuple(conn.execute("SELECT file, format, figures_file FROM papers WHERE key = ?", (key,)).fetchone()) == (own, "pdf", None)
+    said = [r[0] for r in conn.execute("SELECT detail FROM events WHERE paper = ? AND detail LIKE 'read from its%' ORDER BY id", (key,))]
+    assert said == [f"read from its XML now: its PDF {own} is kept beside it for its figures", "read from its PDF now"]
+    conn.close()
+
+
+def test_an_xml_reread_over_a_pdf_no_longer_on_disk_keeps_nothing_beside_it(tmp_path, monkeypatch):
+    from litrag_parser.library import create_library
+
+    from test_worker import FIXTURES
+
+    _rereading(monkeypatch)
+    lib = create_library(tmp_path, "Micromachines")
+    key, _ = _pdf_paper(lib, on_disk=False)
+    dropped = lib.inbox_dir / "PMC11278924.xml"
+    shutil.copy(FIXTURES / "PMC11278924.xml", dropped)
+    _refile(tmp_path, lib, dropped)
+    conn = open_store(lib.store_path)
+    assert tuple(conn.execute("SELECT format, figures_file FROM papers WHERE key = ?", (key,)).fetchone()) == ("jats", None)
+    assert [r[0] for r in conn.execute("SELECT detail FROM events WHERE paper = ? AND detail LIKE 'read from its%'", (key,))] == ["read from its XML now"]
+    conn.close()
+
+
+def test_an_xml_for_a_pdf_paper_that_was_never_read_keeps_the_pdf_beside_it_unasked(tmp_path, monkeypatch):
+    """The format changes where the file is filed, so an XML arriving for a paper whose PDF failed
+    keeps that PDF for its figures without a reread."""
+    from litrag_parser.library import create_library
+
+    from test_worker import FIXTURES
+
+    read = _rereading(monkeypatch)
+    lib = create_library(tmp_path, "Micromachines")
+    key, own = _pdf_paper(lib, status="failed")
+    dropped = lib.inbox_dir / "PMC11278924.xml"
+    shutil.copy(FIXTURES / "PMC11278924.xml", dropped)
+    _refile(tmp_path, lib, dropped, reread=False)
+    conn = open_store(lib.store_path)
+    assert len(read) == 1 and tuple(conn.execute("SELECT format, figures_file FROM papers WHERE key = ?", (key,)).fetchone()) == ("jats", own)
+    conn.close()
+
+
+def test_the_judge_s_own_command_moves_the_plots_with_their_figures_too(tmp_path, monkeypatch, capsys):
+    """`python -m litrag_parser.judge` replaces a paper's nodes as a rebuild does, and its plots
+    follow their figures or go, said the same way. The model is stood in for: never asked."""
+    from litrag_parser import judge
+    from litrag_parser.library import create_library, safe_key
+
+    from test_worker import FIXTURES
+
+    monkeypatch.setattr(judge, "available", lambda *a, **kw: True)
+    monkeypatch.setattr(judge, "ask_ollama", lambda *a, **kw: None)
+    lib = create_library(tmp_path, "Micromachines")
+    conn = open_store(lib.store_path)
+    key = file_paper(conn, title="x", file="", sha256="aa", fmt="jats", doi="10.3390/mi15070851", pmid=None, pmcid=None, now="t").key
+    shutil.copy(FIXTURES / "PMC11278924.xml", lib.papers_dir / "paper.xml")
+    shutil.copy(FIXTURES / "PMC11278924.jats.docling.json", lib.parsed_dir / f"{safe_key(key)}.docling.json")
+    conn.execute("UPDATE papers SET file = 'paper.xml', status = 'parsed' WHERE key = ?", (key,))
+    one = f"{key}#section-3#section-8#picture-2"  # figure 1, in this reading
+    _plots(conn, key, f"{key}#an-earlier-reading#picture-1", "1", y=10)
+    _plots(conn, key, f"{key}#an-earlier-reading#picture-9", "99")
+    conn.close()
+    judge.main(["--lib", str(lib.dir), "--key", key])
+    conn = open_store(lib.store_path)
+    assert [tuple(r) for r in conn.execute("SELECT figure, y FROM chart_values")] == [(one, 10.0)]
+    said = "1 plot no longer has a figure in this reading (Figure 99): removed; the figures op reads it again"
+    assert [r[0] for r in conn.execute("SELECT detail FROM events WHERE paper = ? AND stage = 'figures'", (key,))] == [said]
+    assert said in capsys.readouterr().out
     conn.close()

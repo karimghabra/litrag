@@ -663,6 +663,12 @@ Each one wants a fixture or a test before its fix, as the spot-check does.
   Invariant 4 says running a stage twice changes nothing. One list of the
   note stages, kept where notes are made, and a test that a rebuild twice
   is one set; history rows ('filed', 'figures', 'saved') stay.
+- **An XML arriving for a paper read from its PDF** (2026-10-13) — it is
+  filed as the same paper and not read, since a paper already read stays as
+  it was read; only `reread` takes it. The XML is the better reading (its
+  structure, its reference list, its figures by number), and a reread from
+  it now keeps the old PDF beside it for its figures, so the window could
+  offer that reread when it happens rather than leave it to be known.
 - **A table group's own label** (found by the floats fix, 2026-10-11) — a
   `<table-wrap-group>` holding two tables (doi:10.1155/2012/309187's Table
   2, the only labelled one in a 152-XML library) is read with its caption

@@ -279,6 +279,20 @@ class Worker:
         for note in tree.notes:
             log_event(conn, key, now_iso(), str(note.get("kind", "note")), f"{note.get('node_id')}: {note.get('message')}")
 
+    @staticmethod
+    def _remap_figures(conn: Any, lib: Library, key: str, req_id: Any) -> dict[str, Any]:
+        """The paper's plots once its nodes are replaced: each follows its figure into the new
+        rows, or is removed (figures.remap), and a removal is said — an events row and a log line —
+        whether or not the figures are read after, so no plot is left on a node that is gone."""
+        from .figures import remap, removed_note
+
+        out = remap(conn, key)
+        message = removed_note(out)
+        if message:
+            log_event(conn, key, now_iso(), "figures", message)
+            emit({"event": "log", "id": req_id, "lib": lib.id, "paper": key, "logger": "figures", "message": message})
+        return out
+
     def scorer(self) -> Any:
         """The boundary scorer (boundary.py), built once and only when it is enabled and its
         model can be had; None otherwise. Never consulted by a plain `rebuild`."""
@@ -447,7 +461,7 @@ class Worker:
             known = known_all.get(str(raw)) or {}
             result = file_paper(conn, title=src.stem, file="", sha256=sha, fmt=fmt, doi=doi, pmid=pmid or known.get("pmid"), pmcid=pmcid or known.get("pmcid"), now=now_iso())
             keys[str(raw)] = result.key
-            row = conn.execute("SELECT status, file FROM papers WHERE key = ?", (result.key,)).fetchone()
+            row = conn.execute("SELECT status, file, format, figures_file FROM papers WHERE key = ?", (result.key,)).fetchone()
             if result.existed and fmt == "pdf" and row and (row["file"] or "").lower().endswith(".xml") and not req.get("reread"):
                 # The paper is its XML: the text, its structure. A PDF of it is kept beside it for
                 # what the XML only names — its figures, drawn — and read for their numbers.
@@ -485,6 +499,8 @@ class Worker:
                     if src.parent.resolve() == lib.inbox_dir.resolve():
                         src.unlink()  # the inbox is a doorway, not a shelf
                 conn.execute("UPDATE papers SET file = ?, format = ?, sha256 = ? WHERE key = ?", (dest.name, fmt, sha, result.key))
+                if result.existed and row and row["file"] and row["format"] and row["format"] != fmt:
+                    self._format_changed(conn, lib, result.key, row, fmt, dest)
             conn.commit()
             if not already and not req.get("offline") and (doi or pmid or pmcid):
                 record = lookup_record(doi, pmid, pmcid=pmcid)  # Europe PMC's word: who wrote it, where, when, and what kind of paper it is — kept with the paper
@@ -509,6 +525,28 @@ class Worker:
             conn.close()
         emit({"event": "done", "id": req_id, "op": "ingest", "lib": lib.id, "parsed": [k for k, _ in filed]})
         return keys
+
+    @staticmethod
+    def _format_changed(conn: Any, lib: Library, key: str, row: Any, fmt: str, dest: Path) -> None:
+        """A paper filed again from the other format (a reread, or a file arriving for a paper not
+        yet read): what draws its figures follows. Read from its PDF now, a PDF kept beside its
+        XML is no longer read; read from its XML now, its own PDF is kept beside it for its
+        figures — the paper's file, under the paper's own identifier, so there is nothing to check
+        it against. Either way the last read of its figures was made the other way, and goes, so
+        the figures op reads them again."""
+        from . import figures
+
+        figures.ensure_schema(conn)
+        conn.execute("DELETE FROM figure_reads WHERE paper = ?", (key,))
+        if fmt == "pdf":
+            conn.execute("UPDATE papers SET figures_file = NULL WHERE key = ?", (key,))
+            kept = row["figures_file"]
+            log_event(conn, key, now_iso(), "filed", "read from its PDF now" + (f": {kept}, kept beside its XML for its figures, is no longer read" if kept and kept != dest.name else ""))
+        else:
+            own = row["file"] if (lib.papers_dir / row["file"]).exists() else None  # a PDF no longer on disk is kept for nothing
+            if own:
+                conn.execute("UPDATE papers SET figures_file = ? WHERE key = ?", (own, key))
+            log_event(conn, key, now_iso(), "filed", "read from its XML now" + (f": its PDF {own} is kept beside it for its figures" if own else ""))
 
     def do_reparse(self, req: dict[str, Any]) -> None:
         lib = self._lib(req)
@@ -562,9 +600,7 @@ class Worker:
         if outline_enabled() or req.get("outline"):
             judge_outline(tree, conn, key, ask_model=ask, pub_types=row["pub_types"])  # a rebuild replays the outline's row; only the judge op asks the model
         n = save_tree(conn, key, tree, parser=f"{'judge ' + judge.model if ask else 'rebuild'} {__version__}", parsed_at=now_iso(), seconds=0.0)
-        from .figures import remap as remap_figures
-
-        remap_figures(conn, key)  # the charts stay; their figures are found again by their place on the page
+        self._remap_figures(conn, lib, key, req.get("id"))  # the charts stay; each follows its figure, or goes with a note
         xml = source.read_bytes() if row["format"] == "jats" and source and source.exists() else None
         if xml:
             journal, year = jats_journal(xml)
@@ -677,6 +713,7 @@ class Worker:
             if self.docling_version is None:
                 self.docling_version = docling_version()  # the layout child read it, and this process never built a converter
             n = save_tree(conn, key, tree, parser=f"docling {self.docling_version} · litrag-parser {__version__}", parsed_at=now_iso(), seconds=seconds)
+            self._remap_figures(conn, lib, key, req_id)  # as soon as the nodes are replaced: whatever fails after, and with the figures off, no plot is left on a node that is gone
             xml = path.read_bytes() if path.suffix.lower() == ".xml" else None
             if xml:
                 journal, year = jats_journal(xml)
