@@ -89,6 +89,22 @@ when it turns out durable. Mark inference as inference.
 
 ## Short-term memory
 
+- **2026-10-13: the window asks PMC, and says what it said (M10b)** — K15 was waiting; the plan's
+  recommendation was taken (Karim's to overturn): the Collect window never opens by itself for
+  papers that want a PDF only for their figures — a fetch that leaves some says so in the log.
+  Beside **Collect PDFs**, **Ask PMC for N figure PDFs** sends `figures_fetch` for the papers PMC
+  has not answered for; a figure of an XML paper with no PDF offers **Ask PMC for its PDF**, or
+  **Ask PMC again**; a Collect entry carries PMC's answer after its title, and Collect walks only
+  papers with an identifier. Words beyond §4: the asking line ends "PMC could not be reached for
+  N" (with the breaker, "asked PMC for 1, …, 2 could not be asked" would contradict itself), and a
+  PDF PMC served that the gate refused reads "PMC’s PDF of it was not kept (‹why›)." in the pane,
+  not "PMC has no PDF of it". In the real window, PMC stood in for on 127.0.0.1 (nothing left the
+  machine, by strace): the button read "Ask PMC for 117 figure PDFs", 115 after two asks from a
+  pane, and the run logged "asked PMC for 115". Left for Karim: the log lines keep §4's plural
+  ("1 PDFs kept"); while a PDF PMC gave is being read the pane still offers **Read the figures**
+  (a click then reads nothing); after **Ask PMC again** fails to reach PMC the pane still shows the
+  older settled answer (the log says what happened).
+
 - **2026-10-13: the window shows what each figure came to (M10a)** — K13, K14 and K6 were waiting;
   the plan's recommendations were taken (Karim's to overturn): §4's words as written, in one file
   (`app/src/renderer/figstate.ts`); **Read the figures** only on a figure whose paper was never

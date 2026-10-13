@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- **The window asks PMC for figure PDFs, and says what PMC said** (K15 taken as the plan recommends:
+  the Collect window never opens by itself for figure-only papers). **Ask PMC for N figure PDFs**
+  beside **Collect PDFs** asks for every XML paper PMC has not answered for; a figure's pane offers
+  **Ask PMC for its PDF**, or **Ask PMC again** once PMC answered or could not be reached; the log
+  says "figures: asked PMC for 5, 2 PDFs kept, 3 with none, PMC could not be reached for 0". A
+  Collect entry carries PMC's answer after its title and opens the open copy OpenAlex named, when
+  there is one; Collect counts and walks only the papers with a page to open. A fetch that leaves
+  XML papers wanting a PDF for their figures says so in the log. A failed `wanted` says so and
+  keeps the list it had.
+
 - **The window says what each paper's and each figure's figures came to** (K13, K14, K6 taken as
   the plan recommends). Each card carries a chip ("plots in 10 of 16 figures", "6 figures · no
   PDF", "figures not read", "figures PDF missing"), its title the counts behind it; each figure in
