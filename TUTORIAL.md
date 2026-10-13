@@ -375,7 +375,7 @@ A fetch tries each route in order and stops at the first that gives the paper. R
 | 4 | Europe PMC bulk area | a PMCID, open access or flagged with a PDF | the PDF, from EBI's zip |
 | 5 | Open copy | OpenAlex names one at a publisher's or repository's host | that PDF, kept only if its first three pages print the paper's DOI or whole title |
 
-OpenAlex names open copies for candidates a citation round has met (see The citation graph). With an XML, the paper's PDF is fetched too, from route 3 or 4, for its figures (see Figures as numbers). `LITRAG_FIGURES=off` stops that; `LITRAG_OPEN_COPIES=off` skips route 5.
+OpenAlex names open copies for candidates a citation round has met (see The citation graph). An XML paper, once filed, is asked of routes 3 and 4 for its PDF, for its figures (see Figures as numbers), as a dropped XML is; PMC's answer when it has none is kept on the paper, so it is asked once. `LITRAG_FIGURES=off` stops that; `LITRAG_OPEN_COPIES=off` skips route 5.
 
 When every route misses, the candidate needs a PDF, and its error lists each route's reason. When Europe PMC, NCBI or the Cloud Service could not be reached, it is "failed" instead: fetch it again later. A bot check ends route 5 with "the site asks for a browser (a bot check)".
 
@@ -1309,7 +1309,7 @@ from charts group by paper, figure order by plots desc
 - **Panel letters can be misread.** "(b)" was stored as Q, so Query cannot match "Figure 2b".
 - **Not read yet:** curves without markers, box, violin and dot plots, horizontal bars. A curve may still give stray points, like Figure 2's "(A) Stress (MPa)".
 - **A cut-off read leaves no numbers.** Run `figures` without `keys`, or click **Read the figures**.
-- **`LITRAG_FIGURES=off`** skips the figures stage and the PDF fetched beside an XML paper. **Read the figures** and the `figures` op still read. A PDF you drop for an XML paper is kept, not read, until you ask.
+- **`LITRAG_FIGURES=off`** skips the figures stage and the ask of PMC for an XML paper's PDF, at a fetch or a drop. **Read the figures** and the `figures` op still read. A PDF you drop for an XML paper is kept, not read, until you ask.
 
 ## The citation graph
 
@@ -2127,7 +2127,7 @@ Set a switch in the environment before you start the app or the worker, since th
 | `LITRAG_LANES` | on | `off`: no embedder, so what the rules do not name reads `other`, and nothing is embedded at save |
 | `LITRAG_LANES_MODEL` | `nomic-embed-text` | The embedder, for headings and passages |
 | `LITRAG_EMBED` | on | `off`: passages are not embedded as each paper is saved; **Embed passages** still works |
-| `LITRAG_FIGURES` | on | `off`: no chart reading as papers are read, and no PDF fetched for an XML paper's figures; the `figures` op still reads them |
+| `LITRAG_FIGURES` | on | `off`: no chart reading as papers are read, no PMC ask for an XML paper's PDF when it is filed, and no figure entries on Collect PDFs; a PDF dropped for an XML paper is kept, not read; the `figures` op still reads them |
 | `LITRAG_JUDGE` | off | `1`: the chat model judges page-break pairs on every ingest and reparse |
 | `LITRAG_JUDGE_MODEL` | `qwen3:14b` | The judge's model, unless `library.json` names one under `ollama.chat` |
 | `LITRAG_OUTLINE` | off | `on`: the outline judge reads every paper on ingest and reparse |
