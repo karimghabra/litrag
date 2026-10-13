@@ -12,9 +12,9 @@ Each picture node of a PDF paper is cut from its page (`crop`) and its charts re
 The rows are `charts`, one per plot found in a figure — read or unread, with the reason — and
 `chart_values`, one per bar or point: its series, its category or x, its y, and the ends of its
 error bar when they show. A plot's place on the page is kept beside the figure's node, so a
-rebuild that renumbers the nodes finds the figure again (`remap`). Reading a paper again
-replaces its rows; `READER` names the reader, and a paper read by this one is not read again
-unless asked.
+rebuild or a reparse that renumbers the nodes finds the figure again, or removes the plot whose
+figure this reading has not (`remap`). Reading a paper again replaces its rows; `READER` names
+the reader, and a paper read by this one is not read again unless asked.
 
 Nothing leaves the machine: the PDF is rendered here, and OCR runs on the models RapidOCR's
 package ships.
@@ -39,6 +39,7 @@ READER = "charts-1"
 VECTOR_DPI = 600
 MAX_DPI = 600
 MIN_SIDE_PT = 72  # a picture smaller than an inch each way is a logo or an icon: not read
+SAME_PLACE = 0.8  # how alike (`overlap`) a picture's box must be to the one a plot's figure had, to be that figure read again
 
 
 def enabled() -> bool:
@@ -510,20 +511,84 @@ def is_read(conn: sqlite3.Connection, key: str) -> bool:
     return row["file"] is None or row["file"] == source
 
 
-def remap(conn: sqlite3.Connection, key: str) -> int:
-    """After a rebuild renumbered the nodes: each plot's figure found again — by its page and its
-    place on it, or, pinned by a caption, by its number. Returns how many plots moved."""
+def overlap(a: list[float] | tuple[float, ...], b: list[float] | tuple[float, ...]) -> float:
+    """Two boxes (left, top, right, bottom) as alike as their shared area over their joined one:
+    1 for the same box, 0 for two that do not touch."""
+    shared = max(0.0, min(a[2], b[2]) - max(a[0], b[0])) * max(0.0, min(a[3], b[3]) - max(a[1], b[1]))
+    joined = (a[2] - a[0]) * (a[3] - a[1]) + (b[2] - b[0]) * (b[3] - b[1]) - shared
+    return shared / joined if joined > 0 else 0.0
+
+
+def remap(conn: sqlite3.Connection, key: str) -> dict[str, Any]:
+    """After the paper's nodes were replaced (a rebuild, a reparse, a reread): each plot's figure
+    found again, or the plot removed. Pinned by a caption, a plot goes to the figure with that
+    number now. Else it goes to the picture on its page whose box is near the one its figure had
+    (`SAME_PLACE`); where several are, to its own figure if that is one of them; else nowhere. A
+    node's id alone never keeps a plot: another reading may give it to another picture. A figure
+    claimed by two, or by one while it keeps plots of its own, takes none: the incoming plots are
+    removed. The whole mapping is made before a row moves, so two figures that trade ids trade
+    their plots. When any plot is removed the paper's read goes too, and the figures op reads it
+    again (`is_read`). Returns `{moved, removed, lost}`: the plots moved and removed, and what the
+    removed were plotted for ("2", "Scheme 1", "page 4")."""
     ensure_schema(conn)
-    figs = {(r["page"], tuple(round(v, 2) for v in (r["bbox_l"], min(r["bbox_t"], r["bbox_b"]), r["bbox_r"], max(r["bbox_t"], r["bbox_b"])))): r["node_id"] for r in pictures(conn, key)}
+    on_page: dict[int, list[tuple[str, tuple[float, ...]]]] = {}
+    for r in pictures(conn, key):
+        on_page.setdefault(r["page"], []).append((r["node_id"], (r["bbox_l"], min(r["bbox_t"], r["bbox_b"]), r["bbox_r"], max(r["bbox_t"], r["bbox_b"]))))
     numbers = figure_numbers(conn, key)
-    moved = 0
+
+    def placed(old: str, page: int | None, bbox: str | None) -> str | None:
+        box = json.loads(bbox) if bbox else None
+        near = [node for node, b in on_page.get(page, []) if box and overlap(box, b) >= SAME_PLACE] if page is not None else []
+        return near[0] if len(near) == 1 else old if old in near else None  # two alike enough to be one: its own id tells which
+
+    to: dict[str, str | None] = {}
+    plots: dict[str, int] = {}
+    named: dict[str, str] = {}
+    for r in conn.execute("SELECT figure, figure_label, page, bbox, COUNT(*) AS n FROM charts WHERE paper = ? GROUP BY figure, figure_label, page, bbox ORDER BY MIN(rowid)", (key,)).fetchall():
+        old = r["figure"]
+        now = numbers.get(r["figure_label"]) if r["figure_label"] else placed(old, r["page"], r["bbox"])
+        to[old] = now if old not in to or to[old] == now else None  # a figure's plots that part ways keep none of it
+        plots[old] = plots.get(old, 0) + r["n"]
+        named.setdefault(old, r["figure_label"] or (f"page {r['page']}" if r["page"] is not None else "no page"))
+    staying = {old for old, now in to.items() if now == old}
+    claims: dict[str, list[str]] = {}
+    for old, now in to.items():
+        if now is not None and now != old:
+            claims.setdefault(now, []).append(old)
+    for now, olds in claims.items():
+        if len(olds) > 1 or now in staying:
+            for old in olds:
+                to[old] = None
+    gone = [old for old, now in to.items() if now is None]
+    moving = {old: now for old, now in to.items() if now is not None and now != old}
     with conn:
-        for r in conn.execute("SELECT DISTINCT figure, figure_label, page, bbox FROM charts WHERE paper = ?", (key,)).fetchall():
-            now = numbers.get(r["figure_label"]) if r["figure_label"] else figs.get((r["page"], tuple(json.loads(r["bbox"]))))
-            if now and now != r["figure"]:
-                conn.execute("UPDATE chart_values SET figure = ? WHERE paper = ? AND figure = ?", (now, key, r["figure"]))
-                moved += conn.execute("UPDATE charts SET figure = ? WHERE paper = ? AND figure = ?", (now, key, r["figure"])).rowcount
-    return moved
+        for old in gone:
+            conn.execute("DELETE FROM chart_values WHERE paper = ? AND figure = ?", (key, old))
+            conn.execute("DELETE FROM charts WHERE paper = ? AND figure = ?", (key, old))
+        for table in ("charts", "chart_values"):
+            for old in moving:  # out of the way first, so a figure another one leaves is free when it is moved into
+                conn.execute(f"UPDATE {table} SET figure = 'remap:' || figure WHERE paper = ? AND figure = ?", (key, old))
+            for old, now in moving.items():
+                conn.execute(f"UPDATE {table} SET figure = ? WHERE paper = ? AND figure = ?", (now, key, "remap:" + old))
+        if gone:
+            conn.execute("DELETE FROM figure_reads WHERE paper = ?", (key,))
+    return {"moved": sum(plots[old] for old in moving), "removed": sum(plots[old] for old in gone), "lost": list(dict.fromkeys(named[old] for old in gone))}
+
+
+def figure_name(key: str) -> str:
+    """A key, or a place, as a person reads it: "2" is Figure 2; "Scheme 1" and "page 4" are as
+    they are."""
+    return key if " " in key else f"Figure {key}"
+
+
+def removed_note(out: dict[str, Any]) -> str | None:
+    """What a `remap` that removed plots says, as an events row and a log line; None when it
+    removed none."""
+    n = out["removed"]
+    if not n:
+        return None
+    return (f"{n} plot{'s' if n != 1 else ''} no longer {'have' if n != 1 else 'has'} a figure in this reading ({', '.join(figure_name(x) for x in out['lost'])}): "
+            f"removed; the figures op reads {'them' if n != 1 else 'it'} again")
 
 
 def of_figure(conn: sqlite3.Connection, figure: str) -> list[dict[str, Any]]:

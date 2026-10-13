@@ -154,9 +154,10 @@ class Judge:
 
 def main(argv: list[str] | None = None) -> int:
     from .citations import link_citations
+    from .figures import remap, removed_note
     from .harness import pdf_title
     from .recover import recover_from_pdf
-    from .store import open_store, save_refs, save_tree
+    from .store import log_event, open_store, save_refs, save_tree
     from .tree import build_tree
 
     ap = argparse.ArgumentParser(prog="litrag_parser.judge", description=__doc__.split("\n\n")[0])
@@ -198,12 +199,17 @@ def main(argv: list[str] | None = None) -> int:
         recover_from_pdf(doc, source if row["format"] == "pdf" else None)
         tree = build_tree(doc, row["key"], title_hint=hint, judge=judge)
         save_tree(conn, row["key"], tree, parser=f"judge {model}", parsed_at=now_iso(), seconds=0.0)
+        removed = removed_note(remap(conn, row["key"]))  # its plots follow their figures into the new nodes, or go, as a rebuild's do
+        if removed:
+            log_event(conn, row["key"], now_iso(), "figures", removed)
         refs, cites = link_citations(tree, source.read_bytes() if row["format"] == "jats" and source and source.exists() else None)
         save_refs(conn, row["key"], refs, cites)
         s = judge.summary()
         for k in totals:
             totals[k] += s[k]
         print(f"{row['key'][:40]:<40} pairs {s['pairs']:>3} · cached {s['cached']:>3} · asked {s['asked']:>3} · joined {s['joined']:>3}" + (f" · errors {s['errors']}" if s["errors"] else ""))
+        if removed:
+            print(f"    {removed}")
         if args.show:
             for v in judge.log:
                 print(f"    {'JOIN' if v['same'] else 'keep'} …{v['a']!r} || {v['b']!r}…")
