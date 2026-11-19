@@ -1397,7 +1397,7 @@ class Worker:
         (`figures_not_kept`)."""
         req_id = req.get("id")
         emit({"event": "progress", "id": req_id, "op": "merge", "done": 0, "total": 0, "label": "Merging libraries"})
-        out = project_rows.merge(self.root, [str(s) for s in req.get("sources") or []], str(req.get("name") or ""), into=req.get("into"))
+        out = project_rows.merge(self.root, [str(s) for s in req.get("sources") or []], str(req.get("name") or ""), into=req.get("into"), owner=req.get("owner"))
         target = out["target"]["id"]
         emit({"event": "stage", "id": req_id, "lib": target, "stage": "merged", "message": f"{out['filed']} papers filed, {out['duplicates']} already held, {len(out['keys_to_rebuild'])} to derive again, {len(out['keys_to_parse'])} to read again"})
         rebuilt: list[str] = []
@@ -1632,6 +1632,8 @@ class Worker:
             elif op in ("fetch", "merge", "embed", "model_label", "figures", "figures_fetch", "round", "expand", "migrate"):
                 if op not in ("merge", "migrate"):
                     self._lib(req, write=op in ("fetch", "expand"))  # fail fast on a bad library, or on filing into every project
+                if op == "merge":
+                    req = {**req, "owner": self._me(req) if req.get("session") else None}  # a project made while signed in is that account's own
                 self.ingest_queue.put(req)
                 emit({"event": "queued", "id": req_id, "op": op, "ahead": self.ingest_queue.qsize() - 1})
             elif op in ("ingest", "reparse", "rebuild", "judge"):

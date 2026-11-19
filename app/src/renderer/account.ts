@@ -3,9 +3,8 @@
  * session every request about one person's own things carries (recent papers, favourites, notes,
  * collections, the projects they made).
  *
- * The window asks for accounts through `AccountStore` alone. Today that is the local worker over
- * its JSON-lines wire, which keeps them in `users.sqlite` beside the library; a server could keep
- * them later behind the same calls without this file, or any view, changing.
+ * The accounts are the local worker's, asked for over its JSON-lines wire: it keeps them in
+ * `users.sqlite` beside the library.
  *
  * What an account is for, said in the dialogue too: telling the people who share a machine (or a
  * library folder) apart and keeping each one's own things apart. It is not a lock: anyone who
@@ -25,41 +24,7 @@ interface SignedIn {
   session: string;
 }
 
-/** Whoever keeps the accounts. Every call but `list`, `create` and `signIn` carries the session `signIn` handed out. */
-export interface AccountStore {
-  list(): Promise<User[]>;
-  create(name: string, password: string): Promise<SignedIn>;
-  signIn(name: string, password: string): Promise<SignedIn>;
-  signOut(session: string): Promise<void>;
-  setPassword(session: string, old: string, next: string): Promise<void>;
-  /** one of the per-person ops (`recent`, `favourite`, `note_save`, …), as this person */
-  ask<T>(op: string, session: string, params?: Record<string, unknown>): Promise<T>;
-}
-
-/** The accounts the local worker keeps (`users.py`), over the worker's wire. */
-export const workerAccounts: AccountStore = {
-  async list() {
-    return (await request<{ users: User[] }>('users')).users;
-  },
-  async create(name, password) {
-    return request<SignedIn>('user_create', { name, password });
-  },
-  async signIn(name, password) {
-    return request<SignedIn>('sign_in', { name, password });
-  },
-  async signOut(session) {
-    await request('sign_out', { session });
-  },
-  async setPassword(session, old, next) {
-    await request('password', { session, old, new: next });
-  },
-  async ask<T>(op: string, session: string, params: Record<string, unknown> = {}) {
-    return request<T>(op, { ...params, session });
-  },
-};
-
 const state = {
-  store: workerAccounts as AccountStore,
   user: null as User | null,
   session: null as string | null,
   creating: false,
@@ -84,7 +49,7 @@ export function session(): string | undefined {
 /** One of the per-person ops, as whoever is signed in. */
 export async function mine<T = Record<string, unknown>>(op: string, params: Record<string, unknown> = {}): Promise<T> {
   if (!state.session) throw new Error('not signed in');
-  return state.store.ask<T>(op, state.session, params);
+  return request<T>(op, { ...params, session: state.session });
 }
 
 function setUser(got: SignedIn | null): void {
@@ -124,7 +89,7 @@ export async function showSignIn(): Promise<void> {
   box.innerHTML = '';
   let users: User[] = [];
   try {
-    users = await state.store.list();
+    users = (await request<{ users: User[] }>('users')).users;
   } catch (e) {
     log('error', `accounts: ${(e as Error).message}`);
   }
@@ -160,7 +125,7 @@ async function submit(): Promise<void> {
   const button = $<HTMLButtonElement>('signin-submit');
   button.disabled = true;
   try {
-    const got = state.creating ? await state.store.create(name, password) : await state.store.signIn(name, password);
+    const got = await request<SignedIn>(state.creating ? 'user_create' : 'sign_in', { name, password });
     $('signin').hidden = true;
     $<HTMLInputElement>('signin-password').value = '';
     $<HTMLInputElement>('signin-confirm').value = '';
@@ -181,7 +146,7 @@ async function submit(): Promise<void> {
 async function signOut(): Promise<void> {
   const s = state.session;
   setUser(null);
-  if (s) await state.store.signOut(s).catch(() => undefined);
+  if (s) await request('sign_out', { session: s }).catch(() => undefined);
   await showSignIn();
 }
 
@@ -192,7 +157,7 @@ async function changePassword(): Promise<void> {
   const next = await askText('A new password (8 characters or more)', { secret: true, ok: 'Change it' });
   if (next === null) return;
   try {
-    await state.store.setPassword(state.session, old, next);
+    await request('password', { session: state.session, old, new: next });
     log('stage', 'Password changed');
   } catch (e) {
     window.alert((e as Error).message);

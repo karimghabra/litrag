@@ -414,6 +414,9 @@ export function initMine(view: PaperView): void {
   });
   onAccountChange((user) => {
     $('nav-mine').hidden = !user;
+    state.list = { kind: 'recent' };
+    $<HTMLTextAreaElement>('note-text').value = '';
+    toggle.setAttribute('aria-pressed', 'false');
     void loadCollections();
     void loadMarks();
     if (ctx.view === 'mine') void renderList();

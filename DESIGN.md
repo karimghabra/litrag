@@ -845,10 +845,10 @@ Projects stay folders, every account reads all of them; a project made while sig
 its `owner`, and only that account renames, describes or deletes it. Deleting a project lets its
 papers go and moves its folder aside; no paper is deleted.
 
-**The window asks through one interface** (`AccountStore` in `account.ts`): today the worker's
-account ops over the JSON-lines wire, each per-person op carrying the session `sign_in` handed
-out (held in the worker's memory, so a restart signs everyone out). A server mode replaces the
-implementation of that interface and of `users.py`, not the views.
+**The window asks the worker** (`account.ts`): the account ops over the JSON-lines wire, each
+per-person op carrying the session `sign_in` handed out (held in the worker's memory, so a
+restart signs everyone out). A project made by merging others while signed in is the account's
+that merged them, as one made new is.
 
 This document records the decisions and the plan. It began life inside the
 Protracker repository as `LITERATURE.md` and moved here with the code on

@@ -118,8 +118,10 @@ def check_password(password: str, stored: str) -> bool:
 
 def user_id(name: str) -> str:
     """An account's id: its name with case and accents folded and its spaces made single, so
-    "Ana López" and "ana lopez" are one account."""
-    s = unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode().lower()
+    "Ana López" and "ana lopez" are one account. Only the accents are dropped (the combining
+    diacritical marks a decomposed letter leaves), never a letter: a name in any script keeps
+    every character of its own."""
+    s = "".join(c for c in unicodedata.normalize("NFKD", name) if not "\u0300" <= c <= "\u036f").casefold()
     return re.sub(r"\s+", " ", s).strip()
 
 
