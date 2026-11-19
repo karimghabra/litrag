@@ -343,6 +343,7 @@ The manifest is written sorted and indented. Here is Looped ligament after two s
 | `queries` | every search run: `query`, `at`, `total`, `added` | each search; a merge unites the sources' |
 | `mergedFrom` | the ids a merge drew from | Merge |
 | `projectId` | the notebook's project id | an `init` request only |
+| `owner` | the id of the account that made it; absent on a project that is no one's | New project and Merge, while signed in |
 | `includes` | always `[]` | New project, Merge |
 
 - **Saved searches.** There is no Save button: every search from the Search tab is appended to `queries`. They return on the card and as the Search tab's "Searches so far:" chips, the last 12 distinct ones; a click runs one again.
@@ -2122,15 +2123,15 @@ Each tab works on the project chosen in the header's **Project** picker, and the
 
 ### Worker ops
 
-The worker answers these 49 ops, each sent as one JSON line with an `id`; a queued op answers `queued` at once and ends with `done` or `error`.
+The worker answers these ops, each sent as one JSON line with an `id`; a queued op answers `queued` at once and ends with `done` or `error`. The account ops (`users`, `sign_in`, `recent`, `favourite`, `notes`, `collections` and the rest, each with the `session` signing in handed out) are listed in `AGENT.md`, beside these.
 
 | Op | Mode | Key fields | Answers with |
 | --- | --- | --- | --- |
 | `hello` | now | none | `hello`: `worker`, `root`, `python`, `docling`, `device`, `meaning`, `boundary` |
 | `libraries` | now | none | `libraries`: `root`, `libraries[]` with `id`, `name`, `dir`, `projectId`, `createdAt` |
 | `projects` | now | none | `projects`: each library with `description`, `store` (`shared` or `own`), `queries` and `counts`; `own_store`, the ids of those that keep their own store |
-| `init` | now | `name`; opt. `projectId`, `description`, `owner` | `library`, a project of the shared store; a name whose id is already taken is an `error` |
-| `describe` | now | `lib`; opt. `name`, `description` | `project`: the library's `projects` entry |
+| `init` | now | `name`; opt. `projectId`, `description`, `session` | `library`, a project of the shared store, the account's whose `session` it carries; a name whose id is already taken is an `error` |
+| `describe` | now | `lib`; opt. `name`, `description`; the owner's `session` for a project an account made | `project`: the library's `projects` entry |
 | `search` | own thread | `lib`, `query`; opt. `cursor` (`*`), `size` (25) | `search`: `hits[]` with `cand_id`, `status` and `held_here`, `total`, `next_cursor`, `added` |
 | `suggest` | own thread | `lib` | `suggestions`: `queries[]`, `model`, and `error` when none were drafted |
 | `candidates` | now | `lib`; opt. `status`, `query` | `candidates[]` |
@@ -2143,7 +2144,7 @@ The worker answers these 49 ops, each sent as one JSON line with an `id`; a queu
 | `rebuild` | queued | `lib`; opt. `keys` (every parsed paper with its saved Docling document) | `progress`, `tree` per paper; `done` with `rebuilt[]`, `refused[]` |
 | `judge` | queued | `lib`; opt. `keys` | as `rebuild`, with the local chat model reading the open pairs |
 | `figures` | queued | `lib`; opt. `keys`, `force` | `progress` per paper; `done` with `papers`, `figures`, `plots`, `read`, `values` |
-| `merge` | queued | `sources[]` and `name`, or `sources[]` and `into` | `done` with `target`, `filed`, `duplicates`, `skipped`, `rebuilt`, `reparsed`, `candidates_merged`, `migrated`; only `into` a project that keeps its own store, first a rebuild under the id `<id>-rebuild` and a reparse under `<id>-reparse` |
+| `merge` | queued | `sources[]` and `name`, or `sources[]` and `into`; opt. `session` (a new project is then that account's) | `done` with `target`, `filed`, `duplicates`, `skipped`, `rebuilt`, `reparsed`, `candidates_merged`, `migrated`; only `into` a project that keeps its own store, first a rebuild under the id `<id>-rebuild` and a reparse under `<id>-reparse` |
 | `embed` | queued | `lib` | `done` with `model`, `units`, `embedded`, `already`, `seconds`, and `error` when the embedder is down |
 | `round` | queued | `lib`; opt. `papers[]`, `citations`, `again`, `openalex`, `references` (true) | `stage` `round`; `done` with `papers`, `entries`, `held`, `identified`, `unidentified`, `asked`, `added`, `errors`, `openalex` |
 | `expand` | queued | `lib`; opt. `most` (10), `min_cited` (1), `citations`, `openalex` | a round, then a fetch stream per pass; `done` with `round`, `chosen`, `read`, `passages`, `passed`, `for_a_person` |
@@ -2173,7 +2174,7 @@ The worker answers these 49 ops, each sent as one JSON line with an `id`; a queu
 | `migrate` | now with `dry_run`, else queued | opt. `dry_run`, `libs[]` | `migrate`: the `plan`, nothing written; else `progress` per paper and `done` with `backup` and `moved` |
 | `hold` | now | `lib`, `keys[]` | `held`: `keys`, `changed`; the project takes papers the shared store holds |
 | `let_go` | now | `lib`, `keys[]` | `let_go`: `keys`, `changed`; the papers stay in the shared store |
-| `delete_project` | now | `lib` | `deleted`: `id`, `papers`, `candidates`, `aside` (its folder, moved to `_deleted/`); refused for a project that keeps its own store |
+| `delete_project` | now | `lib`; the owner's `session` for a project an account made | `deleted`: `lib`, `papers`, `candidates`, `aside` (its folder, moved to `_deleted/`); refused for a project that keeps its own store |
 | `quit` | now | none | `bye`, then the worker exits |
 
 ### Switches for everyone
