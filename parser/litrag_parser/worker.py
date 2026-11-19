@@ -523,25 +523,26 @@ class Worker:
             note = u.save_note(me, key, str(req.get("text") or ""), note_id=req.get("note_id"), node_id=req.get("node_id"), quote=req.get("quote"))
             return {"event": "note", "note": note}
         if op == "note_delete":
-            return {"event": "note_deleted", "id": req.get("id"), "deleted": u.delete_note(me, int(req["id"]))}
+            return {"event": "note_deleted", "note_id": int(req["note_id"]), "deleted": u.delete_note(me, int(req["note_id"]))}
         if op == "collections":
             return {"event": "collections", "collections": u.collections(me)}
         if op == "collection_create":
             return {"event": "collection", "collection": u.create_collection(me, str(req.get("name") or ""))}
-        if op == "collection_rename":
-            u.rename_collection(me, int(req["id"]), str(req.get("name") or ""))
-            return {"event": "collection", "collection": {"id": int(req["id"]), "name": str(req.get("name") or "").strip()}}
-        if op == "collection_delete":
-            u.delete_collection(me, int(req["id"]))
-            return {"event": "collection_deleted", "id": int(req["id"])}
-        if op in ("collection_add", "collection_remove"):
-            keys = [str(k) for k in req.get("keys") or []]
-            n = u.add_to_collection(me, int(req["id"]), keys, req.get("lib") or None) if op == "collection_add" else u.remove_from_collection(me, int(req["id"]), keys)
-            return {"event": "collection_changed", "id": int(req["id"]), "changed": n}
-        if op == "collection":
-            return {"event": "collection_papers", "id": int(req["id"]), "papers": self._about(u.collection_papers(me, int(req["id"])))}
         if op == "paper_marks":
             return {"event": "paper_marks", "key": key, "favourite": u.is_favourite(me, key), "collections": u.collections_of(me, key), "notes": len(u.notes(me, key))}
+        cid = int(req["collection_id"])  # never `id`: that is the request's own, the one its answer is matched by
+        if op == "collection_rename":
+            u.rename_collection(me, cid, str(req.get("name") or ""))
+            return {"event": "collection", "collection": {"id": cid, "name": str(req.get("name") or "").strip()}}
+        if op == "collection_delete":
+            u.delete_collection(me, cid)
+            return {"event": "collection_deleted", "collection_id": cid}
+        if op in ("collection_add", "collection_remove"):
+            keys = [str(k) for k in req.get("keys") or []]
+            n = u.add_to_collection(me, cid, keys, req.get("lib") or None) if op == "collection_add" else u.remove_from_collection(me, cid, keys)
+            return {"event": "collection_changed", "collection_id": cid, "changed": n}
+        if op == "collection":
+            return {"event": "collection_papers", "collection_id": cid, "papers": self._about(u.collection_papers(me, cid))}
         raise ValueError(f"Unknown op {op!r}")
 
     def _close_interrupted(self, lib: Library) -> None:
@@ -1557,7 +1558,8 @@ class Worker:
             elif op == "delete_project":
                 lib = self._lib(req, write=True)
                 self._owner_only(req, lib)
-                emit({"event": "deleted", "id": req_id, **project_rows.delete(lib)})
+                gone = project_rows.delete(lib)
+                emit({"event": "deleted", "id": req_id, "lib": gone.pop("id"), **gone})  # `id` stays the request's: the asker matches the answer by it
             elif op in ("hold", "let_go"):
                 # a project takes papers the shared store holds, or lets them go (the papers stay)
                 lib = self._lib(req, write=True)

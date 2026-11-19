@@ -147,7 +147,7 @@ async function renderList(): Promise<void> {
   try {
     if (l.kind === 'recent') papers = (await mine<{ papers: MinePaper[] }>('recent', { limit: 50 })).papers;
     else if (l.kind === 'favourites') papers = (await mine<{ papers: MinePaper[] }>('favourites')).papers;
-    else papers = (await mine<{ papers: MinePaper[] }>('collection', { id: l.id })).papers;
+    else papers = (await mine<{ papers: MinePaper[] }>('collection', { collection_id: l.id })).papers;
   } catch (e) {
     box.innerHTML = '';
     box.append(el('div', 'empty', rejectionText(e)));
@@ -185,7 +185,7 @@ function row(p: MinePaper, l: List): HTMLElement {
     drop.addEventListener('click', async () => {
       try {
         if (l.kind === 'favourites') await mine('favourite', { key: p.paper, on: false });
-        else if (l.kind === 'collection') await mine('collection_remove', { id: l.id, keys: [p.paper] });
+        else if (l.kind === 'collection') await mine('collection_remove', { collection_id: l.id, keys: [p.paper] });
         await Promise.all([renderList(), loadCollections()]);
       } catch (e) {
         log('error', rejectionText(e));
@@ -204,7 +204,7 @@ async function renameCollection(): Promise<void> {
   const name = await askText('Rename the collection', { value: c?.name ?? '', ok: 'Rename' });
   if (!name?.trim()) return;
   try {
-    await mine('collection_rename', { id: l.id, name: name.trim() });
+    await mine('collection_rename', { collection_id: l.id, name: name.trim() });
     await loadCollections();
     void renderList();
   } catch (e) {
@@ -218,7 +218,7 @@ async function deleteCollection(): Promise<void> {
   const c = state.collections.find((x) => x.id === l.id);
   if (!window.confirm(`Delete the collection “${c?.name ?? ''}”? The papers in it stay in their projects.`)) return;
   try {
-    await mine('collection_delete', { id: l.id });
+    await mine('collection_delete', { collection_id: l.id });
     await loadCollections();
     show({ kind: 'recent' });
   } catch (e) {
@@ -309,7 +309,7 @@ async function chooseCollection(value: string): Promise<void> {
       id = (await mine<{ collection: Collection }>('collection_create', { name: name.trim() })).collection.id;
     }
     const has = marks.collections.includes(id);
-    await mine(has ? 'collection_remove' : 'collection_add', { id, keys: [key], lib: ctx.lib });
+    await mine(has ? 'collection_remove' : 'collection_add', { collection_id: id, keys: [key], lib: ctx.lib });
     marks.collections = has ? marks.collections.filter((c) => c !== id) : [...marks.collections, id];
     await loadCollections();
   } catch (e) {
@@ -360,7 +360,7 @@ function noteRow(n: Note): HTMLElement {
   del.addEventListener('click', async () => {
     if (!window.confirm('Delete this note?')) return;
     try {
-      await mine('note_delete', { id: n.id });
+      await mine('note_delete', { note_id: n.id });
       await loadMarks();
     } catch (e) {
       window.alert(rejectionText(e));

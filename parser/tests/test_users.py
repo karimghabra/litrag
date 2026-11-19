@@ -214,8 +214,11 @@ def test_the_worker_s_per_person_ops_over_one_run(tmp_path, monkeypatch):
     w = Worker(tmp_path)
 
     def ask(**req):
-        req.setdefault("id", f"r{len(seen)}")
+        # as the window asks: every request carries an id of its own, and its answer is matched by it
+        assert "id" not in req, "`id` is the request's own; an op names what it is about in another field"
+        req["id"] = f"r{len(seen)}"
         w.answer(req)
+        assert seen[-1]["id"] == req["id"], f"{req['op']} answered {seen[-1]}, which the asker cannot match to {req['id']}"
         return seen[-1]
 
     sa = ask(op="user_create", name="Ana", password="password-a")["session"]
@@ -230,13 +233,23 @@ def test_the_worker_s_per_person_ops_over_one_run(tmp_path, monkeypatch):
     n = ask(op="note_save", session=sa, key=key, text="Why 105 °C?", node_id=f"{key}#p1")["note"]
     assert [x["text"] for x in ask(op="notes", session=sa, key=key)["notes"]] == ["Why 105 °C?"]
     assert ask(op="notes", session=sb, key=key)["notes"] == []
-    assert ask(op="note_delete", session=sb, id=n["id"])["deleted"] is False
+    assert ask(op="note_delete", session=sb, note_id=n["id"])["deleted"] is False
+    extra = ask(op="note_save", session=sa, key=key, text="A slip.")["note"]
+    assert ask(op="note_delete", session=sa, note_id=extra["id"])["deleted"] is True
+    assert [x["text"] for x in ask(op="notes", session=sa, key=key)["notes"]] == ["Why 105 °C?"]
     c = ask(op="collection_create", session=sa, name="To print")["collection"]
-    assert ask(op="collection_add", session=sa, id=c["id"], keys=[key], lib="tendon")["changed"] == 1
-    assert [p["paper"] for p in ask(op="collection", session=sa, id=c["id"])["papers"]] == [key]
-    assert ask(op="collection", session=sb, id=c["id"])["event"] == "error"
+    assert ask(op="collection_add", session=sa, collection_id=c["id"], keys=[key], lib="tendon")["changed"] == 1
+    assert [p["paper"] for p in ask(op="collection", session=sa, collection_id=c["id"])["papers"]] == [key]
+    assert ask(op="collection", session=sb, collection_id=c["id"])["event"] == "error"
     assert [x["name"] for x in ask(op="collections", session=sa)["collections"]] == ["To print"]
     assert ask(op="collections", session=sb)["collections"] == []
+    spare = ask(op="collection_create", session=sa, name="Spare")["collection"]
+    assert ask(op="collection_add", session=sa, collection_id=spare["id"], keys=[key])["changed"] == 1
+    assert ask(op="collection_remove", session=sa, collection_id=spare["id"], keys=[key])["changed"] == 1
+    assert ask(op="collection_rename", session=sa, collection_id=spare["id"], name="Later")["collection"] == {"id": spare["id"], "name": "Later"}
+    assert ask(op="collection_delete", session=sb, collection_id=spare["id"])["event"] == "error"
+    assert ask(op="collection_delete", session=sa, collection_id=spare["id"])["event"] == "collection_deleted"
+    assert [x["name"] for x in ask(op="collections", session=sa)["collections"]] == ["To print"]
     mark = ask(op="paper_marks", session=sa, key=key)
     assert mark["favourite"] is True and mark["collections"] == [c["id"]] and mark["notes"] == 1
     # projects: made by one person, renamed and deleted only by them; read by everyone
@@ -246,6 +259,7 @@ def test_the_worker_s_per_person_ops_over_one_run(tmp_path, monkeypatch):
     assert ask(op="describe", session=sa, lib=made["id"], name="Ana's tendon bench")["project"]["name"] == "Ana's tendon bench"
     assert ask(op="papers", session=sb, lib="tendon")["papers"]  # every account reads every project
     assert ask(op="delete_project", session=sb, lib=made["id"])["event"] == "error"
-    assert ask(op="delete_project", session=sa, lib=made["id"])["event"] == "deleted"
+    gone = ask(op="delete_project", session=sa, lib=made["id"])
+    assert gone["event"] == "deleted" and gone["lib"] == made["id"]
     ask(op="sign_out", session=sa)
     assert ask(op="recent", session=sa)["event"] == "error"
