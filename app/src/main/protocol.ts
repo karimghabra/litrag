@@ -58,6 +58,9 @@ export const TERMINAL = new Set([
   'migrate', 'deleted', 'held', 'let_go',
   // a cited answer from the local model, and the models it can be asked of
   'answer', 'models',
+  // accounts, and each person's recent papers, favourites, notes and collections
+  'users', 'signed_in', 'signed_out', 'password', 'viewed', 'recent', 'favourite', 'favourites', 'notes', 'note', 'note_deleted',
+  'collections', 'collection', 'collection_deleted', 'collection_changed', 'collection_papers', 'paper_marks',
 ]);
 
 /** `tree` answers a `tree` request and also streams during ingest; only the former closes a request. */

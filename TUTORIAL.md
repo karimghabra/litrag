@@ -15,6 +15,7 @@ Three parts do the work.
 - **The window** is an Electron app with seven tabs, listed down its left edge: Projects, Search, Papers, Types, Ask, Query and Graph. A log pane runs along the bottom. It shows and asks. It never writes the store itself.
 - **The worker** is a Python process the window starts. It reads papers with Docling, writes the store, and answers every request as one line of JSON. An assistant or a script can send it the same requests.
 - **The shared store** (`_shared/` under the library root) keeps every paper once, by its identifier: the DOI, else the PMID, else the file's hash. Its `store.sqlite` holds the rows, `parsed/` each paper's raw Docling document, and `papers/` the files. A paper read for one project is the same paper in every other project that takes it, and a query can ask one project, several, or all of them.
+- **An account** is how the window knows who is reading. It opens on a sign-in dialogue; each account keeps its own recent papers, favourites, notes and collections, and the projects it made are its own to rename and delete. Every account reads every project's papers (Accounts and what is yours).
 - **A project** is a folder under the library root holding its manifest and its inbox, and the list of papers it holds (rows of `project_papers` in the shared store). A project made before the shared store keeps its own `store.sqlite`, `papers/` and `parsed/` in its folder until you move it (The shared store, below).
 
 Five rules from the project's own guide shape everything this tutorial shows.
@@ -204,6 +205,32 @@ A project that keeps its own store still works as before, alone: a query that na
 - **A worker that stops is not restarted.** A pink band says **The worker is not running.** with the reason, and the dot turns red. Quit and start litrag again (see Troubleshooting and known limits).
 - **The log lives only in the window.** It keeps the last 400 lines and writes nothing to disk. Warnings from the chart reader's OCR keep their terminal colour codes, so stray marks like `[33m` appear; they are harmless.
 
+## Accounts and what is yours
+
+The window opens on a sign-in dialogue. On a machine with no account yet it offers **New account**: a name, a password of 8 characters or more, the password again, **Create account**. Later it lists the accounts kept here; click your name, type your password, **Sign in**. A wrong password and a name with no account get the same answer: "that name and password do not match an account".
+
+**What an account protects.** Accounts tell the people who share this machine, or a library folder on a shared drive, apart, and keep each person's own things out of the others' way. They are **not** a lock. Anyone who can open the library folder can read `users.sqlite`, notes included, and change it. Every account reads every project and every paper. The password stops one person signing in as another through the window, nothing more. It is kept only as a salted scrypt hash, never as itself, and nothing about an account leaves the machine.
+
+**The user menu.** Your name sits at the right of the header. Click it for **Switch user** (signs you out and opens the dialogue again), **Change password…** and **Sign out**. Closing the app signs everyone out.
+
+**Yours, in the sidebar.** Below the tabs, the **Yours** group lists:
+
+- **Recent**: the papers you opened, the latest first, the last 50 kept;
+- **Favourites**: the papers you starred;
+- each of your **collections**, and **+ New collection**. A collection is a folder of papers of your own, independent of any project: a reading list, the papers to print.
+
+Each list shows a paper's title, year, journal and the projects that hold it. **Open** opens it in the project you last saw it in, or in one that holds it now. **Unstar** and **Remove from collection** take it off the list and leave the paper where it was. A collection's view has **Rename…** and **Delete…**; deleting one leaves its papers in their projects.
+
+**On a paper.** Above the tree of the paper you are reading:
+
+- **☆** stars it (**★** when it is a favourite);
+- **Add to collection…** lists your collections (a ✓ before the ones holding it: choose one again to take it out) and **New collection…**;
+- **Notes** opens your notes on the paper. Type in the box and click **Note on the paper**, or select a passage in the tree first and click **Note on the passage**: the note keeps the passage's first words, and clicking them shows the passage again. **Edit** and **Delete** sit under each note. Only you see your notes.
+
+**Your projects.** A project you make while signed in is yours: its card says **yours**, and only you can **Describe…**, **Rename…** or **Delete…** it. **Only yours**, above the cards, hides the rest. A project made before accounts belongs to no one, and anyone may change it. Deleting a project lets go of its papers: they stay in the shared store and in every other project that holds them, and the project's folder is moved to `_deleted/` under the library root, not erased.
+
+**Where it is kept.** `users.sqlite` at the library root holds the accounts and each person's recent papers, favourites, notes and collections, apart from the papers. The window reaches it only through the worker's account requests, each carrying the session that signing in handed out (see Driving litrag from an assistant or script), so a server could keep the accounts later without the window changing.
+
 ## Projects
 
 A project is one library of papers gathered for one research question. Every other tab works inside the project chosen in the header, so you make one before your first search. The window says "project" and the worker's files say "library": they are the same thing.
@@ -240,15 +267,9 @@ Beyond the card, the description feeds **Suggest from the project** on the Searc
 
 ### Renaming, describing and removing a project
 
-The window has no rename and no delete. The card's **Describe…** button does not work in this version: it asks for a browser prompt that Electron does not provide. No dialog opens; the log shows the error in red.
+The card's **Describe…** asks, in the window, what the project is about, and **Rename…** asks for its new name. The id and the folder never change. An empty name, or one another project uses, is refused. **Delete…** asks to confirm, then lets go of the project's papers (they stay in the shared store and in every other project holding them) and moves its folder to `_deleted/`. These buttons appear on a project of yours, or on one no account made (Accounts and what is yours). A project that still keeps its own store has no **Delete…**: move it into the shared store first.
 
-![After a click on Describe…, no dialog opens and the log shows “unhandled: prompt() is not supported.”](tutorial/05-projects-describe-click.png)
-
-The workarounds:
-
-- **Describe** a project with a `describe` request to the worker, or edit `description` in its `library.json` with the app closed. With the app open, choose **View › Toggle Developer Tools**, open its Console and type `await window.litrag.request('describe', { lib: 'archive', description: '…' })`. From a script, send the same request (see Driving litrag from an assistant or script).
-- **Rename** it with the same request and a `name`. The id and the folder never change. An empty name, or one another project uses, is refused.
-- **Remove** it by quitting the app and moving its folder out of the library root: the worker lists only folders holding a `library.json`. Nothing in litrag deletes a project.
+From a script, send the same requests (see Driving litrag from an assistant or script). A project an account made takes them only with that account's `session`.
 
 ```json
 {"op":"describe","lib":"archive","description":"The 226-paper archive beside the checkout."}
@@ -2093,7 +2114,6 @@ This is the place to look when something goes wrong. Make the four checks below,
 | A card keeps a grey **queued** badge after a restart, with its file name as its title. The project card counts it in "papers" but not in "read" | The worker stopped after filing the paper and before reading it. Nothing resumes a queued paper | Click **Add papers…** and pick the same file again: it is in the library's `papers/` folder. Or send `reparse` with its key. **Reparse all** works too, but reads every paper again |
 | A **failed** card, and the tree pane says "Parsing failed: the worker stopped while reading this paper" | The worker quit or crashed in the middle of that paper; the next worker marked it failed | Add the file again, or reparse it by key |
 | A **failed** card with "the layout child took more than 300s", "and again in a fresh child", or "Docling read nothing from the file: no text, no tables" | Docling hung or crashed twice on the file, or found no text: a scanned page (OCR is off) or not a paper | Reparse it alone, by key. For a very long PDF, raise `LITRAG_LAYOUT_TIMEOUT` (300 s by default). For a scan, find the paper's XML or a PDF with a text layer |
-| **Describe…** on a project card does nothing, and the log says "unhandled: prompt() is not supported." **Suggest from the project** then answers "The project has no description to draft queries from: describe it first." | The button opens a browser prompt, which Electron does not support | Write the description in **What it is about** when you click **New project**. For an existing project, send `{"op":"describe","lib":"<id>","description":"…"}` (see Maintenance for sending a request from the window) |
 | A PDF reads badly: the title is the file name, the confidence chip is low, "No methods section detected", or sections hang under the wrong heading | A scan with text on few pages, a heading the layout model missed, or a running header. "doi\_10.1097\_00002480-199609000-00075" (ASAIO J, 1996) has text on page 2 only and scores 0.063 | Hover the confidence chip for its reasons and compare the boxes on the page. If Europe PMC has the paper's XML, read that instead: send `ingest` with its path and `"reread": true`. A plain add keeps the old reading ("seen before (by DOI), kept") |
 | A figure's numbers do not match the chart on the page | One of the chart reader's failure patterns (see Figures below) | Compare the table with the page, and check the caption for a second y axis. Reading again gives the same rows, and nothing in the window corrects or hides a value: leave that plot out |
 | A figure says "No numbers read from this figure" | The line under it, and the figure's tag in the tree, say which. **No PDF** (the card says "6 figures · no PDF"): JATS XML names its figures but holds no image, and no PDF of the paper is kept. **Not read**: the paper's figures were never read, because the reading was cut off or `LITRAG_FIGURES` was `off`. **Not in PDF**: the PDF kept beside the XML prints no caption with the figure's number. **No chart**: its caption was found, or it is a PDF's picture, and nothing under it is a chart the reader knows. **No number**, **number taken**, **small**: there is nothing to match a PDF's caption by, or too little to read | No PDF: click **Ask PMC for its PDF**, drop the paper's PDF on the figure, or run **Collect PDFs** on the Search tab; a PDF is kept beside the XML and read when its first pages print the paper's DOI or title (the log says when it is refused). Not read: click **Read the figures**, which reads all of that paper's figures. Not in PDF: the PDF prints its captions in a style the reader does not know yet (Springer's "Fig. 1 Title"), or it is another paper's; a PDF dropped on the figure replaces it when it prints more of the captions. No chart, no number, small: nothing to do; a photograph stays without numbers |
@@ -2206,7 +2226,8 @@ Each tab works on the project chosen in the header's **Project** picker, and the
 
 | Tab | Main controls | Ops behind them |
 | --- | --- | --- |
-| **Projects** | **New project** (**Name**, **What it is about**, **Create**, **Cancel**); **Merge libraries…** (a box per project, **Name of the merged project**, **Merge**, **Cancel**); on each card **Papers**, **Search**, **Types**, **Query**, and **Describe…** (no effect in this version); **What would move?** and **Move them**, while a project keeps its own store | `projects`, `init`, `merge`, `migrate` |
+| **Projects** | **New project** (**Name**, **What it is about**, **Create**, **Cancel**); **Merge libraries…** (a box per project, **Name of the merged project**, **Merge**, **Cancel**); **Only yours**; **Move into the shared store** (**What would move?**, **Move them**) while a project keeps its own store; on each card **Papers**, **Search**, **Types**, **Query**, and on a project of yours (or no one's) **Describe…**, **Rename…**, **Delete…** | `projects`, `init`, `merge`, `describe`, `delete_project`, `migrate` |
+| **Yours** (sidebar) | **Recent**, **Favourites**, each collection, **+ New collection**; on a list **Open**, **Unstar**, **Remove from collection**; a collection's **Rename…**, **Delete…**. Above a paper's tree **☆**, **Add to collection…**, **Notes** (**Note on the paper**, **Note on the passage**, **Edit**, **Delete**). In the header your name: **Switch user**, **Change password…**, **Sign out** | `recent`, `favourites`, `favourite`, `collections`, `collection*`, `notes`, `note_save`, `note_delete`, `paper_marks`, `sign_out`, `password` |
 | **Search** | The query box, **Search**, **Suggest from the project**; under **Results**: a tick box on each hit, **all**, **Fetch & read selected** (**Fetch & read 1** with one hit ticked), **More results**; under **Candidates**: status chips, **Fetch** on a candidate, **Collect PDFs**, which shows its counts, as in **Collect PDFs (117 for figures)**, and **Ask PMC for N figure PDFs** beside it | `search`, `suggest`, `candidates`, `wanted`, `fetch`, `ingest`, `figures_fetch` |
 | **Papers** | **Add papers…**, **Reparse all**, **Label links**; **Sort** ("as added", "format", "type", "title", "year, newest first", "confidence, lowest first") and format, type and confidence chips; **Printed** and **Canonical** over the tree, with lane chips; **‹** and **›** over the page; **Label** on a finding, **Read the figures** on a figure whose paper was never read, **Ask PMC for its PDF** or **Ask PMC again** on a figure of an XML paper with no PDF beside it; in the labelling panel **Let the model label**, **Close**, **Skip**, **Save & next** | `papers`, `tree`, `mapping`, `refs`, `edges`, `charts`, `file`, `ingest`, `reparse`, `figures`, `figures_fetch`, `label_queue`, `label`, `model_label`, `truth` |
 | **Types** | One tab per type with its count; **Canonical structure**; **How each paper maps onto it**, with a paper picker and **Open in Papers** | `types`, `mapping` |

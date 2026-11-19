@@ -112,6 +112,17 @@ published release, installs each once on a clean runner, and attaches them.
 
 ## What you see
 
+The window opens on a sign-in dialogue: each member of a lab has an account,
+and every account reads every project's papers. What an account keeps is its
+own: the papers it opened lately, its favourites, its notes on a paper or a
+passage, its collections (folders of papers independent of projects), and the
+projects it made, which only it renames or deletes. The sidebar's **Yours**
+group lists them; a star, a collection menu and a notes panel sit above the
+paper being read. Accounts tell people apart on one machine or one shared
+library folder; they are not a lock — anyone who can read the folder can read
+`users.sqlite` — and a password is kept only as a salted scrypt hash
+(TUTORIAL.md, Accounts and what is yours).
+
 Seven tabs over one project at a time, picked at the top:
 
 | Tab | What it is for |

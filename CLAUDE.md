@@ -25,6 +25,14 @@ Where things are:
   over one project — Projects, Search, Papers (tree, page with boxes,
   canonical face), Types, Ask (cited answers from the local model), Query,
   Graph (citations, rounds, SQL) — and the log.
+- The shared store is `<root>/_shared`: a project is its `project_papers`
+  rows, and every worker read of "the library" is narrowed with
+  `members.scope` (DESIGN.md R4.6). Tests make old-shape libraries with
+  `create_library(...)`; the worker's `init` makes shared ones.
+- Accounts and each person's recent papers, favourites, notes and collections
+  are `<root>/users.sqlite` (`users.py`), reached only through the worker's
+  account ops with a `session` (`app/src/renderer/account.ts`); they tell
+  people apart and are not a security boundary (DESIGN.md R4.7).
 - `src/`, `tests/` — the `lit` CLI (Node): Europe PMC, chunks, embeddings,
   hybrid retrieval. Deprecated, and not wired to the tree store but for
   `lit ask`, which sends the worker one `ask`; kept until its verbs are
@@ -82,3 +90,10 @@ the product end to end is `LITRAG_HEADLESS=1 npm run e2e:studio` (Docling's
 models, Ollama, and two PDFs from the archive beside the checkout).
 The libraries live outside the repository (`LITRAG_ROOT`, default
 `~/.protracker/library`) and never enter it.
+
+## Maintaining this file
+
+Keep this file for knowledge useful to almost every future agent session in this project.
+Do not repeat what the codebase already shows; point to the authoritative file or command instead.
+Prefer rewriting or pruning existing entries over appending new ones.
+When updating this file, preserve this bar for all agents and keep entries concise.

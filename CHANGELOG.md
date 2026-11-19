@@ -15,6 +15,17 @@
   the tab's **Model**, else `LITRAG_ANSWER_MODEL`, else a library's `ollama.answer`, else the one
   the grounding set chose (`campaign/answers/grounding.jsonl`, `python -m litrag_parser.answer
   --measure`; the bake-off is in `NOTES.md`). The studio e2e asks a question and follows a citation.
+
+- **Accounts, and what is each person's own** (`DESIGN.md` R4.7). The window opens on a sign-in
+  dialogue (make an account, sign in, switch user, sign out, change password). Each account
+  keeps its own recent papers, favourites, notes on a paper or a passage, and collections —
+  folders of papers independent of projects — in the sidebar's **Yours** group and above the
+  paper being read; a project made while signed in is that account's to rename and delete,
+  and every account reads every project. Accounts tell people apart on one machine or shared
+  folder and are not a security boundary; passwords are kept only as salted scrypt hashes in
+  `<root>/users.sqlite`. Describe… and Rename… ask in the window (Electron gives a page no
+  `prompt()`).
+
 - **One store for every project** (`DESIGN.md` R4.6). Every paper is kept once in
   `<root>/_shared`, by its DOI, PMID or file hash, and a project is the list of papers it holds:
   one paper can be in several projects, read once, and a query asks this project or all of them

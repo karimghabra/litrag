@@ -4,6 +4,7 @@
 import { _electron as electron } from 'playwright';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { signInOrMake } from './signin.mjs';
 
 const out = process.env.SMOKE_OUT ?? 'smoke-out';
 mkdirSync(out, { recursive: true });
@@ -20,6 +21,7 @@ say(`window: ${await page.title()}`);
 await page.waitForSelector('#worker-status.ok, #worker-status.bad', { timeout: 60_000 });
 say(`worker: ${await page.textContent('#worker-status .text')}`);
 if (await page.$('#worker-status.bad')) { await page.screenshot({ path: join(out, 'worker-bad.png') }); await app.close(); process.exit(1); }
+await signInOrMake(page, 'Smoke Test', 'smoke-test-password');
 
 // a library to work in
 page.on('console', (m) => { if (m.type() !== 'error') console.log('renderer:', m.text()); });
