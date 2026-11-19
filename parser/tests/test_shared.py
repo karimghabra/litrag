@@ -369,6 +369,27 @@ def test_a_stub_dropped_for_an_xml_paper_s_figures_pdf_moves_its_projects_to_the
     conn.close()
 
 
+def test_a_project_s_graph_counts_its_own_citers_whatever_it_draws(tmp_path):
+    from litrag_parser import acquire, graph
+
+    a = _shared_project(tmp_path, "Tendon")
+    conn = open_store(a.store_path)
+    acquire.ensure_schema(conn)
+    graph.ensure_schema(conn)
+    paper = _hold(a, conn, "10.1/cited-thrice", "cited thrice")
+    for i in range(3):  # a round's candidates, each citing only this paper: Tendon's through `cites`
+        cid, _ = acquire.upsert_candidate(conn, {"doi": f"10.9/citer-{i}", "title": f"Citer {i}"}, query=None, now="t", round=2)
+        conn.execute("INSERT INTO cites VALUES (?, ?, 'europepmc', 1)", (f"cand:{cid}", paper))
+    conn.commit()
+    keys = members.scope(conn, a)
+    cands = members.candidate_ids(conn, a, keys)
+    for mode in ("cited", "none"):
+        g = graph.graph(conn, candidates=mode, min_cited=2, keys=keys, cand_ids=cands)
+        assert [n["id"] for n in g["nodes"]] == [paper]  # the citers are not drawn
+        assert g["nodes"][0]["cited_here"] == 3
+    conn.close()
+
+
 def test_a_project_s_graph_and_expand_keep_a_paper_another_project_read(tmp_path):
     from litrag_parser import acquire, graph
 
@@ -388,7 +409,7 @@ def test_a_project_s_graph_and_expand_keep_a_paper_another_project_read(tmp_path
     by_id = {n["id"]: n for n in g["nodes"]}
     assert by_id[citing]["state"] == "held" and by_id[cited]["state"] == "elsewhere"
     assert (citing, cited) in {(e["src"], e["dst"]) for e in g["edges"]}
-    assert by_id[cited]["cited_here"] == 1 and by_id[citing]["cites_here"] == 1
+    assert by_id[cited]["cited_here"] == 1
     other = _hold(b, conn, "10.1/bone-citing", "bone citing")  # a paper of Bone's citing the same work
     conn.execute("INSERT INTO cites VALUES (?, ?, 'europepmc', 1)", (other, cited))
     conn.commit()

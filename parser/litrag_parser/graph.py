@@ -922,9 +922,19 @@ def graph(conn: sqlite3.Connection, candidates: str = "cited", min_cited: int = 
     if keys is not None:
         cited_here: dict[str, int] = {}
         cites_here: dict[str, int] = {}
+        taken = {n["work"] for n in nodes if n["state"] == "elsewhere" and cand_ids is not None and n["cand_id"] in cand_ids}
+
+        def project_work(w: str) -> bool:
+            if w in mine or w in taken:
+                return True
+            if not w.startswith("cand:"):
+                return False
+            return cand_ids is None or (w[5:].isdigit() and int(w[5:]) in cand_ids)
+
         for a, b in pairs:
-            if a in ids and b in ids:
+            if project_work(a):
                 cited_here[b] = cited_here.get(b, 0) + 1
+            if project_work(b):
                 cites_here[a] = cites_here.get(a, 0) + 1
         for n in kept:
             n["cited_here"] = cited_here.get(n["work"], 0)
