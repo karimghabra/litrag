@@ -14,7 +14,8 @@ Three parts do the work.
 
 - **The window** is an Electron app with six tabs, listed down its left edge: Projects, Search, Papers, Types, Query and Graph. A log pane runs along the bottom. It shows and asks. It never writes the store itself.
 - **The worker** is a Python process the window starts. It reads papers with Docling, writes the store, and answers every request as one line of JSON. An assistant or a script can send it the same requests.
-- **The library** is one folder per project under the library root. Its `store.sqlite` holds the rows. Its `parsed/` folder keeps each paper's raw Docling document, and `papers/` keeps the files.
+- **The shared store** (`_shared/` under the library root) keeps every paper once, by its identifier: the DOI, else the PMID, else the file's hash. Its `store.sqlite` holds the rows, `parsed/` each paper's raw Docling document, and `papers/` the files. A paper read for one project is the same paper in every other project that takes it, and a query can ask one project, several, or all of them.
+- **A project** is a folder under the library root holding its manifest and its inbox, and the list of papers it holds (rows of `project_papers` in the shared store). A project made before the shared store keeps its own `store.sqlite`, `papers/` and `parsed/` in its folder until you move it (The shared store, below).
 
 Five rules from the project's own guide shape everything this tutorial shows.
 
@@ -145,15 +146,37 @@ On closing, the window sends the `quit` op and kills the worker 1.5 seconds late
 ~/.protracker/library/        the root (LITRAG_ROOT)
 ├── lanes.sqlite              the embedder's verdicts, shared by every library
 ├── models/docling/           Docling's models, only when prefetched
-└── archive/                  one library per project; the folder name is its id
-    ├── library.json          name, description, creation time, searches run
-    ├── store.sqlite          the rows: papers, pages, nodes, events and the rest
-    ├── papers/               the files, named by key: doi_10.3390_mi14081643.xml
-    ├── parsed/               <key>.docling.json, Docling's raw document, never edited
+├── _shared/                  the shared store: every paper once, whichever projects hold it
+│   ├── store.sqlite          the rows: papers, pages, nodes, events, project_papers and the rest
+│   ├── papers/               the files, named by key: doi_10.3390_mi14081643.xml
+│   └── parsed/               <key>.docling.json, Docling's raw document, never edited
+├── _backups/                 the stores as they were before each move into the shared store
+└── archive/                  one folder per project; the folder name is its id
+    ├── library.json          name, description, creation time, searches run; "store": "shared"
     └── inbox/                downloads from Search and Collect, until they are read
 ```
 
-A library is any folder under the root that holds a `library.json`; litrag ignores the rest. The id is the project's name made into a slug: "Looped ligament" becomes `looped-ligament`.
+A project is any folder under the root that holds a `library.json`; litrag ignores the rest. The id is the project's name made into a slug: "Looped ligament" becomes `looped-ligament`. A project made before the shared store still holds `store.sqlite`, `papers/` and `parsed/` in its own folder, and its manifest has no `"store": "shared"`, until it is moved.
+
+### The shared store
+
+Every paper is stored once. Filing finds a paper by its DOI, then its PMID, then its file's hash, as it always did, but now across every project: a PDF dropped into a second project that the first already read is not read again. The second project simply holds it too, and its card counts it. Leaving a project takes nothing from the others. **Merge libraries…** makes a project that holds every paper of the chosen ones, with nothing copied or read again.
+
+The **Query** tab asks **This project** or **All projects** (the `From` box). The worker's `query` op takes `libs`, a list of projects, or `["*"]` for every paper in the shared store. A project that still keeps its own store is not in the shared store, so **All projects** cannot ask it: the answer names it ("Not asked: archive keeps its own store; …", the op's `left_out`).
+
+In **Search**, a hit another project has read already says **read in another project**. Tick it and **Fetch & read**: this project takes the paper from the shared store, with nothing downloaded or read again. The **Graph** draws such a paper beside this project's own when its papers cite it, and **Expand** takes it first, at no cost. Clicked, its side panel is titled **Read in another project** and offers **Take into this project**; a paper that reached the other project as a dropped file, not through a search or a round, reads "Held by another project" and has no button yet.
+
+**Moving the older projects across.** When a project still keeps its own store, the Projects tab shows a band, **Move into the shared store**. **What would move?** says, without writing anything, how many papers each would bring (new to the shared store, or held there already), how many candidates, embedded passages and files. **Move them** then:
+
+1. backs up the shared store and each old store with its manifest into `_backups/<time>/`;
+2. copies each paper with everything read from it: its tree, references and citations, edges, the model's answers, your link labels, its history, its charts and its passages' vectors, and its files. Nothing is read again, and neither Docling nor Ollama is asked;
+3. keeps a paper the shared store already holds as it was read there. The old project holds that one, and only your labels on it come across;
+4. copies the candidates once each by identifier, with their status, and each project keeps its own;
+5. marks the manifest `"store": "shared"`, with when and from where it moved.
+
+The old `store.sqlite`, `papers/` and `parsed/` stay where they were. Delete them yourself once you are satisfied. Running the move twice changes nothing, and a move cut short runs again to the same end. From a shell: `uv run --project parser --no-sync python -m litrag_parser.migrate --dry-run`, then without `--dry-run`. `--lib <id>` moves one project.
+
+A project that keeps its own store still works as before, alone: a query that names it with another project is refused until it moves.
 
 ### Switches at start
 
@@ -196,7 +219,7 @@ A project is one library of papers gathered for one research question. Every oth
    - 226 papers, 223 read, 151 XML, 75 PDF, 0 passages embedded;
    - a bar of paper types, largest first: review 111, research 106, editorial 4, unknown 3, other 2. Hover a segment for its count.
 
-   Three counts appear only when not zero: **failed**, **candidates** and **need a PDF**. A candidate is a paper a search or a citation round found for the project (see Finding and fetching papers). After a search, a line such as "2 searches · last: electrochemically aligned collagen tendon" follows the bar. The current project's card has a coloured left edge.
+   Three counts appear only when not zero: **failed**, **candidates** and **need a PDF**. A candidate is a paper a search or a citation round found for the project (see Finding and fetching papers). After a search, a line such as "2 searches · last: electrochemically aligned collagen tendon" follows the bar. The current project's card has a coloured left edge. A project that still keeps its own store carries an **own store** tag beside its name (The shared store, above).
 3. Click **New project**. A form opens above the cards, with the cursor in **Name**.
 4. Type a name, for example "Looped ligament". In **What it is about**, write a few lines on the research question, the materials and the methods.
 
@@ -241,11 +264,9 @@ A project is a folder under the library root, named by its id:
 ```
 ~/.protracker/library/
 ├── lanes.sqlite            verdicts shared by every project
+├── _shared/                the shared store: store.sqlite, papers/, parsed/
 └── looped-ligament/
     ├── library.json        the manifest
-    ├── store.sqlite        the rows
-    ├── papers/             the paper files
-    ├── parsed/             the raw Docling readings
     └── inbox/              where fetched files land before they are filed
 ```
 
@@ -253,9 +274,11 @@ The root is `LITRAG_ROOT`, else `PROTRACKER_LIBRARY`, else `~/.protracker/librar
 
 The id is made from the name once, at creation. Accents fold to plain letters, and letters with no plain form (Ø, ß, Greek, CJK) are dropped. The rest is lower-cased, each run of other characters becomes a hyphen, and the result is cut to 60 characters. "Ligament Ø résumé" becomes `ligament-resume`; a name that leaves nothing becomes `library`. A new project is refused when its id matches an existing project's id, name or notebook id.
 
-The `projects` request builds the cards: it reads each manifest and counts each `store.sqlite` without writing. The window sends it each time you open the tab and after every finished job, so the counts follow the work. The picker lists projects by name. The current project is the one you chose, else the one remembered from last time, else the first by name: not the newest.
+The `projects` request builds the cards: it reads each manifest and counts the papers each project holds without writing. The window sends it each time you open the tab and after every finished job, so the counts follow the work. The picker lists projects by name. The current project is the one you chose, else the one remembered from last time, else the first by name: not the newest.
 
-A merge only reads its sources. Each paper is filed once: by DOI (case ignored), then PMID, then file hash. The window sends the sources in name order, and when two hold the same paper the first copy is kept. A new paper brings its file, its raw Docling reading, its record, the model's stored answers, its method-link labels and its figure numbers. The worker then derives its rows again with `rebuild`, without Docling. A paper that comes without a finished reading is read again with Docling. Candidates come once each. The manifest gets every source's searches and a `mergedFrom` list.
+A merge makes a project of the shared store that holds every paper and candidate of its sources, and their searches. Each paper is stored once, so nothing is filed, copied or read again. A source that still keeps its own store is moved into the shared store first, just as **Move them** would move it: a backup under `_backups/`, then its manifest marked `"store": "shared"`. From then on it is a project of the shared store, and the merge's answer names it (`migrated`). The sources keep their papers. The manifest gets every source's searches and a `mergedFrom` list.
+
+Only a merge `into` a project of the old shape still files paper by paper: by DOI (case ignored), then PMID, then file hash, the first copy kept when two sources hold the same paper. A new paper brings its file, its raw Docling reading, its record, the model's stored answers, its method-link labels and its figure numbers. The worker then derives its rows again with `rebuild`, without Docling, and reads again with Docling a paper that comes without a finished reading.
 
 Every project has an `inbox/`: a landing place, not a watched folder. Fetches from the Search tab and **Collect PDFs** download into it, and filing moves each file on into `papers/`. A file you put there by hand is not read. Drop it on the window instead, or use **Add papers…** on the Papers tab.
 
@@ -307,8 +330,7 @@ The research context lives in Protracker's notebook; litrag keeps the papers. No
 - **Two projects can share a name.** A project renamed through the worker keeps its old id, so **New project** with that name makes a second one. The picker then shows the name twice. Rename one of them through the worker.
 - **The card has no count for papers waiting to be read.** The archive card counts 226 papers and 223 read: the other three are PDFs left queued, visible only as "unknown 3" in the type bar. Find them on the Papers tab by their grey QUEUED badge (see The Papers tab).
 - **A failed merge says so only in the log.** The form closes once the worker accepts the job. A name already taken comes back later as a red log line, with no alert. Pick another name and merge again.
-- **A merge does not bring embedded passages.** Click **Embed passages** on the merged project's Query tab, with Ollama running.
-- **A merge sets fetched candidates back to found,** because inbox files are not carried. Those whose paper the merged project holds are marked "in library" again; fetch the others again if you want them.
+- **A merge `into` a project that keeps its own store loses two things.** Only the worker can ask for one. It does not bring embedded passages: click **Embed passages** on the target's Query tab, with Ollama running. And it sets fetched candidates back to found, because inbox files are not carried: those whose paper the target holds are marked "in library" again; fetch the others again if you want them. A merge from the window brings both, since the papers and candidates stay where they are.
 - **"N searches" counts runs.** Running a query again, or clicking **More results**, adds an entry. The Search tab's chips show each query once.
 
 ## Finding and fetching papers
@@ -321,10 +343,10 @@ The Search tab is where a library grows from a search. You ask Europe PMC for pa
 2. Type a Europe PMC query and press Enter or click **Search**. For `aligned collagen tendon scaffold` the count beside **Results** read "25 of 3,000".
 3. Read a hit: its title, a byline, the start of the abstract, then pills and links.
    - **Byline:** the first three authors, "…", the last author, then journal, year and DOI. An author your query names is shown too, in bold. Hover the byline for every author.
-   - **Status pill:** found, staged, fetching…, fetched, needs PDF, in library, failed or dismissed. Hover a "needs PDF" or "failed" pill to read why.
+   - **Status pill:** found, staged, fetching…, fetched, needs PDF, in library, read in another project (The shared store), failed or dismissed. Hover a "needs PDF" or "failed" pill to read why.
    - **Availability:** "open XML", "open PDF" or "no open full text".
    - **Links:** **publisher**, **Europe PMC**, and **open copy** when OpenAlex names one. They open in your own browser.
-4. Look at **Candidates** on the right: every hit is already one. **this search 25** and **every search 25** switch between this search's hits and the project's. Status chips such as **found 24** filter by the stored status, so **ingested 1** counts the hits marked "in library". A paper the library holds is marked so at once and cannot be ticked.
+4. Look at **Candidates** on the right: every hit is already one. **this search 25** and **every search 25** switch between this search's hits and the project's. Status chips such as **found 24** filter by the stored status, so **ingested 1** counts the hits marked "in library". A paper this project holds is marked so at once and cannot be ticked.
 
 ![Results for “aligned collagen tendon scaffold”: each hit with its byline, abstract, pills and links, and every hit already listed under Candidates.](tutorial/07-search-results.png)
 
@@ -1027,12 +1049,12 @@ Neither the tab nor the `query` op filters by lane or paper. The module's comman
 
 ```sh
 uv run --project parser --no-sync python -m litrag_parser.retrieve \
-  --store ~/.protracker/library/archive/store.sqlite \
+  --store ~/.protracker/library/_shared/store.sqlite \
   --query "Young's modulus of aligned collagen" --k 3 \
   --role results --role results-discussion
 ```
 
-That returns cards 2, 3 and 7 of the example. `--paper <key>` keeps one paper, `--json` prints the whole answer, and `--embed` embeds what has no vector.
+That returns cards 2, 3 and 7 of the example. The command reads the whole store it is given, so `_shared/store.sqlite` answers from every project's papers; a project not yet moved has its `store.sqlite` in its own folder. `--paper <key>` keeps one paper, `--json` prints the whole answer, and `--embed` embeds what has no vector.
 
 ### Good to know
 
@@ -1808,7 +1830,7 @@ In the archive the first gives 236 `filed` rows for 226 papers: ten PDFs were th
 
 ### Removing a paper
 
-There is no op or button for it. By hand, close the app, back up, then run this in Python inside the library folder:
+There is no button for it. The worker's `let_go` op takes a paper out of one project and leaves it in the shared store for the others. To remove it from the store itself, and so from every project, close the app, back up, then run this in Python inside `_shared/` (inside the project's folder for one that keeps its own store):
 
 ```python
 import sqlite3
@@ -1817,16 +1839,16 @@ c = sqlite3.connect("store.sqlite")
 c.execute("PRAGMA foreign_keys = ON")
 with c:
     c.execute("DELETE FROM papers WHERE key = ?", (key,))
-    for t in ("events", "link_labels", "model_labels"):
+    for t in ("events", "link_labels", "model_labels", "project_papers"):
         c.execute(f"DELETE FROM {t} WHERE paper = ?", (key,))
 ```
 
-Then delete `papers/doi_10.1002_jbm.b.35116.*` and `parsed/doi_10.1002_jbm.b.35116.docling.json`. Keep the `PRAGMA` line. Without it, the paper's 137 nodes, references and citations stay, and its text stays searchable.
+Then delete `papers/doi_10.1002_jbm.b.35116.*` and `parsed/doi_10.1002_jbm.b.35116.docling.json`. A store this version has never opened has no `project_papers` table: leave that name out of the list. Keep the `PRAGMA` line. Without it, the paper's 137 nodes, references and citations stay, and its text stays searchable.
 
 ### Moving and backing up a library
 
 1. Wait until nothing is being read: the bar in the header is gone and the status reads "idle" or "worker ready". Then close the app. Closing drops anything still queued.
-2. Copy each library folder whole: `library.json`, `store.sqlite` with its `-wal` and `-shm` files, `papers/`, `parsed/`, `inbox/`.
+2. Copy `_shared/` whole: `store.sqlite` with its `-wal` and `-shm` files, `papers/`, `parsed/`. Copy each project folder whole too: `library.json`, `inbox/`, and for a project not yet moved into the shared store its own `store.sqlite`, `papers/` and `parsed/`.
 3. Copy `lanes.sqlite` from the root, with its `-wal` and `-shm` files.
 
 The irreplaceable parts are `papers/`, `parsed/` and the store's record of your work: the `papers` rows, candidates and link labels. The tree rows can always be derived again from `parsed/` with a rebuild.
@@ -2057,27 +2079,27 @@ Each tab works on the project chosen in the header's **Project** picker, and the
 
 | Tab | Main controls | Ops behind them |
 | --- | --- | --- |
-| **Projects** | **New project** (**Name**, **What it is about**, **Create**, **Cancel**); **Merge libraries…** (a box per project, **Name of the merged project**, **Merge**, **Cancel**); on each card **Papers**, **Search**, **Types**, **Query**, and **Describe…** (no effect in this version) | `projects`, `init`, `merge` |
+| **Projects** | **New project** (**Name**, **What it is about**, **Create**, **Cancel**); **Merge libraries…** (a box per project, **Name of the merged project**, **Merge**, **Cancel**); on each card **Papers**, **Search**, **Types**, **Query**, and **Describe…** (no effect in this version); **What would move?** and **Move them**, while a project keeps its own store | `projects`, `init`, `merge`, `migrate` |
 | **Search** | The query box, **Search**, **Suggest from the project**; under **Results**: a tick box on each hit, **all**, **Fetch & read selected** (**Fetch & read 1** with one hit ticked), **More results**; under **Candidates**: status chips, **Fetch** on a candidate, **Collect PDFs**, which shows its counts, as in **Collect PDFs (117 for figures)**, and **Ask PMC for N figure PDFs** beside it | `search`, `suggest`, `candidates`, `wanted`, `fetch`, `ingest`, `figures_fetch` |
 | **Papers** | **Add papers…**, **Reparse all**, **Label links**; **Sort** ("as added", "format", "type", "title", "year, newest first", "confidence, lowest first") and format, type and confidence chips; **Printed** and **Canonical** over the tree, with lane chips; **‹** and **›** over the page; **Label** on a finding, **Read the figures** on a figure whose paper was never read, **Ask PMC for its PDF** or **Ask PMC again** on a figure of an XML paper with no PDF beside it; in the labelling panel **Let the model label**, **Close**, **Skip**, **Save & next** | `papers`, `tree`, `mapping`, `refs`, `edges`, `charts`, `file`, `ingest`, `reparse`, `figures`, `figures_fetch`, `label_queue`, `label`, `model_label`, `truth` |
 | **Types** | One tab per type with its count; **Canonical structure**; **How each paper maps onto it**, with a paper picker and **Open in Papers** | `types`, `mapping` |
-| **Query** | The question box, **Passages** (8), **Ask**; **Embed passages** with its count of passages embedded; **Open in the tree** on each hit | `query`, `retrieval`, `embed` |
-| **Graph** | **and what cites them**, **OpenAlex too**, the number to read (10), **Expand: read the most cited**, **Citation round**; **Candidates** ("none", "cited by at least", "all") with its number (2), **Colour** ("round", "year", "held or not"), the find box, **Fit**; in the side panel **Open in Papers**, **Citation round from it**, **here** and **Europe PMC** by each author, **Fetch & read** on a candidate; under **Ask in SQL** the presets **Held, oldest first**, **Next round**, **By an author**, **Authors here**, **Who cites whom**, **Rounds**, then **Run** (Ctrl+Enter) and **Fetch & read selected** | `graph`, `round`, `expand`, `sql`, `passages`, `fetch` |
+| **Query** | The question box, **Passages** (8), **From** ("This project", "All projects"), **Ask**; **Embed passages** with its count of passages embedded; **Open in the tree** on each hit | `query`, `retrieval`, `embed` |
+| **Graph** | **and what cites them**, **OpenAlex too**, the number to read (10), **Expand: read the most cited**, **Citation round**; **Candidates** ("none", "cited by at least", "all") with its number (2), **Colour** ("round", "year", "held or not"), the find box, **Fit**; in the side panel **Open in Papers**, **Citation round from it**, **here** and **Europe PMC** by each author, **Fetch & read** on a candidate, **Take into this project** on a paper read in another; under **Ask in SQL** the presets **Held, oldest first**, **Next round**, **By an author**, **Authors here**, **Who cites whom**, **Rounds**, then **Run** (Ctrl+Enter) and **Fetch & read selected** | `graph`, `round`, `expand`, `sql`, `passages`, `fetch` |
 | Any tab | **Project** picker; drop PDFs or JATS XML anywhere (**Drop to ingest**) | `hello`, `projects`, `ingest` |
 | Log pane | **What the worker is doing**, **Hide** (then **Show**), **Clear** | none |
 
 ### Worker ops
 
-The worker answers these 45 ops, each sent as one JSON line with an `id`; a queued op answers `queued` at once and ends with `done` or `error`.
+The worker answers these 49 ops, each sent as one JSON line with an `id`; a queued op answers `queued` at once and ends with `done` or `error`.
 
 | Op | Mode | Key fields | Answers with |
 | --- | --- | --- | --- |
 | `hello` | now | none | `hello`: `worker`, `root`, `python`, `docling`, `device`, `meaning`, `boundary` |
 | `libraries` | now | none | `libraries`: `root`, `libraries[]` with `id`, `name`, `dir`, `projectId`, `createdAt` |
-| `projects` | now | none | `projects`: each library with `description`, `queries` and `counts` |
-| `init` | now | `name`; opt. `projectId`, `description` | `library`; a name whose id is already taken is an `error` |
+| `projects` | now | none | `projects`: each library with `description`, `store` (`shared` or `own`), `queries` and `counts`; `own_store`, the ids of those that keep their own store |
+| `init` | now | `name`; opt. `projectId`, `description`, `owner` | `library`, a project of the shared store; a name whose id is already taken is an `error` |
 | `describe` | now | `lib`; opt. `name`, `description` | `project`: the library's `projects` entry |
-| `search` | own thread | `lib`, `query`; opt. `cursor` (`*`), `size` (25) | `search`: `hits[]` with `cand_id` and `status`, `total`, `next_cursor`, `added` |
+| `search` | own thread | `lib`, `query`; opt. `cursor` (`*`), `size` (25) | `search`: `hits[]` with `cand_id`, `status` and `held_here`, `total`, `next_cursor`, `added` |
 | `suggest` | own thread | `lib` | `suggestions`: `queries[]`, `model`, and `error` when none were drafted |
 | `candidates` | now | `lib`; opt. `status`, `query` | `candidates[]` |
 | `wanted` | now | `lib` | `wanted`: `candidates` needing a PDF by hand, `figures` (XML papers whose figures want a PDF) |
@@ -2089,7 +2111,7 @@ The worker answers these 45 ops, each sent as one JSON line with an `id`; a queu
 | `rebuild` | queued | `lib`; opt. `keys` (every parsed paper with its saved Docling document) | `progress`, `tree` per paper; `done` with `rebuilt[]`, `refused[]` |
 | `judge` | queued | `lib`; opt. `keys` | as `rebuild`, with the local chat model reading the open pairs |
 | `figures` | queued | `lib`; opt. `keys`, `force` | `progress` per paper; `done` with `papers`, `figures`, `plots`, `read`, `values` |
-| `merge` | queued | `sources[]` and `name`, or `sources[]` and `into` | a rebuild under the id `<id>-rebuild` and a reparse under `<id>-reparse`; `done` with `target`, `filed`, `duplicates`, `skipped`, `rebuilt`, `reparsed`, `candidates_merged` |
+| `merge` | queued | `sources[]` and `name`, or `sources[]` and `into` | `done` with `target`, `filed`, `duplicates`, `skipped`, `rebuilt`, `reparsed`, `candidates_merged`, `migrated`; only `into` a project that keeps its own store, first a rebuild under the id `<id>-rebuild` and a reparse under `<id>-reparse` |
 | `embed` | queued | `lib` | `done` with `model`, `units`, `embedded`, `already`, `seconds`, and `error` when the embedder is down |
 | `round` | queued | `lib`; opt. `papers[]`, `citations`, `again`, `openalex`, `references` (true) | `stage` `round`; `done` with `papers`, `entries`, `held`, `identified`, `unidentified`, `asked`, `added`, `errors`, `openalex` |
 | `expand` | queued | `lib`; opt. `most` (10), `min_cited` (1), `citations`, `openalex` | a round, then a fetch stream per pass; `done` with `round`, `chosen`, `read`, `passages`, `passed`, `for_a_person` |
@@ -2102,7 +2124,7 @@ The worker answers these 45 ops, each sent as one JSON line with an `id`; a queu
 | `file` | now | `lib`, `key` | `file`: `path`, `format`, `raw` (the saved Docling document's path) |
 | `types` | now | `lib` | `types`: `overview`, `skeletons`, `papers` |
 | `mapping` | now | `lib`, `key` | `mapping`, `canonical` |
-| `query` | own thread | `lib`, `question`; opt. `k` (8) | `query`: `hits[]` with their context, `embedder`, `counts`, `seconds` |
+| `query` | own thread | `lib` or `libs[]` (`["*"]` for every project), `question`; opt. `k` (8) | `query`: `hits[]` with their context, `embedder`, `counts`, `scope`, `left_out`, `seconds` |
 | `retrieval` | now | `lib` | `retrieval`: `units`, `embedded`, `model`, `down`, `error` |
 | `sql` | now | `lib`, `sql`; opt. `limit` (200, at most 5000) | `rows`: `columns`, `rows` |
 | `graph` | now | `lib`; opt. `candidates` (`cited`), `min_cited` (2) | `graph`: `nodes`, `edges`, `hidden` |
@@ -2116,6 +2138,10 @@ The worker answers these 45 ops, each sent as one JSON line with an `id`; a queu
 | `truth` | now | `lib` | `truth`: the finding-to-method links measured against the labels |
 | `audit` | now | `lib`; opt. `key`; or `path` | `audit`: `papers[]` with their `findings` |
 | `parse_json` | now | `path`; opt. `key` | `tree` built from a saved Docling document; nothing is stored |
+| `migrate` | now with `dry_run`, else queued | opt. `dry_run`, `libs[]` | `migrate`: the `plan`, nothing written; else `progress` per paper and `done` with `backup` and `moved` |
+| `hold` | now | `lib`, `keys[]` | `held`: `keys`, `changed`; the project takes papers the shared store holds |
+| `let_go` | now | `lib`, `keys[]` | `let_go`: `keys`, `changed`; the papers stay in the shared store |
+| `delete_project` | now | `lib` | `deleted`: `id`, `papers`, `candidates`, `aside` (its folder, moved to `_deleted/`); refused for a project that keeps its own store |
 | `quit` | now | none | `bye`, then the worker exits |
 
 ### Switches for everyone
@@ -2178,7 +2204,7 @@ These serve tests, experiments and measurement; for a reading rule that is on by
 
 ### The store
 
-A library's rows live in its `store.sqlite`; the tables from `cites` to `graph_state` and the two views appear when `sql`, `query`, `refs`, `passages`, `graph` or a round first runs.
+The rows live in the shared store, `_shared/store.sqlite`, and a project made before it keeps its own `store.sqlite` until moved. The `sql` op reads the whole store, every project's papers: join `project_papers` to narrow a query to one. The tables from `cites` to `graph_state` and the two views appear when `sql`, `query`, `refs`, `passages`, `graph` or a round first runs.
 
 | Table | One row is | Key columns |
 | --- | --- | --- |
@@ -2200,6 +2226,8 @@ A library's rows live in its `store.sqlite`; the tables from `cites` to `graph_s
 | `outlines` | The outline judge's answer for a paper | `paper`, `signature`, `model`, `outline` |
 | `link_labels` | Your verdict on a method a finding was measured by | `paper`, `finding`, `method`, `verdict` (`yes`, `no`, `none`), `by`, `at` |
 | `model_labels` | The local model's verdict on the same question | as `link_labels` |
+| `project_papers` | A paper a project holds (the shared store only) | `project` (its id), `paper`, `added_at` |
+| `project_candidates` | A candidate a project's own search found (the shared store only) | `project`, `cand_id`, `added_at` |
 | `candidates` | A work a search or a round found | `cand_id`, `doi`, `pmid`, `pmcid`, `title`, `status`, `round`, `cited_by`, `paper_key`, `oa_url` |
 | `cites` | A citation between two works | `citing`, `cited`, `origin` (`refs`, `europepmc`, `openalex`), `ref_no` |
 | `authors` | An author of a work | `work`, `pos`, `name`, `family`, `orcid`, `person` |

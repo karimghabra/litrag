@@ -37,7 +37,7 @@ def test_projects_describe_candidates_types_and_mapping(tmp_path):
 def test_types_and_mapping_of_a_read_paper(tmp_path):
     """A paper read from its saved Docling document (a rebuild, no Docling): its type's structure
     and its mapping onto it come back over the wire."""
-    lib = tmp_path / "micromachines"
+    lib = tmp_path / "_shared"  # a new project's papers live in the shared store
     events = talk(tmp_path, [{"id": "1", "op": "init", "name": "Micromachines"}])
     assert by(events, "1")[0]["event"] == "library"
     import sqlite3
@@ -50,6 +50,7 @@ def test_types_and_mapping_of_a_read_paper(tmp_path):
     shutil.copy(FIXTURES / "PMC11278924.xml", lib / "papers" / "paper.xml")
     shutil.copy(FIXTURES / "PMC11278924.jats.docling.json", lib / "parsed" / f"{safe_key(key)}.docling.json")
     conn.execute("UPDATE papers SET file = 'paper.xml', status = 'parsed' WHERE key = ?", (key,))
+    conn.execute("INSERT INTO project_papers(project, paper, added_at) VALUES ('micromachines', ?, 't')", (key,))
     conn.commit()
     conn.close()
     from litrag_parser.worker import Worker

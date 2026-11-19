@@ -73,6 +73,16 @@ export function fetchableCand(work: string | null, status: unknown): number | nu
   return Number(m[1]);
 }
 
+/** The paper a node opens in Papers: only one this project holds. */
+export function openablePaper(n: Pick<GraphNode, 'state' | 'paper'>): string | null {
+  return n.state === 'held' ? n.paper : null;
+}
+
+/** The candidate that takes a paper read in another project into this one, when it came as one. */
+export function takeableCand(n: Pick<GraphNode, 'state' | 'cand_id'>): number | null {
+  return n.state === 'elsewhere' ? n.cand_id : null;
+}
+
 /** An author's Europe PMC query: family name and initials, the way its records print them. */
 export function authorQuery(family: string, initials?: string | null): string {
   return `AUTH:"${family}${initials ? ` ${initials}` : ''}"`;
@@ -203,7 +213,8 @@ async function loadGraph(): Promise<void> {
           void renderDetail();
         },
         onOpen: (n) => {
-          if (n.paper) hooks.openPaper(n.paper);
+          const paper = openablePaper(n);
+          if (paper) hooks.openPaper(paper);
         },
         colourBy: $<HTMLSelectElement>('graph-colour').value as 'round' | 'year' | 'state',
       });
@@ -385,7 +396,7 @@ async function renderDetail(): Promise<void> {
   const box = $('graph-detail');
   box.innerHTML = '';
   const n = state.selected;
-  $('graph-detail-title').textContent = n ? (n.state === 'held' ? 'A paper held' : 'A candidate') : 'A work';
+  $('graph-detail-title').textContent = n ? (n.state === 'held' ? 'A paper held' : n.state === 'elsewhere' ? 'Read in another project' : 'A candidate') : 'A work';
   if (!n) {
     box.append(el('div', 'empty', 'Click a paper in the graph, or a row below. Double-click a held paper to open it.'));
     return;
@@ -394,13 +405,23 @@ async function renderDetail(): Promise<void> {
   const facts = [n.year ? String(n.year) : null, n.journal, n.state === 'held' ? `held · ${n.status}` : n.status, `round ${n.round}`, `cited here ${n.cited_here}`, `cites here ${n.cites_here}`].filter(Boolean);
   box.append(el('div', 'muted', facts.join(' · ')));
   const actions = el('div', 'actions');
-  if (n.paper) {
+  const paper = openablePaper(n);
+  if (paper) {
     const open = el('button', 'ghost small', 'Open in Papers');
-    open.addEventListener('click', () => hooks.openPaper(n.paper!));
+    open.addEventListener('click', () => hooks.openPaper(paper));
     const round = el('button', 'ghost small', 'Citation round from it');
     round.title = 'What this paper cites (and, with the box above ticked, what cites it), filed as candidates';
-    round.addEventListener('click', () => void runRound([n.paper!]));
+    round.addEventListener('click', () => void runRound([paper]));
     actions.append(open, round);
+  }
+  const take = takeableCand(n);
+  if (take !== null) {
+    const b = el('button', 'primary small', 'Take into this project');
+    b.title = 'Already read for another project: this project holds it too, with nothing fetched or read again';
+    b.addEventListener('click', () => void fetchIds([take]));
+    actions.append(b);
+  } else if (n.state === 'elsewhere') {
+    actions.append(el('span', 'muted', 'Held by another project'));
   }
   const cand = fetchableCand(n.id, n.status);
   if (cand !== null) {

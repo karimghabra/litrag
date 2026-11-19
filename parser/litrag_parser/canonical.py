@@ -113,11 +113,16 @@ def _words(text: str | None) -> int:
     return len((text or "").split())
 
 
-def _paper_rows(conn: sqlite3.Connection) -> list[dict[str, Any]]:
+def _paper_rows(conn: sqlite3.Connection, keys: list[str] | None = None) -> list[dict[str, Any]]:
+    """Every paper's row, or only those in `keys` (a project's papers in the shared store)."""
     have = _cols(conn, "papers")
     want = ["key", "title", "type", "subtype", "format", "confidence", "has_methods", "status"]
     sel = ", ".join(c if c in have else f"NULL AS {c}" for c in want)
-    return [dict(zip(want, r)) for r in conn.execute(f"SELECT {sel} FROM papers ORDER BY key")]
+    rows = [dict(zip(want, r)) for r in conn.execute(f"SELECT {sel} FROM papers ORDER BY key")]
+    if keys is None:
+        return rows
+    want_keys = set(keys)
+    return [r for r in rows if r["key"] in want_keys]
 
 
 def _nodes(conn: sqlite3.Connection, key: str) -> list[dict[str, Any]]:
@@ -394,14 +399,14 @@ def _covered(lane: str, present: set[str]) -> bool:
     return lane == "results-discussion" and {"results", "discussion"} <= present
 
 
-def skeletons(conn: sqlite3.Connection) -> dict[str, Any]:
+def skeletons(conn: sqlite3.Connection, keys: list[str] | None = None) -> dict[str, Any]:
     """Per paper type, its canonical skeleton: `{type: {type, papers, expected, slots, furniture}}`,
     types by paper count. Each slot: `{slot, papers, share, median_position, median_sections,
     words_median, expected, status, canonical: [{name, papers, share, median_position}],
     examples: [{heading, count}]}`, ordered by median position; `status` is `expected` (the
     type's contract names it), `typical` (a share of TYPICAL or more) or `observed`."""
     by_type: dict[str, list[dict[str, Any]]] = defaultdict(list)
-    for p in _paper_rows(conn):
+    for p in _paper_rows(conn, keys):
         rows = _nodes(conn, p["key"])
         if not rows:
             continue
@@ -608,11 +613,11 @@ def canonical_tree(conn: sqlite3.Connection, key: str, *, verdicts: Verdicts | N
     return {"paper": m["paper"], "slots": out}
 
 
-def types_overview(conn: sqlite3.Connection) -> list[dict[str, Any]]:
+def types_overview(conn: sqlite3.Connection, keys: list[str] | None = None) -> list[dict[str, Any]]:
     """Per type: `{type, papers, parsed, mean_confidence, with_methods, formats, subtypes}` —
     `with_methods` the share of its papers with a methods lane (`papers.has_methods`)."""
     groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
-    for p in _paper_rows(conn):
+    for p in _paper_rows(conn, keys):
         groups[p["type"] or "untyped"].append(p)
     out = []
     for kind, ps in sorted(groups.items(), key=lambda kv: (-len(kv[1]), kv[0])):

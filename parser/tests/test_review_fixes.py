@@ -77,7 +77,7 @@ def test_a_merge_keeps_a_failed_paper_failed_to_be_read_again_and_takes_old_sear
     b, kb = _paper_lib(tmp_path, "two")
     for lib in (a, b):  # a library from before the studio: its searches are bare strings
         update_manifest(lib, lambda m: m.update(queries=["collagen AND tendon"]))
-    out = projects.merge(tmp_path, ["one", "two"], "Both")
+    out = projects.merge(tmp_path, ["one", "two"], "Both", shared=False)
     target = open_library(tmp_path, "both")
     conn = open_store(target.store_path)
     rows = {r["key"]: dict(r) for r in conn.execute("SELECT key, status, error FROM papers")}

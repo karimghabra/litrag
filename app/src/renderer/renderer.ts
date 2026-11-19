@@ -14,7 +14,7 @@ import { droppedOn, figuresFor, ingestParams } from './figuredrop.ts';
 import { askedDone, dropLabel, figureLabel, figuresDone, figuresOn, overlayText, paneButton, paneNote, placeholder, stateChip, treeTag, type FigureOutcome, type FigureState, type FigureTag } from './figstate.ts';
 import { initLabels, openLabelling } from './labels.ts';
 import { BANDS, SORT_KEYS, arrived, bandOf, countBy, filedLine, filterPapers, readFiguresOf, sortPapers, validFilters, type SortKey } from './papers.ts';
-import { initProjects, renderProjects } from './projects.ts';
+import { initProjects, renderMoveBand, renderProjects } from './projects.ts';
 import { initGraph } from './graphtab.ts';
 import { initQuery } from './query.ts';
 import { initSearch, loadCandidates } from './search.ts';
@@ -183,7 +183,7 @@ async function loadLibraries(): Promise<void> {
 
 /** Every project with what it holds (the `projects` op), into the header's picker and the Projects tab. */
 async function loadLibrariesOnce() {
-  let r: { projects: ProjectSummary[]; root: string };
+  let r: { projects: ProjectSummary[]; root: string; own_store?: string[] };
   try {
     r = await request<typeof r>('projects');
   } catch (e) {
@@ -199,6 +199,7 @@ async function loadLibrariesOnce() {
     sel.append(o);
   }
   renderProjects();
+  renderMoveBand(r.own_store ?? []);
   if (!r.projects.length) {
     const o = el('option', undefined, 'No projects yet') as HTMLOptionElement;
     o.value = '';

@@ -80,6 +80,15 @@ interface QAnswer {
   counts?: Record<string, number>;
   seconds?: number;
   note?: string;
+  /** with "All projects": the projects not asked, because they keep their own store until moved */
+  left_out?: string[];
+}
+
+/** What "All projects" says of the projects it could not ask: they keep their own store, outside the shared one. */
+export function leftOutLine(ids: string[] | undefined): string | null {
+  if (!ids?.length) return null;
+  const one = ids.length === 1;
+  return `Not asked: ${ids.join(', ')} ${one ? 'keeps its' : 'keep their'} own store; move ${one ? 'it' : 'them'} into the shared store (Projects tab) to ask ${one ? 'it' : 'them'} with the rest.`;
 }
 
 export function initQuery(): void {
@@ -153,7 +162,10 @@ async function ask(): Promise<void> {
   const t = performance.now();
   const lib = ctx.lib;
   try {
-    const r = await request<QAnswer>('query', { lib, question, k });
+    // this project's papers, or every paper the shared store holds: a project that keeps its own store
+    // is not in it, and the answer names it (`left_out`)
+    const all = $<HTMLSelectElement>('query-scope').value === 'all';
+    const r = await request<QAnswer>('query', all ? { lib, libs: ['*'], question, k } : { lib, question, k });
     if (ctx.lib !== lib) return;
     renderAnswer(r, (performance.now() - t) / 1000);
   } catch (e) {
@@ -186,6 +198,8 @@ function renderAnswer(r: QAnswer, seconds: number): void {
   if (r.embedder?.model) meta.append(el('span', undefined, `meaning by ${r.embedder.model}`));
   if (r.embedder?.down) meta.append(el('span', 'conf low', 'the embedder is not answering: words only'));
   if (r.note) meta.append(el('span', undefined, r.note));
+  const left = leftOutLine(r.left_out);
+  if (left) meta.append(el('span', 'conf low', left));
   const box = $('query-results');
   box.innerHTML = '';
   if (!r.hits.length) box.append(el('div', 'empty', 'Nothing in this project answers that.'));

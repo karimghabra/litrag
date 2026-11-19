@@ -195,8 +195,7 @@ def test_the_picture_keeps_the_candidates_several_papers_cite(lib):
 def test_the_worker_answers_sql_over_works_and_the_graph(tmp_path, monkeypatch):
     for env in ("LITRAG_EPMC_URL", "LITRAG_NCBI_URL", "LITRAG_PMC_CLOUD_URL", "LITRAG_EPMC_PDF_URL"):
         monkeypatch.setenv(env, "http://127.0.0.1:9/")  # the round below must reach nothing
-    events = talk(tmp_path, [{"id": "1", "op": "init", "name": "Tendon"}])
-    assert by(events, "1")[0]["event"] == "library"
+    create_library(tmp_path, "Tendon")  # a library of the old shape: the test writes its store directly
     conn = open_store(tmp_path / "tendon" / "store.sqlite")
     b = _paper(conn, doi="10.1/b", title="Cited", year=2008, authors=[{"name": "Akkus O", "affiliations": [], "corresponding": False}])
     a = _paper(conn, doi="10.1/a", title="Citing", year=2020, refs=[{"doi": "10.1/b"}])
@@ -235,7 +234,7 @@ def test_a_merge_carries_a_round_s_candidates_and_citations(tmp_path):
     conn.execute("INSERT INTO harvests VALUES (?, 'references', 't', 1)", (a,))
     conn.commit()
     conn.close()
-    projects.merge(tmp_path, ["other", "source"], "Merged")
+    projects.merge(tmp_path, ["other", "source"], "Merged", shared=False)
     conn = open_store(tmp_path / "merged" / "store.sqlite")
     (here,) = _q(conn, "SELECT cand_id, round FROM candidates WHERE doi = '10.5/cited'")
     assert here[1] == 2 and here[0] != cid
@@ -559,7 +558,7 @@ def test_expand_reads_what_can_be_read_and_marks_the_rest_for_a_person(tmp_path,
         c.json("/rest/MED/112/references", {"hitCount": 1, "referenceList": {"reference": [{"source": "MED", "id": "333", "citedOrder": 1}]}})
         # 333: cited by both papers, nothing open on record; 222: cited by one, open XML in Europe PMC
         c.routes["/rest/search"] = _search([_core("222", "Open", 2019, pmcid="PMC222"), _core("333", "A classic, closed", 1995)])
-        talk(tmp_path, [{"id": "1", "op": "init", "name": "Tendon"}])
+        create_library(tmp_path, "Tendon")  # a library of the old shape: the test writes its store directly
         conn = open_store(tmp_path / "tendon" / "store.sqlite")
         _paper(conn, pmid="111", doi="10.1/a", title="One", year=2020)
         _paper(conn, pmid="112", doi="10.1/b", title="Two", year=2021)
@@ -606,7 +605,7 @@ def test_a_merge_keeps_what_links_the_entries(tmp_path):
     graph.sync(conn)
     assert _q(conn, "SELECT ref_no, how FROM ref_works") == [(1, "europepmc")]
     conn.close()
-    projects.merge(tmp_path, ["source"], "Merged")
+    projects.merge(tmp_path, ["source"], "Merged", shared=False)
     conn = open_store(tmp_path / "merged" / "store.sqlite")
     # the rebuild that follows a merge reads the entries again
     save_refs(conn, a, [SimpleNamespace(ref_no=1, node_id="n", ref_id=None, text=refs[0]["text"], doi=None, pmid=None, year="2019", first_author="Lyon", title=None)], [])

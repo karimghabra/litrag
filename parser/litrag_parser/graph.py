@@ -525,7 +525,7 @@ def _fill_record(conn: sqlite3.Connection, key: str, w: dict[str, Any]) -> None:
 def harvest(lib: Library, conn: sqlite3.Connection, keys: Iterable[str] | None = None, *, references: bool = True, citations: bool = False,
             again: bool = False, network: bool = True, openalex: bool | None = None, most_citing: int = 1000,
             title_searches: int | None = None, timeout: float = 30,
-            on_progress: Callable[[dict[str, Any]], None] | None = None) -> dict[str, Any]:
+            on_progress: Callable[[dict[str, Any]], None] | None = None, within: list[str] | None = None) -> dict[str, Any]:
     """One citation round from held papers (`keys`, else every held paper not asked before):
     what each cites and, with `citations`, what cites it — asked of Europe PMC and of OpenAlex
     side by side (`openalex=False` leaves OpenAlex out; `LITRAG_OPENALEX=off` always does), the paper's own reference list
@@ -535,7 +535,8 @@ def harvest(lib: Library, conn: sqlite3.Connection, keys: Iterable[str] | None =
     OpenAlex's, else what the reference printed. For a paper neither source has a list for, an
     entry naming no identifier is searched in OpenAlex by its words (at most `title_searches` a
     round) and taken only when one work's whole title, year and first author are in it; else it
-    is counted and left. Nothing is fetched. Twice changes nothing; `again` asks once more."""
+    is counted and left. Nothing is fetched. Twice changes nothing; `again` asks once more.
+    `within` narrows "every held paper" to a project's (members.scope)."""
     from . import openalex as oa
     from .lineage import _Library
 
@@ -549,6 +550,9 @@ def harvest(lib: Library, conn: sqlite3.Connection, keys: Iterable[str] | None =
     if keys is not None:
         wanted_keys = set(keys)
         rows = [r for r in rows if r["key"] in wanted_keys]
+    if within is not None:
+        mine = set(within)
+        rows = [r for r in rows if r["key"] in mine]
     kinds = [k for k, on in (("references", references), ("citations", citations),
                               ("openalex-references", references and use_oa), ("openalex-citations", citations and use_oa)) if on]
     asked = {(p, k) for p, k in conn.execute("SELECT paper, kind FROM harvests")}
@@ -871,15 +875,28 @@ def harvest(lib: Library, conn: sqlite3.Connection, keys: Iterable[str] | None =
 # ---------------------------------------------------------------- the picture
 
 
-def graph(conn: sqlite3.Connection, candidates: str = "cited", min_cited: int = 2) -> dict[str, Any]:
+def graph(conn: sqlite3.Connection, candidates: str = "cited", min_cited: int = 2, *, keys: list[str] | None = None,
+          cand_ids: set[int] | None = None) -> dict[str, Any]:
     """The works and the citations between them, for the window to draw: every held paper, and
     candidates — `none`, those cited (or citing) at least `min_cited` held papers (`cited`), or
     `all`. Each node `{id, paper, cand_id, state, status, title, label, year, first_author,
     journal, round, cited_here, cites_here, type}`; each edge `{src, dst, origin}`, src citing
     dst, `origin` every source that names it, joined ("europepmc+openalex+refs"), `passages` how
-    many of src's passages cite dst in their text (`passage_cites`)."""
+    many of src's passages cite dst in their text (`passage_cites`).
+
+    `keys` narrows it to a project's papers in the shared store (members.scope): the papers held
+    are those, and the candidates are counted against them; `cand_ids` (members.candidate_ids) are
+    the candidates `all` shows then. A paper read for another project is `state` "elsewhere": drawn
+    as a candidate is when it touches the project's papers, and `cited_here`, `cites_here` and
+    `hidden` are counted over the project's own works, whatever is drawn."""
     sync(conn)
     nodes = [dict(r) for r in conn.execute("SELECT * FROM works")]
+    if keys is not None:
+        mine = set(keys)
+        for n in nodes:
+            if n["state"] == "held" and n["work"] not in mine:
+                n["state"] = "elsewhere"  # read for another project: to this one, a work its papers may cite
+        nodes = [n for n in nodes if n["state"] in ("held", "elsewhere") or cand_ids is None or n["cand_id"] in cand_ids or candidates != "all"]
     held = {n["work"] for n in nodes if n["state"] == "held"}
     pairs: dict[tuple[str, str], set[str]] = {}
     for citing, cited, origin in conn.execute("SELECT citing, cited, origin FROM cites"):
@@ -894,6 +911,8 @@ def graph(conn: sqlite3.Connection, candidates: str = "cited", min_cited: int = 
     def keep(n: dict[str, Any]) -> bool:
         if n["state"] == "held":
             return True
+        if n["state"] == "elsewhere":  # shown as a candidate is, by the project's papers that cite it, whatever the mode
+            return candidates != "none" and len(touching.get(n["work"], ())) >= (1 if candidates == "all" else max(1, int(min_cited)))
         if candidates == "all":
             return True
         if candidates == "none" or n["status"] == "dismissed":
@@ -902,6 +921,29 @@ def graph(conn: sqlite3.Connection, candidates: str = "cited", min_cited: int = 
 
     kept = [n for n in nodes if keep(n)]
     ids = {n["work"] for n in kept}
+    if keys is not None:
+        cited_here: dict[str, int] = {}
+        cites_here: dict[str, int] = {}
+        taken = {n["work"] for n in nodes if n["state"] == "elsewhere" and (touching.get(n["work"]) or (cand_ids is not None and n["cand_id"] in cand_ids))}
+
+        def project_work(w: str) -> bool:
+            if w in mine or w in taken:
+                return True
+            if not w.startswith("cand:"):
+                return False
+            return cand_ids is None or (w[5:].isdigit() and int(w[5:]) in cand_ids)
+
+        for a, b in pairs:
+            if project_work(a):
+                cited_here[b] = cited_here.get(b, 0) + 1
+            if project_work(b):
+                cites_here[a] = cites_here.get(a, 0) + 1
+        for n in kept:
+            n["cited_here"] = cited_here.get(n["work"], 0)
+            n["cites_here"] = cites_here.get(n["work"], 0)
+        scope = [n for n in nodes if n["state"] == "held" or (n["state"] == "candidate" and (cand_ids is None or n["cand_id"] in cand_ids))]
+    else:
+        scope = nodes
     families = {w: f for w, f in conn.execute("SELECT work, family FROM authors WHERE pos = 1")}
     out_nodes = []
     for n in kept:
@@ -914,22 +956,24 @@ def graph(conn: sqlite3.Connection, candidates: str = "cited", min_cited: int = 
     out_edges = [{"src": a, "dst": b, "origin": "+".join(sorted(o)), "passages": passages.get((a, b), 0)}
                  for (a, b), o in sorted(pairs.items()) if a in ids and b in ids]
     return {"nodes": out_nodes, "edges": out_edges,
-            "hidden": sum(1 for n in nodes if n["work"] not in ids)}
+            "hidden": sum(1 for n in scope if n["work"] not in ids)}
 
 
 # ---------------------------------------------------------------- the passages, and the next papers to read
 
 
-def passages_citing(conn: sqlite3.Connection, work: str, limit: int = 200) -> list[dict[str, Any]]:
+def passages_citing(conn: sqlite3.Connection, work: str, limit: int = 200, keys: list[str] | None = None) -> list[dict[str, Any]]:
     """Every passage of the papers held that cites `work` in its text — the node, where it sits,
     its words, the marker that named the work and how the entry was linked to it: the chunks a
-    paper read later is cited by, from the papers read before it."""
+    paper read later is cited by, from the papers read before it. `keys`: only those papers'."""
     sync(conn)
+    within = " AND pc.paper IN (SELECT value FROM json_each(?))" if keys is not None else ""
     rows = conn.execute(
-        """SELECT pc.paper, p.title AS paper_title, p.year AS paper_year, pc.node_id, pc.ref_no, pc.marker, pc.how,
+        f"""SELECT pc.paper, p.title AS paper_title, p.year AS paper_year, pc.node_id, pc.ref_no, pc.marker, pc.how,
                   n.role, n.ancestry, n.page, n.text
            FROM passage_cites pc JOIN nodes n ON n.node_id = pc.node_id JOIN papers p ON p.key = pc.paper
-           WHERE pc.work = ? ORDER BY p.year, pc.paper, n.depth, n.ordinal LIMIT ?""", (work, int(limit))).fetchall()
+           WHERE pc.work = ?{within} ORDER BY p.year, pc.paper, n.depth, n.ordinal LIMIT ?""",
+        (work, *((json.dumps(keys),) if keys is not None else ()), int(limit))).fetchall()
     out = []
     for r in rows:
         d = dict(r)
@@ -939,23 +983,31 @@ def passages_citing(conn: sqlite3.Connection, work: str, limit: int = 200) -> li
     return out
 
 
-def next_to_read(conn: sqlite3.Connection, most: int | None = 20, min_cited: int = 1) -> list[dict[str, Any]]:
+def next_to_read(conn: sqlite3.Connection, most: int | None = 20, min_cited: int = 1, keys: list[str] | None = None) -> list[dict[str, Any]]:
     """The candidates the papers held cite most and the library has not read: cited (or citing) by
     at least `min_cited` held papers, not yet fetched, dismissed or given up on — the most cited
     here first; among those cited as often, the likelier to be read first (`readable`: 2 an open
     XML Europe PMC hosts, which never failed in the scale test; 1 an NIH author manuscript NCBI may
-    give out, about two in five did; 0 nothing open on record, which never came, 74 of 74); then
-    the most cited anywhere, then the newest. At most `most` (None: all of them)."""
+    give out, about two in five did; 0 nothing open on record, which never came, 74 of 74; 3 a paper
+    another project read already, which is held at once); then
+    the most cited anywhere, then the newest. At most `most` (None: all of them). `keys`: held
+    means held by a project, those papers (members.scope)."""
     sync(conn)
+    held = "(SELECT value FROM json_each(:keys))" if keys is not None else "(SELECT key FROM papers)"
+    # a paper another project read, filed from a candidate, is this project's next to read too: taking it
+    # costs nothing (do_fetch holds it from the shared store)
+    elsewhere = "OR (w.state = 'held' AND w.cand_id IS NOT NULL AND w.work NOT IN (SELECT value FROM json_each(:keys)))" if keys is not None else ""
     rows = [dict(r) for r in conn.execute(
-        """SELECT w.cand_id, w.work, w.title, w.year, w.first_author, w.status, w.cited_by,
-                  (SELECT COUNT(DISTINCT x.citing) FROM cites x WHERE x.cited = w.work AND x.citing IN (SELECT key FROM papers))
-                + (SELECT COUNT(DISTINCT x.cited) FROM cites x WHERE x.citing = w.work AND x.cited IN (SELECT key FROM papers)) AS held_links,
-                  CASE WHEN c.has_xml = 1 AND c.is_open_access = 1 THEN 2 WHEN c.has_xml = 1 THEN 1 ELSE 0 END AS readable,
+        f"""SELECT w.cand_id, w.work, w.title, w.year, w.first_author, w.status, w.cited_by,
+                  (SELECT COUNT(DISTINCT x.citing) FROM cites x WHERE x.cited = w.work AND x.citing IN {held})
+                + (SELECT COUNT(DISTINCT x.cited) FROM cites x WHERE x.citing = w.work AND x.cited IN {held}) AS held_links,
+                  CASE WHEN w.state = 'held' THEN 3 WHEN c.has_xml = 1 AND c.is_open_access = 1 THEN 2 WHEN c.has_xml = 1 THEN 1 ELSE 0 END AS readable,
                   c.oa_url
            FROM works w JOIN candidates c ON c.cand_id = w.cand_id
-           WHERE w.state = 'candidate' AND w.status IN ('found', 'failed')
-           ORDER BY held_links DESC, readable DESC, COALESCE(w.cited_by, 0) DESC, COALESCE(w.year, 0) DESC, w.cand_id""").fetchall()
+           WHERE (w.state = 'candidate' AND w.status IN ('found', 'failed'))
+              {elsewhere}
+           ORDER BY held_links DESC, readable DESC, COALESCE(w.cited_by, 0) DESC, COALESCE(w.year, 0) DESC, w.cand_id""",
+        {"keys": json.dumps(keys)} if keys is not None else {}).fetchall()
         if r["held_links"] >= max(1, int(min_cited))]
     return rows if most is None else rows[: max(0, int(most))]
 

@@ -864,16 +864,24 @@ to the reader, and turn what it finds into a fixture and a rule.
 ```
 $LITRAG_ROOT   (else $PROTRACKER_LIBRARY, else ~/.protracker/library)
 ├── models/docling/        Docling's models, if pre-fetched here
-└── <library>/
-    ├── library.json       id, name, project id
-    ├── store.sqlite       papers · pages · nodes · nodes_fts · events
-    ├── papers/            the files, named by key: doi_10.1093_nar_gkr715.pdf
-    ├── parsed/            the raw Docling document per paper, never edited
+├── _shared/               every paper once, by its identifier, whichever projects hold it
+│   ├── store.sqlite       papers · pages · nodes · nodes_fts · events · project_papers
+│   ├── papers/            the files, named by key: doi_10.1093_nar_gkr715.pdf
+│   └── parsed/            the raw Docling document per paper, never edited
+└── <project>/
+    ├── library.json       id, name, project id, "store": "shared"
     └── inbox/             drop files here instead, if you prefer
 ```
 
-`sqlite3 store.sqlite "select role, count(*) from nodes group by role"` is a
-fine way to look at a library; so is the worker's `sql` op.
+A project is the list of papers it holds (`project_papers`); one paper can be in
+several projects, read once, and a query can ask one project, several or all.
+A project made before the shared store keeps its own `store.sqlite`, `papers/`
+and `parsed/` until the Projects tab's **Move into the shared store** (or
+`python -m litrag_parser.migrate`) copies it across, after a backup, leaving
+the old files where they were (TUTORIAL.md, The shared store).
+
+`sqlite3 _shared/store.sqlite "select role, count(*) from nodes group by role"` is a
+fine way to look at the papers; so is the worker's `sql` op.
 
 ## The worker on its own
 

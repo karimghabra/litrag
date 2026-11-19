@@ -127,13 +127,16 @@ _UNIT_WHERE = f"""
 """
 
 
-def _filters(roles: Iterable[str] | None, paper: str | None) -> tuple[str, list[Any]]:
+def _filters(roles: Iterable[str] | None, paper: str | list[str] | None) -> tuple[str, list[Any]]:
     sql, args = "", []
     roles = list(roles or [])
     if roles:
         sql += f" AND n.role IN ({', '.join('?' for _ in roles)})"
         args += roles
-    if paper:
+    if isinstance(paper, list):
+        sql += " AND n.paper IN (SELECT value FROM json_each(?))"
+        args.append(json.dumps(paper))
+    elif paper:
         sql += " AND n.paper = ?"
         args.append(paper)
     return sql, args
@@ -432,7 +435,7 @@ class Hits(list):
     counts: dict[str, int]
 
 
-def _by_words(conn: sqlite3.Connection, question: str, per_list: int, roles: Any, paper: str | None) -> list[tuple[str, float]]:
+def _by_words(conn: sqlite3.Connection, question: str, per_list: int, roles: Any, paper: str | list[str] | None) -> list[tuple[str, float]]:
     match = fts_query(question)
     if not match:
         return []
@@ -448,11 +451,12 @@ def _by_words(conn: sqlite3.Connection, question: str, per_list: int, roles: Any
     return [(r["node_id"], -float(r["s"])) for r in rows]  # bm25 is lower-is-better; every ranking here reads one way
 
 
-def search(conn: sqlite3.Connection, question: str, embedder: Embedder | None, k: int = 10, per_list: int = 50, roles: Iterable[str] | None = None, paper: str | None = None) -> Hits:
+def search(conn: sqlite3.Connection, question: str, embedder: Embedder | None, k: int = 10, per_list: int = 50, roles: Iterable[str] | None = None, paper: str | list[str] | None = None) -> Hits:
     """The units nearest a question, through the words and through the meaning, fused by
     reciprocal rank (K = 60): `[{node_id, score, ranks: {words, meaning}}]`, best first, at
     most `k`. When the embedder is down, or has embedded nothing yet, the answer is the words
-    alone and `Hits.meaning` says why."""
+    alone and `Hits.meaning` says why. `paper` narrows it to one paper, or to a list of them (a
+    project's papers in the shared store, members.scope)."""
     _prepare(conn)
     roles = list(roles or [])
     out = Hits()
@@ -480,7 +484,9 @@ def search(conn: sqlite3.Connection, question: str, embedder: Embedder | None, k
             mask = np.ones(len(scores), dtype=bool)
             if roles:
                 mask &= np.isin(mat["roles"], roles)
-            if paper:
+            if isinstance(paper, list):
+                mask &= np.isin(mat["papers"], paper)
+            elif paper:
                 mask &= mat["papers"] == paper
             idx = np.flatnonzero(mask)
             if idx.size:

@@ -1,6 +1,7 @@
 # litrag — repo guide for agents
 
-One library of papers per project. A desktop app watches each paper being
+Papers are kept once, in a shared store; a project is the set of papers
+it holds. A desktop app watches each paper being
 read into a tree; a Python worker does the reading and owns the store; the
 `lit` CLI in `src/` is the earlier retrieval loop, kept until the app has
 replaced its verbs. `PIPELINE.md` is the pipeline on one page and says
@@ -16,7 +17,9 @@ Where things are:
 
 - `parser/` — Python, managed with `uv`. Docling reads PDFs and JATS XML;
   `tree.py` turns a Docling document into the node tree; `store.py` is the
-  SQLite schema and its reads; `worker.py` speaks JSON lines over stdio.
+  SQLite schema and its reads; `members.py` is which projects hold which
+  papers in the shared store; `migrate.py` moves a library that still keeps
+  its own store into it; `worker.py` speaks JSON lines over stdio.
 - `app/` — Electron, TypeScript, built with esbuild. `src/main` spawns the
   worker and relays its events; `src/renderer` is the window: six tabs
   over one project — Projects, Search, Papers (tree, page with boxes,
