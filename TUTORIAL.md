@@ -233,7 +233,13 @@ Each list shows a paper's title, year, journal and the projects that hold it. **
 
 **A forgotten password.** The window cannot reset one: changing a password asks for the current one. Until it can, whoever keeps the library folder does it by hand, with litrag closed:
 
-- *To let the person back in*, make a hash of a new password and write it over the old one. From a checkout: `uv run --project parser --no-sync python -c "from litrag_parser.users import hash_password; print(hash_password('a new password'))"`, then `sqlite3 <root>/users.sqlite "UPDATE users SET pw_hash = '<the line printed>' WHERE id = '<their id>'"`. `SELECT id, name FROM users` lists the ids. Their recent papers, favourites, notes and collections are as they left them.
+- *To let the person back in*, write the hash of a new password over the old one, in one command from a checkout, with the library root, the account's id and the new password as its last three words:
+
+  ```
+  uv run --project parser --no-sync python -c 'import sqlite3, sys; from litrag_parser.users import hash_password; c = sqlite3.connect(sys.argv[1]); n = c.execute("UPDATE users SET pw_hash = ? WHERE id = ?", (hash_password(sys.argv[3]), sys.argv[2])).rowcount; c.commit(); print(n, "account changed")' ~/.protracker/library/users.sqlite 'ana lopez' 'a new password'
+  ```
+
+  It prints `1 account changed`; `0` means no account has that id. An id is the name in lower case without its accents: `sqlite3 ~/.protracker/library/users.sqlite 'SELECT id, name FROM users'` lists them. Their recent papers, favourites, notes and collections are as they left them.
 - *To free a project of theirs* without the account, delete the `"owner"` line from `<root>/<project>/library.json`: the project then belongs to no one, and anyone may describe, rename or delete it.
 
 ## Projects

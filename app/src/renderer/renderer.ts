@@ -404,6 +404,7 @@ async function loadTreeOnce(key: string) {
   const p = state.papers.get(key);
   if (!p || p.status !== 'parsed') {
     state.tree = null;
+    paperShown(null);
     renderTree();
     return;
   }
@@ -443,6 +444,7 @@ async function loadTreeOnce(key: string) {
     const first = firstPage(r.root);
     if (first) await showPage(first);
   } catch (e) {
+    if (state.tree?.paper.key !== key) paperShown(null);
     log('error', String((e as Error).message), key);
   }
 }
