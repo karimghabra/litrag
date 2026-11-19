@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { PRESETS, authorQuery, fetchableCand, quoteAround, sqlString, worksOf } from '../src/renderer/graphtab';
+import { PRESETS, authorQuery, fetchableCand, openablePaper, quoteAround, sqlString, takeableCand, worksOf } from '../src/renderer/graphtab';
 
 describe('the rows a query returns, as works', () => {
   it('reads a work column, else a candidate id, else a paper key', () => {
@@ -45,5 +45,20 @@ describe('a passage that cites, quoted', () => {
     expect(q.length).toBeLessThanOrEqual(122);
     expect(quoteAround('Short [1].', '[1]')).toBe('Short [1].');
     expect(quoteAround('x'.repeat(300), '[9]', 100)).toBe(`${'x'.repeat(100)}…`); // no marker found: the start
+  });
+});
+
+describe('a paper read in another project, in this project\'s graph', () => {
+  it('opens only a paper this project holds', () => {
+    expect(openablePaper({ state: 'held', paper: 'doi:10.1/a' })).toBe('doi:10.1/a');
+    expect(openablePaper({ state: 'elsewhere', paper: 'doi:10.1/w' })).toBeNull();
+    expect(openablePaper({ state: 'candidate', paper: null })).toBeNull();
+  });
+
+  it('is taken by the candidate it came as, and nothing else is', () => {
+    expect(takeableCand({ state: 'elsewhere', cand_id: 9 })).toBe(9);
+    expect(takeableCand({ state: 'elsewhere', cand_id: null })).toBeNull(); // dropped in as a file: no candidate to take it by
+    expect(takeableCand({ state: 'held', cand_id: 9 })).toBeNull();
+    expect(takeableCand({ state: 'candidate', cand_id: 9 })).toBeNull();
   });
 });
