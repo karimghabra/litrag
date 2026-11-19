@@ -58,11 +58,11 @@ const state = {
   notes: [] as Note[],
 };
 
-/** The project a paper is opened in: the one it was last seen in while that one still holds it, else the first that does. */
+/** The project a paper is opened in: the one it was last seen in while that one still holds it, else the first that does; none when no project holds it now. */
 export function homeOf(p: Pick<MinePaper, 'project' | 'projects'>): string | null {
   if (p.project && p.projects.includes(p.project)) return p.project;
   if (ctx.lib && p.projects.includes(ctx.lib)) return ctx.lib;
-  return p.projects[0] ?? p.project ?? null;
+  return p.projects[0] ?? null;
 }
 
 /** "2024 · Micromachines · tendon, bone": what a row says under its title. */

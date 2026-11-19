@@ -91,7 +91,7 @@ export async function showSignIn(): Promise<void> {
   try {
     users = (await request<{ users: User[] }>('users')).users;
   } catch (e) {
-    log('error', `accounts: ${(e as Error).message}`);
+    log('error', `accounts: ${rejectionText(e)}`);
   }
   for (const u of users) {
     const b = el('button', 'ghost small', u.name) as HTMLButtonElement;
@@ -160,7 +160,7 @@ async function changePassword(): Promise<void> {
     await request('password', { session: state.session, old, new: next });
     log('stage', 'Password changed');
   } catch (e) {
-    window.alert((e as Error).message);
+    window.alert(rejectionText(e));
   }
 }
 

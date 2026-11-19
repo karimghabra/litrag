@@ -23,8 +23,9 @@ describe('where a paper of yours is opened', () => {
     expect(homeOf(paper({ project: 'gone', projects: ['tendon', 'bone'] }))).toBe('tendon');
   });
 
-  it('a paper no project holds now keeps the project it was seen in, which the store may still answer for', () => {
-    expect(homeOf(paper({ project: 'old-shape', projects: [] }))).toBe('old-shape');
+  it('a paper no project holds now has nowhere to open, whatever project it was last seen in', () => {
+    ctx.lib = 'tendon';
+    expect(homeOf(paper({ project: 'tendon', projects: [] }))).toBeNull();
     expect(homeOf(paper({ project: null, projects: [] }))).toBeNull();
   });
 });
