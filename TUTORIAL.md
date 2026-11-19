@@ -162,7 +162,9 @@ A project is any folder under the root that holds a `library.json`; litrag ignor
 
 Every paper is stored once. Filing finds a paper by its DOI, then its PMID, then its file's hash, as it always did, but now across every project: a PDF dropped into a second project that the first already read is not read again. The second project simply holds it too, and its card counts it. Leaving a project takes nothing from the others. **Merge libraries…** makes a project that holds every paper of the chosen ones, with nothing copied or read again.
 
-The **Query** tab asks **This project** or **All projects** (the `From` box). The worker's `query` op takes `libs`, a list of projects, or `["*"]` for every paper in the shared store.
+The **Query** tab asks **This project** or **All projects** (the `From` box). The worker's `query` op takes `libs`, a list of projects, or `["*"]` for every paper in the shared store. A project that still keeps its own store is not in the shared store, so **All projects** cannot ask it: the answer names it ("Not asked: archive keeps its own store; …", the op's `left_out`).
+
+In **Search**, a hit another project has read already says **read in another project**. Tick it and **Fetch & read**: this project takes the paper from the shared store, with nothing downloaded or read again. The **Graph** draws such a paper beside this project's own when its papers cite it, and **Expand** takes it first, at no cost.
 
 **Moving the older projects across.** When a project still keeps its own store, the Projects tab shows a band, **Move into the shared store**. **What would move?** says, without writing anything, how many papers each would bring (new to the shared store, or held there already), how many candidates, embedded passages and files. **Move them** then:
 

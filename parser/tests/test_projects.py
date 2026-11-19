@@ -428,7 +428,11 @@ def _merge_op(root, monkeypatch, capsys, **req):
     for op in ("rebuild", "reparse", "figures"):
         monkeypatch.setattr(Worker, f"do_{op}", lambda self, r, op=op: (asked[op].append(r), asked["order"].append(op)))
     capsys.readouterr()
-    Worker(root).do_merge({"id": "m", "op": "merge", "shared": False, **req})
+    if req.get("name") and not req.get("into"):
+        # a new project from the worker is made in the shared store; these tests read the merge
+        # into a library of the old shape, so they make that target first and merge into it
+        req = {**req, "into": create_library(root, req["name"]).id}
+    Worker(root).do_merge({"id": "m", "op": "merge", **req})
     return [json.loads(line) for line in capsys.readouterr().out.splitlines() if line.strip()], asked
 
 

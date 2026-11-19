@@ -1285,8 +1285,7 @@ class Worker:
         (`figures_not_kept`)."""
         req_id = req.get("id")
         emit({"event": "progress", "id": req_id, "op": "merge", "done": 0, "total": 0, "label": "Merging libraries"})
-        out = project_rows.merge(self.root, [str(s) for s in req.get("sources") or []], str(req.get("name") or ""), into=req.get("into"),
-                                 shared=req.get("shared") is not False)
+        out = project_rows.merge(self.root, [str(s) for s in req.get("sources") or []], str(req.get("name") or ""), into=req.get("into"))
         target = out["target"]["id"]
         emit({"event": "stage", "id": req_id, "lib": target, "stage": "merged", "message": f"{out['filed']} papers filed, {out['duplicates']} already held, {len(out['keys_to_rebuild'])} to derive again, {len(out['keys_to_parse'])} to read again"})
         rebuilt: list[str] = []
@@ -1398,6 +1397,9 @@ class Worker:
                         out = retrieve.query(conn, str(req.get("question") or ""), retrieve.OllamaEmbedder(), k=int(req.get("k") or 8),
                                              **({"paper": scope} if scope is not None else {}))
                         out["scope"] = [l.id for l in libs]
+                        # every paper is the shared store's: a project that keeps its own store is not
+                        # in it until moved, and is named, so a person knows what was not asked
+                        out["left_out"] = [l.id for l in list_libraries(self.root) if not l.shared] if any(l.id == ALL for l in libs) else []
                         out["seconds"] = round(time.time() - t, 3)
                     finally:
                         conn.close()

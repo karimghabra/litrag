@@ -277,6 +277,14 @@ def find_paper(conn: sqlite3.Connection, *, doi: str | None, pmid: str | None, s
     return (row[0], "sha") if row is not None else None
 
 
+def move_memberships(conn: sqlite3.Connection, old: str, new: str) -> None:
+    """Every project that held paper `old` holds `new` instead (members.py): called before a stub
+    is deleted for the paper it turned out to be, so no project loses the paper with it.
+    `project_papers` names a key with no foreign key, so nothing else would follow the stub."""
+    conn.execute("UPDATE OR IGNORE project_papers SET paper = ? WHERE paper = ?", (new, old))
+    conn.execute("DELETE FROM project_papers WHERE paper = ?", (old,))
+
+
 def file_paper(conn: sqlite3.Connection, *, title: str, file: str, sha256: str, fmt: str, doi: str | None, pmid: str | None, pmcid: str | None, now: str) -> Filed:
     """File a paper once: by DOI, then PMID, then hash (`find_paper`). Seeing it again fills
     gaps, and says which of the three met it. The paper keeps the key and the DOI it was first
@@ -286,7 +294,9 @@ def file_paper(conn: sqlite3.Connection, *, title: str, file: str, sha256: str, 
         sha_row = conn.execute("SELECT key FROM papers WHERE sha256 = ?", (sha256,)).fetchone()
         if sha_row is not None and sha_row["key"] != found[0]:
             # The same bytes were filed earlier under a hash, before their DOI was known:
-            # that row was a stub of this paper. It goes, with its rows; the identified paper stays.
+            # that row was a stub of this paper. It goes, with its rows; the identified paper stays,
+            # and every project that held the stub holds the identified paper instead.
+            move_memberships(conn, sha_row["key"], found[0])
             conn.execute("DELETE FROM papers WHERE key = ?", (sha_row["key"],))
     if found is not None:
         key, by = found

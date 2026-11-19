@@ -891,7 +891,10 @@ def graph(conn: sqlite3.Connection, candidates: str = "cited", min_cited: int = 
     nodes = [dict(r) for r in conn.execute("SELECT * FROM works")]
     if keys is not None:
         mine = set(keys)
-        nodes = [n for n in nodes if (n["work"] in mine if n["state"] == "held" else (cand_ids is None or n["cand_id"] in cand_ids or candidates != "all"))]
+        for n in nodes:
+            if n["state"] == "held" and n["work"] not in mine:
+                n["state"] = "elsewhere"  # read for another project: to this one, a work its papers may cite
+        nodes = [n for n in nodes if n["state"] in ("held", "elsewhere") or cand_ids is None or n["cand_id"] in cand_ids or candidates != "all"]
     held = {n["work"] for n in nodes if n["state"] == "held"}
     pairs: dict[tuple[str, str], set[str]] = {}
     for citing, cited, origin in conn.execute("SELECT citing, cited, origin FROM cites"):
@@ -906,6 +909,8 @@ def graph(conn: sqlite3.Connection, candidates: str = "cited", min_cited: int = 
     def keep(n: dict[str, Any]) -> bool:
         if n["state"] == "held":
             return True
+        if n["state"] == "elsewhere":  # shown as a candidate is, by the project's papers that cite it, whatever the mode
+            return candidates != "none" and len(touching.get(n["work"], ())) >= (1 if candidates == "all" else max(1, int(min_cited)))
         if candidates == "all":
             return True
         if candidates == "none" or n["status"] == "dismissed":
@@ -958,19 +963,24 @@ def next_to_read(conn: sqlite3.Connection, most: int | None = 20, min_cited: int
     at least `min_cited` held papers, not yet fetched, dismissed or given up on — the most cited
     here first; among those cited as often, the likelier to be read first (`readable`: 2 an open
     XML Europe PMC hosts, which never failed in the scale test; 1 an NIH author manuscript NCBI may
-    give out, about two in five did; 0 nothing open on record, which never came, 74 of 74); then
+    give out, about two in five did; 0 nothing open on record, which never came, 74 of 74; 3 a paper
+    another project read already, which is held at once); then
     the most cited anywhere, then the newest. At most `most` (None: all of them). `keys`: held
     means held by a project, those papers (members.scope)."""
     sync(conn)
     held = "(SELECT value FROM json_each(:keys))" if keys is not None else "(SELECT key FROM papers)"
+    # a paper another project read, filed from a candidate, is this project's next to read too: taking it
+    # costs nothing (do_fetch holds it from the shared store)
+    elsewhere = "OR (w.state = 'held' AND w.cand_id IS NOT NULL AND w.work NOT IN (SELECT value FROM json_each(:keys)))" if keys is not None else ""
     rows = [dict(r) for r in conn.execute(
         f"""SELECT w.cand_id, w.work, w.title, w.year, w.first_author, w.status, w.cited_by,
                   (SELECT COUNT(DISTINCT x.citing) FROM cites x WHERE x.cited = w.work AND x.citing IN {held})
                 + (SELECT COUNT(DISTINCT x.cited) FROM cites x WHERE x.citing = w.work AND x.cited IN {held}) AS held_links,
-                  CASE WHEN c.has_xml = 1 AND c.is_open_access = 1 THEN 2 WHEN c.has_xml = 1 THEN 1 ELSE 0 END AS readable,
+                  CASE WHEN w.state = 'held' THEN 3 WHEN c.has_xml = 1 AND c.is_open_access = 1 THEN 2 WHEN c.has_xml = 1 THEN 1 ELSE 0 END AS readable,
                   c.oa_url
            FROM works w JOIN candidates c ON c.cand_id = w.cand_id
-           WHERE w.state = 'candidate' AND w.status IN ('found', 'failed')
+           WHERE (w.state = 'candidate' AND w.status IN ('found', 'failed'))
+              {elsewhere}
            ORDER BY held_links DESC, readable DESC, COALESCE(w.cited_by, 0) DESC, COALESCE(w.year, 0) DESC, w.cand_id""",
         {"keys": json.dumps(keys)} if keys is not None else {}).fetchall()
         if r["held_links"] >= max(1, int(min_cited))]

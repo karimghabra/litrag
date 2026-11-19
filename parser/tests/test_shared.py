@@ -292,5 +292,86 @@ def test_a_query_names_its_projects_and_refuses_to_mix_stores(tmp_path, monkeypa
     while time.time() < deadline and len({e.get("id") for e in seen} & {"q", "all", "mix"}) < 3:
         time.sleep(0.05)
     assert by(seen, "q")[0]["scope"] == ["tendon"] and by(seen, "q")[0]["hits"]
-    assert by(seen, "all")[0]["scope"] == ["*"]
+    assert by(seen, "all")[0]["scope"] == ["*"] and by(seen, "all")[0]["left_out"] == ["old-shape"]  # not asked, and said
+    assert by(seen, "q")[0]["left_out"] == []
     assert by(seen, "mix")[0]["event"] == "error" and "own store" in by(seen, "mix")[0]["message"]
+
+
+# ---------------------------------------------------------------- fixes the review asked for
+
+
+def test_the_worker_s_merge_always_makes_a_project_of_the_shared_store(tmp_path, monkeypatch):
+    from litrag_parser.worker import Worker
+
+    a = _shared_project(tmp_path, "Tendon")
+    conn = open_store(a.store_path)
+    k1 = _hold(a, conn, "10.1/one", "one")
+    conn.close()
+    monkeypatch.setattr("litrag_parser.worker.emit", lambda e: None)
+    Worker(tmp_path).do_merge({"id": "m", "op": "merge", "sources": ["tendon"], "name": "Copy", "shared": False})  # the flag is not a request field
+    copy = open_library(tmp_path, "copy")
+    assert copy.shared and not (tmp_path / "copy" / "store.sqlite").exists()
+    conn = open_store(a.store_path)
+    assert members.scope(conn, copy) == [k1]
+    conn.close()
+
+
+def test_a_project_holding_a_stub_holds_the_paper_the_stub_turns_out_to_be(tmp_path):
+    from litrag_parser.store import file_paper
+
+    a = _shared_project(tmp_path, "Tendon")
+    b = _shared_project(tmp_path, "Bone")
+    conn = open_store(a.store_path)
+    stub = file_paper(conn, title="no doi read", file="", sha256="ab" * 32, fmt="pdf", doi=None, pmid=None, pmcid=None, now="t").key
+    members.add(conn, a, [stub])
+    held = file_paper(conn, title="the paper", file="", sha256="cd" * 32, fmt="pdf", doi="10.1/d", pmid=None, pmcid=None, now="t").key
+    members.add(conn, b, [held])
+    # Bone files the stub's bytes again, its DOI known now: the stub goes, and Tendon keeps the paper
+    again = file_paper(conn, title="x", file="", sha256="ab" * 32, fmt="pdf", doi="10.1/d", pmid=None, pmcid=None, now="t")
+    members.add(conn, b, [again.key])
+    assert again.key == held and conn.execute("SELECT 1 FROM papers WHERE key = ?", (stub,)).fetchone() is None
+    assert members.scope(conn, a) == [held] and members.scope(conn, b) == [held]
+    assert _count(conn, "SELECT COUNT(*) FROM project_papers WHERE paper = ?", stub) == 0
+    conn.close()
+
+
+def test_a_stub_dropped_for_an_xml_paper_s_figures_pdf_moves_its_projects_to_the_paper(tmp_path):
+    from litrag_parser import figures
+    from litrag_parser.store import file_paper, sha256_of
+
+    a = _shared_project(tmp_path, "Tendon")
+    conn = open_store(a.store_path)
+    pdf = tmp_path / "kept.pdf"
+    pdf.write_bytes(b"%PDF-1.4 the figures")
+    stub = file_paper(conn, title="kept", file="", sha256=sha256_of(pdf), fmt="pdf", doi=None, pmid=None, pmcid=None, now="t").key
+    members.add(conn, a, [stub])
+    xml = file_paper(conn, title="the xml", file="", sha256="ef" * 32, fmt="jats", doi="10.1/x", pmid=None, pmcid=None, now="t").key
+    assert figures._drop_stub(conn, xml, pdf) == stub
+    conn.commit()
+    assert members.scope(conn, a) == [xml]
+    conn.close()
+
+
+def test_a_project_s_graph_and_expand_keep_a_paper_another_project_read(tmp_path):
+    from litrag_parser import acquire, graph
+
+    a = _shared_project(tmp_path, "Tendon")
+    b = _shared_project(tmp_path, "Bone")
+    conn = open_store(a.store_path)
+    acquire.ensure_schema(conn)
+    graph.ensure_schema(conn)
+    citing = _hold(a, conn, "10.1/citing", "citing")
+    cited = _hold(b, conn, "10.1/cited", "cited")  # Bone read it, from a candidate both projects' papers cite
+    cid, _ = acquire.upsert_candidate(conn, {"doi": "10.1/cited", "title": "Cited", "has_xml": True, "is_open_access": True}, query=None, now="t", round=2)
+    conn.execute("UPDATE candidates SET status = 'ingested', paper_key = ? WHERE cand_id = ?", (cited, cid))
+    conn.execute("INSERT INTO cites VALUES (?, ?, 'europepmc', 1)", (citing, cited))  # as a round files it
+    conn.commit()
+    keys = members.scope(conn, a)
+    g = graph.graph(conn, candidates="cited", min_cited=1, keys=keys, cand_ids=members.candidate_ids(conn, a, keys))
+    by_id = {n["id"]: n for n in g["nodes"]}
+    assert by_id[citing]["state"] == "held" and by_id[cited]["state"] == "elsewhere"
+    assert (citing, cited) in {(e["src"], e["dst"]) for e in g["edges"]}
+    nxt = graph.next_to_read(conn, most=None, min_cited=1, keys=keys)
+    assert [r["cand_id"] for r in nxt] == [cid] and nxt[0]["readable"] == 3
+    assert graph.next_to_read(conn, most=None, min_cited=1, keys=members.scope(conn, b)) == []  # Bone holds it already
+    conn.close()
