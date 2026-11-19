@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { me, mine, session } from '../src/renderer/account';
+import { askNewPassword, me, mine, session } from '../src/renderer/account';
 import { homeOf, rowMeta, type MinePaper } from '../src/renderer/mine';
 import { ctx } from '../src/renderer/shared';
 
@@ -38,6 +38,23 @@ describe('what a row says of a paper of yours', () => {
 
   it('says so when no project holds it any more, and leaves out what it does not know', () => {
     expect(rowMeta(paper({ year: null, journal: null }))).toBe('in no project now');
+  });
+});
+
+describe('a new password', () => {
+  const typing = (...answers: (string | null)[]) => async () => answers.shift() ?? null;
+
+  it('is asked for twice and taken when both are the same', async () => {
+    expect(await askNewPassword(typing('correct horse', 'correct horse'))).toBe('correct horse');
+  });
+
+  it('is refused when the second differs from the first, so a slip of the hand locks no one out', async () => {
+    await expect(askNewPassword(typing('correct horse', 'correct hrose'))).rejects.toThrow('The two passwords are not the same.');
+  });
+
+  it('is none when either question is cancelled', async () => {
+    expect(await askNewPassword(typing(null))).toBeNull();
+    expect(await askNewPassword(typing('correct horse', null))).toBeNull();
   });
 });
 

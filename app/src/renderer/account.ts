@@ -150,13 +150,23 @@ async function signOut(): Promise<void> {
   await showSignIn();
 }
 
+/** A new password, asked for twice as the sign-in form asks: null when cancelled, refused when the two differ. */
+export async function askNewPassword(ask: typeof askText = askText): Promise<string | null> {
+  const next = await ask('A new password (8 characters or more)', { secret: true, ok: 'Next' });
+  if (next === null) return null;
+  const again = await ask('The new password again', { secret: true, ok: 'Change it' });
+  if (again === null) return null;
+  if (again !== next) throw new Error('The two passwords are not the same.');
+  return next;
+}
+
 async function changePassword(): Promise<void> {
   if (!state.session) return;
   const old = await askText('Your current password', { secret: true });
   if (old === null) return;
-  const next = await askText('A new password (8 characters or more)', { secret: true, ok: 'Change it' });
-  if (next === null) return;
   try {
+    const next = await askNewPassword();
+    if (next === null) return;
     await request('password', { session: state.session, old, new: next });
     log('stage', 'Password changed');
   } catch (e) {
@@ -181,7 +191,7 @@ export function initAccount(): void {
     b.addEventListener('click', () => {
       pop.hidden = true;
       const act = b.dataset['act'];
-      if (act === 'switch' || act === 'signout') void signOut();
+      if (act === 'signout') void signOut();
       if (act === 'password') void changePassword();
     });
   }

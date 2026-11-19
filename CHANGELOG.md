@@ -17,7 +17,7 @@
   --measure`; the bake-off is in `NOTES.md`). The studio e2e asks a question and follows a citation.
 
 - **Accounts, and what is each person's own** (`DESIGN.md` R4.7). The window opens on a sign-in
-  dialogue (make an account, sign in, switch user, sign out, change password). Each account
+  dialogue (make an account, sign in, sign out, change password). Each account
   keeps its own recent papers, favourites, notes on a paper or a passage, and collections —
   folders of papers independent of projects — in the sidebar's **Yours** group and above the
   paper being read; a project made while signed in is that account's to rename and delete,

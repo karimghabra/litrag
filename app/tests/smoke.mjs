@@ -1,17 +1,32 @@
 // A headless run of the real app: launches Electron, waits for the worker, optionally
 // ingests a PDF, and takes screenshots. Needs a display (xvfb-run on Linux, or a desktop).
-//   LITRAG_ROOT=/some/root SMOKE_PDF=/some/paper.pdf SMOKE_OUT=/some/dir node tests/smoke.mjs
+//   LITRAG_ROOT=/some/root LITRAG_USER=… LITRAG_PASSWORD=… SMOKE_PDF=/some/paper.pdf SMOKE_OUT=/some/dir node tests/smoke.mjs
+// On a library that is somebody's it signs in as LITRAG_USER with LITRAG_PASSWORD and makes no
+// account. With no root named it makes a temporary library of its own, an account in it, and
+// removes both when it ends; SMOKE_PDF then names the paper to read.
 import { _electron as electron } from 'playwright';
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { signInOrMake } from './signin.mjs';
+import { makeAccount, ownAccount, signIn } from './signin.mjs';
+
+const account = ownAccount();
+let ownRoot = null;
+if (!account) {
+  if (process.env.LITRAG_ROOT || process.env.PROTRACKER_LIBRARY) {
+    process.stderr.write('smoke: set LITRAG_USER and LITRAG_PASSWORD to an account of that library, or name no root (LITRAG_ROOT, PROTRACKER_LIBRARY) and the run makes a temporary library of its own. It makes no account in a library it did not make.\n');
+    process.exit(2);
+  }
+  ownRoot = mkdtempSync(join(tmpdir(), 'litrag-smoke-'));
+  process.on('exit', () => rmSync(ownRoot, { recursive: true, force: true }));
+}
 
 const out = process.env.SMOKE_OUT ?? 'smoke-out';
 mkdirSync(out, { recursive: true });
 const t0 = Date.now();
 const say = (m) => console.log(`[${((Date.now() - t0) / 1000).toFixed(1)}s] ${m}`);
 
-const app = await electron.launch({ args: ['.', '--no-sandbox'], env: { ...process.env } });
+const app = await electron.launch({ args: ['.', '--no-sandbox'], env: { ...process.env, ...(ownRoot ? { LITRAG_ROOT: ownRoot } : {}) } });
 const page = await app.firstWindow();
 page.on('console', (m) => console.log(`renderer ${m.type()}:`, m.text().slice(0, 300)));
 page.on('pageerror', (e) => console.log('renderer exception:', e.message));
@@ -21,7 +36,11 @@ say(`window: ${await page.title()}`);
 await page.waitForSelector('#worker-status.ok, #worker-status.bad', { timeout: 60_000 });
 say(`worker: ${await page.textContent('#worker-status .text')}`);
 if (await page.$('#worker-status.bad')) { await page.screenshot({ path: join(out, 'worker-bad.png') }); await app.close(); process.exit(1); }
-await signInOrMake(page, 'Smoke Test', 'smoke-test-password');
+await (account ? signIn(page, account) : makeAccount(page, 'Smoke Test', 'smoke-test-password')).catch(async (e) => {
+  process.stderr.write(`${e.message}\n`);
+  await app.close().catch(() => {});
+  process.exit(1);
+});
 
 // a library to work in
 page.on('console', (m) => { if (m.type() !== 'error') console.log('renderer:', m.text()); });
