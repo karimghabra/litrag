@@ -1113,7 +1113,13 @@ The model comes from, in order: the **Model** picker (or `--model`, or the op's 
 
 Three open-weights models were compared on the grounding set, all under the Apache 2.0 licence, which allows lab use. NOTES.md has the full table. qwen3.5:9b is the default:
 
-BAKEOFF_TABLE
+| Model | Download | Card memory, with the embedder | Absent questions refused | Answering passage cited, of the 18 retrieved | Claims supported | Seconds a question |
+| --- | --- | --- | --- | --- | --- | --- |
+| **qwen3.5:9b** (default) | 6.6 GB | 7.2 GB | 10 of 10 | 18 | 30 of 32 | 2.5 (median 2.0) |
+| ministral-3:8b | 6.0 GB | 7.5 GB | 9 of 10 | 18 | 38 of 45 | 2.5 (median 2.1) |
+| gemma4:12b | 8.0 GB | does not fit: 8.8 GB on its own, so the embedder is unloaded for it on every question | 10 of 10 | 18 | 48 of 49 | 24.6 (median 13.5) |
+
+ministral-3:8b answered one absent question anyway: asked how tardigrade proteins protect collagen, it wrote four claims from passages about other proteins. gemma4:12b is the most careful of the three. It also declined a question whose answering passage was not retrieved, where the other two answered from another study. On a 10 GB card, though, it and the embedder take turns, which costs about 20 s a question. On a larger card, `LITRAG_ANSWER_MODEL=gemma4:12b` is worth trying.
 
 Any chat model Ollama holds can be picked. A model too large for the card runs partly on the CPU and is much slower. The first question after Ollama starts also loads the model from disk: that took about a minute here, and later questions took about 2 s. Ollama unloads an idle model after 5 minutes.
 

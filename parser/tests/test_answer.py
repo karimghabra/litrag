@@ -69,6 +69,16 @@ def test_a_number_glued_to_a_letter_in_the_passage_holds_the_claim():
     assert ok["numbers_missing"] == []
 
 
+def test_citation_markers_written_into_a_claim_are_not_numbers_it_states():
+    assert answer.unmarked("Bester sturgeon skin collagen denatured at 26.8 °C [2].") == "Bester sturgeon skin collagen denatured at 26.8 °C."
+    assert answer.unmarked("It was 225 nm [1, 2, 4] and 0.3 °C/min [5–7]") == "It was 225 nm and 0.3 °C/min"
+    assert answer.unmarked("[Ca2+] rose in the (211) plane") == "[Ca2+] rose in the (211) plane"
+    sources = [{"n": 2, "text": "The Tds of Bester sturgeon (skin: 26.8 °C, swim bladder: 32.9 °C) were lower."}]
+    reply = {"status": "answered", "missing": "", "claims": [{"text": "Bester sturgeon skin collagen had a Tds of 26.8 °C [2].", "sources": [2]}]}
+    claim = answer.check_claims(reply, sources)["claims"][0]
+    assert claim["support"] == "supported" and claim["text"].endswith("26.8 °C.")
+
+
 def test_the_cited_papers_title_and_headings_count_for_words_never_for_numbers():
     passage = "C3Gel began to absorb heat around 20 °C, with a distinct endothermic peak at 27.25 °C."
     claim = "The DSC peak of the recombinant humanized type III collagen cold gel was at 27.25 °C."

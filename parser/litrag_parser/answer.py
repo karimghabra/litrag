@@ -10,6 +10,8 @@ sent anywhere else; a library is never read by a service.
 The model's answer is not taken on its word. Every claim is checked against the passages it
 cites before it is shown (`check_claims`):
 
+- citation markers the model writes into a claim's text ("… 26.8 °C [2].") are taken out: the
+  claim's `sources` say what it cites, and the prose adds them;
 - a citation to a passage that was not given is struck; a claim left citing nothing is not
   part of the answer — it is handed back under `dropped`, with the reason, never shown as a
   finding (an uncited sentence is the model's, not the library's);
@@ -355,6 +357,16 @@ def support(claim: str, passages: list[str], context: Iterable[str] = ()) -> dic
     return {"numbers_missing": missing, "words": round(share, 3), "support": "supported" if not missing and share >= SUPPORT else "weak"}
 
 
+_MARK = re.compile(r"\s*\[\s*\d+(?:\s*[,;–-]\s*\d+)*\s*\]")
+
+
+def unmarked(text: str) -> str:
+    """A claim's text without the citation markers some models write into it as well as into
+    its `sources` ("… at 26.8 °C [2]."): the 2 is not a number the claim states, and the prose
+    adds the citations itself."""
+    return re.sub(r"\s+([.,;:])", r"\1", _MARK.sub("", text or "")).strip()
+
+
 def check_claims(reply: dict[str, Any], sources: list[dict[str, Any]]) -> dict[str, Any]:
     """The model's reply held against the passages: `{status, claims, dropped, missing}` — see
     the module's docstring for the rules."""
@@ -362,6 +374,7 @@ def check_claims(reply: dict[str, Any], sources: list[dict[str, Any]]) -> dict[s
     claims: list[dict[str, Any]] = []
     dropped: list[dict[str, Any]] = []
     for c in reply["claims"]:
+        c = {**c, "text": unmarked(c["text"])}
         valid = sorted({n for n in c["sources"] if n in by_n})
         struck = sorted({n for n in c["sources"] if n not in by_n})
         if not valid:

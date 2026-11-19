@@ -837,8 +837,12 @@ lit ask collagen-simulations "At what temperature does the type III collagen col
 The model is the Ask tab's **Model** list, else `LITRAG_ANSWER_MODEL`, else
 a library's `ollama.answer`, else qwen3.5:9b — chosen over gemma4:12b and
 ministral-3:8b on a grounding set of answerable and unanswerable questions
-(`campaign/answers/grounding.jsonl`; the numbers are in `NOTES.md`). It fits
-a 10 GB card beside the embedder and runs, slowly, on a CPU.
+(`campaign/answers/grounding.jsonl`; the numbers are in `NOTES.md`): it
+refused all 10 questions the library cannot answer, every claim it kept is
+stated by a passage it cites, and it answers in about 2 s on a 10 GB card
+with the embedder beside it (gemma4:12b is as careful but does not fit
+beside the embedder there; ministral-3:8b answered one question from
+passages about something else). On a CPU alone it takes about 100 s.
 `python -m litrag_parser.answer --measure campaign/answers/grounding.jsonl
 --model M` measures another. DESIGN.md R4.6 has the reasons.
 
