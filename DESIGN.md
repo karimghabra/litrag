@@ -787,8 +787,9 @@ their paper, section path and page. The model answers in a fixed JSON shape (Oll
 structured output): a status, claims each naming the passages it rests on, and what
 the passages leave out. Nothing retrieved is `not_found` without asking.
 
-**The model's citations are checked, not trusted.** A claim citing a passage it was
-not given loses that citation; a claim left citing nothing is not part of the answer
+**The model's citations are checked, not trusted.** A claim's citations are its
+`sources`, never its text (markers a model writes there too are taken out). A claim
+citing a passage it was not given loses that citation; a claim left citing nothing is not part of the answer
 (`dropped`, with the reason) — an uncited sentence is the model's, not the library's,
 and invariant 5 ranks an unanswered question above a misattributed claim. A claim is
 `weak` when a number it states is printed in none of its passages, or fewer than half
