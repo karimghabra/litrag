@@ -409,7 +409,7 @@ def test_a_project_s_graph_and_expand_keep_a_paper_another_project_read(tmp_path
     by_id = {n["id"]: n for n in g["nodes"]}
     assert by_id[citing]["state"] == "held" and by_id[cited]["state"] == "elsewhere"
     assert (citing, cited) in {(e["src"], e["dst"]) for e in g["edges"]}
-    assert by_id[cited]["cited_here"] == 1
+    assert by_id[cited]["cited_here"] == 1 and by_id[citing]["cites_here"] == 1
     other = _hold(b, conn, "10.1/bone-citing", "bone citing")  # a paper of Bone's citing the same work
     conn.execute("INSERT INTO cites VALUES (?, ?, 'europepmc', 1)", (other, cited))
     conn.commit()
