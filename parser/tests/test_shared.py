@@ -388,6 +388,14 @@ def test_a_project_s_graph_and_expand_keep_a_paper_another_project_read(tmp_path
     by_id = {n["id"]: n for n in g["nodes"]}
     assert by_id[citing]["state"] == "held" and by_id[cited]["state"] == "elsewhere"
     assert (citing, cited) in {(e["src"], e["dst"]) for e in g["edges"]}
+    assert by_id[cited]["cited_here"] == 1 and by_id[citing]["cites_here"] == 1
+    other = _hold(b, conn, "10.1/bone-citing", "bone citing")  # a paper of Bone's citing the same work
+    conn.execute("INSERT INTO cites VALUES (?, ?, 'europepmc', 1)", (other, cited))
+    conn.commit()
+    keys = members.scope(conn, a)
+    g = graph.graph(conn, candidates="cited", min_cited=1, keys=keys, cand_ids=members.candidate_ids(conn, a, keys))
+    assert {n["id"]: n for n in g["nodes"]}[cited]["cited_here"] == 1  # Tendon's one paper cites it, whatever Bone's do
+    assert g["hidden"] == 0  # Bone's own paper is not a work Tendon's graph hid
     nxt = graph.next_to_read(conn, most=None, min_cited=1, keys=keys)
     assert [r["cand_id"] for r in nxt] == [cid] and nxt[0]["readable"] == 3
     assert graph.next_to_read(conn, most=None, min_cited=1, keys=members.scope(conn, b)) == []  # Bone holds it already

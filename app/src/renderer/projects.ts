@@ -55,8 +55,11 @@ export function initProjects(loadAll: () => Promise<void>): void {
     }
     if (ev['event'] === 'done' && ev['op'] === 'migrate') {
       activity.hide();
-      const moved = (ev['moved'] as { id: string; new: number; held: number }[] | undefined) ?? [];
-      for (const m of moved) log('stage', `Moved ${m.id} into the shared store: ${m.new} papers new there, ${m.held} held there already`);
+      const moved = (ev['moved'] as { id: string; new: number; held: number; skipped?: { paper: string; reason: string }[] }[] | undefined) ?? [];
+      for (const m of moved) {
+        log('stage', `Moved ${m.id} into the shared store: ${m.new} papers new there, ${m.held} held there already`);
+        for (const s of m.skipped ?? []) log('failed', `Not moved from ${m.id}: ${s.paper} — ${s.reason}`);
+      }
       if (ev['backup']) log('stage', `Backup of the stores as they were: ${String(ev['backup'])}`);
       $('migrate-go').hidden = true;
       void reload?.();

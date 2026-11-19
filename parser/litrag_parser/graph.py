@@ -919,6 +919,19 @@ def graph(conn: sqlite3.Connection, candidates: str = "cited", min_cited: int = 
 
     kept = [n for n in nodes if keep(n)]
     ids = {n["work"] for n in kept}
+    if keys is not None:
+        cited_here: dict[str, int] = {}
+        cites_here: dict[str, int] = {}
+        for a, b in pairs:
+            if a in ids and b in ids:
+                cited_here[b] = cited_here.get(b, 0) + 1
+                cites_here[a] = cites_here.get(a, 0) + 1
+        for n in kept:
+            n["cited_here"] = cited_here.get(n["work"], 0)
+            n["cites_here"] = cites_here.get(n["work"], 0)
+        scope = [n for n in nodes if n["state"] == "held" or (n["state"] == "candidate" and (cand_ids is None or n["cand_id"] in cand_ids))]
+    else:
+        scope = nodes
     families = {w: f for w, f in conn.execute("SELECT work, family FROM authors WHERE pos = 1")}
     out_nodes = []
     for n in kept:
@@ -931,7 +944,7 @@ def graph(conn: sqlite3.Connection, candidates: str = "cited", min_cited: int = 
     out_edges = [{"src": a, "dst": b, "origin": "+".join(sorted(o)), "passages": passages.get((a, b), 0)}
                  for (a, b), o in sorted(pairs.items()) if a in ids and b in ids]
     return {"nodes": out_nodes, "edges": out_edges,
-            "hidden": sum(1 for n in nodes if n["work"] not in ids)}
+            "hidden": sum(1 for n in scope if n["work"] not in ids)}
 
 
 # ---------------------------------------------------------------- the passages, and the next papers to read
