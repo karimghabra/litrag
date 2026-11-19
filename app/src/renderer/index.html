@@ -30,7 +30,8 @@
       <button data-view="search" title="Literature searches: Europe PMC, XML first, then PDFs">Search</button>
       <button data-view="papers" title="The papers of this project, each read into a tree">Papers</button>
       <button data-view="types" title="The kinds of paper, their canonical structures, and how each paper maps onto one">Types</button>
-      <button data-view="query" title="Ask the library: retrieve passages and hydrate them with their context">Query</button>
+      <button data-view="ask" title="A question answered by the local model from the project's passages, every sentence cited">Ask</button>
+      <button data-view="query" title="Retrieve passages and hydrate them with their context">Query</button>
       <button data-view="graph" title="The papers and the citations between them; citation rounds; SQL over works, authors and citations">Graph</button>
     </nav>
 
@@ -175,6 +176,29 @@
             <div class="col-head"><h2>How each paper maps onto it</h2><div class="spacer"></div><select id="mapping-paper" title="A paper of this type"></select></div>
             <div id="mapping" class="scroll"></div>
           </div>
+        </div>
+      </section>
+
+      <!-- ask: a cited answer from the local model -->
+      <section id="view-ask" class="view" hidden>
+        <div class="view-head">
+          <h1>Ask</h1>
+          <span id="ask-project" class="muted"></span>
+          <div class="spacer"></div>
+          <span id="ask-models" class="muted"></span>
+          <label class="field"><span>Model</span><select id="ask-model" title="The chat model on this machine (Ollama) that writes the answer"></select></label>
+        </div>
+        <form id="ask-form" class="searchbar">
+          <textarea id="ask-q" rows="2" placeholder="Ask a question; the answer cites the passages it comes from, or says the library does not answer it"></textarea>
+          <label class="field"><span>Over</span><select id="ask-scope" class="narrow-select"><option value="project">this project</option><option value="all">every project</option></select></label>
+          <label class="field"><span>Passages</span><input id="ask-k" type="number" min="1" max="20" value="8" /></label>
+          <button id="ask-go" type="submit" class="primary">Ask</button>
+        </form>
+        <div id="ask-progress" class="muted ask-progress"></div>
+        <div id="ask-meta" class="summary"></div>
+        <div class="scroll results ask-body">
+          <div id="ask-answer"></div>
+          <div id="ask-sources"></div>
         </div>
       </section>
 

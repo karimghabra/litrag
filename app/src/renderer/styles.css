@@ -469,3 +469,27 @@ table.chart-table th:first-child { text-align: left; font-weight: 500; }
 .graphview-tip .gv-tip-title { font-weight: 600; margin-bottom: 3px; }
 .graphview-tip .gv-tip-meta { color: var(--graph-muted); font-size: 11px; }
 .graphview-tip .gv-tip-hint { color: var(--graph-muted); font-size: 11px; font-style: italic; margin-top: 3px; }
+
+/* the Ask tab: an answer whose every sentence is closed by the passages it rests on */
+.ask-progress { padding: 0 18px 6px; min-height: 1.4em; font-size: 12px; }
+.ask-progress:empty { display: none; }
+.ask-body { padding: 0 18px 18px; }
+.ask-status { font-weight: 600; }
+.ask-status.ok { color: var(--ok); }
+.ask-status.warn { color: var(--warn); }
+.ask-status.bad { color: var(--failed); }
+.ask-prose { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; font-size: 14px; line-height: 1.6; margin: 10px 0 8px; }
+.ask-prose .claim.weak { text-decoration: underline dotted var(--warn); text-underline-offset: 3px; cursor: help; }
+.ask-prose .cites { white-space: nowrap; }
+.ask-prose button.cite { font-size: 11px; padding: 0 5px; margin: 0 1px; border-radius: 4px; border-color: var(--accent); color: var(--accent); vertical-align: 1px; line-height: 1.5; }
+.ask-prose button.cite:hover { background: var(--accent); color: #fff; }
+.ask-none { margin: 0; color: var(--muted); }
+.ask-missing { color: var(--muted); font-size: 12px; margin-bottom: 10px; }
+.ask-source { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; margin-bottom: 10px; overflow: hidden; }
+.ask-source.cited { border-color: var(--accent); }
+.ask-source-head { display: flex; align-items: baseline; gap: 8px; padding: 8px 14px 2px; }
+.ask-source-head .n { font-weight: 700; color: var(--accent); font-variant-numeric: tabular-nums; }
+.ask-source-head .ptitle { font-weight: 600; }
+.ask-source .crumb { padding: 0 14px; font-size: 12px; color: var(--muted); }
+.ask-source-text { padding: 6px 14px 10px; line-height: 1.5; }
+select.narrow-select { min-width: 0; }
