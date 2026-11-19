@@ -18,20 +18,21 @@ Where things are:
   `tree.py` turns a Docling document into the node tree; `store.py` is the
   SQLite schema and its reads; `worker.py` speaks JSON lines over stdio.
 - `app/` — Electron, TypeScript, built with esbuild. `src/main` spawns the
-  worker and relays its events; `src/renderer` is the window: six tabs
+  worker and relays its events; `src/renderer` is the window: seven tabs
   over one project — Projects, Search, Papers (tree, page with boxes,
-  canonical face), Types, Query, Graph (citations, rounds, SQL) — and the
-  log.
+  canonical face), Types, Ask (cited answers from the local model), Query,
+  Graph (citations, rounds, SQL) — and the log.
 - `src/`, `tests/` — the `lit` CLI (Node): Europe PMC, chunks, embeddings,
-  hybrid retrieval. Not yet wired to the tree store, and deprecated: kept
-  until its verbs are ported to it (`BACKLOG.md`).
+  hybrid retrieval. Deprecated, and not wired to the tree store but for
+  `lit ask`, which sends the worker one `ask`; kept until its verbs are
+  ported to it (`BACKLOG.md`).
 
 Invariants:
 
 1. **Local.** Paper text stays on the machine. Docling's models, and the
    small language model the boundary scorer uses, are fetched once from
-   Hugging Face and run here; the embedder and the judge are Ollama on
-   127.0.0.1; the only other network calls are Europe PMC's and NCBI's
+   Hugging Face and run here; the embedder, the judge and the answerer
+   (`answer.py`) are Ollama on 127.0.0.1; the only other network calls are Europe PMC's and NCBI's
    (PMC's XML by PMCID, for the author manuscripts Europe PMC will not
    serve: an identifier out, the article in — Karim, 2026-09-30), and
    NLM's PMC Cloud Service (`pmc-oa-opendata.s3.amazonaws.com`: an

@@ -1345,6 +1345,26 @@ class Worker:
                     finally:
                         conn.close()
                     emit({"event": "query", "id": req_id, "lib": lib.id, **out})
+                elif op == "ask":
+                    from . import answer
+
+                    names = req.get("libs") or [req.get("lib")]
+                    if any(str(n or "").strip().lower() in ("all", "*") for n in names):
+                        libs = list_libraries(self.root)
+                    else:
+                        libs = []
+                        for name in names:
+                            lib = self._lib({"lib": name})
+                            if all(l.id != lib.id for l in libs):
+                                libs.append(lib)
+                    out = answer.ask(libs, str(req.get("question") or ""), model=req.get("model") or None, k=int(req.get("k") or answer.K),
+                                     on_progress=lambda e: emit({"event": "asking", "id": req_id, "op": "ask", **e}))
+                    emit({"event": "answer", "id": req_id, **out})
+                elif op == "models":
+                    from . import answer
+
+                    lib = open_library(self.root, str(req.get("lib") or "")) if req.get("lib") else None
+                    emit({"event": "models", "id": req_id, "default": answer.default_model(lib), **answer.models()})
                 else:
                     raise ValueError(f"Unknown op {op!r}")
             except Exception as e:  # noqa: BLE001 — the answer to a failed read is the reason
@@ -1375,7 +1395,7 @@ class Worker:
             elif op == "describe":
                 lib = self._lib(req)
                 emit({"event": "project", "id": req_id, "project": project_rows.describe(lib, name=req.get("name"), description=req.get("description"))})
-            elif op in ("search", "suggest", "query"):
+            elif op in ("search", "suggest", "query", "ask", "models"):
                 self.answer_async(req)
             elif op in ("candidates", "wanted", "dismiss", "stage"):
                 lib = self._lib(req)

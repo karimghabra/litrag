@@ -773,6 +773,59 @@ from images (slower, and every record with images has a PDF); captions with no s
 after the number, Springer's "Fig. 1 Title", which leave such a PDF's figures at "not
 in PDF" until the reader learns them (`BACKLOG.md`).
 
+## R4.6 Cited answers from a local model
+
+*Built 2026-11-19.* Feedback suggests the app should answer a lab member's question
+with a cited summary, from a model on the lab's own machine. The `query` op already
+returns passages with their context; the answer was the assistant's (`AGENT.md` §6).
+The `ask` op (`answer.py`; the Ask tab; `lit ask`) writes it locally.
+
+**Retrieve first, then write only from what was retrieved.** The passages are a
+`query`'s (words and meaning fused, hydrated from the tree), over one library or
+several merged by fused score, the best eight numbered and handed to the model with
+their paper, section path and page. The model answers in a fixed JSON shape (Ollama's
+structured output): a status, claims each naming the passages it rests on, and what
+the passages leave out. Nothing retrieved is `not_found` without asking.
+
+**The model's citations are checked, not trusted.** A claim citing a passage it was
+not given loses that citation; a claim left citing nothing is not part of the answer
+(`dropped`, with the reason) — an uncited sentence is the model's, not the library's,
+and invariant 5 ranks an unanswered question above a misattributed claim. A claim is
+`weak` when a number it states is printed in none of its passages, or fewer than half
+its words are there or in the cited papers' titles and the passages' headings (a claim
+names "the recombinant type III collagen cold gel" where its paragraph says "C3Gel";
+a number must be in the passage's own text); it stays, marked, so the reader checks it against the passage a
+click opens. The status follows the claims: an answer with no claim left is
+`not_found`. The check is words and numbers, deliberately crude: it catches the
+failure that matters most on scientific text — a value or a condition the passage does
+not state — and costs nothing.
+
+**One window, one temperature.** Thinking off, temperature 0, seed 7, and an
+8,192-token window for every question (Ollama reloads a model whose window changes):
+the same question over the same passages is the same answer. Eight passages of at
+most 1,500 characters and the rules fit with room for the reply.
+
+**The model is chosen on the grounding set, and is a setting.**
+`campaign/answers/grounding.jsonl` holds questions whose answering passage is known
+(paper and words) and questions the library cannot answer, some with near misses in
+it (another species' denaturation temperature for krill's). The measure is the
+answering passage retrieved, an answer given, that passage cited, the refusals, and
+the claims kept, supported, weak and dropped (`python -m litrag_parser.answer
+--measure`). Candidates had to be open weights under a licence a lab can use, and fit
+a 10 GB card beside the embedder. The bake-off and the choice are in NOTES.md
+(2026-11-19); the request's `model`, `LITRAG_ANSWER_MODEL` or a library's
+`ollama.answer` names another.
+
+**A model that cannot be had still answers with the passages.** Ollama down, the
+model not pulled, or a reply not in the shape asked: `status: unanswered`, the reason
+in words a person can act on (`ollama pull …`), and the passages, so the question is
+not wasted.
+
+Not done, and why: a graph walk from the question's entities (the tree's `query` has
+none yet; `BACKLOG.md`); the methods a finding was measured by as passages of their
+own (more context for "how was it measured", a longer prompt; unmeasured); saving
+answers (a person's history belongs with sign-in).
+
 ---
 
 # Revision 1 — the retrieval loop (2026-09-03)

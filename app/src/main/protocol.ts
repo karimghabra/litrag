@@ -54,6 +54,8 @@ export const TERMINAL = new Set([
   'charts',
   // the works and the citations between them, and the passages that cite one
   'graph', 'passages',
+  // a cited answer from the local model, and the models it can be asked of
+  'answer', 'models',
 ]);
 
 /** `tree` answers a `tree` request and also streams during ingest; only the former closes a request. */
