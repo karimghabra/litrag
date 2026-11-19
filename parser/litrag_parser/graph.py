@@ -886,7 +886,9 @@ def graph(conn: sqlite3.Connection, candidates: str = "cited", min_cited: int = 
 
     `keys` narrows it to a project's papers in the shared store (members.scope): the papers held
     are those, and the candidates are counted against them; `cand_ids` (members.candidate_ids) are
-    the candidates `all` shows then."""
+    the candidates `all` shows then. A paper read for another project is `state` "elsewhere": drawn
+    as a candidate is when it touches the project's papers, and `cited_here`, `cites_here` and
+    `hidden` are counted over the project's own works, whatever is drawn."""
     sync(conn)
     nodes = [dict(r) for r in conn.execute("SELECT * FROM works")]
     if keys is not None:
