@@ -418,7 +418,7 @@ export function initMine(view: PaperView): void {
     $<HTMLTextAreaElement>('note-text').value = '';
     toggle.setAttribute('aria-pressed', 'false');
     void loadCollections();
-    void loadMarks();
+    paperShown(state.paper);
     if (ctx.view === 'mine') void renderList();
   });
 }

@@ -384,7 +384,7 @@ test('10. Yours: a paper starred, noted and filed in a collection, seen by its r
   await expect(page.locator(`#mine-list .mine-row[data-key="${key}"]`)).toBeVisible();
   // another reader: the same papers, none of the first reader's own
   await page.click('#user-button');
-  await page.click('#user-pop button[data-act="switch"]');
+  await page.click('#user-pop button[data-act="signout"]');
   await signIn(page, 'E2E Second Reader', 'e2e-password-2');
   await expect(page.locator('#nav-collections button')).toHaveCount(0);
   await page.locator('#nav-mine button[data-mine="favourites"]').click();
