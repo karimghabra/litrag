@@ -231,6 +231,11 @@ Each list shows a paper's title, year, journal and the projects that hold it. **
 
 **Where it is kept.** `users.sqlite` at the library root holds the accounts and each person's recent papers, favourites, notes and collections, apart from the papers. The window reaches it only through the worker's account requests, each carrying the session that signing in handed out (see Driving litrag from an assistant or script).
 
+**A forgotten password.** The window cannot reset one: changing a password asks for the current one. Until it can, whoever keeps the library folder does it by hand, with litrag closed:
+
+- *To let the person back in*, make a hash of a new password and write it over the old one. From a checkout: `uv run --project parser --no-sync python -c "from litrag_parser.users import hash_password; print(hash_password('a new password'))"`, then `sqlite3 <root>/users.sqlite "UPDATE users SET pw_hash = '<the line printed>' WHERE id = '<their id>'"`. `SELECT id, name FROM users` lists the ids. Their recent papers, favourites, notes and collections are as they left them.
+- *To free a project of theirs* without the account, delete the `"owner"` line from `<root>/<project>/library.json`: the project then belongs to no one, and anyone may describe, rename or delete it.
+
 ## Projects
 
 A project is one library of papers gathered for one research question. Every other tab works inside the project chosen in the header, so you make one before your first search. The window says "project" and the worker's files say "library": they are the same thing.

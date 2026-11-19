@@ -10,7 +10,9 @@ wants as they are voiced.
   notes; a candidate's status (staged, dismissed) per project rather than per store; a server
   keeping `users.sqlite` and the shared store behind the same ops, for a lab not on one machine;
   the measurement tools' `--lib`
-  taking a project of the shared store, not only a folder.
+  taking a project of the shared store, not only a folder; a way back into an account whose
+  password is forgotten (a reset, or an owner's project released to no one): today it is done by
+  hand in `users.sqlite` and `library.json` (TUTORIAL.md, Accounts and what is yours).
 - **Reading faults the link test found** (2026-10-04; *the title and reference faults fixed
   2026-10-05*, CHANGELOG) — what is left: (1) the Micromachines PDF's introduction opens with
   "Academic Editor: Dmitry Volodkin" joined into its first paragraph (MDPI's first-page box read

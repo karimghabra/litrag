@@ -21,14 +21,17 @@ def cheap(monkeypatch):
     monkeypatch.setattr(users, "N", 2 ** 10)
 
 
-def test_a_password_is_kept_only_as_a_salted_scrypt_hash():
-    h = users.hash_password("correct horse", n=2 ** 10)
+def test_a_password_is_kept_only_as_a_salted_scrypt_hash(cheap):
+    h = users.hash_password("correct horse")
     kind, n, r, p, salt, key = h.split("$")
     assert (kind, n, r, p) == ("scrypt", "1024", "8", "1") and "correct horse" not in h
     assert users.check_password("correct horse", h) and not users.check_password("correct hors", h)
-    assert users.hash_password("correct horse", n=2 ** 10) != h  # a new salt every time
+    assert users.hash_password("correct horse") != h  # a new salt every time
     assert not users.check_password("x", "md5$abc") and not users.check_password("x", "garbage")
-    assert users.N >= 2 ** 15 and users.R >= 8  # the shipped cost: OWASP's floor for scrypt
+
+
+def test_the_shipped_cost_of_a_password_is_owasp_s_floor_for_scrypt():
+    assert users.N >= 2 ** 15 and users.R >= 8
 
 
 def test_an_account_is_made_signed_into_and_never_stores_its_password(tmp_path, cheap):
