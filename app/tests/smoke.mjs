@@ -64,9 +64,11 @@ try {
 }
 let lib = await page.$eval('#library', (s) => s.value);
 if (!lib) {
-  // through the button, as a person would: the window then reloads its libraries
-  await page.evaluate(() => { window.prompt = () => 'Smoke Test'; });
+  // through the form, as a person would: the window then reloads its libraries
+  await page.click('#nav button[data-view="projects"]');
   await page.click('#new-library');
+  await page.fill('#np-name', 'Smoke Test');
+  await page.click('#new-project button[type="submit"]');
   await page.waitForFunction(() => document.querySelector('#library').value !== '', null, { timeout: 20_000 }).catch(() => fail('library not created'));
   lib = await page.$eval('#library', (s) => s.value);
 }
@@ -83,6 +85,7 @@ if (process.env.SMOKE_PDF) {
   say(`parsed: ${await page.$$eval('#papers .paper .badge', (b) => b.map((x) => x.textContent).join(','))}`);
 }
 
+await page.click('#nav button[data-view="papers"]');
 await page.waitForSelector('#papers .paper .badge.parsed', { timeout: 30_000 }).catch(() => fail('no parsed paper'));
 await page.click('#papers .paper .badge.parsed >> xpath=ancestor::div[contains(@class,"paper")]');
 await page.waitForSelector('#tree .tree-node', { timeout: 30_000 }).catch(() => fail('tree never rendered'));
