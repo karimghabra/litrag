@@ -238,6 +238,23 @@ def test_a_move_interrupted_half_way_runs_again_to_the_same_end(two):
     conn.close()
 
 
+def test_a_paper_skipped_on_the_move_leaves_no_file_of_it_in_the_shared_store(two, monkeypatch):
+    root, b, other = two["root"], two["b"], two["kb_other"]
+    conn = open_store(shared_dir(root) / "store.sqlite")
+    conn.execute("INSERT INTO papers(key, doi, title, added_at) VALUES ('doi:10.1/held-there', '10.1/other', 'held there', 't')")
+    conn.commit()
+    conn.close()
+    monkeypatch.setattr(migrate, "_held", lambda tconn, row: None)  # an identifier the lookup misses and the unique index does not
+    out = migrate.migrate(root, only=["collagen-b"])
+    moved = {m["id"]: m for m in out["moved"]}["collagen-b"]
+    assert [s["paper"] for s in moved["skipped"]] == [other]
+    safe = safe_key(other)
+    left = [p.name for d in ("papers", "parsed") if (shared_dir(root) / d).is_dir() for p in (shared_dir(root) / d).iterdir() if p.name.startswith(safe + ".")]
+    assert left == []
+    kept = [p for p in (shared_dir(root) / "papers").iterdir() if p.name.startswith(safe_key(two["kb_same"]) + ".")]
+    assert kept  # the papers moved keep their files
+
+
 def test_a_merge_of_old_libraries_moves_them_first_and_reads_nothing_again(two):
     root = two["root"]
     out = projects.merge(root, ["collagen-a", "collagen-b"], "Collagen")

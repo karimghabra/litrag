@@ -1302,7 +1302,7 @@ class Worker:
             if read:  # never an empty list: do_figures takes no keys as every paper's
                 self.do_figures({"id": f"{req_id}-figures", "op": "figures", "lib": target, "keys": read, "force": True})
         emit({"event": "done", "id": req_id, "op": "merge", "lib": target, "target": target, "filed": out["filed"], "duplicates": out["duplicates"], "skipped": out["skipped"], "rebuilt": rebuilt, "reparsed": out["keys_to_parse"],
-              "figures": out["figures_kept"], "figures_not_kept": out["figures_not_kept"], "candidates_merged": out["candidates_merged"]})
+              "figures": out["figures_kept"], "figures_not_kept": out["figures_not_kept"], "candidates_merged": out["candidates_merged"], "migrated": out.get("migrated", [])})
 
     def do_migrate(self, req: dict[str, Any]) -> None:
         """Libraries of the old shape moved into the shared store (migrate.py): a backup first,

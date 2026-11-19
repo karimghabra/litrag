@@ -205,32 +205,40 @@ def _copy_paper(lib: Library, sconn: sqlite3.Connection, s_tables: set[str], tco
     """A paper new to the shared store, with every row derived from it and its files."""
     key = str(row["key"])
     shared = Library(root=lib.root, id="_shared", manifest={}, store_dir=shared_dir(lib.root))
+    created: list[Path] = []
     files = 0
-    for f in _files_of(lib, row):
-        dest = (shared.parsed_dir if f.parent == lib.parsed_dir else shared.papers_dir) / f.name
-        _copy(f, dest)
-        files += 1
-    counts: dict[str, int] = {"files": files}
-    with tconn:
-        tcols = set(_cols(tconn, "papers"))
-        cols = [c for c in row if c in tcols]
-        tconn.execute(f"INSERT INTO papers({', '.join(cols)}) VALUES ({', '.join('?' * len(cols))})", [row[c] for c in cols])
-        for table in PAPER_TABLES:
-            if table not in s_tables:
-                continue
-            if table not in _tables(tconn):
-                continue
-            have = set(_cols(tconn, table))
-            cols = [c for c in _cols(sconn, table) if c in have and not (table == "events" and c == "id")]
-            rows = [tuple(r) for r in sconn.execute(f"SELECT {', '.join(cols)} FROM {table} WHERE paper = ?", (key,))]
-            counts[table] = _insert(tconn, table, cols, rows)
-        if "vectors" in s_tables and "nodes" in s_tables:
-            have = set(_cols(tconn, "vectors"))
-            cols = [c for c in _cols(sconn, "vectors") if c in have]
-            rows = [tuple(r) for r in sconn.execute(
-                f"SELECT {', '.join('v.' + c for c in cols)} FROM vectors v JOIN nodes n ON n.node_id = v.node WHERE n.paper = ? ORDER BY v.rowid", (key,))]
-            counts["vectors"] = _insert(tconn, "vectors", cols, rows)
-        tconn.execute("INSERT INTO events(paper, at, stage, detail) VALUES (?, ?, ?, ?)", (key, now, "migrated", f"moved into the shared store from {lib.id}"))
+    try:
+        for f in _files_of(lib, row):
+            dest = (shared.parsed_dir if f.parent == lib.parsed_dir else shared.papers_dir) / f.name
+            if not dest.exists():
+                created.append(dest)
+            _copy(f, dest)
+            files += 1
+        counts: dict[str, int] = {"files": files}
+        with tconn:
+            tcols = set(_cols(tconn, "papers"))
+            cols = [c for c in row if c in tcols]
+            tconn.execute(f"INSERT INTO papers({', '.join(cols)}) VALUES ({', '.join('?' * len(cols))})", [row[c] for c in cols])
+            for table in PAPER_TABLES:
+                if table not in s_tables:
+                    continue
+                if table not in _tables(tconn):
+                    continue
+                have = set(_cols(tconn, table))
+                cols = [c for c in _cols(sconn, table) if c in have and not (table == "events" and c == "id")]
+                rows = [tuple(r) for r in sconn.execute(f"SELECT {', '.join(cols)} FROM {table} WHERE paper = ?", (key,))]
+                counts[table] = _insert(tconn, table, cols, rows)
+            if "vectors" in s_tables and "nodes" in s_tables:
+                have = set(_cols(tconn, "vectors"))
+                cols = [c for c in _cols(sconn, "vectors") if c in have]
+                rows = [tuple(r) for r in sconn.execute(
+                    f"SELECT {', '.join('v.' + c for c in cols)} FROM vectors v JOIN nodes n ON n.node_id = v.node WHERE n.paper = ? ORDER BY v.rowid", (key,))]
+                counts["vectors"] = _insert(tconn, "vectors", cols, rows)
+            tconn.execute("INSERT INTO events(paper, at, stage, detail) VALUES (?, ?, ?, ?)", (key, now, "migrated", f"moved into the shared store from {lib.id}"))
+    except BaseException:
+        for d in created:
+            d.unlink(missing_ok=True)
+        raise
     return counts
 
 
