@@ -4,6 +4,7 @@
 import { _electron as electron } from 'playwright';
 import { mkdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { signInOrMake } from './signin.mjs';
 
 const out = resolve(process.argv[2] ?? 'shots');
 const project = process.argv[3];
@@ -12,6 +13,7 @@ const app = await electron.launch({ args: [resolve(import.meta.dirname, '..'), '
 const page = await app.firstWindow();
 await page.setViewportSize({ width: 1600, height: 1000 }).catch(() => {});
 await page.waitForSelector('#worker-status.ok', { timeout: 60_000 });
+await signInOrMake(page, 'Screenshots', 'screenshots-password');
 await page.waitForTimeout(1500);
 if (project) await page.selectOption('#library', project);
 const shot = async (name) => {

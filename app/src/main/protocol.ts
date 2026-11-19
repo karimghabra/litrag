@@ -56,6 +56,9 @@ export const TERMINAL = new Set([
   'graph', 'passages',
   // the shared store: a move's plan, a project deleted, papers a project takes or lets go
   'migrate', 'deleted', 'held', 'let_go',
+  // accounts, and each person's recent papers, favourites, notes and collections
+  'users', 'signed_in', 'signed_out', 'password', 'viewed', 'recent', 'favourite', 'favourites', 'notes', 'note', 'note_deleted',
+  'collections', 'collection', 'collection_deleted', 'collection_changed', 'collection_papers', 'paper_marks',
 ]);
 
 /** `tree` answers a `tree` request and also streams during ingest; only the former closes a request. */

@@ -5,6 +5,12 @@ wants as they are voiced.
 
 ## Named priorities
 
+- **A lab's litrag, further** (after 2026-11-19: the shared store, DESIGN.md R4.6, and accounts,
+  R4.7, built) — highlights on a passage beside notes, and a paper exported for printing with its
+  notes; a candidate's status (staged, dismissed) per project rather than per store; a server
+  keeping `users.sqlite` and the shared store behind the same ops, for a lab not on one machine
+  (`AccountStore` in `app/src/renderer/account.ts` is the seam); the measurement tools' `--lib`
+  taking a project of the shared store, not only a folder.
 - **Reading faults the link test found** (2026-10-04; *the title and reference faults fixed
   2026-10-05*, CHANGELOG) — what is left: (1) the Micromachines PDF's introduction opens with
   "Academic Editor: Dmitry Volodkin" joined into its first paragraph (MDPI's first-page box read

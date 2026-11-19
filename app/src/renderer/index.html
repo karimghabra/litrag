@@ -20,7 +20,36 @@
     </div>
     <div class="spacer"></div>
     <div id="worker-status" class="status"><span class="dot"></span><span class="text">starting worker…</span></div>
+    <div id="user-menu" class="user-menu" hidden>
+      <button id="user-button" class="ghost small" title="Who is signed in">Sign in</button>
+      <div id="user-pop" class="card pop" hidden>
+        <button data-act="switch">Switch user</button>
+        <button data-act="password">Change password…</button>
+        <button data-act="signout">Sign out</button>
+      </div>
+    </div>
   </header>
+
+  <div id="ask" class="modal" hidden>
+    <form id="ask-form" class="card form signin">
+      <label><span id="ask-question"></span> <input id="ask-line" /> <textarea id="ask-long" rows="4" hidden></textarea></label>
+      <div class="row"><button type="submit" id="ask-ok" class="primary">OK</button><button type="button" id="ask-cancel" class="ghost">Cancel</button></div>
+    </form>
+  </div>
+
+  <div id="signin" class="modal" hidden>
+    <form id="signin-form" class="card form signin" autocomplete="on">
+      <h1 id="signin-title">Sign in</h1>
+      <p class="muted">Your account keeps your own recent papers, favourites, notes, collections and projects. Every account reads every project's papers.</p>
+      <div id="signin-users" class="chips" title="The accounts kept on this machine"></div>
+      <label>Name <input id="signin-name" autocomplete="username" required /></label>
+      <label>Password <input id="signin-password" type="password" autocomplete="current-password" required /></label>
+      <label id="signin-confirm-row" hidden>Password again <input id="signin-confirm" type="password" autocomplete="new-password" /></label>
+      <div id="signin-error" class="error" role="alert" hidden></div>
+      <div class="row"><button type="submit" id="signin-submit" class="primary">Sign in</button><button type="button" id="signin-mode" class="ghost">New account…</button></div>
+      <p class="muted fine">Accounts tell the people who share this machine or this library folder apart, and keep each one's own things apart. They are not a lock: anyone who can open the library folder can read what is kept in it. Passwords are kept only as a salted scrypt hash, and nothing about an account leaves the machine.</p>
+    </form>
+  </div>
 
   <div id="worker-problem" role="alert" hidden><strong>The worker is not running.</strong><span class="problem-text"></span></div>
 
@@ -32,6 +61,13 @@
       <button data-view="types" title="The kinds of paper, their canonical structures, and how each paper maps onto one">Types</button>
       <button data-view="query" title="Ask the library: retrieve passages and hydrate them with their context">Query</button>
       <button data-view="graph" title="The papers and the citations between them; citation rounds; SQL over works, authors and citations">Graph</button>
+      <div id="nav-mine" class="nav-group" hidden>
+        <h2>Yours</h2>
+        <button data-view="mine" data-mine="recent" title="The papers you opened lately, the latest first">Recent</button>
+        <button data-view="mine" data-mine="favourites" title="The papers you starred">Favourites</button>
+        <div id="nav-collections"></div>
+        <button id="new-collection" class="ghost small" title="A folder of papers of your own, independent of any project">+ New collection</button>
+      </div>
     </nav>
 
     <main id="views">
@@ -41,6 +77,7 @@
           <h1>Projects</h1>
           <span id="projects-count" class="muted"></span>
           <div class="spacer"></div>
+          <label class="field check" title="Only the projects you made"><input id="projects-mine" type="checkbox" /> <span>Only yours</span></label>
           <button id="merge-open" class="ghost" title="Merge two or more projects' libraries into a new one">Merge libraries…</button>
           <button id="new-library" class="primary">New project</button>
         </div>
@@ -136,6 +173,16 @@
               </div>
             </div>
             <div class="pane-sub"><div id="role-filter" class="chips"></div></div>
+            <div id="paper-mine" class="mine-bar" hidden>
+              <button id="paper-star" class="ghost small star" title="Star it: keep it in your Favourites">☆</button>
+              <select id="paper-collection" title="Add it to a collection of yours, or take it out of one"></select>
+              <button id="paper-notes-toggle" class="ghost small" aria-pressed="false" title="Your notes on this paper: only you see them">Notes <span id="paper-notes-count" class="muted"></span></button>
+            </div>
+            <div id="notes-panel" class="notes" hidden>
+              <div id="notes-list"></div>
+              <textarea id="note-text" rows="3" placeholder="A note of yours on this paper, or on the passage selected in the tree"></textarea>
+              <div class="row"><button id="note-paper" class="primary small">Note on the paper</button><button id="note-passage" class="ghost small">Note on the passage</button></div>
+            </div>
             <div id="tree-summary" class="summary"></div>
             <div id="tree" class="scroll"></div>
             <div id="canonical" class="scroll" hidden></div>
@@ -157,6 +204,18 @@
             <div id="node-detail" class="detail"><div class="muted">Select a node to see its text, its place in the tree, and where it sits on the page.</div></div>
           </section>
         </div>
+      </section>
+
+      <!-- yours: recent papers, favourites, a collection -->
+      <section id="view-mine" class="view" hidden>
+        <div class="view-head">
+          <h1 id="mine-title">Recent</h1>
+          <span id="mine-count" class="muted"></span>
+          <div class="spacer"></div>
+          <button id="mine-rename" class="ghost" hidden>Rename…</button>
+          <button id="mine-delete" class="ghost" hidden>Delete…</button>
+        </div>
+        <div id="mine-list" class="scroll mine-list"></div>
       </section>
 
       <!-- types -->
