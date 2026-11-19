@@ -92,9 +92,10 @@ class AccountError(ValueError):
     """A request about accounts the store refuses, with the reason a person can read."""
 
 
-def hash_password(password: str, *, n: int = N, r: int = R, p: int = P) -> str:
+def hash_password(password: str) -> str:
     if not isinstance(password, str) or not password:
         raise AccountError("a password cannot be empty")
+    n, r, p = N, R, P
     salt = secrets.token_bytes(16)
     key = hashlib.scrypt(password.encode("utf-8"), salt=salt, n=n, r=r, p=p, dklen=KEY_BYTES, maxmem=4 * 128 * r * n)
     b64 = lambda b: base64.b64encode(b).decode("ascii")  # noqa: E731
