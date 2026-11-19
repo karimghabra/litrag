@@ -5,7 +5,9 @@
  * into a new one.
  */
 
-import { $, activity, ctx, el, fmtInt, log, onWorkerEvent, queryText, request, setProject, showView, type ProjectSummary } from './shared.ts';
+import { me, session } from './account.ts';
+import { askText } from './dialog.ts';
+import { $, activity, ctx, el, fmtInt, log, onWorkerEvent, queryText, rejectionText, request, setProject, showView, type ProjectSummary } from './shared.ts';
 
 const TYPE_COLORS: Record<string, string> = {
   research: 'var(--methods)', review: 'var(--abstract)', letter: 'var(--results)', editorial: 'var(--discussion)',
@@ -39,6 +41,7 @@ export function initProjects(loadAll: () => Promise<void>): void {
     void mergeProjects();
   });
   $('migrate-plan').addEventListener('click', () => void planMove());
+  $('projects-mine').addEventListener('change', () => renderProjects());
   $('migrate-go').addEventListener('click', () => void move());
   onWorkerEvent((ev) => {
     if (ev['event'] === 'done' && ev['op'] === 'merge') {
@@ -72,7 +75,8 @@ async function createProject(): Promise<void> {
   const description = $<HTMLTextAreaElement>('np-description').value.trim();
   if (!name) return;
   try {
-    const r = await request<{ library: { id: string } }>('init', { name, description });
+    // made while signed in, the project is this account's own: only it renames or deletes it
+    const r = await request<{ library: { id: string } }>('init', { name, description, session: session() });
     $<HTMLFormElement>('new-project').hidden = true;
     $<HTMLInputElement>('np-name').value = '';
     $<HTMLTextAreaElement>('np-description').value = '';
@@ -107,7 +111,7 @@ async function mergeProjects(): Promise<void> {
   }
   try {
     activity.show(`Merging ${sources.length} libraries`);
-    await request('merge', { sources, name });
+    await request('merge', { sources, name, session: session() });
     $<HTMLFormElement>('merge-form').hidden = true;
     log('stage', `Merging ${sources.join(', ')} into “${name}”`);
   } catch (e) {
@@ -172,7 +176,33 @@ export function renderProjects(): void {
     box.append(el('div', 'empty', 'No projects yet. Make one: a name, and a line on what its literature is about.'));
     return;
   }
-  for (const p of ctx.projects) box.append(card(p));
+  const onlyMine = $<HTMLInputElement>('projects-mine').checked;
+  const shown = ctx.projects.filter((p) => !onlyMine || isMine(p));
+  if (!shown.length) box.append(el('div', 'empty', 'You have made no project yet. Every project here is yours to read; the ones you make are yours to rename and delete.'));
+  for (const p of shown) box.append(card(p));
+}
+
+/** A project the signed-in account made. */
+export function isMine(p: ProjectSummary): boolean {
+  const user = me();
+  return Boolean(user && p.owner && p.owner === user.id);
+}
+
+/** Whether the signed-in account may rename, describe and delete a project: its own, or one no account made (from before accounts). */
+export function mayChange(p: ProjectSummary): boolean {
+  return !p.owner || isMine(p);
+}
+
+async function deleteProject(p: ProjectSummary): Promise<void> {
+  if (!window.confirm(`Delete the project “${p.name}”? Its papers stay in the shared store, and in every other project that holds them; its folder is moved aside, not erased.`)) return;
+  try {
+    await request('delete_project', { lib: p.id, session: session() });
+    log('stage', `Deleted the project ${p.name}`);
+    if (ctx.lib === p.id) setProject(null);
+    await reload?.();
+  } catch (e) {
+    window.alert(rejectionText(e));
+  }
 }
 
 function card(p: ProjectSummary): HTMLElement {
@@ -180,6 +210,7 @@ function card(p: ProjectSummary): HTMLElement {
   c.dataset['id'] = p.id;
   const name = el('div', 'name', p.name);
   if (p.store === 'own') name.append(el('span', 'tag', 'own store'));
+  if (isMine(p)) name.append(el('span', 'tag mine', 'yours'));
   c.append(name);
   c.append(el('div', `desc${p.description ? '' : ' none'}`, p.description || 'No description yet.'));
   const n = p.counts ?? {};
@@ -234,19 +265,41 @@ function card(p: ProjectSummary): HTMLElement {
   go('Search', 'search');
   go('Types', 'types');
   go('Query', 'query');
-  const edit = el('button', 'ghost small', 'Describe…');
-  edit.addEventListener('click', async (e) => {
-    e.stopPropagation();
-    const d = window.prompt(`What is “${p.name}” about?`, p.description ?? '');
-    if (d === null) return;
-    try {
-      await request('describe', { lib: p.id, description: d.trim() });
-      await reload?.();
-    } catch (err) {
-      log('error', (err as Error).message);
+  if (mayChange(p)) {
+    const edit = el('button', 'ghost small', 'Describe…');
+    edit.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const d = await askText(`What is “${p.name}” about?`, { value: p.description ?? '', long: true, ok: 'Save' });
+      if (d === null) return;
+      try {
+        await request('describe', { lib: p.id, description: d.trim(), session: session() });
+        await reload?.();
+      } catch (err) {
+        log('error', rejectionText(err));
+      }
+    });
+    const rename = el('button', 'ghost small', 'Rename…');
+    rename.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const n = await askText(`Rename “${p.name}”`, { value: p.name, ok: 'Rename' });
+      if (!n?.trim() || n.trim() === p.name) return;
+      try {
+        await request('describe', { lib: p.id, name: n.trim(), session: session() });
+        await reload?.();
+      } catch (err) {
+        window.alert(rejectionText(err));
+      }
+    });
+    actions.append(edit, rename);
+    if (p.store !== 'own') {
+      const del = el('button', 'ghost small', 'Delete…');
+      del.addEventListener('click', (e) => {
+        e.stopPropagation();
+        void deleteProject(p);
+      });
+      actions.append(del);
     }
-  });
-  actions.append(edit);
+  }
   c.append(actions);
   c.addEventListener('click', () => {
     setProject(p.id);

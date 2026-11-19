@@ -822,6 +822,34 @@ what would move, and the move is idempotent, so one cut short runs again to the 
 dismissing a work in one project dismisses it in all; and the measurement tools that take
 `--lib DIR` read the shared store as one library (`--lib <root>/_shared`).
 
+## R4.7 Accounts, and what is each person's own
+
+*Built 2026-11-19.* Feedback asks for a sign-in dialogue, with every member of a lab reading
+every project's papers while keeping their own projects, recently viewed papers, notes,
+favourites and collections of papers.
+
+**An account tells people apart; it is not a lock.** litrag runs on one machine, or over one
+library folder on a shared drive, and the worker reads and writes that folder for whoever
+started it. Nothing it does can keep a person with access to the folder from reading
+`users.sqlite`, so the dialogue, the tutorial and `users.py` say so instead of implying more.
+The password stops one person signing in as another through the window; it is kept only as a
+salted scrypt hash (`hashlib.scrypt`, OpenSSL's, at N = 2^15, r = 8, p = 1, the parameters stored
+with each hash so a later cost leaves old hashes checkable) — no new dependency, nothing sent
+anywhere, and a wrong name costs as long as a wrong password.
+
+**Each person's things are rows apart from the papers** (`<root>/users.sqlite`: `users`,
+`recent`, `favourites`, `notes`, `collections`, `collection_papers`), keyed by the paper's key,
+which since R4.6 names the same paper in every project. A note can name a passage (`node_id`)
+and keeps its first words, so a reread that renumbers the tree leaves the note findable.
+Projects stay folders, every account reads all of them; a project made while signed in carries
+its `owner`, and only that account renames, describes or deletes it. Deleting a project lets its
+papers go and moves its folder aside; no paper is deleted.
+
+**The window asks the worker** (`account.ts`): the account ops over the JSON-lines wire, each
+per-person op carrying the session `sign_in` handed out (held in the worker's memory, so a
+restart signs everyone out). A project made by merging others while signed in is the account's
+that merged them, as one made new is.
+
 This document records the decisions and the plan. It began life inside the
 Protracker repository as `LITERATURE.md` and moved here with the code on
 2026-09-03; Protracker's backlog holds the original ask and its design

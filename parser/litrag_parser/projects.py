@@ -163,7 +163,7 @@ def _copy(src: Path, dest: Path) -> None:
 _RECORD = ("pub_types", "authors", "journal", "year", "type", "type_source", "type_detail", "subtype", "figures_note")
 
 
-def merge(root: Path, source_ids: list[str], target_name: str, into: str | None = None, *, shared: bool = True) -> dict[str, Any]:
+def merge(root: Path, source_ids: list[str], target_name: str, into: str | None = None, *, shared: bool = True, owner: str | None = None) -> dict[str, Any]:
     """Make one library of several: `{target, filed, duplicates, keys_to_rebuild, keys_to_parse,
     figures_kept, keys_to_read_figures, figures_not_kept, skipped, candidates_merged,
     queries_merged}`.
@@ -190,7 +190,8 @@ def merge(root: Path, source_ids: list[str], target_name: str, into: str | None 
 
     That is a merge into a library of the old shape: `into` one, or a new one with
     `shared=False`. A new project is made in the shared store (`shared`, the default), and a merge
-    into a project there is a list of papers held, not a copy (`_merge_shared`)."""
+    into a project there is a list of papers held, not a copy (`_merge_shared`). A new project is
+    `owner`'s, the account that asked for it; one merged `into` keeps whose it was."""
     root = Path(root)
     sources: list[Library] = []
     for sid in source_ids:
@@ -208,7 +209,7 @@ def merge(root: Path, source_ids: list[str], target_name: str, into: str | None 
     else:
         if any(s.id == slug_of(target_name) for s in sources):
             raise ValueError(f"a library cannot be merged into itself: {slug_of(target_name)}")
-        target = create_library(root, target_name, shared=shared)  # raises when one of that name exists: merge `into` it instead
+        target = create_library(root, target_name, shared=shared, owner=owner)  # raises when one of that name exists: merge `into` it instead
     if any(s.id == target.id for s in sources):
         raise ValueError(f"a library cannot be merged into itself: {target.id}")
     if target.shared:
