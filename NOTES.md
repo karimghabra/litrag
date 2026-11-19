@@ -19,6 +19,13 @@ when it turns out durable. Mark inference as inference.
 
 ### The libraries
 
+- **Where they live now** (2026-11-19) — every paper is kept once in
+  `<root>/_shared/store.sqlite`, and a project is its rows of
+  `project_papers` (DESIGN.md R4.6). A library below that predates this
+  keeps its own `store.sqlite` until moved (`python -m
+  litrag_parser.migrate --dry-run`, then without; a backup lands in
+  `<root>/_backups/`). Before quoting counts from a store, check which one
+  the project reads (`"store": "shared"` in its `library.json`).
 - **looped-ligament** (Protracker project `n156`) — the pilot. Seeded
   2026-09-02 with three Europe PMC searches: `"electrochemically aligned
   collagen"`, `(electrocompaction OR electrocompacted OR "electrochemical

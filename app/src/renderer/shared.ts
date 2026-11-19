@@ -45,6 +45,10 @@ export interface ProjectSummary {
   name: string;
   description?: string | null;
   createdAt?: string | null;
+  /** `shared`: its papers live in the shared store, each stored once; `own`: a library of the old shape, its own store in its folder, not moved yet */
+  store?: 'shared' | 'own';
+  /** the account that made it, when one did */
+  owner?: string | null;
   /** a search is `{query, at, total, added}`; a library from before the studio kept only the query */
   queries?: (string | { query: string; at?: string; total?: number; added?: number })[];
   counts?: {

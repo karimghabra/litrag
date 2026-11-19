@@ -178,6 +178,26 @@ CREATE TABLE IF NOT EXISTS model_labels (
   PRIMARY KEY(paper, finding, method)
 );
 
+-- Which projects hold which papers (members.py). A paper is stored once, by its identifier, in the
+-- shared store; a project is the list of the papers it holds, so one paper can be in many projects
+-- and leaving one takes nothing from the others. A library of the old shape, its own store in its
+-- own folder, leaves these empty: every paper of its store is its own.
+CREATE TABLE IF NOT EXISTS project_papers (
+  project TEXT NOT NULL,            -- the project's id, its folder's name
+  paper TEXT NOT NULL,              -- papers.key
+  added_at TEXT NOT NULL,
+  PRIMARY KEY(project, paper)
+);
+CREATE INDEX IF NOT EXISTS project_papers_paper ON project_papers(paper);
+-- The candidates a project's own searches found (a candidate is a work, kept once by its identifier
+-- like a paper); those a citation round found are the project's through the papers that cite them.
+CREATE TABLE IF NOT EXISTS project_candidates (
+  project TEXT NOT NULL,
+  cand_id INTEGER NOT NULL,
+  added_at TEXT NOT NULL,
+  PRIMARY KEY(project, cand_id)
+);
+
 CREATE TABLE IF NOT EXISTS events (
   id INTEGER PRIMARY KEY,
   paper TEXT NOT NULL,

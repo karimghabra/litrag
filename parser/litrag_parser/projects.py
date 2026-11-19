@@ -21,7 +21,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-from . import acquire
+from . import acquire, members
 from .library import Library, create_library, list_libraries, now_iso, open_library, queries_of, safe_key, update_manifest
 from .store import file_paper, log_event, open_store, sha256_of
 
@@ -50,10 +50,13 @@ def _write_manifest(lib: Library, manifest: dict[str, Any]) -> None:
 def summary(lib: Library) -> dict[str, Any]:
     """A project at a glance: `{id, name, description, createdAt, projectId, dir, queries,
     counts: {papers, parsed, failed, pdf, xml, by_type, nodes, candidates, vectors}}`.
-    Read-only; a library with no store yet counts nothing."""
+    Read-only; a library with no store yet counts nothing. A project in the shared store counts
+    the papers it holds, and the candidates it has (members.candidate_ids)."""
     m = _manifest(lib)
     counts: dict[str, Any] = {"papers": 0, "parsed": 0, "failed": 0, "pdf": 0, "xml": 0, "by_type": {}, "nodes": 0, "candidates": {}, "vectors": 0}
-    if lib.store_path.exists():
+    if lib.shared and lib.store_path.exists():
+        counts = _scoped_counts(lib, counts)
+    elif lib.store_path.exists():
         conn = _read_only(lib.store_path)
         try:
             have = _tables(conn)
@@ -83,10 +86,47 @@ def summary(lib: Library) -> dict[str, Any]:
         "createdAt": m.get("createdAt"),
         "projectId": m.get("projectId"),
         "dir": str(lib.dir),
+        "store": "shared" if lib.shared else "own",
+        "owner": m.get("owner"),
         "mergedFrom": m.get("mergedFrom", []),
         "queries": queries_of(m),  # a library from before the studio kept each search as its bare query string
         "counts": counts,
     }
+
+
+def _scoped_counts(lib: Library, counts: dict[str, Any]) -> dict[str, Any]:
+    """`summary`'s counts over the papers a project holds in the shared store, or over all of them
+    for the scope of every project."""
+    conn = _read_only(lib.store_path)
+    try:
+        have = _tables(conn)
+        if "project_papers" not in have or "papers" not in have:
+            return counts
+        mine = "SELECT key FROM papers" if not lib.scoped else "SELECT paper FROM project_papers WHERE project = :p"
+        args = {"p": lib.id}
+        one = lambda sql: conn.execute(sql, args).fetchone()[0]  # noqa: E731
+        counts["papers"] = one(f"SELECT COUNT(*) FROM papers WHERE key IN ({mine})")
+        counts["parsed"] = one(f"SELECT COUNT(*) FROM papers WHERE status = 'parsed' AND key IN ({mine})")
+        counts["failed"] = one(f"SELECT COUNT(*) FROM papers WHERE status = 'failed' AND key IN ({mine})")
+        counts["pdf"] = one(f"SELECT COUNT(*) FROM papers WHERE format = 'pdf' AND key IN ({mine})")
+        counts["xml"] = one(f"SELECT COUNT(*) FROM papers WHERE format = 'jats' AND key IN ({mine})")
+        counts["by_type"] = {(r[0] or "unknown"): r[1] for r in conn.execute(f"SELECT type, COUNT(*) FROM papers WHERE key IN ({mine}) GROUP BY type ORDER BY type", args)}
+        counts["nodes"] = one(f"SELECT COUNT(*) FROM nodes WHERE paper IN ({mine})")
+        if "candidates" in have:
+            ids = members.candidate_ids(conn, lib) if lib.scoped else None
+            rows = conn.execute("SELECT cand_id, status FROM candidates").fetchall()
+            by: dict[str, int] = {}
+            for cid, status in rows:
+                if ids is None or cid in ids:
+                    by[status] = by.get(status, 0) + 1
+            counts["candidates"] = dict(sorted(by.items()))
+        if "vectors" in have:
+            counts["vectors"] = one(f"SELECT COUNT(*) FROM vectors v JOIN nodes n ON n.node_id = v.node WHERE n.paper IN ({mine})")
+    except sqlite3.Error as e:
+        counts["error"] = str(e)
+    finally:
+        conn.close()
+    return counts
 
 
 def describe(lib: Library, name: str | None = None, description: str | None = None) -> dict[str, Any]:
@@ -123,7 +163,7 @@ def _copy(src: Path, dest: Path) -> None:
 _RECORD = ("pub_types", "authors", "journal", "year", "type", "type_source", "type_detail", "subtype", "figures_note")
 
 
-def merge(root: Path, source_ids: list[str], target_name: str, into: str | None = None) -> dict[str, Any]:
+def merge(root: Path, source_ids: list[str], target_name: str, into: str | None = None, *, shared: bool = True) -> dict[str, Any]:
     """Make one library of several: `{target, filed, duplicates, keys_to_rebuild, keys_to_parse,
     figures_kept, keys_to_read_figures, figures_not_kept, skipped, candidates_merged,
     queries_merged}`.
@@ -146,7 +186,11 @@ def merge(root: Path, source_ids: list[str], target_name: str, into: str | None 
 
     `keys_to_rebuild` is every paper of this merge the target holds as parsed with its raw
     document and no rows yet: the worker runs `rebuild` on them. `keys_to_parse` has a file and
-    no raw document: the worker reads it again. Merging twice files nothing new."""
+    no raw document: the worker reads it again. Merging twice files nothing new.
+
+    That is a merge into a library of the old shape: `into` one, or a new one with
+    `shared=False`. A new project is made in the shared store (`shared`, the default), and a merge
+    into a project there is a list of papers held, not a copy (`_merge_shared`)."""
     root = Path(root)
     sources: list[Library] = []
     for sid in source_ids:
@@ -162,9 +206,15 @@ def merge(root: Path, source_ids: list[str], target_name: str, into: str | None 
         if target is None:
             raise ValueError(f"no such library to merge into: {into}")
     else:
-        target = create_library(root, target_name)  # raises when one of that name exists: merge `into` it instead
+        if any(s.id == slug_of(target_name) for s in sources):
+            raise ValueError(f"a library cannot be merged into itself: {slug_of(target_name)}")
+        target = create_library(root, target_name, shared=shared)  # raises when one of that name exists: merge `into` it instead
     if any(s.id == target.id for s in sources):
         raise ValueError(f"a library cannot be merged into itself: {target.id}")
+    if target.shared:
+        return _merge_shared(root, sources, target)
+    if any(s.shared for s in sources):
+        raise ValueError(f"{target.id} keeps its own store: move it into the shared store before merging projects of the shared store into it")
     target.ensure_dirs()
 
     tconn = open_store(target.store_path)
@@ -254,6 +304,77 @@ def merge(root: Path, source_ids: list[str], target_name: str, into: str | None 
         "candidates_merged": candidates_merged,
         "queries_merged": len(new_queries),
     }
+
+
+def _merge_shared(root: Path, sources: list[Library], target: Library) -> dict[str, Any]:
+    """A merge into a project of the shared store: the target holds every paper and candidate its
+    sources hold. Nothing is filed and nothing is read again, since each paper is stored once; a
+    source that keeps its own store is moved into the shared store first (migrate.py, with its
+    backup), and is a project of the shared store from then on. The sources keep their papers."""
+    from . import migrate
+
+    own = [s.id for s in sources if not s.shared]
+    moved = migrate.migrate(root, only=own)["moved"] if own else []
+    now = now_iso()
+    conn = open_store(target.store_path)
+    try:
+        before = set(members.scope(conn, target) or [])
+        cands = 0
+        for src in sources:
+            cands += members.copy_project(conn, src.id, target.id, now)["candidates"]
+        after = members.scope(conn, target) or []
+        held_by_sources = {k for src in sources for k in (members.scope(conn, Library(root=root, id=src.id, manifest={}, store_dir=target.store_dir)) or [])}
+    finally:
+        conn.close()
+    new_queries: list[dict[str, Any]] = []
+
+    def change(m: dict[str, Any]) -> None:
+        held = queries_of(m)
+        have = {(q.get("query"), q.get("at")) for q in held}
+        for src in sources:
+            for q in queries_of(_manifest(src)):
+                k = (q.get("query"), q.get("at"))
+                if k not in have:
+                    have.add(k)
+                    new_queries.append(q)
+        m["queries"] = sorted([*held, *new_queries], key=lambda q: str(q.get("at") or ""))
+        m["mergedFrom"] = sorted(set(m.get("mergedFrom") or []) | {s.id for s in sources})
+
+    update_manifest(target, change)
+    return {
+        "target": target.to_dict(), "sources": [s.id for s in sources],
+        "filed": len(set(after) - before), "duplicates": len(held_by_sources & before), "skipped": [],
+        "keys_to_rebuild": [], "keys_to_parse": [], "figures_kept": [], "keys_to_read_figures": [], "figures_not_kept": [],
+        "candidates_merged": cands, "queries_merged": len(new_queries), "migrated": moved,
+    }
+
+
+def delete(lib: Library, *, trash: bool = True) -> dict[str, Any]:
+    """A project of the shared store let go: its rows of membership gone, its papers and
+    candidates left in the store for every other project that holds them, and its folder —
+    manifest and inbox — moved aside to `<root>/_deleted/<id>-<time>/`, never deleted. A library
+    that keeps its own store holds its papers in its folder, and is refused: moving it into the
+    shared store first keeps them."""
+    if not lib.shared or not lib.scoped:
+        raise ValueError(f"{lib.id} keeps its own store: move it into the shared store before deleting the project")
+    conn = open_store(lib.store_path)
+    try:
+        dropped = members.drop_project(conn, lib.id)
+    finally:
+        conn.close()
+    aside = None
+    if trash and lib.dir.exists():
+        stamp = now_iso().replace(":", "").replace("-", "")
+        aside = lib.root / "_deleted" / f"{lib.id}-{stamp}"
+        aside.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(lib.dir), str(aside))
+    return {"id": lib.id, "papers": dropped["papers"], "candidates": dropped["candidates"], "aside": str(aside) if aside else None}
+
+
+def slug_of(name: str) -> str:
+    from .library import slugify
+
+    return slugify(name)
 
 
 def _merge_paper(src: Library, sconn: sqlite3.Connection, s_tables: set[str], target: Library, tconn: sqlite3.Connection,

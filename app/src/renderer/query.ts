@@ -153,7 +153,9 @@ async function ask(): Promise<void> {
   const t = performance.now();
   const lib = ctx.lib;
   try {
-    const r = await request<QAnswer>('query', { lib, question, k });
+    // this project's papers, or every paper the shared store holds (a project of the old shape is asked alone)
+    const all = $<HTMLSelectElement>('query-scope').value === 'all';
+    const r = await request<QAnswer>('query', all ? { lib, libs: ['*'], question, k } : { lib, question, k });
     if (ctx.lib !== lib) return;
     renderAnswer(r, (performance.now() - t) / 1000);
   } catch (e) {

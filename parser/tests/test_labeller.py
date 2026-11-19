@@ -10,6 +10,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 import pytest
 
 from litrag_parser import labeller, truth
+from litrag_parser.library import create_library
 from litrag_parser.store import open_store
 
 from test_edges import M_FAB, M_LIVE, M_MECH, R_LIVE, R_MOD
@@ -257,7 +258,7 @@ def test_the_worker_labels_with_progress_and_the_truth_op_reports_the_model(tmp_
 
     monkeypatch.setenv("LITRAG_OLLAMA_URL", ollama)
     lib = tmp_path / "micromachines"
-    assert by(talk(tmp_path, [{"id": "1", "op": "init", "name": "Micromachines"}]), "1")[0]["event"] == "library"
+    create_library(tmp_path, "Micromachines")  # a library of the old shape: the test writes its store directly
     conn = open_store(lib / "store.sqlite")
     key = file_paper(conn, title="x", file="paper.xml", sha256="aa", fmt="jats", doi="10.3390/mi15070851", pmid=None, pmcid=None, now="t").key
     shutil.copy(FIXTURES / "PMC11278924.jats.docling.json", lib / "parsed" / f"{safe_key(key)}.docling.json")

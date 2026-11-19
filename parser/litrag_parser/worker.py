@@ -27,9 +27,9 @@ import traceback
 from pathlib import Path
 from typing import Any
 
-from . import __version__, acquire, boundary, lanes
+from . import __version__, acquire, boundary, lanes, members
 from . import projects as project_rows
-from .library import Library, create_library, library_root, list_libraries, now_iso, open_library, parsed_papers, safe_key
+from .library import ALL, Library, create_library, library_root, list_libraries, now_iso, open_library, parsed_papers, safe_key
 from .citations import link_citations
 from .edges import link_edges, summarize as summarize_edges
 from .confidence import assess as assess_confidence
@@ -399,18 +399,38 @@ class Worker:
                     self.do_round(req)
                 elif op == "expand":
                     self.do_expand(req)
+                elif op == "migrate":
+                    self.do_migrate(req)
             except Exception as e:  # never let one paper kill the worker
                 emit({"event": "error", "id": req.get("id"), "op": req.get("op"), "lib": req.get("lib"), "message": str(e), "trace": traceback.format_exc()})
             finally:
                 self.current = {}
 
-    def _lib(self, req: dict[str, Any]) -> Library:
+    def _lib(self, req: dict[str, Any], *, write: bool = False) -> Library:
+        """The project a request names (`lib`: its id, name or Protracker id), or `*` for every
+        paper in the shared store — a scope to read, never one to file into (`write`)."""
         lib = open_library(self.root, str(req.get("lib", "")))
         if lib is None:
             raise ValueError(f"No library {req.get('lib')!r} under {self.root}")
+        if write and lib.id == ALL:
+            raise ValueError("papers are filed into a project: name one, not every project")
         lib.ensure_dirs()
         self._close_interrupted(lib)
         return lib
+
+    def _libs(self, req: dict[str, Any]) -> tuple[Library, list[Library]]:
+        """A read over one project (`lib`), or several (`libs`: ids, or `*` for all of them): the
+        first, whose store is read, and all of them, whose papers are the scope (members.scope_of)."""
+        names = [str(x) for x in req.get("libs") or []] or [str(req.get("lib", ""))]
+        libs = [self._lib({"lib": n}) for n in dict.fromkeys(names)]
+        if len({l.store_path for l in libs}) > 1:
+            own = ", ".join(l.id for l in libs if not l.shared)
+            raise ValueError(f"these projects keep their own store and are read one at a time until moved into the shared store: {own}")
+        return libs[0], libs
+
+    @staticmethod
+    def _scope(conn: Any, lib: Library) -> list[str] | None:
+        return members.scope(conn, lib)
 
     def _close_interrupted(self, lib: Library) -> None:
         """A paper left `parsing` by a worker that died is given its terminal state back.
@@ -424,9 +444,9 @@ class Worker:
         # the add have to be one step: otherwise a read op could run this while a paper is being
         # parsed and mark that very paper `failed` underneath it.
         with self._recover_lock:
-            if lib.dir in self._recovered:
+            if lib.store_path in self._recovered:
                 return
-            self._recovered.add(lib.dir)
+            self._recovered.add(lib.store_path)
         try:
             conn = open_store(lib.store_path)
         except Exception:  # a library with no store yet has nothing to recover
@@ -469,8 +489,10 @@ class Worker:
         does), and unless a PDF on disk draws its figures already or PMC's settled answer is kept
         (`figures_note`) — asked once, not at every reread. The first ask that cannot reach PMC
         stops the rest of the request's. The `done` event's `figures` are the papers whose figures
-        a PDF kept here, dropped or PMC's, was read for."""
-        lib = self._lib(req)
+        a PDF kept here, dropped or PMC's, was read for. In the shared store, every paper a file
+        meets — filed now, read before, or held for its XML — is the project's from then on
+        (members.add): a paper another project read is the same paper, not read twice."""
+        lib = self._lib(req, write=True)
         req_id = req.get("id")
         conn = open_store(lib.store_path)
         filed: list[tuple[str, Path]] = []
@@ -512,9 +534,11 @@ class Worker:
                 row = conn.execute("SELECT format FROM papers WHERE key = ?", (held[0],)).fetchone()
                 if row and row["format"] == "jats":
                     beside.append((held[0], str(raw), held[1]))
+                    members.add(conn, lib, [held[0]])
                     continue
             result = file_paper(conn, title=src.stem, file="", sha256=sha, fmt=fmt, doi=doi, pmid=pmid or known.get("pmid"), pmcid=pmcid or known.get("pmcid"), now=now_iso())
             keys[str(raw)] = result.key
+            members.add(conn, lib, [result.key])
             row = conn.execute("SELECT status, file, format, figures_file FROM papers WHERE key = ?", (result.key,)).fetchone()
             # A paper already read stays as it was read — the same DOI arriving as a second file
             # (a PDF after its JATS, say) is noted, not swapped in. `reread` is the way to replace it.
@@ -772,7 +796,8 @@ class Worker:
     def do_reparse(self, req: dict[str, Any]) -> None:
         lib = self._lib(req)
         conn = open_store(lib.store_path)
-        keys = req.get("keys") or [r["key"] for r in conn.execute("SELECT key FROM papers WHERE file IS NOT NULL")]
+        mine = self._scope(conn, lib)
+        keys = req.get("keys") or [r["key"] for r in conn.execute("SELECT key FROM papers WHERE file IS NOT NULL") if mine is None or r["key"] in mine]
         files = {r["key"]: r["file"] for r in conn.execute("SELECT key, file FROM papers")}
         conn.close()
         for key in keys:
@@ -787,7 +812,8 @@ class Worker:
         rebuilt: list[str] = []
         refused: list[dict[str, str]] = []
         keys = set(req.get("keys") or [])
-        rows = parsed_papers(lib.dir, sorted(keys) or None)
+        mine = None if keys else self._scope(conn, lib)  # every paper of the project, when none is named
+        rows = parsed_papers(lib.home, sorted(keys) or mine) if (keys or mine is None or mine) else []
         for i, row in enumerate(rows):
             key = row["key"]
             source = row["source"]
@@ -1034,6 +1060,9 @@ class Worker:
         req_id = req.get("id")
         conn = open_store(lib.store_path)
         keys = set(req.get("keys") or [])
+        mine = None if keys else self._scope(conn, lib)
+        if mine is not None:
+            keys = set(mine) or {""}  # a project holding nothing reads nothing, never every paper
         totals = {"papers": 0, "figures": 0, "pinned": 0, "plots": 0, "read": 0, "values": 0, "unmatched": 0, "recorded": 0}
         try:
             rows = [r for r in conn.execute("SELECT key, file FROM papers WHERE status = 'parsed' AND (format = 'pdf' OR figures_file IS NOT NULL) ORDER BY added_at") if not keys or r["key"] in keys]
@@ -1086,7 +1115,7 @@ class Worker:
         req_id = req.get("id")
         conn = open_store(lib.store_path)
         try:
-            named = list(dict.fromkeys(str(k) for k in req.get("keys") or [])) or [w["key"] for w in figures.figures_wanted(conn, lib.papers_dir)]
+            named = list(dict.fromkeys(str(k) for k in req.get("keys") or [])) or [w["key"] for w in members.only(figures.figures_wanted(conn, lib.papers_dir), self._scope(conn, lib))]
             rows = {key: row for key in named if (row := self._askable(conn, lib, key)) is not None}
         finally:
             conn.close()
@@ -1106,11 +1135,20 @@ class Worker:
         """Candidates into the inbox — the XML where it is open, else an open PDF, else marked
         `needs-pdf` with its links (acquire.py) — then read like any dropped file: an XML paper
         filed is asked of PMC for its PDF, for its figures, by the ingest (`figures_pdf`)."""
-        lib = self._lib(req)
+        lib = self._lib(req, write=True)
         req_id = req.get("id")
         ids = [int(i) for i in req.get("ids") or []]
         conn = open_store(lib.store_path)
         try:
+            members.add_candidates(conn, lib, ids)
+            if lib.scoped:
+                # a candidate the shared store holds already, read for another project, is this
+                # project's paper now: nothing to fetch, nothing to read again
+                for cid in list(ids):
+                    r = conn.execute("SELECT paper_key FROM candidates WHERE cand_id = ? AND status = 'ingested' AND paper_key IN (SELECT key FROM papers)", (cid,)).fetchone()
+                    if r is not None:
+                        members.add(conn, lib, [r[0]])
+                        emit({"event": "candidate", "id": req_id, "lib": lib.id, "cand_id": cid, "status": "ingested", "paper_key": r[0], "error": None})
             acquire.stage(conn, ids)
             got: list[dict[str, Any]] = []
             for i, cid in enumerate(ids):
@@ -1169,7 +1207,7 @@ class Worker:
             out = graph.harvest(lib, conn, [str(k) for k in papers] if papers else None, references=bool(req.get("references", True)),
                                 citations=bool(req.get("citations")), again=bool(req.get("again")),
                                 openalex=None if req.get("openalex") is None else bool(req.get("openalex")),
-                                on_progress=lambda e: emit({**e, "id": req_id, "lib": lib.id}))
+                                on_progress=lambda e: emit({**e, "id": req_id, "lib": lib.id}), within=self._scope(conn, lib))
         finally:
             conn.close()
         o = out["openalex"]
@@ -1186,7 +1224,7 @@ class Worker:
         `needs-pdf` for Collect PDFs. Once read, every passage that cites one leads to it."""
         from . import graph
 
-        lib = self._lib(req)
+        lib = self._lib(req, write=True)
         req_id = req.get("id")
         say = lambda e: emit({**e, "id": req_id, "lib": lib.id})  # noqa: E731
         want = max(1, int(req.get("most") or 10))
@@ -1194,7 +1232,7 @@ class Worker:
         conn = open_store(lib.store_path)
         try:
             found = graph.harvest(lib, conn, None, citations=bool(req.get("citations")),
-                                  openalex=None if req.get("openalex") is None else bool(req.get("openalex")), on_progress=say)
+                                  openalex=None if req.get("openalex") is None else bool(req.get("openalex")), on_progress=say, within=self._scope(conn, lib))
         finally:
             conn.close()
         tried: set[int] = set()
@@ -1204,7 +1242,7 @@ class Worker:
         for _ in range(6):  # a readable-looking paper can still be refused: try again further down, a few times
             conn = open_store(lib.store_path)
             try:
-                take, skip = graph.expansion(graph.next_to_read(conn, most=None, min_cited=min_cited), want - len(read), tried)
+                take, skip = graph.expansion(graph.next_to_read(conn, most=None, min_cited=min_cited, keys=self._scope(conn, lib)), want - len(read), tried)
             finally:
                 conn.close()
             skip = [r for r in skip if r["cand_id"] not in tried][: max(0, want - len(passed))]
@@ -1247,7 +1285,8 @@ class Worker:
         (`figures_not_kept`)."""
         req_id = req.get("id")
         emit({"event": "progress", "id": req_id, "op": "merge", "done": 0, "total": 0, "label": "Merging libraries"})
-        out = project_rows.merge(self.root, [str(s) for s in req.get("sources") or []], str(req.get("name") or ""), into=req.get("into"))
+        out = project_rows.merge(self.root, [str(s) for s in req.get("sources") or []], str(req.get("name") or ""), into=req.get("into"),
+                                 shared=req.get("shared") is not False)
         target = out["target"]["id"]
         emit({"event": "stage", "id": req_id, "lib": target, "stage": "merged", "message": f"{out['filed']} papers filed, {out['duplicates']} already held, {len(out['keys_to_rebuild'])} to derive again, {len(out['keys_to_parse'])} to read again"})
         rebuilt: list[str] = []
@@ -1265,6 +1304,18 @@ class Worker:
                 self.do_figures({"id": f"{req_id}-figures", "op": "figures", "lib": target, "keys": read, "force": True})
         emit({"event": "done", "id": req_id, "op": "merge", "lib": target, "target": target, "filed": out["filed"], "duplicates": out["duplicates"], "skipped": out["skipped"], "rebuilt": rebuilt, "reparsed": out["keys_to_parse"],
               "figures": out["figures_kept"], "figures_not_kept": out["figures_not_kept"], "candidates_merged": out["candidates_merged"]})
+
+    def do_migrate(self, req: dict[str, Any]) -> None:
+        """Libraries of the old shape moved into the shared store (migrate.py): a backup first,
+        then every paper with its rows and files, nothing read again; `done` with the backup's
+        folder and what each library came to. The old stores stay where they were."""
+        from . import migrate
+
+        req_id = req.get("id")
+        out = migrate.migrate(self.root, only=req.get("libs") or None, on_progress=lambda e: emit({**e, "id": req_id}))
+        with self._recover_lock:
+            self._recovered.clear()  # the projects moved read the shared store now
+        emit({"event": "done", "id": req_id, "op": "migrate", **out})
 
     def do_embed(self, req: dict[str, Any]) -> None:
         """Every passage of a library embedded once, locally (retrieve.py); a passage already
@@ -1306,7 +1357,7 @@ class Worker:
             req_id = req.get("id")
             try:
                 if op == "search":
-                    lib = self._lib(req)
+                    lib = self._lib(req, write=True)
                     query = str(req.get("query") or "").strip()
                     if not query:
                         raise ValueError("an empty query")
@@ -1314,12 +1365,15 @@ class Worker:
                     conn = open_store(lib.store_path)
                     try:
                         rec = acquire.record_search(lib, conn, query, got["hits"], total=got["total"])
+                        members.add_candidates(conn, lib, rec["cand_ids"])
                         acquire.reconcile(conn)
+                        mine = set(self._scope(conn, lib) or [])
                         by_id = {c["cand_id"]: c for c in acquire.candidates(conn)}
                         hits = []
                         for cid, hit in zip(rec["cand_ids"], got["hits"]):
                             row = by_id.get(cid, {})
-                            hits.append({**hit, **row, "cand_id": cid})
+                            # in the shared store a hit can be read already for another project: `held_here` says whether this one holds it
+                            hits.append({**hit, **row, "cand_id": cid, "held_here": (row.get("paper_key") in mine) if lib.scoped else row.get("status") == "ingested"})
                     finally:
                         conn.close()
                     emit({"event": "search", "id": req_id, "lib": lib.id, "query": query, "hits": hits, "total": got["total"], "next_cursor": got["next_cursor"], "added": rec["added"]})
@@ -1335,12 +1389,15 @@ class Worker:
 
                     from . import graph
 
-                    lib = self._lib(req)
+                    lib, libs = self._libs(req)
                     conn = open_store(lib.store_path)
                     try:
                         graph.sync(conn)  # a passage's citations lead to the works as they are now
                         t = time.time()
-                        out = retrieve.query(conn, str(req.get("question") or ""), retrieve.OllamaEmbedder(), k=int(req.get("k") or 8))
+                        scope = members.scope_of(conn, libs)  # one project's papers, several projects', or every paper (`*`)
+                        out = retrieve.query(conn, str(req.get("question") or ""), retrieve.OllamaEmbedder(), k=int(req.get("k") or 8),
+                                             **({"paper": scope} if scope is not None else {}))
+                        out["scope"] = [l.id for l in libs]
                         out["seconds"] = round(time.time() - t, 3)
                     finally:
                         conn.close()
@@ -1363,7 +1420,7 @@ class Worker:
             elif op == "libraries":
                 emit({"event": "libraries", "id": req_id, "root": str(self.root), "libraries": [l.to_dict() for l in list_libraries(self.root)]})
             elif op == "init":
-                lib = create_library(self.root, str(req["name"]), req.get("projectId"))
+                lib = create_library(self.root, str(req["name"]), req.get("projectId"), shared=True, owner=req.get("owner") or None)
                 conn = open_store(lib.store_path)
                 acquire.ensure_schema(conn)
                 conn.close()
@@ -1371,26 +1428,59 @@ class Worker:
                     project_rows.describe(lib, description=str(req["description"]))
                 emit({"event": "library", "id": req_id, "library": lib.to_dict()})
             elif op == "projects":
-                emit({"event": "projects", "id": req_id, "root": str(self.root), "projects": [project_rows.summary(l) for l in list_libraries(self.root)]})
+                from . import migrate
+
+                libs = list_libraries(self.root)
+                emit({"event": "projects", "id": req_id, "root": str(self.root), "projects": [project_rows.summary(l) for l in libs],
+                      "own_store": [l.id for l in libs if not l.shared]})  # libraries of the old shape, for the window to offer to move (migrate)
+            elif op == "migrate" and req.get("dry_run"):
+                from . import migrate
+
+                emit({"event": "migrate", "id": req_id, **migrate.migrate(self.root, dry_run=True, only=req.get("libs") or None)})
+            elif op == "delete_project":
+                lib = self._lib(req, write=True)
+                emit({"event": "deleted", "id": req_id, **project_rows.delete(lib)})
+            elif op in ("hold", "let_go"):
+                # a project takes papers the shared store holds, or lets them go (the papers stay)
+                lib = self._lib(req, write=True)
+                keys = [str(k) for k in req.get("keys") or []]
+                conn = open_store(lib.store_path)
+                try:
+                    if op == "hold":
+                        known = {r[0] for r in conn.execute(f"SELECT key FROM papers WHERE key IN ({','.join('?' * len(keys))})", keys)} if keys else set()
+                        missing = [k for k in keys if k not in known]
+                        if missing:
+                            raise ValueError(f"no such paper in the store: {', '.join(missing)}")
+                        n = members.add(conn, lib, keys)
+                    else:
+                        n = members.remove(conn, lib, keys)
+                finally:
+                    conn.close()
+                emit({"event": "held" if op == "hold" else "let_go", "id": req_id, "lib": lib.id, "keys": keys, "changed": n})
             elif op == "describe":
-                lib = self._lib(req)
+                lib = self._lib(req, write=True)
                 emit({"event": "project", "id": req_id, "project": project_rows.describe(lib, name=req.get("name"), description=req.get("description"))})
             elif op in ("search", "suggest", "query"):
                 self.answer_async(req)
             elif op in ("candidates", "wanted", "dismiss", "stage"):
-                lib = self._lib(req)
+                lib = self._lib(req, write=op in ("dismiss", "stage"))
                 conn = open_store(lib.store_path)
                 try:
                     acquire.reconcile(conn)
+                    mine = self._scope(conn, lib)
+                    ids = members.candidate_ids(conn, lib, mine)
+                    held = set(mine) if mine is not None else None
+                    narrow = lambda rows: [{**c, "held_here": c.get("paper_key") in held} if held is not None else c  # noqa: E731
+                                           for c in rows if ids is None or c["cand_id"] in ids]
                     if op == "candidates":
-                        emit({"event": "candidates", "id": req_id, "lib": lib.id, "candidates": acquire.candidates(conn, status=req.get("status"), query=req.get("query"))})
+                        emit({"event": "candidates", "id": req_id, "lib": lib.id, "candidates": narrow(acquire.candidates(conn, status=req.get("status"), query=req.get("query")))})
                     elif op == "wanted":
                         from .figures import figures_wanted
 
                         # with the figures off, Collect offers no paper for them: the switch stops the work, and says so
                         on = figures_enabled()
-                        emit({"event": "wanted", "id": req_id, "lib": lib.id, "candidates": acquire.wanted(conn),
-                              "figures": figures_wanted(conn, lib.papers_dir) if on else [], "figures_on": on})
+                        emit({"event": "wanted", "id": req_id, "lib": lib.id, "candidates": narrow(acquire.wanted(conn)),
+                              "figures": members.only(figures_wanted(conn, lib.papers_dir), mine) if on else [], "figures_on": on})
                     else:
                         fn = acquire.dismiss if op == "dismiss" else acquire.stage
                         emit({"event": "dismissed", "id": req_id, "lib": lib.id, "op": op, **fn(conn, [int(i) for i in req.get("ids") or []])})
@@ -1403,8 +1493,9 @@ class Worker:
                 conn = open_store(lib.store_path)
                 try:
                     if op == "types":
-                        papers_of = [{"key": r["key"], "title": r["title"], "type": r["type"]} for r in conn.execute("SELECT key, title, type FROM papers WHERE status = 'parsed' ORDER BY title")]
-                        emit({"event": "types", "id": req_id, "lib": lib.id, "overview": canonical.types_overview(conn), "skeletons": canonical.skeletons(conn), "papers": papers_of})
+                        mine = self._scope(conn, lib)
+                        papers_of = members.only([{"key": r["key"], "title": r["title"], "type": r["type"]} for r in conn.execute("SELECT key, title, type FROM papers WHERE status = 'parsed' ORDER BY title")], mine)
+                        emit({"event": "types", "id": req_id, "lib": lib.id, "overview": canonical.types_overview(conn, mine), "skeletons": canonical.skeletons(conn, mine), "papers": papers_of})
                     else:
                         key = str(req["key"])
                         emit({"event": "mapping", "id": req_id, "lib": lib.id, "mapping": canonical.mapping(conn, key), "canonical": canonical.canonical_tree(conn, key)})
@@ -1419,13 +1510,13 @@ class Worker:
                     emit({"event": "retrieval", "id": req_id, "lib": lib.id, **retrieve.status(conn, retrieve.OllamaEmbedder())})
                 finally:
                     conn.close()
-            elif op in ("fetch", "merge", "embed", "model_label", "figures", "figures_fetch", "round", "expand"):
-                if op != "merge":
-                    self._lib(req)  # fail fast on a bad library
+            elif op in ("fetch", "merge", "embed", "model_label", "figures", "figures_fetch", "round", "expand", "migrate"):
+                if op not in ("merge", "migrate"):
+                    self._lib(req, write=op in ("fetch", "expand"))  # fail fast on a bad library, or on filing into every project
                 self.ingest_queue.put(req)
                 emit({"event": "queued", "id": req_id, "op": op, "ahead": self.ingest_queue.qsize() - 1})
             elif op in ("ingest", "reparse", "rebuild", "judge"):
-                self._lib(req)  # fail fast on a bad library
+                self._lib(req, write=op == "ingest")  # fail fast on a bad library
                 self.ingest_queue.put(req)
                 emit({"event": "queued", "id": req_id, "op": op, "ahead": self.ingest_queue.qsize() - 1})
             elif op == "papers":
@@ -1434,7 +1525,7 @@ class Worker:
                 lib = self._lib(req)
                 conn = open_store(lib.store_path)
                 try:
-                    rows = list_papers(conn)
+                    rows = members.only(list_papers(conn), self._scope(conn, lib))
                     told = states(conn, lib.papers_dir, figures_enabled())  # SQL only: the real switch, so a paper not read with the figures off is 'off'
                 finally:
                     conn.close()
@@ -1486,7 +1577,7 @@ class Worker:
                 lib = self._lib(req)
                 conn = open_store(lib.store_path)
                 try:
-                    emit({"event": "passages", "id": req_id, "lib": lib.id, "work": str(req["work"]), "passages": graph.passages_citing(conn, str(req["work"]))})
+                    emit({"event": "passages", "id": req_id, "lib": lib.id, "work": str(req["work"]), "passages": graph.passages_citing(conn, str(req["work"]), keys=self._scope(conn, lib))})
                 finally:
                     conn.close()
             elif op == "graph":
@@ -1495,7 +1586,9 @@ class Worker:
                 lib = self._lib(req)
                 conn = open_store(lib.store_path)
                 try:
-                    emit({"event": "graph", "id": req_id, "lib": lib.id, **graph.graph(conn, candidates=str(req.get("candidates") or "cited"), min_cited=int(req.get("min_cited") or 2))})
+                    mine = self._scope(conn, lib)
+                    emit({"event": "graph", "id": req_id, "lib": lib.id, **graph.graph(conn, candidates=str(req.get("candidates") or "cited"), min_cited=int(req.get("min_cited") or 2),
+                                                                                      keys=mine, cand_ids=members.candidate_ids(conn, lib, mine))})
                 finally:
                     conn.close()
             elif op == "file":
@@ -1571,7 +1664,7 @@ class Worker:
                 else:
                     lib = self._lib(req)
                     conn = open_store(lib.store_path)
-                    keys = [str(req["key"])] if req.get("key") else [r["key"] for r in conn.execute("SELECT key FROM papers ORDER BY added_at, key")]
+                    keys = [str(req["key"])] if req.get("key") else [r["key"] for r in members.only([dict(x) for x in conn.execute("SELECT key FROM papers ORDER BY added_at, key")], self._scope(conn, lib))]
                     conn.close()
                     targets = [(k, lib.parsed_dir / f"{_safe(k)}.docling.json") for k in keys]
                 papers = []

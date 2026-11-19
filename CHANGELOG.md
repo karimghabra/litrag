@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- **One store for every project** (`DESIGN.md` R4.6). Every paper is kept once in
+  `<root>/_shared`, by its DOI, PMID or file hash, and a project is the list of papers it holds:
+  one paper can be in several projects, read once, and a query asks this project or all of them
+  (`query` takes `libs`, or `["*"]`). A merge makes a project that holds its sources' papers,
+  with nothing copied or read again. Projects made before keep their own store until moved:
+  the Projects tab offers **Move into the shared store** (a dry run first; a backup of every
+  store into `_backups/`; every paper copied with its tree, vectors, labels, charts and files,
+  nothing read again; the old files left where they were), as does
+  `python -m litrag_parser.migrate`. New ops: `migrate`, `hold`, `let_go`, `delete_project`.
+
 - **Nothing phones Microsoft or Google any more.** ONNX Runtime, the OCR engine the chart reader
   (and Docling) runs, sent usage events to `mobile.events.data.microsoft.com` on every figure read
   with OCR, and Electron's spellchecker fetched a dictionary from Google's CDN on every new profile:

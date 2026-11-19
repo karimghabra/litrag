@@ -94,7 +94,7 @@ def two(tmp_path):
 def test_merge_files_a_shared_doi_once(two):
     root, a, b = two["root"], two["a"], two["b"]
     before = (_digest(a), _digest(b))
-    out = projects.merge(root, ["collagen-a", "collagen-b"], "Collagen")
+    out = projects.merge(root, ["collagen-a", "collagen-b"], "Collagen", shared=False)
     assert (_digest(a), _digest(b)) == before  # the sources are only read
     assert out["target"]["id"] == "collagen" and out["sources"] == ["collagen-a", "collagen-b"]
     assert out["filed"] == 3 and out["duplicates"] == 1 and out["skipped"] == []
@@ -142,7 +142,7 @@ def test_merge_files_a_shared_doi_once(two):
 
 
 def test_merge_files_a_doi_in_another_case_once_whichever_source_comes_first(two):
-    out = projects.merge(two["root"], ["collagen-b", "collagen-a"], "Collagen")
+    out = projects.merge(two["root"], ["collagen-b", "collagen-a"], "Collagen", shared=False)
     assert out["filed"] == 3 and out["duplicates"] == 1
     conn = open_store(open_library(two["root"], "collagen").store_path)
     held = {r["key"]: r["doi"] for r in conn.execute("SELECT key, doi FROM papers")}
@@ -155,9 +155,9 @@ def test_merge_files_a_doi_in_another_case_once_whichever_source_comes_first(two
 def test_merge_refuses_what_it_cannot_do(two):
     root = two["root"]
     with pytest.raises(ValueError, match="no such library"):
-        projects.merge(root, ["nope"], "X")
+        projects.merge(root, ["nope"], "X", shared=False)
     with pytest.raises(ValueError, match="already exists"):
-        projects.merge(root, ["collagen-a"], "Collagen B")
+        projects.merge(root, ["collagen-a"], "Collagen B", shared=False)
     with pytest.raises(ValueError, match="into itself"):
         projects.merge(root, ["collagen-a", "collagen-b"], "", into="collagen-b")
 
@@ -175,7 +175,7 @@ def test_merge_carries_the_labels_a_person_made(two):
             if side == "a":  # the local model's labels travel too, in their own table
                 conn.execute("INSERT INTO model_labels(paper, finding, finding_text, method, method_heading, verdict, by, at) VALUES (?,?,?,?,?,?,'qwen3:14b','t')", row)
         conn.close()
-    projects.merge(root, ["collagen-a", "collagen-b"], "Collagen")
+    projects.merge(root, ["collagen-a", "collagen-b"], "Collagen", shared=False)
     projects.merge(root, ["collagen-a", "collagen-b"], "Collagen", into="collagen")
     conn = open_store(open_library(root, "collagen").store_path)
     got = sorted(tuple(r) for r in conn.execute("SELECT paper, finding, method, verdict, by FROM link_labels"))
@@ -275,7 +275,7 @@ def _stages(conn, key=KEY):
 def test_a_paper_new_to_the_target_brings_the_pdf_kept_beside_it_and_its_read(threads):
     root, s = threads["root"], threads["threads"]
     before = _digest(s)
-    out = projects.merge(root, ["threads"], "Merged")
+    out = projects.merge(root, ["threads"], "Merged", shared=False)
     assert _digest(s) == before  # the source is only read
     assert out["filed"] == 1 and (out["figures_kept"], out["keys_to_read_figures"], out["figures_not_kept"]) == ([], [], [])  # a copy of what the source admitted, not an arrival
     t, conn = _held(root)
@@ -299,7 +299,7 @@ def test_a_paper_new_to_the_target_brings_what_each_of_its_figures_came_to(threa
                          [(KEY, numbers["1"], "1", "plots", 2), (KEY, numbers["2"], "2", "no-caption", None)])
     want = [tuple(r) for r in conn.execute("SELECT figure, figure_label, outcome, page FROM figure_outcomes ORDER BY figure")]
     conn.close()
-    projects.merge(root, ["threads"], "Merged")
+    projects.merge(root, ["threads"], "Merged", shared=False)
     _, conn = _held(root)
     assert [tuple(r) for r in conn.execute("SELECT figure, figure_label, outcome, page FROM figure_outcomes WHERE paper = ? ORDER BY figure", (KEY,))] == want
     conn.close()
@@ -317,7 +317,7 @@ def test_a_merge_copies_what_each_figure_came_to_in_the_columns_both_stores_have
         conn.execute("ALTER TABLE figure_outcomes ADD COLUMN seen_by TEXT")  # a later reader's column the target has not
         conn.execute("INSERT INTO figure_outcomes(paper, figure, figure_label, outcome, page, seen_by) VALUES (?,?,?,?,?,?)", (KEY, numbers["1"], "1", "plots", 2, "later"))
     conn.close()
-    projects.merge(root, ["threads"], "Merged")
+    projects.merge(root, ["threads"], "Merged", shared=False)
     _, conn = _held(root)
     assert [tuple(r) for r in conn.execute("SELECT figure_label, outcome, page FROM figure_outcomes WHERE paper = ?", (KEY,))] == [("1", "plots", 2)]
     conn.close()
@@ -330,7 +330,7 @@ def test_a_paper_new_to_the_target_brings_pmc_s_answer_for_its_figures(threads):
     conn.execute("UPDATE papers SET figures_note = ? WHERE key = ?", (note, KEY))
     conn.commit()
     conn.close()
-    assert projects.merge(root, ["bare"], "Merged")["filed"] == 1
+    assert projects.merge(root, ["bare"], "Merged", shared=False)["filed"] == 1
     t, conn = _held(root)
     assert tuple(conn.execute("SELECT figures_file, figures_note FROM papers WHERE key = ?", (KEY,)).fetchone()) == (None, note)
     conn.close()
@@ -339,7 +339,7 @@ def test_a_paper_new_to_the_target_brings_pmc_s_answer_for_its_figures(threads):
 def test_a_pdf_the_source_names_but_no_longer_has_is_not_carried(threads):
     root, s = threads["root"], threads["threads"]
     (s.papers_dir / threads["name"]).unlink()
-    out = projects.merge(root, ["threads"], "Merged")  # a new paper: nothing to copy, and nothing raised
+    out = projects.merge(root, ["threads"], "Merged", shared=False)  # a new paper: nothing to copy, and nothing raised
     assert out["filed"] == 1 and (out["figures_kept"], out["figures_not_kept"]) == ([], [])
     t, conn = _held(root)
     assert conn.execute("SELECT figures_file FROM papers WHERE key = ?", (KEY,)).fetchone()[0] is None
@@ -350,14 +350,14 @@ def test_a_pdf_the_source_names_but_no_longer_has_is_not_carried(threads):
     assert not figures.is_read(conn, KEY) and [w["key"] for w in figures.figures_wanted(conn, t.papers_dir)] == [KEY]
     conn.close()
     # the paper held already: nothing to keep, nothing refused
-    projects.merge(root, ["bare"], "Bare too")
+    projects.merge(root, ["bare"], "Bare too", shared=False)
     again = projects.merge(root, ["threads"], "", into="bare-too")
     assert again["duplicates"] == 1 and (again["figures_kept"], again["keys_to_read_figures"], again["figures_not_kept"]) == ([], [], [])
 
 
 def test_a_paper_the_target_holds_without_a_pdf_takes_the_source_s_through_the_gate(threads):
     root = threads["root"]
-    projects.merge(root, ["bare"], "Merged")
+    projects.merge(root, ["bare"], "Merged", shared=False)
     t, conn = _held(root)
     _read_into_rows(conn, KEY)  # as the worker's rebuild leaves it
     out = projects.merge(root, ["threads"], "", into="merged")
@@ -379,7 +379,7 @@ def test_a_paper_the_target_holds_without_a_pdf_takes_the_source_s_through_the_g
 def test_a_pdf_kept_in_the_merge_that_brings_its_paper_is_counted_against_no_reading(threads):
     """The paper new from one source, its PDF from another in the same merge: kept before the
     rebuild has read the paper into rows, so its figures are not counted, and said so."""
-    out = projects.merge(threads["root"], ["bare", "threads"], "Merged")
+    out = projects.merge(threads["root"], ["bare", "threads"], "Merged", shared=False)
     assert (out["filed"], out["duplicates"], out["keys_to_rebuild"], out["keys_to_read_figures"]) == (1, 1, [KEY], [KEY])
     _, conn = _held(threads["root"])
     assert [d for stage, d in _stages(conn) if stage == "filed"] == [f"a PDF of the XML, kept for its figures: {threads['name']} (its XML not yet read into rows)"]
@@ -388,7 +388,7 @@ def test_a_pdf_kept_in_the_merge_that_brings_its_paper_is_counted_against_no_rea
 
 def test_charts_an_earlier_merge_copied_without_their_pdf_become_its_read_once_it_comes(threads):
     root = threads["root"]
-    projects.merge(root, ["threads"], "Merged")
+    projects.merge(root, ["threads"], "Merged", shared=False)
     t, conn = _held(root)
     # as a merge made before one carried the PDF left the paper: its charts, and a read naming no file
     (t.papers_dir / KEPT).unlink()
@@ -406,7 +406,7 @@ def test_charts_an_earlier_merge_copied_without_their_pdf_become_its_read_once_i
 
 def test_a_pdf_whose_pages_do_not_name_the_target_s_paper_is_not_kept_and_written_nowhere(threads):
     root = threads["root"]
-    projects.merge(root, ["bare"], "Merged")
+    projects.merge(root, ["bare"], "Merged", shared=False)
     t, conn = _held(root)
     _read_into_rows(conn, KEY, title="Aligned collagen threads, read from XML and titled otherwise")
     events = conn.execute("SELECT COUNT(*) FROM events").fetchone()[0]
@@ -428,13 +428,13 @@ def _merge_op(root, monkeypatch, capsys, **req):
     for op in ("rebuild", "reparse", "figures"):
         monkeypatch.setattr(Worker, f"do_{op}", lambda self, r, op=op: (asked[op].append(r), asked["order"].append(op)))
     capsys.readouterr()
-    Worker(root).do_merge({"id": "m", "op": "merge", **req})
+    Worker(root).do_merge({"id": "m", "op": "merge", "shared": False, **req})
     return [json.loads(line) for line in capsys.readouterr().out.splitlines() if line.strip()], asked
 
 
 def test_a_merge_reads_the_figures_of_the_papers_it_kept_a_pdf_beside(threads, monkeypatch, capsys):
     root = threads["root"]
-    projects.merge(root, ["bare"], "Merged")
+    projects.merge(root, ["bare"], "Merged", shared=False)
     _, conn = _held(root)
     _read_into_rows(conn, KEY)
     conn.close()
@@ -465,7 +465,7 @@ def test_a_paper_new_from_one_source_with_its_pdf_from_another_is_derived_then_i
 
 def test_a_merge_says_the_pdfs_it_kept_and_those_it_did_not_whether_or_not_it_reads_them(threads, monkeypatch, capsys):
     root = threads["root"]
-    projects.merge(root, ["bare"], "Merged")
+    projects.merge(root, ["bare"], "Merged", shared=False)
     _, conn = _held(root)
     _read_into_rows(conn, KEY, title="Aligned collagen threads, read from XML and titled otherwise")
     conn.close()
@@ -473,7 +473,7 @@ def test_a_merge_says_the_pdfs_it_kept_and_those_it_did_not_whether_or_not_it_re
     assert asked["figures"] == [] and events[-1]["figures"] == []
     assert events[-1]["figures_not_kept"] == [{"library": "threads", "paper": KEY, "reason": "its first pages name neither its DOI nor its title"}]
     # kept for an earlier merge's copy of its charts: said, and nothing read
-    projects.merge(root, ["threads"], "Copied")
+    projects.merge(root, ["threads"], "Copied", shared=False)
     t, conn = _held(root, "copied")
     (t.papers_dir / KEPT).unlink()
     with conn:
@@ -505,7 +505,7 @@ def test_a_merge_with_no_figures_to_read_asks_for_none(threads, monkeypatch, cap
 def test_with_the_figures_off_a_merge_keeps_the_pdf_and_says_it_is_not_read(threads, monkeypatch, capsys):
     monkeypatch.setenv("LITRAG_FIGURES", "off")
     root = threads["root"]
-    projects.merge(root, ["bare"], "Merged")
+    projects.merge(root, ["bare"], "Merged", shared=False)
     t, conn = _held(root)
     _read_into_rows(conn, KEY)
     events, asked = _merge_op(root, monkeypatch, capsys, sources=["threads"], into="merged")
@@ -525,7 +525,7 @@ def test_a_read_an_earlier_merge_copied_that_found_no_plots_is_no_read_of_the_pd
     now is to be read, and with the figures off it is left for the figures op, not passed off as read."""
     monkeypatch.setenv("LITRAG_FIGURES", "off")
     root = threads["root"]
-    projects.merge(root, ["threads"], "Merged")
+    projects.merge(root, ["threads"], "Merged", shared=False)
     t, conn = _held(root)
     # as a merge made before one carried the PDF left a paper whose read found nothing: no charts, a read naming no file
     (t.papers_dir / KEPT).unlink()
@@ -554,7 +554,7 @@ def test_a_pdf_kept_beside_a_paper_the_target_has_still_to_read_is_not_copied_ov
     conn.close()
     (gone.papers_dir / f"{safe_key(KEY)}.xml").unlink()
     (s.papers_dir / threads["name"]).write_bytes(PAGE.read_bytes() + b"\n% another copy")
-    out = projects.merge(root, ["gone", "threads"], "Merged")
+    out = projects.merge(root, ["gone", "threads"], "Merged", shared=False)
     assert (out["filed"], out["duplicates"]) == (2, 0)  # the second is new again: the target had no file of it, and no reading
     t, conn = _held(root)
     assert (t.papers_dir / KEPT).read_bytes() == PAGE.read_bytes()  # the first kept, as its read says
@@ -567,7 +567,7 @@ def test_charts_with_no_read_left_of_them_are_read_again_from_the_pdf_kept(threa
     """Charts a read no longer stands for (a rebuild lost one of its figures, and the read went):
     no read to make the PDF's, so the PDF kept is read."""
     root = threads["root"]
-    projects.merge(root, ["threads"], "Merged")
+    projects.merge(root, ["threads"], "Merged", shared=False)
     t, conn = _held(root)
     (t.papers_dir / KEPT).unlink()
     with conn:
@@ -585,14 +585,14 @@ def test_no_pdf_is_kept_beside_a_paper_the_target_reads_from_its_own_pdf(threads
     conn = open_store(pdfs.store_path)
     _add(pdfs, conn, doi=SHARED, source=PAGE, fmt="pdf")
     conn.close()
-    projects.merge(root, ["pdfs"], "Merged")
+    projects.merge(root, ["pdfs"], "Merged", shared=False)
     out = projects.merge(root, ["threads"], "", into="merged")
     assert out["duplicates"] == 1 and (out["figures_kept"], out["keys_to_read_figures"], out["figures_not_kept"]) == ([], [], [])  # nothing to keep, nothing refused
 
 
 def test_a_pdf_the_target_names_but_no_longer_has_gives_way_to_the_source_s(threads):
     root = threads["root"]
-    projects.merge(root, ["bare"], "Merged")
+    projects.merge(root, ["bare"], "Merged", shared=False)
     t, conn = _held(root)
     _read_into_rows(conn, KEY)
     with conn:
@@ -613,7 +613,7 @@ def test_a_paper_the_target_holds_by_another_key_takes_the_pdf_and_its_read_unde
     assert _add(stub, conn, doi=SHARED.upper(), source=FIXTURES / "PMC11278924.xml", fmt="jats", raw=False, tree=False) == upper
     conn.close()
     (stub.papers_dir / f"{safe_key(upper)}.xml").unlink()
-    projects.merge(root, ["stub"], "Merged")
+    projects.merge(root, ["stub"], "Merged", shared=False)
     out = projects.merge(root, ["threads"], "", into="merged")
     assert (out["filed"], out["duplicates"]) == (1, 0)
     t, conn = _held(root)
@@ -631,7 +631,7 @@ def test_a_pdf_refused_is_named_by_the_key_its_source_holds_it_by(threads):
     conn = open_store(upper_lib.store_path)
     _add(upper_lib, conn, doi=SHARED.upper(), source=FIXTURES / "PMC11278924.xml", fmt="jats")
     conn.close()
-    projects.merge(root, ["upper"], "Merged")  # held under the DOI in capitals, titled with what page_paper.pdf does not print
+    projects.merge(root, ["upper"], "Merged", shared=False)  # held under the DOI in capitals, titled with what page_paper.pdf does not print
     out = projects.merge(root, ["threads"], "", into="merged")
     assert out["figures_not_kept"] == [{"library": "threads", "paper": KEY, "reason": "its first pages name neither its DOI nor its title"}]
 
@@ -643,7 +643,7 @@ def test_a_read_goes_in_the_columns_both_stores_have(threads):
     conn.executescript("CREATE TABLE fr AS SELECT paper, reader, figures, plots, read, values_, seconds, at, 'x' AS newer FROM figure_reads; "
                        "DROP TABLE figure_reads; ALTER TABLE fr RENAME TO figure_reads;")
     conn.close()
-    projects.merge(root, ["threads"], "Merged")
+    projects.merge(root, ["threads"], "Merged", shared=False)
     _, conn = _held(root)
     assert tuple(conn.execute("SELECT file, unmatched, plots, at FROM figure_reads WHERE paper = ?", (KEY,)).fetchone()) == (None, None, 2, "the source's read")
     conn.close()
@@ -662,7 +662,7 @@ def test_a_pdf_paper_s_read_names_its_file_by_the_name_the_target_gives_it(tmp_p
         conn.execute("INSERT INTO figure_reads(paper, reader, figures, plots, read, values_, seconds, at, file, unmatched) VALUES (?,?,?,?,?,?,?,?,?,?)",
                      (key, figures.READER, 0, 0, 0, 0, 1.0, "t", "Odd Name.PDF", 0))  # read with nothing to look for: its rows hold no picture
     conn.close()
-    projects.merge(root, ["odd"], "Merged")
+    projects.merge(root, ["odd"], "Merged", shared=False)
     _, conn = _held(root)
     name = f"{safe_key(key)}.pdf"
     assert conn.execute("SELECT file FROM papers WHERE key = ?", (key,)).fetchone()[0] == name

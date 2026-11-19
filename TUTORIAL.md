@@ -14,7 +14,8 @@ Three parts do the work.
 
 - **The window** is an Electron app with six tabs, listed down its left edge: Projects, Search, Papers, Types, Query and Graph. A log pane runs along the bottom. It shows and asks. It never writes the store itself.
 - **The worker** is a Python process the window starts. It reads papers with Docling, writes the store, and answers every request as one line of JSON. An assistant or a script can send it the same requests.
-- **The library** is one folder per project under the library root. Its `store.sqlite` holds the rows. Its `parsed/` folder keeps each paper's raw Docling document, and `papers/` keeps the files.
+- **The shared store** (`_shared/` under the library root) keeps every paper once, by its identifier: the DOI, else the PMID, else the file's hash. Its `store.sqlite` holds the rows, `parsed/` each paper's raw Docling document, and `papers/` the files. A paper read for one project is the same paper in every other project that takes it, and a query can ask one project, several, or all of them.
+- **A project** is a folder under the library root holding its manifest and its inbox, and the list of papers it holds (rows of `project_papers` in the shared store). A project made before the shared store keeps its own `store.sqlite`, `papers/` and `parsed/` in its folder until you move it (The shared store, below).
 
 Five rules from the project's own guide shape everything this tutorial shows.
 
@@ -145,15 +146,35 @@ On closing, the window sends the `quit` op and kills the worker 1.5 seconds late
 ~/.protracker/library/        the root (LITRAG_ROOT)
 ├── lanes.sqlite              the embedder's verdicts, shared by every library
 ├── models/docling/           Docling's models, only when prefetched
-└── archive/                  one library per project; the folder name is its id
-    ├── library.json          name, description, creation time, searches run
-    ├── store.sqlite          the rows: papers, pages, nodes, events and the rest
-    ├── papers/               the files, named by key: doi_10.3390_mi14081643.xml
-    ├── parsed/               <key>.docling.json, Docling's raw document, never edited
+├── _shared/                  the shared store: every paper once, whichever projects hold it
+│   ├── store.sqlite          the rows: papers, pages, nodes, events, project_papers and the rest
+│   ├── papers/               the files, named by key: doi_10.3390_mi14081643.xml
+│   └── parsed/               <key>.docling.json, Docling's raw document, never edited
+├── _backups/                 the stores as they were before each move into the shared store
+└── archive/                  one folder per project; the folder name is its id
+    ├── library.json          name, description, creation time, searches run; "store": "shared"
     └── inbox/                downloads from Search and Collect, until they are read
 ```
 
-A library is any folder under the root that holds a `library.json`; litrag ignores the rest. The id is the project's name made into a slug: "Looped ligament" becomes `looped-ligament`.
+A project is any folder under the root that holds a `library.json`; litrag ignores the rest. The id is the project's name made into a slug: "Looped ligament" becomes `looped-ligament`. A project made before the shared store still holds `store.sqlite`, `papers/` and `parsed/` in its own folder, and its manifest has no `"store": "shared"`, until it is moved.
+
+### The shared store
+
+Every paper is stored once. Filing finds a paper by its DOI, then its PMID, then its file's hash, as it always did, but now across every project: a PDF dropped into a second project that the first already read is not read again. The second project simply holds it too, and its card counts it. Leaving a project takes nothing from the others. **Merge libraries…** makes a project that holds every paper of the chosen ones, with nothing copied or read again.
+
+The **Query** tab asks **This project** or **All projects** (the `From` box). The worker's `query` op takes `libs`, a list of projects, or `["*"]` for every paper in the shared store.
+
+**Moving the older projects across.** When a project still keeps its own store, the Projects tab shows a band, **Move into the shared store**. **What would move?** says, without writing anything, how many papers each would bring (new to the shared store, or held there already), how many candidates, embedded passages and files. **Move them** then:
+
+1. backs up the shared store and each old store with its manifest into `_backups/<time>/`;
+2. copies each paper with everything read from it: its tree, references and citations, edges, the model's answers, your link labels, its history, its charts and its passages' vectors, and its files. Nothing is read again, and neither Docling nor Ollama is asked;
+3. keeps a paper the shared store already holds as it was read there. The old project holds that one, and only your labels on it come across;
+4. copies the candidates once each by identifier, with their status, and each project keeps its own;
+5. marks the manifest `"store": "shared"`, with when and from where it moved.
+
+The old `store.sqlite`, `papers/` and `parsed/` stay where they were. Delete them yourself once you are satisfied. Running the move twice changes nothing, and a move cut short runs again to the same end. From a shell: `uv run --project parser --no-sync python -m litrag_parser.migrate --dry-run`, then without `--dry-run`. `--lib <id>` moves one project.
+
+A project that keeps its own store still works as before, alone: a query that names it with another project is refused until it moves.
 
 ### Switches at start
 
@@ -241,11 +262,9 @@ A project is a folder under the library root, named by its id:
 ```
 ~/.protracker/library/
 ├── lanes.sqlite            verdicts shared by every project
+├── _shared/                the shared store: store.sqlite, papers/, parsed/
 └── looped-ligament/
     ├── library.json        the manifest
-    ├── store.sqlite        the rows
-    ├── papers/             the paper files
-    ├── parsed/             the raw Docling readings
     └── inbox/              where fetched files land before they are filed
 ```
 
@@ -253,7 +272,7 @@ The root is `LITRAG_ROOT`, else `PROTRACKER_LIBRARY`, else `~/.protracker/librar
 
 The id is made from the name once, at creation. Accents fold to plain letters, and letters with no plain form (Ø, ß, Greek, CJK) are dropped. The rest is lower-cased, each run of other characters becomes a hyphen, and the result is cut to 60 characters. "Ligament Ø résumé" becomes `ligament-resume`; a name that leaves nothing becomes `library`. A new project is refused when its id matches an existing project's id, name or notebook id.
 
-The `projects` request builds the cards: it reads each manifest and counts each `store.sqlite` without writing. The window sends it each time you open the tab and after every finished job, so the counts follow the work. The picker lists projects by name. The current project is the one you chose, else the one remembered from last time, else the first by name: not the newest.
+The `projects` request builds the cards: it reads each manifest and counts the papers each project holds without writing. The window sends it each time you open the tab and after every finished job, so the counts follow the work. The picker lists projects by name. The current project is the one you chose, else the one remembered from last time, else the first by name: not the newest.
 
 A merge only reads its sources. Each paper is filed once: by DOI (case ignored), then PMID, then file hash. The window sends the sources in name order, and when two hold the same paper the first copy is kept. A new paper brings its file, its raw Docling reading, its record, the model's stored answers, its method-link labels and its figure numbers. The worker then derives its rows again with `rebuild`, without Docling. A paper that comes without a finished reading is read again with Docling. Candidates come once each. The manifest gets every source's searches and a `mergedFrom` list.
 
@@ -1826,7 +1845,7 @@ Then delete `papers/doi_10.1002_jbm.b.35116.*` and `parsed/doi_10.1002_jbm.b.351
 ### Moving and backing up a library
 
 1. Wait until nothing is being read: the bar in the header is gone and the status reads "idle" or "worker ready". Then close the app. Closing drops anything still queued.
-2. Copy each library folder whole: `library.json`, `store.sqlite` with its `-wal` and `-shm` files, `papers/`, `parsed/`, `inbox/`.
+2. Copy `_shared/` whole: `store.sqlite` with its `-wal` and `-shm` files, `papers/`, `parsed/`. Copy each project folder whole too: `library.json`, `inbox/`, and for a project not yet moved into the shared store its own `store.sqlite`, `papers/` and `parsed/`.
 3. Copy `lanes.sqlite` from the root, with its `-wal` and `-shm` files.
 
 The irreplaceable parts are `papers/`, `parsed/` and the store's record of your work: the `papers` rows, candidates and link labels. The tree rows can always be derived again from `parsed/` with a rebuild.

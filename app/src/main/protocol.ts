@@ -54,6 +54,8 @@ export const TERMINAL = new Set([
   'charts',
   // the works and the citations between them, and the passages that cite one
   'graph', 'passages',
+  // the shared store: a move's plan, a project deleted, papers a project takes or lets go
+  'migrate', 'deleted', 'held', 'let_go',
 ]);
 
 /** `tree` answers a `tree` request and also streams during ingest; only the former closes a request. */
