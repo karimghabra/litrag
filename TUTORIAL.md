@@ -1187,6 +1187,7 @@ It prints one line per question, then totals:
 ### Good to know
 
 - **The answer is only as good as the retrieval.** For 2 of the 20 questions, the passage holding the answer was not among the 8 retrieved. The model then answered "partly" from other papers' passages, correctly cited but about other studies. Check the paper titles on the citations. More **Passages**, or the papers' own words in the question, help.
+- **A sentence with several citations is checked against them together.** Each claim is held by at least one of them, but not necessarily by every one. On the grounding set, "The hydrodynamic radius of (POG)10 was Rh = 1.9 nm [1, 3]" is printed in [1]; [3] is about the same peptide's turbidity.
 - **It reads passages, not the graph.** The method behind a finding and the figures it cites appear on a Query card, but the model is not given them.
 - **A question names one study, the model does not check.** Asked about "the force field limitations study", it answered from another paper's constant-pH method and said only that the replica count was missing.
 - **Without vectors**, retrieval is by words alone, as in Query. The answer still works but finds less.
