@@ -229,7 +229,7 @@ Each list shows a paper's title, year, journal and the projects that hold it. **
 
 **Your projects.** A project you make while signed in is yours: its card says **yours**, and only you can **Describe…**, **Rename…** or **Delete…** it. **Only yours**, above the cards, hides the rest. A project made before accounts belongs to no one, and anyone may change it. Deleting a project lets go of its papers: they stay in the shared store and in every other project that holds them, and the project's folder is moved to `_deleted/` under the library root, not erased.
 
-**Where it is kept.** `users.sqlite` at the library root holds the accounts and each person's recent papers, favourites, notes and collections, apart from the papers. The window reaches it only through the worker's account requests, each carrying the session that signing in handed out (see Driving litrag from an assistant or script), so a server could keep the accounts later without the window changing.
+**Where it is kept.** `users.sqlite` at the library root holds the accounts and each person's recent papers, favourites, notes and collections, apart from the papers. The window reaches it only through the worker's account requests, each carrying the session that signing in handed out (see Driving litrag from an assistant or script).
 
 ## Projects
 

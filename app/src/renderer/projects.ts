@@ -111,7 +111,7 @@ async function mergeProjects(): Promise<void> {
   }
   try {
     activity.show(`Merging ${sources.length} libraries`);
-    await request('merge', { sources, name });
+    await request('merge', { sources, name, session: session() });
     $<HTMLFormElement>('merge-form').hidden = true;
     log('stage', `Merging ${sources.join(', ')} into “${name}”`);
   } catch (e) {

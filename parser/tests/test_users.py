@@ -52,6 +52,18 @@ def test_an_account_is_made_signed_into_and_never_stores_its_password(tmp_path, 
     assert b"a long password" not in raw and b"a new long password" not in raw
 
 
+def test_a_name_in_any_script_is_an_account_of_its_own(tmp_path, cheap):
+    u = users.Users(tmp_path / "users.sqlite")
+    made = [u.create(name, "a long password")["id"] for name in ("李 Wei", "王 Wei", "李明", "كريم", "Søren", "Soren", "Łukasz")]
+    assert len(set(made)) == len(made) and all(made)
+    assert u.sign_in("王 WEI", "a long password")["name"] == "王 Wei"
+    assert u.sign_in("SØREN", "a long password")["name"] == "Søren"
+    assert u.sign_in("李明", "a long password")["name"] == "李明"
+    with pytest.raises(users.AccountError, match="already"):
+        u.create("ŁUKASZ", "another password")
+    u.close()
+
+
 def test_each_person_s_recent_favourites_notes_and_collections_are_their_own(tmp_path, cheap):
     u = users.Users(tmp_path / "users.sqlite")
     ana, ben = u.create("Ana", "password-a")["id"], u.create("Ben", "password-b")["id"]
@@ -124,6 +136,65 @@ def test_the_worker_signs_in_and_hands_out_sessions_a_restart_forgets(tmp_path):
     ])
     sa, sb = by(events, "s")[0]["session"], by(events, "t")[0]["session"]
     assert by(events, "x")[0]["event"] == "error" and sa != sb
+
+
+def test_a_project_merged_while_signed_in_is_the_account_s_that_merged_it(tmp_path):
+    events = talk(tmp_path, [
+        {"id": "a", "op": "user_create", "name": "Ana", "password": "password-a"},
+        {"id": "b", "op": "user_create", "name": "Ben", "password": "password-b"},
+        {"id": "i1", "op": "init", "name": "Tendon"},
+        {"id": "i2", "op": "init", "name": "Bone"},
+    ])
+    assert by(events, "i2")[0]["library"]["owner"] is None
+    events = _merged_as(tmp_path)
+    assert by(events, "m")[-1]["event"] == "done"
+    events = talk(tmp_path, [
+        {"id": "p", "op": "projects"},
+        {"id": "anon", "op": "delete_project", "lib": "tendon-all"},
+    ])
+    owners = {p["id"]: p["owner"] for p in by(events, "p")[0]["projects"]}
+    assert owners == {"tendon": None, "bone": None, "tendon-all": "ana", "loose": None}
+    assert by(events, "anon")[0]["event"] == "error"
+    assert "tendon-all" in {p["id"] for p in by(talk(tmp_path, [{"id": "p", "op": "projects"}]), "p")[0]["projects"]}
+
+
+def _merged_as(root):
+    """One worker run: Ana signs in and merges Tendon and Bone, then a merge is asked with no
+    session, and one with a session nobody holds. A session lives only in the worker that made
+    it, so the requests that carry it are written as that worker answers."""
+    import json
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    proc = subprocess.Popen([sys.executable, "-m", "litrag_parser.worker", f"--root={root}"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, encoding="utf-8", cwd=Path(__file__).parent.parent)
+    events: list[dict] = []
+
+    def send(req):
+        proc.stdin.write(json.dumps(req) + "\n")
+        proc.stdin.flush()
+
+    def until(req_id, kinds):
+        while True:
+            line = proc.stdout.readline()
+            assert line, "the worker stopped"
+            e = json.loads(line)
+            events.append(e)
+            if e.get("id") == req_id and e.get("event") in kinds:
+                return e
+
+    send({"id": "s", "op": "sign_in", "name": "Ana", "password": "password-a"})
+    session = until("s", ("signed_in", "error"))["session"]
+    send({"id": "m", "op": "merge", "sources": ["tendon", "bone"], "name": "Tendon all", "session": session})
+    until("m", ("done", "error"))
+    send({"id": "n", "op": "merge", "sources": ["tendon", "bone"], "name": "Loose"})
+    until("n", ("done", "error"))
+    send({"id": "x", "op": "merge", "sources": ["tendon", "bone"], "name": "Stale", "session": "nobody"})
+    assert until("x", ("queued", "done", "error"))["event"] == "error"
+    send({"id": "q", "op": "quit"})
+    proc.stdin.close()
+    assert proc.wait(timeout=120) == 0
+    return events
 
 
 def test_the_worker_s_per_person_ops_over_one_run(tmp_path, monkeypatch):

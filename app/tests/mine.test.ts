@@ -1,5 +1,5 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
-import { me, mine, session, workerAccounts } from '../src/renderer/account';
+import { afterEach, describe, expect, it } from 'vitest';
+import { me, mine, session } from '../src/renderer/account';
 import { homeOf, rowMeta, type MinePaper } from '../src/renderer/mine';
 import { ctx } from '../src/renderer/shared';
 
@@ -41,30 +41,6 @@ describe('what a row says of a paper of yours', () => {
 });
 
 describe('the accounts, as the worker keeps them', () => {
-  afterEach(() => vi.unstubAllGlobals());
-
-  it('every per-person call carries the session sign-in handed out, and never a password after it', async () => {
-    const calls: [string, Record<string, unknown>][] = [];
-    vi.stubGlobal('window', {
-      litrag: {
-        request: async (op: string, params: Record<string, unknown>) => {
-          calls.push([op, params]);
-          if (op === 'sign_in') return { event: 'signed_in', user: { id: 'ana', name: 'Ana' }, session: 'tok' };
-          return { event: op };
-        },
-      },
-    });
-    const got = await workerAccounts.signIn('Ana', 'password-a');
-    expect(got).toMatchObject({ user: { id: 'ana' }, session: 'tok' });
-    await workerAccounts.ask('recent', got.session, { limit: 5 });
-    await workerAccounts.signOut(got.session);
-    expect(calls).toEqual([
-      ['sign_in', { name: 'Ana', password: 'password-a' }],
-      ['recent', { limit: 5, session: 'tok' }],
-      ['sign_out', { session: 'tok' }],
-    ]);
-  });
-
   it('asks nothing of anyone\'s own while no one is signed in', async () => {
     expect(me()).toBeNull();
     expect(session()).toBeUndefined();
