@@ -40,7 +40,7 @@ interface AxisOffer {
 
 interface Opened {
   figure?: string;
-  source: { paper: string | null; node: string | null; label: string | null; title: string | null; how: string | null; reason: string | null; file: string | null; page: number | null };
+  source: { paper: string | null; node: string | null; label: string | null; title: string | null; how: string | null; reason: string | null; file: string | null; page: number | null; bbox: number[] | null };
   image: { path: string | null; width: number; height: number; scale: number; sha256: string } | null;
   auto: { found: boolean; confident: boolean; calibration: CalibrationDict | null; plot_region?: number[]; frame?: number[]; reason: string | null; x: AxisOffer; y: AxisOffer; words?: string } | null;
   palette: { colour: string; share: number }[];
@@ -64,6 +64,7 @@ type Place = 'x1' | 'x2' | 'y1' | 'y2';
 
 const st = {
   opened: null as Opened | null,
+  asked: 0,
   figure: null as string | null,
   imagePath: null as string | null,
   pixels: null as ImageData | null,
@@ -148,40 +149,39 @@ function reset(): void {
   for (const id of ['dg-xlabel', 'dg-xunit', 'dg-ylabel', 'dg-yunit', 'dg-name']) $<HTMLInputElement>(id).value = '';
 }
 
+/** Opens what `req` names and shows it — unless another open was asked for since, or another
+ *  project chosen: the worker answers opens on their own threads, so an earlier one's answer
+ *  can come last. */
+async function open(req: Record<string, unknown>, doing: string): Promise<void> {
+  const mine = ++st.asked;
+  const lib = ctx.lib;
+  activity.show(doing);
+  try {
+    const r = await request<Opened>('digitise_open', req);
+    if (mine === st.asked && lib === ctx.lib) await show(r);
+  } catch (e) {
+    if (mine === st.asked) log('error', `digitise: ${rejectionText(e)}`);
+  } finally {
+    if (mine === st.asked) activity.hide();
+  }
+}
+
 async function openFigure(figure: string): Promise<void> {
   if (!ctx.lib) return;
-  st.figure = figure;
-  renderList();
-  activity.show('Cutting the figure from its page and reading its axes');
-  try {
-    const r = await request<Opened>('digitise_open', { lib: ctx.lib, figure });
-    await show(r);
-  } catch (e) {
-    log('error', `digitise: ${rejectionText(e)}`);
-  } finally {
-    activity.hide();
-  }
+  await open({ lib: ctx.lib, figure }, 'Cutting the figure from its page and reading its axes');
 }
 
 async function openImage(): Promise<void> {
   const path = await window.litrag.chooseImage();
   if (!path) return;
-  st.figure = null;
-  renderList();
-  activity.show('Reading the image’s axes');
-  try {
-    const r = await request<Opened>('digitise_open', { lib: ctx.lib ?? undefined, path });
-    await show(r);
-  } catch (e) {
-    log('error', `digitise: ${rejectionText(e)}`);
-  } finally {
-    activity.hide();
-  }
+  await open({ lib: ctx.lib ?? undefined, path }, 'Reading the image’s axes');
 }
 
 async function show(r: Opened): Promise<void> {
   reset();
   st.opened = r;
+  st.figure = r.figure ?? null;
+  renderList();
   const src = r.source;
   $('dg-title').textContent = src.node ? `${src.label ? `Figure ${src.label}` : 'A figure'} · ${(src.title ?? '').slice(0, 60)}` : `Image · ${src.title ?? ''}`;
   const cap = st.list.find((f) => f.figure === src.node)?.caption ?? '';
@@ -198,6 +198,10 @@ async function show(r: Opened): Promise<void> {
   st.imagePath = r.image.path;
   const bytes = await window.litrag.readFile(r.image.path);
   const bitmap = await createImageBitmap(new Blob([bytes], { type: 'image/png' }));
+  if (st.opened !== r) {
+    bitmap.close();
+    return;
+  }
   const canvas = $<HTMLCanvasElement>('dg-canvas');
   canvas.width = bitmap.width;
   canvas.height = bitmap.height;
@@ -663,7 +667,7 @@ async function save(): Promise<SavedSeries | null> {
   $<HTMLInputElement>('dg-name').value = name;
   try {
     const r = await request<{ series: SavedSeries }>('digitise_save', {
-      lib: ctx.lib, figure: st.figure, series: name, calibration: cal.c, points: st.points, colour: st.colour, method: st.method ?? { mode: 'manual' }, image: st.opened?.image, axes: axesOf(),
+      lib: ctx.lib, figure: st.figure, series: name, calibration: cal.c, points: st.points, colour: st.colour, method: st.method ?? { mode: 'manual' }, image: st.opened?.image, axes: axesOf(), source: st.opened?.source,
     });
     const saved = st.opened!.saved.filter((s) => s.id !== r.series.id);
     st.opened!.saved = [...saved, r.series];
@@ -677,6 +681,7 @@ async function save(): Promise<SavedSeries | null> {
       f.digitised = st.opened!.saved.length;
       renderList();
     }
+    if (st.fit) await fitSaved(r.series.id, st.fit.model);
     return r.series;
   } catch (e) {
     log('error', `save: ${rejectionText(e)}`);
@@ -704,7 +709,7 @@ async function exportCsv(): Promise<void> {
   const path = await window.litrag.saveAs(exportName(src?.paper ?? null, src?.label ?? null, st.figure ? 'digitised' : name));
   if (!path) return;
   try {
-    let r: { csv: string; sidecar: string; fits: string[]; points: number };
+    let r: { files: { csv: string; sidecar: string; fits: string[] }[]; points: number };
     if (st.figure && ctx.lib) {
       if (st.dirty || st.activeSaved === null) {
         const s = await save();
@@ -715,10 +720,28 @@ async function exportCsv(): Promise<void> {
       const fits = st.fit ? { [st.fit.model]: st.fit } : {};
       r = await request('digitise_export', { lib: undefined, path, source: { file: src?.file ?? null }, series: [{ series: name, colour: st.colour, calibration: cal.c, points: st.points, method: st.method ?? { mode: 'manual' }, image: st.opened?.image, axes: axesOf(), fits }] });
     }
-    log('info', `Exported ${r.points} points to ${r.csv}, its sidecar ${r.sidecar}${r.fits.length ? ` and ${r.fits.length} fit${r.fits.length === 1 ? '' : 's'}` : ''}`);
+    const fits = r.files.reduce((n, f) => n + f.fits.length, 0);
+    const where = r.files.length === 1 ? `${r.files[0]!.csv}, its sidecar ${r.files[0]!.sidecar}` : `${r.files.length} files, one for each set of axes, each with its sidecar: ${r.files.map((f) => f.csv).join(', ')}`;
+    log('info', `Exported ${r.points} points to ${where}${fits ? ` and ${fits} fit${fits === 1 ? '' : 's'}` : ''}`);
   } catch (e) {
     log('error', `export: ${rejectionText(e)}`);
   }
+}
+
+/** A saved series fitted, the fit kept with it and shown: the fit an export of it carries. One
+ *  that fails leaves none showing. */
+async function fitSaved(id: number, model: string): Promise<void> {
+  st.fit = null;
+  try {
+    const r = await request<{ fits: Record<string, FitResult> }>('fit', { lib: ctx.lib, series_id: id, model });
+    const s = st.opened?.saved.find((x) => x.id === id);
+    if (s) s.fits = { ...s.fits, ...r.fits };
+    if (st.activeSaved === id) st.fit = r.fits[model] ?? null;
+  } catch (e) {
+    log('error', `fit: ${rejectionText(e)}`);
+  }
+  renderSaved();
+  renderFit();
 }
 
 async function runFit(): Promise<void> {
@@ -728,17 +751,13 @@ async function runFit(): Promise<void> {
     return;
   }
   const model = $<HTMLSelectElement>('dg-model').value;
+  if (st.figure && ctx.lib && st.activeSaved !== null && !st.dirty) {
+    await fitSaved(st.activeSaved, model);
+    return;
+  }
   try {
-    let r: { fits: Record<string, FitResult> };
-    if (st.figure && ctx.lib && st.activeSaved !== null && !st.dirty) {
-      r = await request('fit', { lib: ctx.lib, series_id: st.activeSaved, model });
-      const s = st.opened!.saved.find((x) => x.id === st.activeSaved);
-      if (s) s.fits = { ...s.fits, ...r.fits };
-      renderSaved();
-    } else {
-      const pts = valued(st.points, cal).map((p) => [p.x, p.y]);
-      r = await request('fit', { points: pts, model });
-    }
+    const pts = valued(st.points, cal).map((p) => [p.x, p.y]);
+    const r = await request<{ fits: Record<string, FitResult> }>('fit', { points: pts, model });
     st.fit = r.fits[model] ?? null;
     renderFit();
   } catch (e) {

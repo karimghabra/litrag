@@ -13,7 +13,7 @@
   **Fit** reports a logistic or Gompertz curve's plateau, maximum rate, time to half maximum and
   lag, with 95% intervals and the residuals. New worker ops `plots`, `digitise_open`,
   `digitise_axes`, `digitise_extract`, `digitise_save`, `digitise_delete`, `digitise_export`, `fit`;
-  new verbs `lit digitise` and `lit fit`; a benchmark, `python -m litrag_parser.digitise_bench`;
+  a benchmark, `python -m litrag_parser.digitise_bench`;
   the Papers tab's figure pane gains **Digitise**. A rebuild moves a person's series with its
   figure and never drops one.
 

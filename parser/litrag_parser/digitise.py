@@ -665,8 +665,11 @@ def render(lib_dir: Path, conn: sqlite3.Connection, figure: str, *, ocr: charts.
     return _finish(lib_dir, figure, img, words, scale, src, ocr, offer)
 
 
-def open_image(path: Path, *, ocr: charts.Ocr | None = None, offer: bool = True, out_dir: Path | None = None) -> dict[str, Any]:
-    """An image file opened to digitise: as `render`, its words read by OCR."""
+def open_image(path: Path, *, ocr: charts.Ocr | None = None, offer: bool = True, lib_dir: Path | None = None) -> dict[str, Any]:
+    """An image file opened to digitise: as `render`, its words read by OCR. Its PNG is kept
+    under the library's `digitised/`, or with no library under the machine's temporary folder."""
+    import tempfile
+
     import cv2
 
     raw = cv2.imread(str(path), cv2.IMREAD_COLOR)
@@ -675,10 +678,10 @@ def open_image(path: Path, *, ocr: charts.Ocr | None = None, offer: bool = True,
     img = np.ascontiguousarray(raw[..., ::-1])
     img, _, scale = _fit_side(img, None, 1.0)
     src = {"paper": None, "node": None, "file": str(path), "how": "image", "page": None, "bbox": None, "label": None, "title": path.name, "doi": None, "drawn": "raster"}
-    return _finish(out_dir, None, img, None, scale, src, ocr, offer)
+    return _finish(lib_dir or Path(tempfile.gettempdir()) / "litrag", None, img, None, scale, src, ocr, offer)
 
 
-def _finish(lib_dir: Path | None, figure: str | None, img: np.ndarray, words: list[Word] | None, scale: float, src: dict[str, Any], ocr: charts.Ocr | None, offer: bool) -> dict[str, Any]:
+def _finish(lib_dir: Path, figure: str | None, img: np.ndarray, words: list[Word] | None, scale: float, src: dict[str, Any], ocr: charts.Ocr | None, offer: bool) -> dict[str, Any]:
     import cv2
 
     ok, png = cv2.imencode(".png", img[..., ::-1])
@@ -686,23 +689,21 @@ def _finish(lib_dir: Path | None, figure: str | None, img: np.ndarray, words: li
         raise ValueError("the figure could not be encoded")
     data = png.tobytes()
     sha = hashlib.sha256(data).hexdigest()
-    image: dict[str, Any] = {"width": int(img.shape[1]), "height": int(img.shape[0]), "scale": round(scale, 5), "sha256": sha, "path": None}
-    if lib_dir is not None:
-        d = lib_dir / DIRS
-        d.mkdir(parents=True, exist_ok=True)
-        name = re.sub(r"[^A-Za-z0-9._-]+", "_", figure or src.get("file") or "image")[-150:]
-        p = d / f"{name}.png"
-        if not p.exists() or p.read_bytes() != data:
-            p.write_bytes(data)
-        image["path"] = str(p)
+    d = lib_dir / DIRS
+    d.mkdir(parents=True, exist_ok=True)
+    name = re.sub(r"[^A-Za-z0-9._-]+", "_", figure or src.get("file") or "image")[-150:]
+    p = d / f"{name}.png"
+    if not p.exists() or p.read_bytes() != data:
+        p.write_bytes(data)
+    image: dict[str, Any] = {"width": int(img.shape[1]), "height": int(img.shape[0]), "scale": round(scale, 5), "sha256": sha, "path": str(p)}
     auto = auto_axes(img, words, ocr=ocr) if offer else None
     if auto is not None:
         words = auto.pop("_words", None) or words
     region = auto.get("plot_region") if auto else None
-    if image["path"] is not None and words is not None:
+    if words is not None:
         # the text layer is every word of the figure; OCR's, only those around the plot it read
         whole = src.get("drawn") == "vector"
-        Path(image["path"]).with_suffix(".words.json").write_text(json.dumps({"whole": whole, "words": [[round(w.x0, 1), round(w.y0, 1), round(w.x1, 1), round(w.y1, 1), w.text] for w in words]}), encoding="utf-8")
+        p.with_suffix(".words.json").write_text(json.dumps({"whole": whole, "words": [[round(w.x0, 1), round(w.y0, 1), round(w.x1, 1), round(w.y1, 1), w.text] for w in words]}), encoding="utf-8")
     return {"source": src, "image": image, "auto": auto, "palette": palette(img, region), "_img": img, "_words": words}
 
 
@@ -791,7 +792,9 @@ def _points(cal: Calibration, pts: Sequence[dict[str, Any]]) -> list[dict[str, A
 def save(conn: sqlite3.Connection, figure: str, series: str, calibration: dict[str, Any], points: Sequence[dict[str, Any]], *, colour: str | None = None,
          method: dict[str, Any] | None = None, image: dict[str, Any] | None = None, axes: dict[str, Any] | None = None, source: dict[str, Any] | None = None) -> dict[str, Any]:
     """A series saved in place of the one of that name on that figure: every point's value
-    read again from its pixel through `calibration`."""
+    read again from its pixel through `calibration`. `source` is the one the figure was opened
+    with: where the store knows no place for the figure (an XML paper's, found on the PDF kept
+    beside it only when it is rendered), its page and box are the series' place."""
     from .library import now_iso
 
     ensure_schema(conn)
@@ -800,7 +803,9 @@ def save(conn: sqlite3.Connection, figure: str, series: str, calibration: dict[s
         raise ValueError("a series needs a name")
     cal = Calibration.from_dict(calibration)
     pts = _points(cal, points)
-    src = source or figure_source(conn, figure)
+    src = figure_source(conn, figure)
+    if source and src["page"] is None:
+        src["page"], src["bbox"] = source.get("page"), source.get("bbox")
     ax = axes or {}
     x, y = ax.get("x") or {}, ax.get("y") or {}
     with conn:
@@ -865,40 +870,91 @@ def remap(conn: sqlite3.Connection, key: str) -> dict[str, Any]:
     """After the paper's nodes were replaced: each digitised series follows its figure — to the
     figure its caption's number names now, else to the one picture on its page whose box is
     near the one it was cut from (`figures.SAME_PLACE`) — and one that finds none is kept,
-    marked an orphan: a person's work is never dropped by a reading. `{moved, orphaned}`."""
+    marked an orphan: a person's work is never dropped by a reading. A node's id alone keeps
+    none: another reading may give it to another picture. The whole mapping is made
+    before a row moves, so two figures that trade ids trade their series; a series is an orphan
+    too when one of its name is already where it would go — one that stays there, or one that
+    came first. `{moved, orphaned}`."""
+    with conn:
+        return _remap(conn, key)
+
+
+def _remap(conn: sqlite3.Connection, key: str) -> dict[str, Any]:
     from . import figures
 
     ensure_schema(conn)
-    rows = conn.execute("SELECT id, figure, figure_label, page, bbox FROM digitised WHERE paper = ?", (key,)).fetchall()
+    rows = conn.execute("SELECT id, figure, figure_label, page, bbox, series FROM digitised WHERE paper = ? ORDER BY id", (key,)).fetchall()
     if not rows:
         return {"moved": 0, "orphaned": 0}
-    present = {r[0] for r in conn.execute("SELECT node_id FROM nodes WHERE paper = ? AND type IN ('picture', 'chart')", (key,))}
     numbers = figures.figure_numbers(conn, key)
     on_page: dict[int, list[tuple[str, tuple[float, ...]]]] = {}
     for r in figures.pictures(conn, key):
         on_page.setdefault(r["page"], []).append((r["node_id"], figures._box(r)))
-    moved = orphaned = 0
-    with conn:
+    to: dict[int, str | None] = {}
+    for r in rows:
+        now: str | None = None
+        if r["figure_label"] and r["figure_label"] in numbers:
+            now = numbers[r["figure_label"]]
+        elif r["page"] is not None and r["bbox"]:
+            box = json.loads(r["bbox"])
+            near = [n for n, b in on_page.get(r["page"], []) if figures.overlap(box, b) >= figures.SAME_PLACE]
+            now = near[0] if len(near) == 1 else r["figure"] if r["figure"] in near else None
+        to[r["id"]] = now
+    while True:  # a series that cannot move stays where it was, and may be in the way of another
+        taken = {(r["figure"], r["series"]) for r in rows if to[r["id"]] in (None, r["figure"])}
+        blocked = []
         for r in rows:
-            now: str | None = None
-            if r["figure_label"] and r["figure_label"] in numbers:
-                now = numbers[r["figure_label"]]
-            elif r["page"] is not None and r["bbox"]:
-                box = json.loads(r["bbox"])
-                near = [n for n, b in on_page.get(r["page"], []) if figures.overlap(box, b) >= figures.SAME_PLACE]
-                now = near[0] if len(near) == 1 else r["figure"] if r["figure"] in near else None
-            elif r["figure"] in present:
-                now = r["figure"]
-            clash = now is not None and now != r["figure"] and conn.execute(
-                "SELECT 1 FROM digitised WHERE figure = ? AND series = (SELECT series FROM digitised WHERE id = ?) AND id != ?", (now, r["id"], r["id"])).fetchone()
-            if now is None or clash:
-                conn.execute("UPDATE digitised SET orphan = 1 WHERE id = ?", (r["id"],))
-                orphaned += 1
-            else:
-                if now != r["figure"]:
-                    moved += 1
-                conn.execute("UPDATE digitised SET figure = ?, orphan = 0 WHERE id = ?", (now, r["id"]))
-    return {"moved": moved, "orphaned": orphaned}
+            now = to[r["id"]]
+            if now is None or now == r["figure"]:
+                continue
+            if (now, r["series"]) in taken:
+                blocked.append(r["id"])
+            taken.add((now, r["series"]))
+        if not blocked:
+            break
+        for did in blocked:
+            to[did] = None
+    moving = [r for r in rows if to[r["id"]] not in (None, r["figure"])]
+    for r in moving:  # out of the way first, so a figure another series leaves is free when it is moved into
+        conn.execute("UPDATE digitised SET figure = 'remap:' || figure WHERE id = ?", (r["id"],))
+    for r in rows:
+        if to[r["id"]] is None:
+            conn.execute("UPDATE digitised SET orphan = 1 WHERE id = ?", (r["id"],))
+        else:
+            conn.execute("UPDATE digitised SET figure = ?, orphan = 0 WHERE id = ?", (to[r["id"]], r["id"]))
+    return {"moved": len(moving), "orphaned": sum(now is None for now in to.values())}
+
+
+def carry(conn: sqlite3.Connection, stub: str, key: str) -> int:
+    """Before the paper `stub` is deleted for being `key` filed twice: its digitised series go to
+    `key`, each to the figure there that is its own (`remap`), else kept as an orphan — a
+    person's work does not go with a stub's rows. How many. Not committed."""
+    if conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'digitised'").fetchone() is None:
+        return 0
+    n = conn.execute("UPDATE digitised SET paper = ? WHERE paper = ?", (key, stub)).rowcount
+    if n:
+        _remap(conn, key)
+    return n
+
+
+def follow(conn: sqlite3.Connection, key: str) -> list[tuple[str, str]]:
+    """Once a paper's nodes are replaced, whatever replaced them: its plots follow their figures
+    or are removed (`figures.remap`), its digitised series follow theirs or are kept as orphans
+    (`remap`). What there is to say of it, each an `events` row: `[(logger, message)]`."""
+    from . import figures
+    from .library import now_iso
+    from .store import log_event
+
+    said = []
+    removed = figures.removed_note(figures.remap(conn, key))
+    if removed:
+        said.append(("figures", removed))
+    n = remap(conn, key)["orphaned"]
+    if n:
+        said.append(("digitise", f"{n} digitised series no longer {'have' if n != 1 else 'has'} a figure in this reading: kept, marked without one"))
+    for logger, message in said:
+        log_event(conn, key, now_iso(), logger, message)
+    return said
 
 
 # -- the export --------------------------------------------------------------------------------------------------
@@ -913,8 +969,9 @@ def _head(label: str | None, unit: str | None, fallback: str) -> str:
 
 
 def csv_text(series: Sequence[dict[str, Any]]) -> str:
-    """The series as CSV. One series: two columns, `x`, `y`, each headed by its axis's name and
-    unit when the axis label gave them. Several: a `series` column first, then the same."""
+    """The series of one set of axes as CSV. One series: two columns, `x`, `y`, each headed by
+    its axis's name and unit when the axis label gave them. Several: a `series` column first,
+    then the same."""
     if not series:
         return ""
     ax = series[0]["axes"]
@@ -976,40 +1033,50 @@ def unsaved(item: dict[str, Any], source: dict[str, Any] | None = None) -> dict[
 def export(conn: sqlite3.Connection | None, ids: Sequence[int], path: Path, *, library: str | None = None, inline: Sequence[dict[str, Any]] = ()) -> dict[str, Any]:
     """Series written out — saved ones by their ids, or `inline` ones from an image file
     (`unsaved`) — `<path>` the CSV, `<path>.json` beside it the sidecar, and for each series
-    with a fit `<stem>.<series>.<model>.fit.csv` its parameters. `{csv, sidecar, fits, points}`."""
+    with a fit `<stem>.<series>.<model>.fit.csv` its parameters. Series whose axes differ (a
+    label, a unit, a log scale: panels of one figure) are not written under one header: each
+    set of axes gets files of its own, `<stem>.1.csv`, `<stem>.2.csv`, … in the order given. An
+    orphan, whose figure is not known, is left out. `{files: [{csv, sidecar, fits, points}], points}`."""
     from . import fit as fitting
 
-    series = [one(conn, int(i)) for i in ids] if conn is not None else []
+    series = [s for s in (one(conn, int(i)) for i in ids) if not s["orphan"]] if conn is not None else []
     series += list(inline)
     if not series:
         raise ValueError("no series to export")
     figs = {s["figure"] for s in series}
     if len(figs) > 1:
-        raise ValueError("one figure's series at a time: their axes are that figure's")
+        raise ValueError("one figure's series at a time")
     path = Path(path)
     if path.suffix.lower() != ".csv":
         path = path.with_suffix(".csv")
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(csv_text(series), encoding="utf-8")
-    fit_names: dict[str, str] = {}
-    written = []
-    for s in series:
-        for model, f in (s.get("fits") or {}).items():
-            if f.get("status") != "fit":
-                continue
-            safe = re.sub(r"[^A-Za-z0-9._-]+", "_", s["series"])
-            fp = path.with_name(f"{path.stem}.{safe}.{model}.fit.csv")
-            fp.write_text(fitting.params_csv(f, s["axes"]["x"].get("unit"), s["axes"]["y"].get("unit")), encoding="utf-8")
-            fit_names[s["series"]] = fp.name
-            written.append(str(fp))
     p = conn.execute("SELECT key, doi, pmid, pmcid, title, year, journal FROM papers WHERE key = ?", (series[0]["paper"],)).fetchone() if conn is not None and series[0]["paper"] else None
     paper = dict(p) if p else ({"key": series[0]["paper"]} if series[0]["paper"] else None)
-    meta = sidecar(series, library=library, paper=paper, csv_name=path.name, fit_names=fit_names)
-    if series[0].get("file"):
-        meta["figure"]["file"] = series[0]["file"]
-    side = path.with_suffix(".csv.json")
-    side.write_text(json.dumps(meta, indent=2, ensure_ascii=False), encoding="utf-8")
-    return {"csv": str(path), "sidecar": str(side), "fits": written, "points": sum(len(s["points"]) for s in series)}
+    by_axes: dict[str, list[dict[str, Any]]] = {}
+    for s in series:
+        by_axes.setdefault(json.dumps(s["axes"], sort_keys=True), []).append(s)
+    files = []
+    for i, group in enumerate(by_axes.values(), 1):
+        out = path if len(by_axes) == 1 else path.with_name(f"{path.stem}.{i}.csv")
+        out.write_text(csv_text(group), encoding="utf-8")
+        fit_names: dict[str, str] = {}
+        written = []
+        for s in group:
+            for model, f in (s.get("fits") or {}).items():
+                if f.get("status") != "fit":
+                    continue
+                safe = re.sub(r"[^A-Za-z0-9._-]+", "_", s["series"])
+                fp = out.with_name(f"{out.stem}.{safe}.{model}.fit.csv")
+                fp.write_text(fitting.params_csv(f, s["axes"]["x"].get("unit"), s["axes"]["y"].get("unit")), encoding="utf-8")
+                fit_names[s["series"]] = fp.name
+                written.append(str(fp))
+        meta = sidecar(group, library=library, paper=paper, csv_name=out.name, fit_names=fit_names)
+        if group[0].get("file"):
+            meta["figure"]["file"] = group[0]["file"]
+        side = out.with_suffix(".csv.json")
+        side.write_text(json.dumps(meta, indent=2, ensure_ascii=False), encoding="utf-8")
+        files.append({"csv": str(out), "sidecar": str(side), "fits": written, "points": sum(len(s["points"]) for s in group)})
+    return {"files": files, "points": sum(f["points"] for f in files)}
 
 
 # -- finding plots ------------------------------------------------------------------------------------------------
@@ -1116,11 +1183,12 @@ def answer(op: str, req: dict[str, Any], get_lib: Any) -> dict[str, Any]:
       holds the pixel `near` (a panel of a figure of several).
     - `digitise_extract` {image, colour, tolerance, region, mode, step, calibration} → `extracted`
       {mode, colour, points, ...}: a series found by its colour in the rendered image.
-    - `digitise_save` {lib, figure, series, calibration, points, colour, method, image, axes} →
-      `digitised` {series}: saved in place of the one of that name.
+    - `digitise_save` {lib, figure, series, calibration, points, colour, method, image, axes, source} →
+      `digitised` {series}: saved in place of the one of that name; `source` the open's, for its place.
     - `digitise_delete` {lib, series_id} → `digitised` {deleted}.
-    - `digitise_export` {lib, ids, path} | {series, source, path} → `exported` {csv, sidecar, fits,
-      points}: saved series by id, or unsaved ones (an image file's) given whole.
+    - `digitise_export` {lib, ids, path} | {series, source, path} → `exported` {files: [{csv,
+      sidecar, fits, points}], points}: saved series by id, or unsaved ones (an image file's)
+      given whole; one set of files for each set of axes.
     - `fit` {points, model} | {lib, series_id, model} → `fit` {fits, preferred}: both models unless
       one is named; a saved series' fits are kept with it.
     """
@@ -1138,7 +1206,7 @@ def answer(op: str, req: dict[str, Any], get_lib: Any) -> dict[str, Any]:
     if op == "digitise_open":
         if req.get("path") and not req.get("figure"):
             lib = get_lib() if req.get("lib") else None
-            got = open_image(Path(str(req["path"])), out_dir=(lib.dir / DIRS) if lib else None)
+            got = open_image(Path(str(req["path"])), lib_dir=lib.dir if lib else None)
             got.pop("_img", None)
             got.pop("_words", None)
             return {"event": "digitise", "lib": lib.id if lib else None, **got, "saved": []}
@@ -1194,7 +1262,7 @@ def answer(op: str, req: dict[str, Any], get_lib: Any) -> dict[str, Any]:
     try:
         if op == "digitise_save":
             saved = save(conn, str(req["figure"]), str(req.get("series") or ""), req["calibration"], req.get("points") or [], colour=req.get("colour"),
-                         method=req.get("method"), image=req.get("image"), axes=req.get("axes"))
+                         method=req.get("method"), image=req.get("image"), axes=req.get("axes"), source=req.get("source"))
             return {"event": "digitised", "lib": lib.id, "series": saved}
         if op == "digitise_delete":
             return {"event": "digitised", "lib": lib.id, "deleted": delete(conn, int(req["series_id"]))}
