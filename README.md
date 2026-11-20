@@ -623,6 +623,35 @@ Healthcare Materials paper of images, its grouped gene-expression bars read
 within about 0.05. Curves without markers, box plots and horizontal bars are
 not read yet.
 
+**A plot digitised by hand, and a curve fitted.** The **Plots** tab finds the
+figures that are data plots by the words of their captions ("turbidity",
+"absorbance", "fibril formation"), trends first, and digitises one the way
+WebPlotDigitizer does, on the figure cut from its own page: two ticks an axis,
+linear or log, offered from the numbers the reader reads beside the axes and
+confirmed by a person (or placed by hand); a series picked by a click on its
+line or marker, or one of the figure's own colours; its points found by that
+colour — markers by their centres, a line followed along its length — then
+added, moved and deleted by hand. Saved, the series is rows (`digitised`,
+`digitised_points`); exported, a CSV headed by the axes' names and units and a
+JSON sidecar that traces every value to the paper, the figure, the page and the
+pixel. **Fit** puts a logistic or Gompertz curve through the points and reports
+the plateau, the maximum rate, the time to half maximum and the lag time, each
+with a 95% interval, with the residuals drawn under the curve; the fit goes into
+the export too. From a shell: `lit digitise <figure-id> --lib L` or `lit digitise
+plot.png [--x 120:0,580:60 --y 410:0,40:0.8] --csv out.csv --fit both`, and
+`lit fit out.csv`.
+
+On synthetic plots of known data (`python -m litrag_parser.digitise_bench`:
+markers and lines, linear and log axes on either side, a black series beside
+black axes, gridlines, a blurred, speckled JPEG scan) the axes are offered on
+all nine readings and confidently on eight, within 0.15 % of each axis's range;
+lines are found within 0.1 % on average (0.45 % at the 95th percentile), markers
+within 0.26 % on average and 0.9 % at worst, every marker that shows is found and
+the legend's is left out. On three figures of a collagen library measured by hand
+— a turbidity curve, an absorbance curve and a log–log viscosity panel of
+markers — the points found lie within 0.17–0.33 % of the hand-traced curve on
+average, 0.93 % at worst, and all 17 markers were found.
+
 **An XML paper's figures come from a PDF of it.** JATS names its figures
 (`<graphic xlink:href="…g001.jpg"/>`) and holds none; Europe PMC's figure
 pages sit behind a bot check, and the images its API gives open-access papers

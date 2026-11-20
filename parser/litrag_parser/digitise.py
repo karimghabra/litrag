@@ -39,7 +39,6 @@ import json
 import math
 import re
 import sqlite3
-import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Sequence
@@ -1004,7 +1003,7 @@ def _fts_query(q: str) -> str | None:
     return " ".join(f'"{t}"*' for t in toks)
 
 
-def find(conn: sqlite3.Connection, query: str = "", *, trend: bool = False, limit: int = 50, papers_dir: Path | None = None) -> dict[str, Any]:
+def find(conn: sqlite3.Connection, query: str = "", *, trend: bool = False, limit: int = 50) -> dict[str, Any]:
     """Figures that are data plots, best first, whose captions match `query` (every word, as a
     prefix). A figure is a **plot** when the chart reader found a frame with numbers beside its
     axes in it (`charts`); **no plot** when it looked and found none; else **unknown** — not
@@ -1077,7 +1076,7 @@ def find(conn: sqlite3.Connection, query: str = "", *, trend: bool = False, limi
 # -- the worker's ops ---------------------------------------------------------------------------------------------
 
 
-def _image_path(lib_dir: Path | None, path: str) -> Path:
+def _image_path(path: str) -> Path:
     """An image a request names: one this module rendered under the library, or a file a person chose."""
     p = Path(path).expanduser()
     if not p.is_file():
@@ -1097,11 +1096,11 @@ def answer(op: str, req: dict[str, Any], get_lib: Any) -> dict[str, Any]:
       {mode, colour, points, ...}: a series found by its colour in the rendered image.
     - `digitise_save` {lib, figure, series, calibration, points, colour, method, image, axes} →
       `digitised` {series}: saved in place of the one of that name.
-    - `digitise_delete` {lib, id} → `digitised` {deleted}.
+    - `digitise_delete` {lib, series_id} → `digitised` {deleted}.
     - `digitise_export` {lib, ids, path} | {series, source, path} → `exported` {csv, sidecar, fits,
       points}: saved series by id, or unsaved ones (an image file's) given whole.
-    - `fit` {points, model} | {lib, id, model} → `fit` {fits, preferred}: both models unless one
-      is named; a saved series' fits are kept with it.
+    - `fit` {points, model} | {lib, series_id, model} → `fit` {fits, preferred}: both models unless
+      one is named; a saved series' fits are kept with it.
     """
     from . import fit as fitting
     from .store import open_store
@@ -1110,7 +1109,7 @@ def answer(op: str, req: dict[str, Any], get_lib: Any) -> dict[str, Any]:
         lib = get_lib()
         conn = open_store(lib.store_path)
         try:
-            out = find(conn, str(req.get("query") or ""), trend=bool(req.get("trend")), limit=int(req.get("limit") or 50), papers_dir=lib.papers_dir)
+            out = find(conn, str(req.get("query") or ""), trend=bool(req.get("trend")), limit=int(req.get("limit") or 50))
         finally:
             conn.close()
         return {"event": "plots", "lib": lib.id, **out}
@@ -1132,21 +1131,21 @@ def answer(op: str, req: dict[str, Any], get_lib: Any) -> dict[str, Any]:
         got.pop("_words", None)
         return {"event": "digitise", "lib": lib.id, "figure": str(req["figure"]), **got, "saved": saved}
     if op == "digitise_extract":
-        path = _image_path(None, str(req.get("image") or ""))
+        path = _image_path(str(req.get("image") or ""))
         img = load_image(path)
         cal = Calibration.from_dict(req["calibration"]) if req.get("calibration") else None
         got = extract(img, str(req.get("colour") or ""), tol=float(req.get("tolerance") or TOLERANCE), region=req.get("region"), mode=str(req.get("mode") or "auto"),
                       step=float(req.get("step") or 0), calibration=cal, words=load_words(path))
         return {"event": "extracted", **got}
     if op == "digitise_axes":
-        path = _image_path(None, str(req.get("image") or ""))
+        path = _image_path(str(req.get("image") or ""))
         img = load_image(path)
         near = req.get("near")
         got = auto_axes(img, load_words(path, whole=True), near=[float(v) for v in near] if near else None)
         got.pop("_words", None)
         return {"event": "axes", "auto": got}
     if op == "fit":
-        did = req.get("id")
+        did = req.get("series_id")  # not `id`: that is the request's own, on the wire
         if did is not None:
             lib = get_lib()
             conn = open_store(lib.store_path)
@@ -1176,7 +1175,7 @@ def answer(op: str, req: dict[str, Any], get_lib: Any) -> dict[str, Any]:
                          method=req.get("method"), image=req.get("image"), axes=req.get("axes"))
             return {"event": "digitised", "lib": lib.id, "series": saved}
         if op == "digitise_delete":
-            return {"event": "digitised", "lib": lib.id, "deleted": delete(conn, int(req["id"]))}
+            return {"event": "digitised", "lib": lib.id, "deleted": delete(conn, int(req["series_id"]))}
         if op == "digitise_export":
             inline = [unsaved(x, req.get("source")) for x in req.get("series") or []]
             return {"event": "exported", "lib": lib.id, **export(conn, [int(i) for i in req.get("ids") or []], Path(str(req["path"])).expanduser(), library=lib.id, inline=inline)}
@@ -1197,6 +1196,3 @@ def _r(v: float) -> float:
 def _fmt(v: float) -> str:
     return repr(v) if isinstance(v, float) else str(v)
 
-
-def now() -> float:
-    return time.time()

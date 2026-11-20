@@ -494,7 +494,7 @@ table.chart-table th:first-child { text-align: left; font-weight: 500; }
 .ask-source-text { padding: 6px 14px 10px; line-height: 1.5; }
 select.narrow-select { min-width: 0; }
 /* plots: find, digitise, fit */
-.plots-layout { display: grid; grid-template-columns: minmax(220px, 300px) minmax(0, 1fr) minmax(300px, 380px); gap: 12px; padding: 0 18px 12px; min-height: 0; flex: 1; }
+.plots-layout { display: grid; grid-template-columns: minmax(200px, 280px) minmax(0, 1fr) minmax(340px, 420px); gap: 12px; padding: 0 18px 12px; min-height: 0; flex: 1; }
 .plot-card { padding: 8px 12px; border-bottom: 1px solid var(--line); cursor: pointer; }
 .plot-card:hover { background: var(--hover); }
 .plot-card.on { background: var(--soft); }
@@ -543,3 +543,7 @@ select.narrow-select { min-width: 0; }
 .dg-points tr.how-added td, .dg-points tr.how-moved td { color: var(--accent); }
 .dg-fit svg { max-width: 100%; height: auto; }
 .dg-fit .warn { color: var(--warn); }
+.dg-sec .row { flex-wrap: wrap; }
+.dg-sec .row .field { flex: 1; min-width: 0; }
+.dg-sec .row .field input { flex: 1; min-width: 0; }
+.dg-sec .row button { white-space: nowrap; }

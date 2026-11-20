@@ -687,7 +687,7 @@ async function save(): Promise<SavedSeries | null> {
 async function deleteSaved(id: number): Promise<void> {
   if (!ctx.lib) return;
   try {
-    await request('digitise_delete', { lib: ctx.lib, id });
+    await request('digitise_delete', { lib: ctx.lib, series_id: id });
     st.opened!.saved = st.opened!.saved.filter((s) => s.id !== id);
     if (st.activeSaved === id) st.activeSaved = null;
     renderAll();
@@ -731,7 +731,7 @@ async function runFit(): Promise<void> {
   try {
     let r: { fits: Record<string, FitResult> };
     if (st.figure && ctx.lib && st.activeSaved !== null && !st.dirty) {
-      r = await request('fit', { lib: ctx.lib, id: st.activeSaved, model });
+      r = await request('fit', { lib: ctx.lib, series_id: st.activeSaved, model });
       const s = st.opened!.saved.find((x) => x.id === st.activeSaved);
       if (s) s.fits = { ...s.fits, ...r.fits };
       renderSaved();

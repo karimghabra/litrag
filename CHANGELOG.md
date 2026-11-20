@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- **Plots digitised, and sigmoids fitted to them.** Reported need: a turbidity or growth curve
+  printed in a paper, turned into its (x, y) points and fitted for its lag, growth and plateau,
+  and a way to find such plots in a library. A seventh tab, **Plots**, finds the figures that are
+  data plots by their captions (the chart reader's frame test says which are plots; unread ones
+  rank by their caption's words) and digitises one: two ticks an axis, linear or log, offered from
+  the figure's own numbers and confirmed by a person; a series picked by its colour and found as
+  markers or along a line, then corrected by hand; saved as rows (`digitised`, `digitised_points`,
+  `digitised_fits`), exported as CSV with a JSON sidecar that traces each value to its pixel.
+  **Fit** reports a logistic or Gompertz curve's plateau, maximum rate, time to half maximum and
+  lag, with 95% intervals and the residuals. New worker ops `plots`, `digitise_open`,
+  `digitise_axes`, `digitise_extract`, `digitise_save`, `digitise_delete`, `digitise_export`, `fit`;
+  new verbs `lit digitise` and `lit fit`; a benchmark, `python -m litrag_parser.digitise_bench`;
+  the Papers tab's figure pane gains **Digitise**. A rebuild moves a person's series with its
+  figure and never drops one.
 - **Cited answers from a local model** (`DESIGN.md` R4.6). A question is answered by a chat model
   running on this machine through Ollama, from the passages a `query` retrieves and nothing else:
   the `ask` op (`answer.py`), the window's **Ask** tab, and `lit ask <lib | all> "<question>"
