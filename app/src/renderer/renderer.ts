@@ -1,5 +1,5 @@
 /**
- * The window. Five tabs over one project at a time: Projects, Search, Papers, Types, Query.
+ * The window: tabs over one project at a time (index.html names them).
  * This module is the Papers tab — papers on the left as they are ingested, the tree of the
  * chosen paper in the middle (as printed, or re-hung under its type's canonical structure), and
  * on the right the page the chosen node came from with its box drawn on it — and the wiring of
@@ -17,8 +17,9 @@ import { BANDS, SORT_KEYS, arrived, bandOf, countBy, filedLine, filterPapers, re
 import { initProjects, renderProjects } from './projects.ts';
 import { initGraph } from './graphtab.ts';
 import { initQuery } from './query.ts';
+import { initPlots } from './plotstab.ts';
 import { initSearch, loadCandidates } from './search.ts';
-import { $, ROLES, activity, ctx, dispatch, el, escapeHtml, hooks, log, onProjectChange, onViewShown, rejectionText, rememberedProject, request, roleColor, setProject, setStatus, showView, showWorkerProblem, type ProjectSummary } from './shared.ts';
+import { $, ROLES, activity, chooseProject, ctx, dispatch, el, escapeHtml, hooks, log, onProjectChange, onViewShown, rejectionText, rememberedProject, request, roleColor, setStatus, showView, showWorkerProblem, type ProjectSummary } from './shared.ts';
 import { initTypes, renderCanonicalTree, type CanonicalTree, type Mapping } from './types.ts';
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL('./pdf.worker.min.mjs', import.meta.url).href;
@@ -203,7 +204,7 @@ async function loadLibrariesOnce() {
     const o = el('option', undefined, 'No projects yet') as HTMLOptionElement;
     o.value = '';
     sel.append(o);
-    setProject(null);
+    await chooseProject(null);
     renderPapers();
     return;
   }
@@ -213,7 +214,7 @@ async function loadLibrariesOnce() {
     sel.value = id;
     return;
   }
-  setProject(id);
+  await chooseProject(id);
 }
 
 // ---- papers -----------------------------------------------------------------------------
@@ -816,6 +817,14 @@ async function loadCharts(n: Node, into: HTMLElement) {
     });
     head.append(b);
   }
+  // a figure is digitised by hand in the Plots tab: its axes confirmed, a series picked by its colour, a curve fitted
+  const dig = el('button', 'ghost small label-act', 'Digitise') as HTMLButtonElement;
+  dig.title = 'Open this figure in the Plots tab: calibrate its axes, pick a series by its colour, export its points as CSV and fit a curve to them';
+  dig.addEventListener('click', (ev) => {
+    ev.stopPropagation();
+    hooks.digitise(n.node_id);
+  });
+  head.append(dig);
   box.append(head);
   if (note.line) box.append(el('div', 'muted', note.line));
   renderPlots(box, r.plots);
@@ -1158,6 +1167,8 @@ function wire() {
   initTypes();
   initQuery();
   initGraph();
+  initPlots();
+  window.litrag.onClosing(() => hooks.mayLeavePlots());
   initLabels();
   onProjectChange(() => {
     state.selectedPaper = null;
@@ -1204,7 +1215,12 @@ function wire() {
     }
     renderPapers();
   });
-  $<HTMLSelectElement>('library').addEventListener('change', (e) => setProject((e.target as HTMLSelectElement).value || null));
+  $<HTMLSelectElement>('library').addEventListener('change', (e) => {
+    const sel = e.target as HTMLSelectElement;
+    void chooseProject(sel.value || null).then((ok) => {
+      if (!ok) sel.value = ctx.lib ?? '';
+    });
+  });
   $('add').addEventListener('click', async () => ingest(await window.litrag.choosePdfs()));
   $('reparse').addEventListener('click', async () => {
     if (!ctx.lib || !state.papers.size) return;

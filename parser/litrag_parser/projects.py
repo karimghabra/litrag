@@ -125,8 +125,9 @@ _RECORD = ("pub_types", "authors", "journal", "year", "type", "type_source", "ty
 
 def merge(root: Path, source_ids: list[str], target_name: str, into: str | None = None) -> dict[str, Any]:
     """Make one library of several: `{target, filed, duplicates, keys_to_rebuild, keys_to_parse,
-    figures_kept, keys_to_read_figures, figures_not_kept, skipped, candidates_merged,
-    queries_merged}`.
+    figures_kept, keys_to_read_figures, figures_not_kept, digitised, skipped, candidates_merged,
+    queries_merged}`; `digitised` the papers that brought series a person digitised
+    (`digitise.merge_from`), there for review until a reading draws their pictures.
 
     Each source's papers, in the order they were added, are filed in the target by
     `store.file_paper` — so a DOI two sources hold, in whatever case each writes it, files once,
@@ -176,6 +177,7 @@ def merge(root: Path, source_ids: list[str], target_name: str, into: str | None 
     figures_kept: list[str] = []
     keys_to_read_figures: list[str] = []
     figures_not_kept: list[dict[str, str]] = []
+    digitised: list[str] = []
     queries: list[dict[str, Any]] = []
     now = now_iso()
     try:
@@ -197,6 +199,8 @@ def merge(root: Path, source_ids: list[str], target_name: str, into: str | None 
                             skipped.append({"library": src.id, "paper": row["key"], "reason": outcome["reason"]})
                         if outcome.get("key"):
                             touched.append(outcome["key"])
+                        if outcome.get("digitised"):
+                            digitised.append(outcome["key"])
                         if outcome.get("beside"):
                             figures_kept.append(outcome["key"])
                             if outcome["beside"] == "read":
@@ -251,6 +255,7 @@ def merge(root: Path, source_ids: list[str], target_name: str, into: str | None 
         "figures_kept": figures_kept,
         "keys_to_read_figures": keys_to_read_figures,
         "figures_not_kept": figures_not_kept,
+        "digitised": list(dict.fromkeys(digitised)),
         "candidates_merged": candidates_merged,
         "queries_merged": len(new_queries),
     }
@@ -271,10 +276,13 @@ def _merge_paper(src: Library, sconn: sqlite3.Connection, s_tables: set[str], ta
                         pmid=row.get("pmid"), pmcid=row.get("pmcid"), now=row.get("added_at") or now)
     tkey = result.key
     have = tconn.execute("SELECT file, status, format, figures_file FROM papers WHERE key = ?", (tkey,)).fetchone()
+    from . import digitise
+
     if result.existed and have is not None and (have["file"] or have["status"] == "parsed"):
         _merge_labels(sconn, s_tables, tconn, t_tables, key, tkey)
+        digitised = digitise.merge_from(src.dir, sconn, key, target.dir, tconn, tkey, src.id)  # a person's series come with either copy of the paper
         tconn.commit()
-        return {"kind": "duplicate", "key": tkey, **_merge_beside(src, row, target, tconn, tkey, have, now)}
+        return {"kind": "duplicate", "key": tkey, "digitised": digitised, **_merge_beside(src, row, target, tconn, tkey, have, now)}
 
     dest_name = None
     if file is not None:
@@ -320,9 +328,10 @@ def _merge_paper(src: Library, sconn: sqlite3.Connection, s_tables: set[str], ta
             tconn.execute("INSERT OR IGNORE INTO judgments(paper, pair, same, model, at) VALUES (?,?,?,?,?)", (tkey, *tuple(j)))
     _merge_labels(sconn, s_tables, tconn, t_tables, key, tkey)
     _merge_charts(sconn, s_tables, tconn, key, tkey, dest_name, figures_name)
+    digitised = digitise.merge_from(src.dir, sconn, key, target.dir, tconn, tkey, src.id)
     tconn.commit()
     log_event(tconn, tkey, now, "merged", f"from {src.id} ({key}){'' if raw_came else ', no raw document: to be read again'}")
-    return {"kind": "filed", "key": tkey}
+    return {"kind": "filed", "key": tkey, "digitised": digitised}
 
 
 def _merge_beside(src: Library, row: dict[str, Any], target: Library, tconn: sqlite3.Connection, tkey: str, have: sqlite3.Row, now: str) -> dict[str, Any]:

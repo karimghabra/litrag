@@ -12,6 +12,15 @@ export interface LitragApi {
   choosePdfs(): Promise<string[]>;
   pathsOf(files: File[]): string[];
   readFile(path: string): Promise<ArrayBuffer>;
+  /** An image file to digitise a plot from; null when none was chosen. */
+  chooseImage(): Promise<string | null>;
+  /** Where to write an export (the digitiser's CSV); null when cancelled. */
+  saveAs(defaultName: string): Promise<string | null>;
+  /** A question a person answers with one of `choices`: its index. The last is the way out, and
+   *  the answer when the dialogue is closed. */
+  choose(message: string, choices: string[]): Promise<number>;
+  /** Asked when the window is about to close or the app to quit: `mayClose` says whether it may. */
+  onClosing(mayClose: () => Promise<boolean>): void;
   /** `command` is null when there is no worker to run; a request says why. */
   info(): Promise<{ root: string; command: string | null; version: string }>;
   /** A paper's page at its publisher or at Europe PMC, in the system's browser: http(s) only. */
@@ -30,6 +39,15 @@ const api: LitragApi = {
   choosePdfs: () => ipcRenderer.invoke('dialog:pdfs'),
   pathsOf: (files) => files.map((f) => webUtils.getPathForFile(f)),
   readFile: (path) => ipcRenderer.invoke('file:read', path),
+  chooseImage: () => ipcRenderer.invoke('dialog:image'),
+  saveAs: (defaultName) => ipcRenderer.invoke('dialog:save', defaultName),
+  choose: (message, choices) => ipcRenderer.invoke('dialog:choose', message, choices),
+  onClosing: (mayClose) => {
+    ipcRenderer.send('app:closing-asks');
+    ipcRenderer.on('app:closing', () => {
+      void mayClose().then((ok) => ipcRenderer.send('app:close-answer', ok), () => ipcRenderer.send('app:close-answer', true));
+    });
+  },
   info: () => ipcRenderer.invoke('app:info'),
   openExternal: (url) => ipcRenderer.invoke('shell:open', url),
   collect: (job) => ipcRenderer.invoke('collect:run', job),

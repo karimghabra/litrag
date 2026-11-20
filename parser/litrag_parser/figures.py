@@ -720,12 +720,15 @@ def keep_beside(conn: sqlite3.Connection, papers_dir: Path, key: str, src: Path,
 def _drop_stub(conn: sqlite3.Connection, key: str, kept: Path) -> str | None:
     """The paper the bytes kept for `key`'s figures were filed as before, which only their hash
     could meet (no DOI, no PMID): a stub of `key`, deleted with its rows, as filing drops one
-    (store.file_paper). Its key, or None. Not committed."""
+    (store.file_paper) — but for what a person digitised from its figures, which `key` takes
+    (digitise.carry). Its key, or None. Not committed."""
+    from . import digitise
     from .store import sha256_of
 
     stub = conn.execute("SELECT key FROM papers WHERE sha256 = ? AND key != ? AND doi IS NULL AND pmid IS NULL", (sha256_of(kept), key)).fetchone()
     if stub is None:
         return None
+    digitise.carry(conn, stub["key"], key)
     conn.execute("DELETE FROM papers WHERE key = ?", (stub["key"],))
     return str(stub["key"])
 

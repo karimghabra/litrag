@@ -12,7 +12,7 @@ litrag keeps a library of scientific papers for each research project. It reads 
 
 Three parts do the work.
 
-- **The window** is an Electron app with six tabs, listed down its left edge: Projects, Search, Papers, Types, Query and Graph. A log pane runs along the bottom. It shows and asks. It never writes the store itself.
+- **The window** is an Electron app with seven tabs, listed down its left edge: Projects, Search, Papers, Types, Query, Graph and Plots. A log pane runs along the bottom. It shows and asks. It never writes the store itself.
 - **The worker** is a Python process the window starts. It reads papers with Docling, writes the store, and answers every request as one line of JSON. An assistant or a script can send it the same requests.
 - **The library** is one folder per project under the library root. Its `store.sqlite` holds the rows. Its `parsed/` folder keeps each paper's raw Docling document, and `papers/` keeps the files.
 
@@ -1316,6 +1316,31 @@ from charts group by paper, figure order by plots desc
 - **A cut-off read leaves no numbers.** Run `figures` without `keys`, or click **Read the figures**.
 - **`LITRAG_FIGURES=off`** skips the figures stage and the ask of PMC for an XML paper's PDF, at a fetch or a drop. The window offers no figure action: a figure not read says "Figures are off (LITRAG_FIGURES=off)", and its card has no chip. The `figures` op still reads, and `figures_fetch` still asks. A PDF you drop for an XML paper is kept, not read, until you ask.
 
+## Digitising a plot (the Plots tab)
+
+The chart reader reads bars and markers by itself. When you want a curve's points — a turbidity or absorbance curve over time, say — or want to check what the reader took, digitise the plot yourself in the **Plots** tab, then fit a sigmoid to it.
+
+### Try it
+
+1. Open **Plots**. Type caption words into the box, such as `turbidity` or `fibril formation`, and click **Find plots**. With **trends only** ticked the list holds plots of a numeric x, and unread figures whose caption speaks of a curve over time. Each card says **plot** (the chart reader found axes with numbers in it), **no plot**, or **unknown** (not read yet), with **trend** and how many series are digitised. **no image** means no PDF here draws the figure: an XML paper needs the PDF kept beside it.
+2. Click a card. The figure is cut from its page and drawn in the middle. Under **1 · Axes**, the worker offers the four calibration points read from the numbers beside the axes, X1 and X2 on the x axis, Y1 and Y2 on the y axis, with their values and the axis labels and units. Check that each cross sits on its tick, then click **Confirm these axes**. To set one yourself, click its button (**X1** …) and then the tick on the figure, and type its value. Tick **log** for an axis that goes by powers of ten. A figure of several panels offers the largest first; drag a **Region** over the panel you want and its axes are read again.
+3. Under **2 · Series**, take the series' colour: with **Pick colour** on, click its line or a marker, or click one of the figure's own colours offered as swatches. Then click **Find points**. Markers are found at their centres and a line along its length; the log says how many, and a legend's own marker is left out.
+4. Fix what the colour missed: **Add** places a point at a click, **Move** drags one, **Delete** removes one. Points you placed or moved show green, found ones red. **3 · Points** lists every point with its value and pixel.
+5. Name the series and click **Save series**. It is kept with the figure; click it in the list to edit it again. A saved series is one series whatever it is called: change its name and save, and it is renamed, not copied. For the next curve of the figure, pick its colour or click **New series**: a new series starts under the next name (`series 2`, `series 3`), and the saved ones stay drawn faintly. **New series** keeps points on the picture that are not saved yet: they become the new series'. Saving while a saved series is the one being edited asks first, naming it: **Replace** it, **Save as a new series** beside it under the next name, or **Cancel**. A name another series of the figure has is refused. Nothing replaces changes you have not saved without asking: loading a saved series, picking another curve's colour, opening another figure or image, choosing another project, closing the window or quitting first asks whether to **Save** them, **Discard** them, or **Cancel**. A series marked **read from another picture** was digitised before the figure's picture changed (a reread, or another PDF): its saved values are kept and still export, but its points are not drawn, and the axes have to be confirmed on the new picture before you find points again. Under the others, **Needs review** lists the paper's series whose picture a later reading no longer draws, each with the number its figure had and the picture it was read from. They are kept and belong to no figure. If one is of the figure you have open, click **Put on this figure**: it stays with that figure from then on, its saved values unchanged.
+6. Under **4 · Fit**, choose **logistic** or **Gompertz** and click **Fit**. The table gives the plateau, maximum rate, time to half maximum, lag time and baseline, each with its 95% interval and unit, with R² and RMSE. The plot draws the points, the curve, the lag and the half-maximum time, and the residuals underneath.
+7. Click **Export CSV…** and choose where. Beside the CSV, `<name>.csv.json` traces every value to the paper, figure, page and pixel, and `<name>.<series>.<model>.fit.csv` holds each fit's quantities. Series saved from panels with different axes are written apart, `<name>.1.csv`, `<name>.2.csv`, …, each with its own header, sidecar and fits.
+8. **Open an image…** digitises a plot from an image file the same way. Its series is not saved in the library, but it exports.
+
+A figure's pane in the **Papers** tab has a **Digitise** button that opens it here.
+
+### Good to know
+
+- **Markers drawn under others are not found.** Where two series overlap, the one drawn first hides behind the other: add those points by hand.
+- **A curve hidden under another curve** is followed up to where it disappears and on again after; the stretch it was hidden for has no points.
+- **Units come from the axis title's parentheses.** "Absorbance (313 nm)" gives "313 nm". Correct the unit fields before exporting.
+- **A rebuild keeps your series.** A series stays with the figure that is still drawn as the picture it was read from, whatever the figure is numbered now. If the paper no longer draws that picture (the figure was cut differently, or comes from another PDF), the series is kept under **Needs review** until you put it on a figure. No series is moved to a figure by its number or its place on the page.
+- **Export CSV writes what is saved.** A figure's saved series export as they were saved, whatever axes are on screen; the axes need confirming only for points you have not saved yet.
+
 ## The citation graph
 
 The Graph tab shows how a project's papers cite each other, and what they cite that the project does not hold yet. Use it to see which papers the library leans on and to choose the next ones to read.
@@ -1611,6 +1636,7 @@ Queued ops are marked with an asterisk. The full table of params and answers is 
 | Look around | `hello`, `libraries`, `projects`, `papers`, `retrieval`, `candidates`, `wanted` |
 | Read one paper | `tree`, `node`, `section`, `events`, `file`, `mapping`, `audit`, `parse_json` |
 | Ask the library | `query`, `sql`, `passages`, `refs`, `edges`, `graph`, `charts`, `types` |
+| Digitise a plot | `plots`, `digitise_open`, `digitise_axes`, `digitise_extract`, `digitise_save`, `digitise_attach`, `digitise_delete`, `digitise_export`, `fit` (fields and answers: `AGENT.md`, section 8) |
 | Find and fetch | `search`, `suggest`, `stage`, `dismiss`, `fetch`\* |
 | Read papers in, or again | `ingest`*, `reparse`*, `rebuild`*, `judge`*, `figures`*, `embed`* |
 | Grow by citations | `round`*, `expand`* |
@@ -1638,7 +1664,7 @@ Queued ops are marked with an asterisk. The full table of params and answers is 
 
 ### What happens underneath
 
-The worker is one Python process. Its main thread reads requests and answers reads itself. `search`, `suggest` and `query` each get a thread, because they wait on Europe PMC or the local models. One ingest thread takes the queued jobs in turn; a job that raises becomes an `error` event and the next one runs.
+The worker is one Python process. Its main thread reads requests and answers reads itself. `search`, `suggest` and `query` each get a thread, because they wait on Europe PMC or the local models. So do the digitiser's reads of an image (`digitise_axes`, `digitise_extract`, and `digitise_open` on an image file). `digitise_open` on a paper's figure cuts it from the PDF on the ingest thread, so it is answered after whatever is being read. One ingest thread takes the queued jobs in turn; a job that raises becomes an `error` event and the next one runs.
 
 The window starts this same program and sends `quit` when its windows close.
 
@@ -2063,6 +2089,7 @@ Each tab works on the project chosen in the header's **Project** picker, and the
 | **Types** | One tab per type with its count; **Canonical structure**; **How each paper maps onto it**, with a paper picker and **Open in Papers** | `types`, `mapping` |
 | **Query** | The question box, **Passages** (8), **Ask**; **Embed passages** with its count of passages embedded; **Open in the tree** on each hit | `query`, `retrieval`, `embed` |
 | **Graph** | **and what cites them**, **OpenAlex too**, the number to read (10), **Expand: read the most cited**, **Citation round**; **Candidates** ("none", "cited by at least", "all") with its number (2), **Colour** ("round", "year", "held or not"), the find box, **Fit**; in the side panel **Open in Papers**, **Citation round from it**, **here** and **Europe PMC** by each author, **Fetch & read** on a candidate; under **Ask in SQL** the presets **Held, oldest first**, **Next round**, **By an author**, **Authors here**, **Who cites whom**, **Rounds**, then **Run** (Ctrl+Enter) and **Fetch & read selected** | `graph`, `round`, `expand`, `sql`, `passages`, `fetch` |
+| **Plots** | The caption box, **trends only**, **Find plots**; **Open an image…**; on the figure **Pick colour**, **Region**, **Add**, **Move**, **Delete** and the zoom; **1 · Axes** (**X1**, **X2**, **Y1**, **Y2** with their values, **log**, labels and units, **Confirm these axes**); **2 · Series** (tolerance, markers or a line, **Find points**, the name, **Save series**, **New series**, **Clear**, **Put on this figure** on a series under **Needs review**); **3 · Points** (**Export CSV…**); **4 · Fit** (logistic or Gompertz, **Fit**) | `plots`, `digitise_open`, `digitise_axes`, `digitise_extract`, `digitise_save`, `digitise_attach`, `digitise_delete`, `digitise_export`, `fit` |
 | Any tab | **Project** picker; drop PDFs or JATS XML anywhere (**Drop to ingest**) | `hello`, `projects`, `ingest` |
 | Log pane | **What the worker is doing**, **Hide** (then **Show**), **Clear** | none |
 
@@ -2117,6 +2144,8 @@ The worker answers these 45 ops, each sent as one JSON line with an `id`; a queu
 | `audit` | now | `lib`; opt. `key`; or `path` | `audit`: `papers[]` with their `findings` |
 | `parse_json` | now | `path`; opt. `key` | `tree` built from a saved Docling document; nothing is stored |
 | `quit` | now | none | `bye`, then the worker exits |
+
+Not in this table: the Plots tab's nine ops, `plots`, `digitise_open`, `digitise_axes`, `digitise_extract`, `digitise_save`, `digitise_attach`, `digitise_delete`, `digitise_export` and `fit`. Their fields and answers are in `AGENT.md`, section 8.
 
 ### Switches for everyone
 
@@ -2194,6 +2223,9 @@ A library's rows live in its `store.sqlite`; the tables from `cites` to `graph_s
 | `chart_values` | A value read from a plot | `paper`, `figure`, `plot`, `series`, `name`, `category`, `x`, `y`, `err_lo`, `err_hi` |
 | `figure_reads` | A paper's last reading of its charts | `paper`, `figures`, `plots`, `read`, `values_`, `seconds`, `file`, `unmatched`, `pages`, `pages_read` |
 | `figure_outcomes` | A figure that reading looked for | `paper`, `figure`, `figure_label`, `outcome` (`plots`, `no-plot`, `no-caption`, `skipped`), `page`, `bbox`, `detail` |
+| `digitised` | A series a person digitised from a figure (made, with the two below, when the Plots tab first needs them) | `id`, `uid`, `paper`, `figure`, `picture` (the hash of the picture it was read from), `figure_label`, `page`, `bbox`, `series` (its name), `colour`, `calibration`, `method`, `image`, `x_label`, `x_unit`, `y_label`, `y_unit`, `orphan` (1 while it waits under **Needs review**) |
+| `digitised_points` | A point of a digitised series | `digitised`, `ordinal`, `x`, `y`, `px`, `py`, `how` (`auto`, `added`, `moved`) |
+| `digitised_fits` | A curve fitted to a digitised series | `digitised`, `model` (`logistic`, `gompertz`), `status` (`fit`, `unfit`), `plateau`, `max_rate`, `t_half`, `lag`, `r2`, `result` |
 | `vectors` | A passage's embedding | `node`, `model`, `dims`, `vec` |
 | `vectors_gen` | A counter of changes to `vectors` | `n` |
 | `judgments` | A verdict on two blocks split at a page break, by the chat model or the boundary scorer | `paper`, `pair`, `same`, `model` |
