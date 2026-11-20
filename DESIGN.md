@@ -805,7 +805,11 @@ gridlines) are never a series.
 **The pixels are the truth.** Every point keeps its pixel and how it came (auto,
 added, moved); its value is always the calibration's reading of the pixel, read
 again by the worker when it is saved. Pixel indices are taken at their middles, so
-a click and a found point mean the same place.
+a click and a found point mean the same place. The pixels are of one image, whose
+hash is kept with the series: on a picture that has changed since (the figure cut
+differently by a later reading, or from another PDF) the window draws none of the
+series' points and takes no axes as confirmed; the saved values stay as they were
+until the person digitises it again.
 
 **A person's work is never dropped by a reading.** `digitised` rows follow their
 figure through a rebuild by its caption's number, else its page and box; one that

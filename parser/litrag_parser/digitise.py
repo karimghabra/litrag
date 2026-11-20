@@ -839,7 +839,7 @@ def save_fit(conn: sqlite3.Connection, did: int, result: dict[str, Any]) -> None
 
     with conn:
         conn.execute("INSERT OR REPLACE INTO digitised_fits(digitised, model, status, result, plateau, max_rate, t_half, lag, r2, at) VALUES (?,?,?,?,?,?,?,?,?,?)",
-                     (did, result["model"], result["status"], json.dumps({k: val for k, val in result.items() if k != "curve"}), v("plateau"), v("max_rate"), v("t_half"), v("lag"), result.get("r2"), now_iso()))
+                     (did, result["model"], result["status"], json.dumps(result), v("plateau"), v("max_rate"), v("t_half"), v("lag"), result.get("r2"), now_iso()))
 
 
 def one(conn: sqlite3.Connection, did: int) -> dict[str, Any]:
@@ -1118,23 +1118,25 @@ def find(conn: sqlite3.Connection, query: str = "", *, trend: bool = False, limi
         for r in rows:
             ranked.setdefault(r["figure"], float(r["rank"]))
         figs = list(ranked)
+        # the figures as a query of their own, not a list of ids: a library has more than a statement binds
+        among, args = "(SELECT c.parent FROM nodes_fts JOIN nodes c ON c.rowid = nodes_fts.rowid WHERE nodes_fts MATCH ? AND c.type = 'caption' ORDER BY bm25(nodes_fts) LIMIT 2000)", (fq,)
     else:
         ranked = {}
         figs = [r[0] for r in conn.execute("SELECT node_id FROM nodes WHERE type IN ('picture', 'chart') ORDER BY rowid")]
+        among, args = "(SELECT node_id FROM nodes WHERE type IN ('picture', 'chart'))", ()
     if not figs:
         return {"figures": [], "total": 0, "query": query}
     out = []
-    marks = ",".join("?" * len(figs))
     info = {r["node_id"]: r for r in conn.execute(
         f"SELECT n.node_id, n.paper, n.type, n.page, n.bbox_l, p.title, p.year, p.format, p.file, p.figures_file, "
         f"(SELECT group_concat(c.text, ' ') FROM nodes c WHERE c.parent = n.node_id AND c.type = 'caption') AS caption "
-        f"FROM nodes n JOIN papers p ON p.key = n.paper WHERE n.node_id IN ({marks}) AND n.type IN ('picture', 'chart')", figs)}
+        f"FROM nodes n JOIN papers p ON p.key = n.paper WHERE n.node_id IN {among} AND n.type IN ('picture', 'chart')", args)}
     plots: dict[str, list[dict[str, Any]]] = {}
-    for r in conn.execute(f"SELECT figure, plot, kind, status, reason, x_scale, y_scale, y_label, x_label, panel FROM charts WHERE figure IN ({marks}) ORDER BY plot", figs):
+    for r in conn.execute(f"SELECT figure, plot, kind, status, reason, x_scale, y_scale, y_label, x_label, panel FROM charts WHERE figure IN {among} ORDER BY plot", args):
         plots.setdefault(r["figure"], []).append(dict(r))
-    told = {r["figure"]: r["outcome"] for r in conn.execute(f"SELECT figure, outcome FROM figure_outcomes WHERE figure IN ({marks})", figs)}
+    told = {r["figure"]: r["outcome"] for r in conn.execute(f"SELECT figure, outcome FROM figure_outcomes WHERE figure IN {among}", args)}
     dig: dict[str, int] = {}
-    for r in conn.execute(f"SELECT figure, COUNT(*) AS n FROM digitised WHERE figure IN ({marks}) AND orphan = 0 GROUP BY figure", figs):
+    for r in conn.execute(f"SELECT figure, COUNT(*) AS n FROM digitised WHERE figure IN {among} AND orphan = 0 GROUP BY figure", args):
         dig[r["figure"]] = r["n"]
     labels: dict[str, dict[str, tuple[str | None, bool]]] = {}
     for f in figs:

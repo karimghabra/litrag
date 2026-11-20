@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { Calibration, addPoint, deletePoint, exportName, fitRows, fitSvg, hex, movePoint, nearest, num, tryCalibration, valued, type FitResult, type Pt } from '../src/renderer/digitise.ts';
+import { Calibration, addPoint, deletePoint, exportName, fitRows, fitSvg, hex, movePoint, nearest, num, onPicture, tryCalibration, valued, type FitResult, type Pt } from '../src/renderer/digitise.ts';
 
 const square = { x: { p1: [100, 400] as [number, number], v1: 0, p2: [500, 400] as [number, number], v2: 60, log: false }, y: { p1: [100, 400] as [number, number], v1: 0, p2: [100, 100] as [number, number], v2: 0.8, log: false } };
 
@@ -94,5 +94,29 @@ describe('small things', () => {
     expect(num(1234567)).toBe('1.235e+6');
     expect(num(null)).toBe('');
     expect(exportName('doi:10.1/abc', '2', 'digitised')).toBe('doi_10.1_abc_fig2_digitised.csv');
+  });
+});
+
+describe('a saved series, on the picture shown', () => {
+  const saved = { calibration: square, points: [{ px: 300, py: 250, how: 'auto' as const }, { px: 400, py: 325, how: 'moved' as const }], image: { sha256: 'aaa' } };
+
+  it('puts its points and its calibration on the image they were read from', () => {
+    const on = onPicture(saved, 'aaa');
+    expect(on.same).toBe(true);
+    expect(on.points).toEqual(saved.points);
+    expect(new Calibration(on.calibration!).value(300, 250)[0]).toBeCloseTo(30);
+  });
+
+  it('puts nothing on a picture that changed since, and leaves what was saved as it was', () => {
+    const before = JSON.stringify(saved);
+    const on = onPicture(saved, 'bbb');
+    expect(on).toEqual({ same: false, points: [], calibration: null });
+    expect(JSON.stringify(saved)).toBe(before);
+  });
+
+  it('does not take a series saved with no image, or shown on none, for one read from this picture', () => {
+    expect(onPicture({ ...saved, image: {} }, 'aaa').same).toBe(false);
+    expect(onPicture({ calibration: square, points: saved.points }, 'aaa').points).toEqual([]);
+    expect(onPicture(saved, undefined).calibration).toBeNull();
   });
 });

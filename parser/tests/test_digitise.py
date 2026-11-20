@@ -525,6 +525,20 @@ def test_plots_are_found_by_their_captions_trend_plots_first(tmp_path):
     assert {f["figure"] for f in digitise.find(conn, "")["figures"]} == {fig, other}
 
 
+def test_a_library_of_more_figures_than_a_statement_binds_is_listed(tmp_path):
+    """SQLite binds at most 32766 values in one statement (999 before 3.32): the default listing,
+    every figure of the library, is past that in a large one."""
+    lib, conn, key, fig = _library(tmp_path)
+    more = 33_000
+    conn.executemany("INSERT INTO nodes(node_id, paper, parent, ordinal, depth, type, label, role, ancestry, text) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                     [(f"{key}#extra-{i}", key, None, 10 + i, 1, "picture", "picture", "results", "[]", "") for i in range(more)])
+    conn.commit()
+    got = digitise.find(conn, "", limit=5)
+    assert got["total"] == more + 1 and len(got["figures"]) == 5
+    assert got["figures"][0]["figure"] == fig and "Turbidity" in got["figures"][0]["caption"]  # the one with a caption that speaks of a trend, first
+    assert [f["figure"] for f in digitise.find(conn, "turbidity")["figures"]] == [fig]
+
+
 def test_the_worker_answers_the_digitiser_s_ops(tmp_path):
     from litrag_parser.library import Library
 
@@ -542,7 +556,10 @@ def test_the_worker_answers_the_digitiser_s_ops(tmp_path):
     assert sv["event"] == "digitised" and sv["series"]["series"] == "A"
     ft = digitise.answer("fit", {"lib": "lib", "series_id": sv["series"]["id"]}, get)
     assert ft["event"] == "fit" and set(ft["fits"]) == {"logistic", "gompertz"} and ft["preferred"] in ("logistic", "gompertz")
-    assert set(digitise.answer("digitise_open", {"lib": "lib", "figure": fig}, get)["saved"][0]["fits"]) == {"logistic", "gompertz"}
+    again = digitise.answer("digitise_open", {"lib": "lib", "figure": fig}, get)["saved"][0]["fits"]
+    assert set(again) == {"logistic", "gompertz"}
+    for model, f in ft["fits"].items():  # read back, a fit is the one that was answered: its curve too, to draw
+        assert len(f["curve"]) > 10 and again[model]["curve"] == f["curve"] and again[model]["derived"] == f["derived"]
     ex2 = digitise.answer("digitise_export", {"lib": "lib", "ids": [sv["series"]["id"]], "path": str(tmp_path / "a.csv")}, get)
     assert ex2["event"] == "exported" and Path(ex2["files"][0]["sidecar"]).is_file() and len(ex2["files"][0]["fits"]) == 2
     found = digitise.answer("plots", {"lib": "lib", "query": "turbidity"}, get)
