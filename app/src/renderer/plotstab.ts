@@ -147,7 +147,7 @@ function reset(): void {
   st.confirmed = false;
   st.placing = null;
   st.region = null;
-  st.colour = null;
+  setColour(null);
   st.points = [];
   st.method = null;
   st.activeSaved = null;
@@ -435,9 +435,10 @@ function axesChanged(): void {
 }
 
 /** The working series put aside for a new one: nothing of it on the picture, no saved series
- *  being edited, the next default name. The saved ones stay as they are. */
+ *  being edited, no colour it was found by, the next default name. The saved ones stay as they are. */
 function newSeries(): void {
   st.activeSaved = null;
+  setColour(null);
   st.points = [];
   st.method = null;
   st.fit = null;
@@ -463,10 +464,12 @@ function pickedColour(c: string): void {
   setColour(c);
 }
 
-function setColour(c: string): void {
+/** The colour the working series is found by, and the swatch that shows it: none, for a series
+ *  found by none. */
+function setColour(c: string | null): void {
   st.colour = c;
-  $('dg-swatch').style.background = c;
-  $('dg-swatch').title = `The series’ colour: ${c}`;
+  $('dg-swatch').style.background = c ?? '';
+  $('dg-swatch').title = c ? `The series’ colour: ${c}` : 'The colour the series is found by';
 }
 
 const SVGNS = 'http://www.w3.org/2000/svg';
@@ -615,7 +618,7 @@ function loadSaved(id: number): void {
   st.points = on.points;
   st.method = s.method;
   st.dirty = false;
-  if (s.colour) setColour(s.colour);
+  setColour(s.colour);
   $<HTMLInputElement>('dg-name').value = s.series;
   $<HTMLInputElement>('dg-xlabel').value = s.axes.x.label ?? '';
   $<HTMLInputElement>('dg-xunit').value = s.axes.x.unit ?? '';
@@ -737,6 +740,7 @@ async function extract(): Promise<void> {
     if (!latest()) return;
     if (anotherCurve(colour)) {
       newSeries();
+      setColour(colour);
       renderSaved();
     }
     st.points = r.points.map((p) => ({ px: p.px, py: p.py, how: 'auto' as const }));
@@ -854,6 +858,10 @@ async function exportCsv(): Promise<void> {
   if ((!library || toSave) && !cal) return;
   if (library && !toSave && !opened.saved.length) {
     log('error', 'Export: nothing is saved for this figure yet');
+    return;
+  }
+  if (!library && !st.points.length) {
+    log('error', 'Export: there are no points to export');
     return;
   }
   const name = $<HTMLInputElement>('dg-name').value.trim() || 'series';
