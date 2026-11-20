@@ -834,6 +834,8 @@ draws their pictures. A series is one series in every library, known by a `uid` 
 when it is made: a merge repeated brings none twice, whatever was done to the copy in
 the merged library; a series changed in its source since it was brought comes beside
 the merged library's, named after the library it came from, and neither is written over.
+Libraries merged back and forth can so gather copies named after one another, but no merge
+loses a series or writes over one.
 
 **Fits are numpy's.** Logistic and Zwietering's Gompertz, both with a baseline,
 fitted by Levenberg–Marquardt from starts read off the data; intervals from the
