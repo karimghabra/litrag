@@ -58,6 +58,8 @@ export const TERMINAL = new Set([
   'migrate', 'deleted', 'held', 'let_go',
   // a cited answer from the local model, and the models it can be asked of
   'answer', 'models',
+  // the digitiser: plots found, a figure opened, a series found, saved, exported, fitted
+  'plots', 'digitise', 'axes', 'extracted', 'digitised', 'exported', 'fit',
 ]);
 
 /** `tree` answers a `tree` request and also streams during ingest; only the former closes a request. */

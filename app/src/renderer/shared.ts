@@ -197,6 +197,8 @@ export const activity = {
 export const hooks = {
   openPaper: (_key: string, _node?: string): void => undefined,
   search: (_query: string): void => undefined,
+  /** open a figure in the Plots tab's digitiser */
+  digitise: (_figure: string): void => undefined,
 };
 
 export function fmtInt(n: number | null | undefined): string {

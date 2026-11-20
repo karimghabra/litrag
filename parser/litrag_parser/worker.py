@@ -1423,7 +1423,7 @@ class Worker:
 
                     lib = open_library(self.root, str(req.get("lib") or "")) if req.get("lib") else None
                     emit({"event": "models", "id": req_id, "default": answer.default_model(lib), **answer.models()})
-                elif op in ("digitise_open", "digitise_extract"):
+                elif op in ("digitise_open", "digitise_extract", "digitise_axes"):
                     from . import digitise
 
                     emit({"id": req_id, **digitise.answer(op, req, lambda: self._lib(req))})
@@ -1485,7 +1485,7 @@ class Worker:
             elif op == "describe":
                 lib = self._lib(req, write=True)
                 emit({"event": "project", "id": req_id, "project": project_rows.describe(lib, name=req.get("name"), description=req.get("description"))})
-            elif op in ("search", "suggest", "query", "ask", "models", "digitise_open", "digitise_extract"):
+            elif op in ("search", "suggest", "query", "ask", "models", "digitise_open", "digitise_extract", "digitise_axes"):
                 self.answer_async(req)  # the digitiser's: a page rendered, OCR run
             elif op in ("plots", "digitise_save", "digitise_delete", "digitise_export", "fit"):
                 from . import digitise
