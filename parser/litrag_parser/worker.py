@@ -1039,9 +1039,10 @@ class Worker:
         had is fetched again; a file on disk in its stored bytes is never fetched twice, and a run
         broken off resumes where it stopped. With the figures on, the PDFs kept here are read after, by the figures op. The
         off switch (`LITRAG_FIGURE_IMAGES`) is not looked at: this is asked for. `done` counts the
-        papers, those with every figure's image and with any, the figures and those with an image,
-        the images by source, the papers that could not be asked, the PDFs kept, and the papers
-        lacking images by publisher and by why (figure_images.summary)."""
+        papers asked now, those passed by and the PDFs kept, then, over the library, the papers,
+        those answered, those with every figure's image and with any, the figures and those with an
+        image, the images by source, and the papers lacking images by publisher and by why
+        (figure_images.summary)."""
         from . import figure_images
 
         lib = self._lib(req)
