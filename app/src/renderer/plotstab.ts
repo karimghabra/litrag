@@ -10,7 +10,7 @@
  * digitise.ts's; this module draws and listens.
  */
 
-import { Calibration, addPoint, axisHeading, carried, charted, deletePoint, exportName, fitRows, fitSvg, hex, movePoint, nameTaken, nearest, nextName, num, onPicture, sameCurve, saveOver, tryCalibration, valued, type AxisCal, type CalibrationDict, type FitResult, type Pt } from './digitise.ts';
+import { Calibration, addPoint, axisHeading, charted, deletePoint, exportName, fitRows, fitSvg, hex, movePoint, nameTaken, nearest, nextName, num, onPicture, sameCurve, saveOver, tryCalibration, valued, type AxisCal, type CalibrationDict, type FitResult, type Pt } from './digitise.ts';
 import { $, activity, ctx, el, hooks, log, onProjectChange, onViewShown, projectName, rejectionText, request, showView } from './shared.ts';
 
 interface FoundFigure {
@@ -87,6 +87,9 @@ const st = {
   method: null as Record<string, unknown> | null,
   activeSaved: null as number | null,
   dirty: false,
+  /** Points on the picture were found, added, moved or deleted since they were last saved or
+   *  loaded: they are not a saved series' points. An edit to the axes alone is not this. */
+  edited: false,
   fit: null as FitResult | null,
   drag: null as { kind: 'move'; i: number } | { kind: 'region'; x: number; y: number } | null,
   list: [] as FoundFigure[],
@@ -152,6 +155,7 @@ function reset(): void {
   st.method = null;
   st.activeSaved = null;
   st.dirty = false;
+  st.edited = false;
   st.fit = null;
   for (const id of ['dg-xlabel', 'dg-xunit', 'dg-ylabel', 'dg-yunit', 'dg-name']) $<HTMLInputElement>(id).value = '';
 }
@@ -418,7 +422,13 @@ async function readPanel(region: number[]): Promise<void> {
   }
 }
 
+/** The points on the picture were edited: they are not what is saved, and no fit is of them. */
 function changed(): void {
+  st.edited = true;
+  unsaved();
+}
+
+function unsaved(): void {
   st.dirty = true;
   st.fit = null;
   renderPoints();
@@ -431,18 +441,19 @@ function changed(): void {
  *  and a fit of the old values is no fit of these. */
 function axesChanged(): void {
   renderAxes();
-  changed();
+  unsaved();
 }
 
 /** A new series started: no saved series being edited, the next default name. The saved ones
- *  stay as they are. With `keep`, the points on the picture that are not saved are the new
- *  series' (`carried`), with the colour and the way they were found; otherwise nothing of the
- *  working series is left on the picture. */
+ *  stay as they are. With `keep`, points on the picture that were edited since they were saved
+ *  or loaded — no saved series' points, then — are the new series', with the colour and the way
+ *  they were found; otherwise nothing of the working series is left on the picture. */
 function newSeries(keep = false): void {
-  st.points = carried(st.points, keep && st.dirty);
+  if (!(keep && st.edited)) st.points = [];
   st.activeSaved = null;
   st.fit = null;
-  st.dirty = st.points.length > 0;
+  st.edited = st.points.length > 0;
+  st.dirty = st.edited;
   if (!st.dirty) {
     setColour(null);
     st.method = null;
@@ -467,10 +478,10 @@ function anotherCurve(colour: string): boolean {
   return !!s && !sameCurve(s.colour, colour, Number($<HTMLInputElement>('dg-tol').value));
 }
 
-/** A colour a person picked. Another curve's starts a new series, unless edits to the one on the
- *  picture are not saved yet: those stay until points are found by the new colour. */
+/** A colour a person picked. Another curve's starts a new series, unless the points on the
+ *  picture were edited and are not saved yet: those stay until points are found by the new colour. */
 function pickedColour(c: string): void {
-  if (!st.dirty && anotherCurve(c)) {
+  if (!st.edited && anotherCurve(c)) {
     newSeries();
     renderAll();
   }
@@ -631,6 +642,7 @@ function loadSaved(id: number): void {
   st.points = on.points;
   st.method = s.method;
   st.dirty = false;
+  st.edited = false;
   setColour(s.colour);
   $<HTMLInputElement>('dg-name').value = s.series;
   $<HTMLInputElement>('dg-xlabel').value = s.axes.x.label ?? '';
@@ -821,6 +833,7 @@ async function save(): Promise<SavedSeries | null> {
     opened.saved = [...opened.saved.filter((s) => s.id !== r.series.id), r.series];
     st.activeSaved = r.series.id;
     st.dirty = false;
+    st.edited = false;
     renderSaved();
     renderPoints();
     log('info', `Saved “${name}”: ${r.series.points.length} points`);

@@ -130,13 +130,6 @@ export function saveOver(answer: number, saved: { id: number; series: string }[]
   return null;
 }
 
-/** The points a new series starts with: those on the picture that are not saved — they are no
- *  saved series' yet, so they are the new one's — and none when what is on the picture is a saved
- *  series as it was saved. */
-export function carried(points: Pt[], unsaved: boolean): Pt[] {
-  return unsaved ? points : [];
-}
-
 /** The name a new series is offered: "series N", N one more than the figure's saved series, and
  *  on past any name already taken — never the name of one that is saved. */
 export function nextName(taken: string[]): string {

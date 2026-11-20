@@ -3,8 +3,9 @@
  * figure is a synthetic turbidity plot of known data (parser/tests/fixtures/digitise). A person
  * finds it by its caption, opens it, confirms the axes the worker read from its numbers, picks a
  * series by one of the figure's colours, finds its points, saves them, fits a logistic curve and
- * exports the CSV with its sidecar; then digitises an image file the same way. The save and open
- * dialogs are answered in the main process. No models are needed: the library is made by the
+ * exports the CSV with its sidecar; saves a second series beside the first and starts a third
+ * from points not saved yet; then digitises an image file the same way. The save, open and
+ * question dialogs are answered in the main process. No models are needed: the library is made by the
  * parser's own store code, not by Docling.
  */
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test';
@@ -61,6 +62,8 @@ test.beforeAll(async () => {
   await app.evaluate(({ dialog }, files) => {
     dialog.showSaveDialog = (async () => ({ canceled: false, filePath: files.csv })) as unknown as typeof dialog.showSaveDialog;
     dialog.showOpenDialog = (async () => ({ canceled: false, filePaths: [files.image] })) as unknown as typeof dialog.showOpenDialog;
+    // a question is answered with the choice a test set last; unset, the way out (the last choice)
+    dialog.showMessageBox = (async (_w: unknown, o: { buttons?: string[] }) => ({ response: (globalThis as { answer?: number }).answer ?? (o.buttons?.length ?? 1) - 1, checkboxChecked: false })) as unknown as typeof dialog.showMessageBox;
   }, { csv: join(out, 'turbidity.csv'), image: join(FIXTURES, 'noisy_scan.jpg') });
 });
 
@@ -120,6 +123,63 @@ test('a figure found by its caption is digitised, saved, fitted and exported tra
   expect(side.paper.doi).toBe('10.1000/plots');
   expect(side.series[0].fits.logistic.status).toBe('fit');
   expect(side.series[0].points[0]).toHaveProperty('px');
+  expect(await page.locator('#log .log-line.error').count()).toBe(0);
+});
+
+/** The next question the window asks is answered with the choice of that index. */
+async function answerWith(choice: number): Promise<void> {
+  await app.evaluate((_e, c) => {
+    (globalThis as { answer?: number }).answer = c;
+  }, choice);
+}
+
+async function addPointAt(fx: number, fy: number): Promise<void> {
+  await page.click('#dg-tools [data-tool="add"]');
+  const box = (await page.locator('#dg-canvas').boundingBox())!;
+  await page.mouse.click(box.x + box.width * fx, box.y + box.height * fy);
+}
+
+const pointsOf = (text: string | null) => Number(text!.match(/(\d+) points?/)![1]);
+
+test('points found while a saved series is being edited are saved beside it, or kept for a new series', async () => {
+  const rows = page.locator('#dg-saved .saved');
+  await expect(rows).toHaveCount(1);
+  const first = pointsOf(await rows.first().textContent());
+  // the saved series is the one being edited: its curve found again, and a point added by hand
+  await page.click('#dg-extract');
+  await expect(page.locator('#dg-count')).toContainText('not saved');
+  await addPointAt(0.4, 0.3);
+  const working = pointsOf(await page.locator('#dg-count').textContent());
+  expect(working).not.toBe(first);
+  // Save asks; "Save as a new series": the first stays as it was, these are saved beside it
+  await answerWith(1);
+  await page.click('#dg-save');
+  await expect(rows).toHaveCount(2);
+  await expect(rows.first()).toContainText(TRUTH['turbidity_markers']!.series[0]!.name);
+  expect(pointsOf(await rows.first().textContent())).toBe(first);
+  await expect(rows.nth(1)).toContainText('series 2');
+  expect(pointsOf(await rows.nth(1).textContent())).toBe(working);
+  await expect(page.locator('#dg-saved .saved.on')).toContainText('series 2');
+  await expect(page.locator('#plots-list .plot-card').first()).toContainText('2 digitised');
+  // edited again, Save, "Cancel": nothing is saved; then New series keeps the points on the picture as its own
+  await addPointAt(0.6, 0.4);
+  await expect(page.locator('#dg-count')).toContainText(`${working + 1} points · not saved`);
+  await answerWith(2);
+  await page.click('#dg-save');
+  await page.click('#dg-new');
+  await expect(page.locator('#dg-count')).toContainText(`${working + 1} points · not saved`);
+  await expect(page.locator('#dg-saved .saved.on')).toHaveCount(0);
+  await expect(page.locator('#dg-name')).toHaveValue('series 3');
+  await expect(rows).toHaveCount(2);
+  expect(pointsOf(await rows.first().textContent())).toBe(first);
+  expect(pointsOf(await rows.nth(1).textContent())).toBe(working);
+  // an edit to the axes alone leaves a saved series' points its own: New series starts with none of them
+  await rows.first().click();
+  await expect(page.locator('#dg-count')).toContainText(`${first} points`);
+  await page.fill('#dg-yunit', 'a.u.');
+  await page.click('#dg-new');
+  await expect(page.locator('#dg-count')).toHaveText('');
+  await expect(rows).toHaveCount(2);
   expect(await page.locator('#log .log-line.error').count()).toBe(0);
 });
 
