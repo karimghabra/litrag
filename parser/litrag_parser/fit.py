@@ -24,6 +24,8 @@ converge, is an answer with the reason and no numbers.
 
 from __future__ import annotations
 
+import csv
+import io
 import math
 from dataclasses import dataclass
 from typing import Any, Callable, Sequence
@@ -330,15 +332,17 @@ DERIVED = ("plateau", "max_rate", "t_half", "lag", "baseline")
 def params_csv(f: dict[str, Any], x_unit: str | None = None, y_unit: str | None = None) -> str:
     """A fit as CSV: a row per quantity — its value, its interval, its unit."""
     units = {"plateau": y_unit, "baseline": y_unit, "max_rate": f"{y_unit or 'y'}/{x_unit or 't'}" if (x_unit or y_unit) else None, "t_half": x_unit, "lag": x_unit}
-    lines = [f"model,{f['model']}", f"n,{f['n']}", f"r2,{'' if f.get('r2') is None else f['r2']}", f"rmse,{'' if f.get('rmse') is None else f['rmse']}", "", "quantity,value,lo,hi,unit"]
+    buf = io.StringIO()
+    w = csv.writer(buf, lineterminator="\n")
 
     def cell(v: Any) -> str:
         return "" if v is None else str(v)
 
+    w.writerows([["model", f["model"]], ["n", f["n"]], ["r2", cell(f.get("r2"))], ["rmse", cell(f.get("rmse"))], [], ["quantity", "value", "lo", "hi", "unit"]])
     for name in DERIVED:
         d = f["derived"].get(name)
         if d:
-            lines.append(",".join([name, cell(d["value"]), cell(d["lo"]), cell(d["hi"]), cell(units.get(name))]))
+            w.writerow([name, cell(d["value"]), cell(d["lo"]), cell(d["hi"]), cell(units.get(name))])
     for name, d in f["params"].items():
-        lines.append(",".join([f"param:{name}", cell(d["value"]), cell(d["lo"]), cell(d["hi"]), ""]))
-    return "\n".join(lines) + "\n"
+        w.writerow([f"param:{name}", cell(d["value"]), cell(d["lo"]), cell(d["hi"]), ""])
+    return buf.getvalue()

@@ -102,11 +102,12 @@ export function onPicture(s: { calibration: CalibrationDict; points: Pt[]; image
   return same ? { same, points: s.points.map((p) => ({ px: p.px, py: p.py, how: p.how })), calibration: { x: { ...s.calibration.x }, y: { ...s.calibration.y } } } : { same, points: [], calibration: null };
 }
 
-/** The (x, y) a fit is drawn over: the values of the points on the picture; with none on it, the
- *  values a kept series was saved with — one read from another picture has no point here to draw,
- *  and its fit is still of those values. */
-export function charted(onPicture: Pt[], kept: Pt[] | undefined): [number, number][] {
-  const from = onPicture.length ? onPicture : (kept ?? []);
+/** The (x, y) a fit is drawn over: the values of the points on the picture. With none on it, the
+ *  values a kept series was saved with when it was read from another picture than the one
+ *  `shown` — it has no point here to draw, and its fit is still of those values. A series of this
+ *  picture with no points on it has had them cleared: nothing is drawn. */
+export function charted(points: Pt[], kept: { calibration: CalibrationDict; points: Pt[]; image?: { sha256?: string } } | undefined, shown: string | undefined): [number, number][] {
+  const from = points.length || !kept || onPicture(kept, shown).same ? points : kept.points;
   return from.filter((p) => p.x !== undefined && p.y !== undefined).map((p) => [p.x!, p.y!]);
 }
 

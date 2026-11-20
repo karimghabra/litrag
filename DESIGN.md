@@ -901,9 +901,11 @@ On fresh noise the 95% intervals hold the truth about 95% of the time
 (`test_digitise.py`). No scipy: the environment has no need of it otherwise.
 
 **Traceable exports.** The CSV is two columns headed by each axis's name and unit;
-the JSON sidecar beside it names the paper, the figure, its page and box, the
-image's hash, the calibration, the method and every point's pixel, so a number can
-be found again on the page it came from. Series whose axes differ — panels of one
+the JSON sidecar beside it names the paper and the figure, and for each series its
+page and box, its image's hash, the calibration, the method and every point's pixel,
+so a number can be found again on the page it came from; each series carries its
+own, since one put on a figure by a person is pixels of another picture than the
+series saved on it since. Series whose axes differ — panels of one
 figure — are never written under one header: each set of axes gets its own CSV,
 sidecar and fits. A series kept for review is not exported: its figure is not known.
 An image is recorded by its size, scale and hash, and an image file by its name,

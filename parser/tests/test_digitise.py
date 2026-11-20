@@ -219,9 +219,9 @@ def test_a_figure_is_rendered_offered_found_saved_and_exported_traceably(tmp_pat
     assert rows[0] == ["Time (min)", "Absorbance (313 nm)"] or rows[0][0] == "Time (min)"
     assert len(rows) == len(points) + 1
     side = json.loads(Path(out["sidecar"]).read_text())
-    assert side["paper"]["doi"] == "10.1000/dig" and side["figure"]["node"] == fig and side["figure"]["page"] == 1
+    assert side["paper"]["doi"] == "10.1000/dig" and side["figure"]["node"] == fig and side["series"][0]["page"] == 1
     assert side["series"][0]["calibration"]["x"]["v2"] > side["series"][0]["calibration"]["x"]["v1"]
-    assert side["series"][0]["points"][0].keys() >= {"x", "y", "px", "py", "how"} and side["image"]["sha256"] == got["image"]["sha256"]
+    assert side["series"][0]["points"][0].keys() >= {"x", "y", "px", "py", "how"} and side["series"][0]["image"]["sha256"] == got["image"]["sha256"]
     assert side["series"][0]["fits"]["logistic"]["derived"]["t_half"]["value"] == pytest.approx(f["derived"]["t_half"]["value"])
     assert out["fits"] and Path(out["fits"][0]).read_text().splitlines()[0] == "model,logistic"
 
@@ -369,7 +369,11 @@ def test_a_series_for_review_is_no_figure_s_until_a_person_puts_it_on_one(tmp_pa
     assert digitise.follow(lib_dir, conn, key) == []
     assert [s["id"] for s in digitise.of_figure(conn, f"{key}#panel-9")] == [a["id"], b["id"]]
     ex = digitise.answer("digitise_export", {"lib": "lib", "ids": [a["id"], b["id"]], "path": str(tmp_path / "out.csv")}, get)
-    assert str(tmp_path / "lib") not in Path(ex["files"][0]["sidecar"]).read_text()  # the sidecar travels: no path of this library in it
+    text = Path(ex["files"][0]["sidecar"]).read_text()
+    assert str(tmp_path / "lib") not in text  # the sidecar travels: no path of this library in it
+    # one figure's series, pixels of two pictures: each is traced to its own
+    assert {s["name"]: s["image"]["sha256"] for s in json.loads(text)["series"]} == {"lag": a["image"]["sha256"], "other": b["image"]["sha256"]}
+    assert {s["name"]: s["bbox_pt"] for s in json.loads(text)["series"]} == {"lag": a["bbox"], "other": b["bbox"]} and a["bbox"] != b["bbox"]
 
 
 def test_a_series_is_saved_only_of_the_figure_s_picture_as_it_was_opened(tmp_path):
@@ -493,7 +497,7 @@ def test_a_series_of_an_xml_paper_s_figure_keeps_the_page_and_box_it_was_opened_
     assert (sv["page"], sv["bbox"], sv["figure_label"], sv["paper"]) == (3, [40.0, 100.5, 300.0, 280.0], "1", key)
     ex = digitise.answer("digitise_export", {"lib": "lib", "ids": [sv["id"]], "path": str(tmp_path / "a.csv")}, lambda: lib)
     side = json.loads(Path(ex["files"][0]["sidecar"]).read_text())
-    assert side["figure"]["page"] == 3 and side["figure"]["bbox_pt"] == [40.0, 100.5, 300.0, 280.0]
+    assert side["series"][0]["page"] == 3 and side["series"][0]["bbox_pt"] == [40.0, 100.5, 300.0, 280.0]
 
 
 def test_a_stub_s_digitised_series_go_to_the_paper_it_was_a_stub_of(tmp_path):
@@ -704,6 +708,9 @@ def test_a_fit_as_csv_carries_each_quantity_with_its_interval_and_unit():
     by = {r[0]: r for r in rows if r}
     assert by["t_half"][4] == "min" and by["max_rate"][4] == "OD/min" and by["plateau"][4] == "OD"
     assert float(by["t_half"][2]) < float(by["t_half"][1]) < float(by["t_half"][3])
+    # a unit is a person's words: a comma in one stays in its cell
+    by = {r[0]: r for r in csv.reader(fit.params_csv(f, "min", "a.u., 400 nm").splitlines()) if r}
+    assert by["plateau"][4] == "a.u., 400 nm" and by["max_rate"][4] == "a.u., 400 nm/min" and all(len(by[q]) == 5 for q in fit.DERIVED)
 
 
 def test_points_that_show_only_a_plateau_say_the_lag_cannot_be_told():

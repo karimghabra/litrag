@@ -125,13 +125,19 @@ describe('what a fit is drawn over', () => {
   const kept: Pt[] = [{ px: 10, py: 90, how: 'auto', x: 0, y: 0.05 }, { px: 50, py: 50, how: 'auto', x: 30, y: 0.45 }, { px: 90, py: 10, how: 'moved', x: 60, y: 0.85 }];
   const fit: FitResult = { model: 'logistic', status: 'fit', formula: 'y', n: 3, params: {}, derived: {}, curve: [[0, 0.05], [30, 0.45], [60, 0.85]], residuals: [0, 0.01, -0.01] } as unknown as FitResult;
 
+  const series = { calibration: square, points: kept, image: { sha256: 'aaa' } };
+
   it('is the points on the picture, when there are any', () => {
-    expect(charted([{ px: 1, py: 2, how: 'auto', x: 5, y: 6 }], kept)).toEqual([[5, 6]]);
-    expect(charted([{ px: 1, py: 2, how: 'auto' }], undefined)).toEqual([]); // no axes yet: no values
+    expect(charted([{ px: 1, py: 2, how: 'auto', x: 5, y: 6 }], series, 'bbb')).toEqual([[5, 6]]);
+    expect(charted([{ px: 1, py: 2, how: 'auto' }], undefined, 'bbb')).toEqual([]); // no axes yet: no values
   });
 
-  it('is a kept series’ saved values when none of its points is on the picture, so its fit is drawn', () => {
-    const pts = charted([], kept);
+  it('is nothing when a series of this picture has had its points cleared', () => {
+    expect(charted([], series, 'aaa')).toEqual([]);
+  });
+
+  it('is a kept series’ saved values when it was read from another picture, so its fit is drawn', () => {
+    const pts = charted([], series, 'bbb');
     expect(pts).toEqual([[0, 0.05], [30, 0.45], [60, 0.85]]);
     const svg = fitSvg(pts, fit);
     expect(svg).toContain('<polyline');

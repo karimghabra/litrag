@@ -1037,9 +1037,9 @@ def csv_text(series: Sequence[dict[str, Any]]) -> str:
 
 
 def sidecar(series: Sequence[dict[str, Any]], *, library: str | None, paper: dict[str, Any] | None, csv_name: str, fit_names: dict[str, dict[str, str]] | None = None) -> dict[str, Any]:
-    """What traces each value in the CSV to its source: the paper, the figure, where it was cut,
-    the image, the calibration, the method and each point's pixel; `fit_csv` each series' fit
-    files, by model."""
+    """What traces each value in the CSV to its source: the paper and the figure, and for each
+    series — a figure's series need not be pixels of one picture — where it was cut, the image,
+    the calibration, the method and each point's pixel; `fit_csv` each series' fit files, by model."""
     from .library import now_iso
 
     first = series[0]
@@ -1049,11 +1049,11 @@ def sidecar(series: Sequence[dict[str, Any]], *, library: str | None, paper: dic
         "exported_at": now_iso(),
         "library": library,
         "paper": paper,
-        "figure": {"node": first["figure"], "label": first.get("figure_label"), "page": first.get("page"), "bbox_pt": first.get("bbox")},
-        "image": first["image"],
+        "figure": {"node": first["figure"]},
         "axes": first["axes"],
         "series": [{
-            "name": s["series"], "colour": s["colour"], "calibration": s["calibration"], "method": s["method"], "saved_at": s["at"],
+            "name": s["series"], "colour": s["colour"], "figure_label": s.get("figure_label"), "page": s.get("page"), "bbox_pt": s.get("bbox"), "image": s["image"],
+            "calibration": s["calibration"], "method": s["method"], "saved_at": s["at"],
             "points": [{"x": p["x"], "y": p["y"], "px": p["px"], "py": p["py"], "how": p["how"]} for p in s["points"]],
             "fits": {m: {k: v for k, v in f.items() if k not in ("residuals", "curve")} for m, f in (s.get("fits") or {}).items()},
             "fit_csv": (fit_names or {}).get(s["series"], {}),
