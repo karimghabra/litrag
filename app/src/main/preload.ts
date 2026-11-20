@@ -16,6 +16,9 @@ export interface LitragApi {
   chooseImage(): Promise<string | null>;
   /** Where to write an export (the digitiser's CSV); null when cancelled. */
   saveAs(defaultName: string): Promise<string | null>;
+  /** A question a person answers with one of `choices`: its index. The last is the way out, and
+   *  the answer when the dialogue is closed. */
+  choose(message: string, choices: string[]): Promise<number>;
   /** `command` is null when there is no worker to run; a request says why. */
   info(): Promise<{ root: string; command: string | null; version: string }>;
   /** A paper's page at its publisher or at Europe PMC, in the system's browser: http(s) only. */
@@ -36,6 +39,7 @@ const api: LitragApi = {
   readFile: (path) => ipcRenderer.invoke('file:read', path),
   chooseImage: () => ipcRenderer.invoke('dialog:image'),
   saveAs: (defaultName) => ipcRenderer.invoke('dialog:save', defaultName),
+  choose: (message, choices) => ipcRenderer.invoke('dialog:choose', message, choices),
   info: () => ipcRenderer.invoke('app:info'),
   openExternal: (url) => ipcRenderer.invoke('shell:open', url),
   collect: (job) => ipcRenderer.invoke('collect:run', job),

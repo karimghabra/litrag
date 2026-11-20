@@ -729,6 +729,8 @@ def _finish(lib_dir: Path, figure: str | None, img: np.ndarray, words: list[Word
         # the text layer is every word of the figure; OCR's, only those around the plot it read
         whole = src.get("drawn") == "vector"
         p.with_suffix(".words.json").write_text(json.dumps({"whole": whole, "words": [[round(w.x0, 1), round(w.y0, 1), round(w.x1, 1), round(w.y1, 1), w.text] for w in words]}), encoding="utf-8")
+    else:
+        p.with_suffix(".words.json").unlink(missing_ok=True)  # another cut's words are not this picture's
     return {"source": src, "image": image, "auto": auto, "palette": palette(img, region), "_img": img, "_words": words}
 
 
@@ -1015,11 +1017,12 @@ def follow(lib_dir: Path, conn: sqlite3.Connection, key: str) -> list[tuple[str,
 
 
 def _head(label: str | None, unit: str | None, fallback: str) -> str:
-    name = fallback
-    if label:
-        stripped = re.sub(r"\s*\([^()]*\)\s*$", "", label).strip()
-        name = stripped or fallback
-    return f"{name} ({unit})" if unit else name
+    """An axis's heading: its name and, in parentheses, its unit. A name that ends in a
+    parenthetical loses it only for a unit to stand there instead; with no unit it is kept whole."""
+    if not unit:
+        return label or fallback
+    name = re.sub(r"\s*\([^()]*\)\s*$", "", label or "").strip() or fallback
+    return f"{name} ({unit})"
 
 
 def csv_text(series: Sequence[dict[str, Any]]) -> str:

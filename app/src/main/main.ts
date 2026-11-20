@@ -94,6 +94,12 @@ ipcMain.handle('dialog:image', async () => {
   return r.canceled ? null : (r.filePaths[0] ?? null);
 });
 
+ipcMain.handle('dialog:choose', async (_e, message: string, choices: string[]) => {
+  if (!win) return choices.length - 1;
+  const r = await dialog.showMessageBox(win, { type: 'question', message: String(message), buttons: choices.map(String), defaultId: choices.length - 1, cancelId: choices.length - 1, noLink: true });
+  return r.response;
+});
+
 ipcMain.handle('dialog:save', async (_e, defaultName: string) => {
   if (!win) return null;
   const r = await dialog.showSaveDialog(win, {
