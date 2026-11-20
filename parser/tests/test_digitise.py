@@ -299,17 +299,54 @@ def test_series_of_the_same_name_follow_figures_that_shift_or_trade_ids(tmp_path
     assert digitise.remap(conn, key) == {"moved": 0, "orphaned": 0}  # twice changes nothing
 
 
-def test_a_series_whose_figure_is_gone_stays_in_the_way_of_one_of_its_name(tmp_path):
-    conn = open_store(tmp_path / "store.sqlite")
+def test_an_orphan_is_no_figure_s_though_another_picture_takes_the_id_it_kept(tmp_path):
+    """Figure 1 goes from a reading and figure 2 is given its node id. The series read from
+    figure 1 is listed apart, under the figure it had; it is not among figure 2's, is not counted
+    as figure 2's, and a series saved on figure 2 under its name is a new one. When a later
+    reading has a figure 1 again, it goes to it."""
+    from litrag_parser.library import Library
+
+    (tmp_path / "lib").mkdir()
+    lib = Library(tmp_path, "lib", {})
+    conn = open_store(lib.store_path)
     key = file_paper(conn, title="x", file="paper.xml", sha256="x1", fmt="jats", doi="10.1/x", pmid=None, pmcid=None, now="t").key
     one, two = _picture(conn, key, 1, "Figure 1. Turbidity over time."), _picture(conn, key, 2, "Figure 2. Absorbance over time.")
-    a = digitise.save(conn, one, "series 1", CAL, PTS)["id"]
-    b = digitise.save(conn, two, "series 1", CAL, PTS[:5])["id"]
-    conn.execute("DELETE FROM nodes WHERE node_id LIKE ?", (one + "%",))  # figure 1 is gone, and figure 2 has its id
+    a = digitise.save(conn, one, "lag", CAL, PTS)["id"]
+    b = digitise.save(conn, two, "other", CAL, PTS[:5])["id"]
+    conn.execute("DELETE FROM nodes WHERE node_id LIKE ?", (one + "%",))
     _rename(conn, two, one)
     conn.commit()
-    assert digitise.remap(conn, key) == {"moved": 0, "orphaned": 2}
-    assert digitise.one(conn, a)["orphan"] and digitise.one(conn, b)["orphan"] and digitise.one(conn, b)["figure"] == two
+    assert digitise.remap(conn, key) == {"moved": 1, "orphaned": 1}
+    assert [s["id"] for s in digitise.of_figure(conn, one)] == [b]
+    opened = digitise.answer("digitise_open", {"lib": "lib", "figure": one}, lambda: lib)
+    assert [s["id"] for s in opened["saved"]] == [b]
+    assert [(s["id"], s["figure_label"], s["orphan"]) for s in opened["orphans"]] == [(a, "1", True)]
+    c = digitise.answer("digitise_save", {"lib": "lib", "figure": one, "series": "lag", "calibration": CAL, "points": PTS[:3]}, lambda: lib)["series"]
+    assert c["id"] not in (a, b) and c["figure_label"] == "2" and len(c["points"]) == 3
+    lost = digitise.one(conn, a)
+    assert lost["orphan"] and len(lost["points"]) == 8 and lost["figure_label"] == "1"
+    assert [s["id"] for s in digitise.of_figure(conn, one)] == [b, c["id"]]
+    assert [f["digitised"] for f in digitise.find(conn, "")["figures"]] == [2]
+    assert digitise.remap(conn, key) == {"moved": 0, "orphaned": 1}  # still without one, and in no series' way
+    seven = _picture(conn, key, 7, "Figure 1. Turbidity over time.")
+    assert digitise.remap(conn, key) == {"moved": 1, "orphaned": 0}
+    assert [(s["id"], s["orphan"], len(s["points"])) for s in digitise.of_figure(conn, seven)] == [(a, False, 8)]
+    assert digitise.answer("digitise_open", {"lib": "lib", "figure": one}, lambda: lib)["orphans"] == []
+
+
+def test_a_series_bound_for_a_figure_that_holds_one_of_its_name_is_kept_apart(tmp_path):
+    """A stub's "series 1" of figure 1 comes to the paper it was a stub of, whose own figure 1
+    holds a "series 1" already: the paper's own stays, the stub's is kept without a figure."""
+    conn = open_store(tmp_path / "store.sqlite")
+    paper = file_paper(conn, title="the paper", file="paper.xml", sha256="xml", fmt="jats", doi="10.1/real", pmid=None, pmcid=None, now="t").key
+    own = _picture(conn, paper, 4, "Figure 1. Turbidity over time.")
+    a = digitise.save(conn, own, "series 1", CAL, PTS)["id"]
+    stub = file_paper(conn, title="its bytes", file="scan.pdf", sha256="pdf", fmt="pdf", doi=None, pmid=None, pmcid=None, now="t").key
+    b = digitise.save(conn, _picture(conn, stub, 1, "Figure 1. Turbidity over time."), "series 1", CAL, PTS[:4])["id"]
+    file_paper(conn, title="the paper", file="scan.pdf", sha256="pdf", fmt="pdf", doi="10.1/real", pmid=None, pmcid=None, now="t")
+    conn.commit()
+    assert [(s["id"], len(s["points"])) for s in digitise.of_figure(conn, own)] == [(a, 8)]
+    assert [(s["id"], s["paper"], s["figure_label"], len(s["points"])) for s in digitise.orphans(conn, paper)] == [(b, paper, "1", 4)]
 
 
 def test_the_judge_s_own_command_moves_digitised_series_with_their_figures_too(tmp_path, monkeypatch, capsys):
@@ -365,7 +402,7 @@ def test_series_of_different_axes_are_exported_apart_and_an_orphan_is_left_out(t
     assert [s["csv"] for s in sides] == ["fig.1.csv", "fig.2.csv"]
     assert sides[0]["axes"]["x"]["unit"] == "min" and [s["name"] for s in sides[0]["series"]] == ["a1", "a2"]
     assert sides[1]["axes"]["x"]["unit"] == "mg/mL" and [s["name"] for s in sides[1]["series"]] == ["b1"]
-    assert out["files"][0]["fits"] == [] and [Path(f).name for f in out["files"][1]["fits"]] == [sides[1]["series"][0]["fit_csv"]]
+    assert out["files"][0]["fits"] == [] and {"logistic": Path(out["files"][1]["fits"][0]).name} == sides[1]["series"][0]["fit_csv"]
     by = {r[0]: r for r in csv.reader(open(out["files"][1]["fits"][0])) if r}
     assert by["t_half"][4] == "mg/mL"  # the fit's units are its own panel's
     with pytest.raises(ValueError, match="no series"):
@@ -373,6 +410,28 @@ def test_series_of_different_axes_are_exported_apart_and_an_orphan_is_left_out(t
     # a log axis is another set of axes, though the labels agree
     log = digitise.save(conn, fig, "a3", {**CAL, "y": {**CAL["y"], "v1": 0.01, "log": True}}, PTS, axes=time)["id"]
     assert len(digitise.export(conn, [ids[0], log], tmp_path / "log.csv")["files"]) == 2
+
+
+def test_each_fit_of_each_series_has_a_file_of_its_own_that_the_sidecar_names(tmp_path):
+    """Two models a series, and two names that are one once made safe for a file name: four fit
+    files, none written over another, each named beside its series and model."""
+    conn = open_store(tmp_path / "store.sqlite")
+    key = file_paper(conn, title="x", file="paper.xml", sha256="x1", fmt="jats", doi="10.1/x", pmid=None, pmcid=None, now="t").key
+    fig = _picture(conn, key, 1, "Figure 1. Turbidity over time.")
+    t = np.linspace(0, 60, 30)
+    plateaus = {"a b": 0.85, "a_b": 1.7}
+    for name, plateau in plateaus.items():
+        did = digitise.save(conn, fig, name, CAL, PTS)["id"]
+        for model in fit.MODELS:
+            digitise.save_fit(conn, did, fit.fit(list(zip(t, _curve("logistic", t) * plateau / 0.85)), model))
+    out = digitise.export(conn, [s["id"] for s in digitise.of_figure(conn, fig)], tmp_path / "fig.csv")["files"][0]
+    side = json.loads(Path(out["sidecar"]).read_text())
+    named = {(s["name"], model): tmp_path / f for s in side["series"] for model, f in s["fit_csv"].items()}
+    assert set(named) == {(name, model) for name in plateaus for model in fit.MODELS}
+    assert len(set(named.values())) == 4 and sorted(str(f) for f in named.values()) == sorted(out["fits"])
+    for (name, model), f in named.items():
+        by = {r[0]: r for r in csv.reader(f.read_text().splitlines()) if r}
+        assert by["model"][1] == model and float(by["plateau"][1]) == pytest.approx(plateaus[name], rel=0.02), (name, model)
 
 
 def test_an_image_file_is_kept_under_the_library_s_digitised_folder_or_with_no_library_somewhere_readable(tmp_path):
@@ -535,6 +594,10 @@ def test_the_better_model_is_preferred_and_too_few_points_are_refused():
     t = np.linspace(0, 60, 40)
     assert fit.both(list(zip(t, _curve("gompertz", t, 0.005))))["preferred"] == "gompertz"
     assert fit.both(list(zip(t, _curve("logistic", t, 0.005))))["preferred"] == "logistic"
+    assert fit.both(list(zip(t, _curve("logistic", t, 0.005))), ["gompertz"])["preferred"] == "gompertz"  # of the ones asked for
+    one = digitise.answer("fit", {"points": [[float(a), float(b)] for a, b in zip(t, _curve("gompertz", t, 0.005))], "model": "logistic"}, None)
+    assert set(one["fits"]) == {"logistic"} and one["preferred"] == "logistic"
+    assert digitise.answer("fit", {"points": [[float(a), float(b)] for a, b in zip(t, _curve("gompertz", t, 0.005))]}, None)["preferred"] == "gompertz"
     few = fit.fit([(0, 0), (1, 1), (2, 2)], "logistic")
     assert few["status"] == "unfit" and "at least" in few["reason"]
     flat = fit.fit([(i, 1.0) for i in range(10)], "gompertz")

@@ -873,7 +873,11 @@ a click and a found point mean the same place.
 **A person's work is never dropped by a reading.** `digitised` rows follow their
 figure through a rebuild by its caption's number, else its page and box; one that
 finds no figure is kept and marked an orphan, never deleted, unlike the reader's own
-plots, which can be read again. The whole mapping is made before a row moves, as the
+plots, which can be read again. An orphan keeps the id of the figure it had only as a
+record: that id may be another picture's in a later reading, so an orphan is no
+figure's — not listed with one, not counted as one's, never replaced by a series saved
+under its name (the `(figure, series)` key holds among series that have a figure) —
+and the window lists a paper's orphans apart, under the figure each had. The whole mapping is made before a row moves, as the
 plots' is, so figures that trade ids trade their series. A stub paper deleted because
 its bytes were filed again under an identifier, or kept beside an XML paper, hands its
 series to that paper first, by the same mapping.
