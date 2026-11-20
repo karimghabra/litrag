@@ -637,7 +637,7 @@ function renderFit(): void {
   const box = $('dg-fit-out');
   box.innerHTML = '';
   const cal = calibration();
-  const pts = charted(valued(st.points, cal), st.opened?.saved.find((x) => x.id === st.activeSaved)?.points);
+  const pts = charted(valued(st.points, cal), st.opened?.saved.find((x) => x.id === st.activeSaved), st.opened?.image?.sha256);
   const f = st.fit;
   if (!f) {
     if (pts.length) box.insertAdjacentHTML('beforeend', fitSvg(pts, null, { xLabel: axisHead('x'), yLabel: axisHead('y'), colour: st.colour ?? undefined }));
@@ -864,14 +864,14 @@ async function fitSaved(id: number, model: string): Promise<void> {
 }
 
 async function runFit(): Promise<void> {
-  const cal = calibration();
-  if (!cal) {
-    log('error', 'Fit: set the axes first');
-    return;
-  }
   const model = $<HTMLSelectElement>('dg-model').value;
   if (st.figure && ctx.lib && st.activeSaved !== null && !st.dirty) {
     await fitSaved(st.activeSaved, model);
+    return;
+  }
+  const cal = calibration();
+  if (!cal) {
+    log('error', 'Fit: set the axes first');
     return;
   }
   const latest = ticket('fit');
