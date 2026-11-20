@@ -112,7 +112,7 @@ published release, installs each once on a clean runner, and attaches them.
 
 ## What you see
 
-Six tabs over one project at a time, picked at the top:
+Seven tabs over one project at a time, picked at the top:
 
 | Tab | What it is for |
 |---|---|
@@ -122,6 +122,7 @@ Six tabs over one project at a time, picked at the top:
 | Types | the kinds of paper the project holds, each kind's canonical structure (its slots in order, how often its papers have each), and any paper drawn onto it: a line from each printed section to its slot, coloured by the vocabulary, the catalogue, the embedder, a built heading or the outline judge; the slots it lacks drawn empty |
 | Query | a question, and the passages that answer it, each hydrated from its tree: the headings above it, the paragraphs either side, the methods a finding was measured by (the paragraph it rests on, where the method is described in another paper, statistics and materials apart), the findings a method measured, the figures and references it cites — a figure with the numbers read from its charts; **Open in the tree** lands on it |
 | Graph | the papers and the citations between them, drawn as a graph with the works they cite most beside them; **Citation round** files what the papers cite (and what cites them) as the next round's candidates; SQL over `works`, `authors` and `cites`, its candidates fetched and read from the results |
+| Plots | the figures that are data plots, found by the words of their captions; one digitised into its (x, y) points, exported as CSV, and a sigmoid fitted to it (below, "A plot digitised by hand, and a curve fitted") |
 
 The Papers tab:
 

@@ -1636,6 +1636,7 @@ Queued ops are marked with an asterisk. The full table of params and answers is 
 | Look around | `hello`, `libraries`, `projects`, `papers`, `retrieval`, `candidates`, `wanted` |
 | Read one paper | `tree`, `node`, `section`, `events`, `file`, `mapping`, `audit`, `parse_json` |
 | Ask the library | `query`, `sql`, `passages`, `refs`, `edges`, `graph`, `charts`, `types` |
+| Digitise a plot | `plots`, `digitise_open`, `digitise_axes`, `digitise_extract`, `digitise_save`, `digitise_attach`, `digitise_delete`, `digitise_export`, `fit` (fields and answers: `AGENT.md`, section 8) |
 | Find and fetch | `search`, `suggest`, `stage`, `dismiss`, `fetch`\* |
 | Read papers in, or again | `ingest`*, `reparse`*, `rebuild`*, `judge`*, `figures`*, `embed`* |
 | Grow by citations | `round`*, `expand`* |
@@ -1663,7 +1664,7 @@ Queued ops are marked with an asterisk. The full table of params and answers is 
 
 ### What happens underneath
 
-The worker is one Python process. Its main thread reads requests and answers reads itself. `search`, `suggest` and `query` each get a thread, because they wait on Europe PMC or the local models. One ingest thread takes the queued jobs in turn; a job that raises becomes an `error` event and the next one runs.
+The worker is one Python process. Its main thread reads requests and answers reads itself. `search`, `suggest` and `query` each get a thread, because they wait on Europe PMC or the local models. So do the digitiser's reads of an image (`digitise_axes`, `digitise_extract`, and `digitise_open` on an image file). `digitise_open` on a paper's figure cuts it from the PDF on the ingest thread, so it is answered after whatever is being read. One ingest thread takes the queued jobs in turn; a job that raises becomes an `error` event and the next one runs.
 
 The window starts this same program and sends `quit` when its windows close.
 
@@ -2088,6 +2089,7 @@ Each tab works on the project chosen in the header's **Project** picker, and the
 | **Types** | One tab per type with its count; **Canonical structure**; **How each paper maps onto it**, with a paper picker and **Open in Papers** | `types`, `mapping` |
 | **Query** | The question box, **Passages** (8), **Ask**; **Embed passages** with its count of passages embedded; **Open in the tree** on each hit | `query`, `retrieval`, `embed` |
 | **Graph** | **and what cites them**, **OpenAlex too**, the number to read (10), **Expand: read the most cited**, **Citation round**; **Candidates** ("none", "cited by at least", "all") with its number (2), **Colour** ("round", "year", "held or not"), the find box, **Fit**; in the side panel **Open in Papers**, **Citation round from it**, **here** and **Europe PMC** by each author, **Fetch & read** on a candidate; under **Ask in SQL** the presets **Held, oldest first**, **Next round**, **By an author**, **Authors here**, **Who cites whom**, **Rounds**, then **Run** (Ctrl+Enter) and **Fetch & read selected** | `graph`, `round`, `expand`, `sql`, `passages`, `fetch` |
+| **Plots** | The caption box, **trends only**, **Find plots**; **Open an image…**; on the figure **Pick colour**, **Region**, **Add**, **Move**, **Delete** and the zoom; **1 · Axes** (**X1**, **X2**, **Y1**, **Y2** with their values, **log**, labels and units, **Confirm these axes**); **2 · Series** (tolerance, markers or a line, **Find points**, the name, **Save series**, **New series**, **Clear**, **Put on this figure** on a series under **Needs review**); **3 · Points** (**Export CSV…**); **4 · Fit** (logistic or Gompertz, **Fit**) | `plots`, `digitise_open`, `digitise_axes`, `digitise_extract`, `digitise_save`, `digitise_attach`, `digitise_delete`, `digitise_export`, `fit` |
 | Any tab | **Project** picker; drop PDFs or JATS XML anywhere (**Drop to ingest**) | `hello`, `projects`, `ingest` |
 | Log pane | **What the worker is doing**, **Hide** (then **Show**), **Clear** | none |
 
@@ -2142,6 +2144,8 @@ The worker answers these 45 ops, each sent as one JSON line with an `id`; a queu
 | `audit` | now | `lib`; opt. `key`; or `path` | `audit`: `papers[]` with their `findings` |
 | `parse_json` | now | `path`; opt. `key` | `tree` built from a saved Docling document; nothing is stored |
 | `quit` | now | none | `bye`, then the worker exits |
+
+Not in this table: the Plots tab's nine ops, `plots`, `digitise_open`, `digitise_axes`, `digitise_extract`, `digitise_save`, `digitise_attach`, `digitise_delete`, `digitise_export` and `fit`. Their fields and answers are in `AGENT.md`, section 8.
 
 ### Switches for everyone
 
@@ -2219,6 +2223,9 @@ A library's rows live in its `store.sqlite`; the tables from `cites` to `graph_s
 | `chart_values` | A value read from a plot | `paper`, `figure`, `plot`, `series`, `name`, `category`, `x`, `y`, `err_lo`, `err_hi` |
 | `figure_reads` | A paper's last reading of its charts | `paper`, `figures`, `plots`, `read`, `values_`, `seconds`, `file`, `unmatched`, `pages`, `pages_read` |
 | `figure_outcomes` | A figure that reading looked for | `paper`, `figure`, `figure_label`, `outcome` (`plots`, `no-plot`, `no-caption`, `skipped`), `page`, `bbox`, `detail` |
+| `digitised` | A series a person digitised from a figure (made, with the two below, when the Plots tab first needs them) | `id`, `uid`, `paper`, `figure`, `picture` (the hash of the picture it was read from), `figure_label`, `page`, `bbox`, `series` (its name), `colour`, `calibration`, `method`, `image`, `x_label`, `x_unit`, `y_label`, `y_unit`, `orphan` (1 while it waits under **Needs review**) |
+| `digitised_points` | A point of a digitised series | `digitised`, `ordinal`, `x`, `y`, `px`, `py`, `how` (`auto`, `added`, `moved`) |
+| `digitised_fits` | A curve fitted to a digitised series | `digitised`, `model` (`logistic`, `gompertz`), `status` (`fit`, `unfit`), `plateau`, `max_rate`, `t_half`, `lag`, `r2`, `result` |
 | `vectors` | A passage's embedding | `node`, `model`, `dims`, `vec` |
 | `vectors_gen` | A counter of changes to `vectors` | `n` |
 | `judgments` | A verdict on two blocks split at a page break, by the chat model or the boundary scorer | `paper`, `pair`, `same`, `model` |

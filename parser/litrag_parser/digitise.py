@@ -1413,4 +1413,3 @@ def _r(v: float) -> float:
 
 def _fmt(v: float) -> str:
     return repr(v) if isinstance(v, float) else str(v)
-
