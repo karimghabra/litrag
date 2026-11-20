@@ -24,7 +24,9 @@ cites before it is shown (`check_claims`):
   it a `partial`: the status says what the claims show.
 
 When nothing is retrieved the model is not asked; when the model cannot be had the passages
-still come back, with the reason (`status: unanswered`). Every citation carries what the
+still come back, with the reason (`status: unanswered`). The passages are cut so that the
+prompt fits the model's window whatever their number (1 to `MAX_K`); a prompt that fills the
+window all the same is said (`warning`). Every citation carries what the
 window needs to open the paper at the passage: the library, the paper's key, the node, its
 section, page and box.
 
@@ -33,13 +35,13 @@ The model is the request's `model`, else `LITRAG_ANSWER_MODEL`, else the library
 (`campaign/answers/grounding.jsonl`, NOTES.md 2026-11-19) to fit a 10 GB card beside the
 embedder.
 
-    uv run --project parser --no-sync python -m litrag_parser.answer --root DIR --lib LIB "question" [--json] [--model M]
-    uv run --project parser --no-sync python -m litrag_parser.answer --root DIR --measure campaign/answers/grounding.jsonl [--model M] [--json OUT]
+    uv run --project parser --no-sync python -m litrag_parser.answer --root DIR --measure campaign/answers/grounding.jsonl [--model M] [--k N] [--json OUT]
 """
 
 from __future__ import annotations
 
 import argparse
+import http.client
 import json
 import os
 import re
@@ -58,7 +60,9 @@ from .store import open_store
 DEFAULT_MODEL = "qwen3.5:9b"
 DEFAULT_URL = "http://127.0.0.1:11434"
 K = 8  # passages handed to the model
+MAX_K = 20  # the most a question may ask for
 SOURCE_CHARS = 1500  # a passage's text as the model sees it; 8 of them and the rules fit an 8,192-token window
+PASSAGE_CHARS = K * SOURCE_CHARS  # all the passages' text together: more than 8 passages are each cut shorter
 CONTEXT = 8192  # one window for every question: Ollama reloads a model whose num_ctx changes
 NUM_PREDICT = 1200
 SUPPORT = 0.5  # the share of a claim's words a cited passage must hold, beside every number it states
@@ -215,7 +219,8 @@ def where(s: dict[str, Any]) -> str:
 
 
 def prompt(question: str, sources: list[dict[str, Any]]) -> str:
-    blocks = [f"[{s['n']}] {where(s)}\n{_cut(s['text'], SOURCE_CHARS)}" for s in sources]
+    limit = min(SOURCE_CHARS, PASSAGE_CHARS // max(1, len(sources)))
+    blocks = [f"[{s['n']}] {where(s)}\n{_cut(s['text'], limit)}" for s in sources]
     return f"Question: {question.strip()}\n\nPassages:\n\n" + "\n\n".join(blocks) + "\n\nAnswer the question from these passages only."
 
 
@@ -260,23 +265,28 @@ def chat(model: str, system: str, user: str, *, url: str | None = None, timeout:
     parts: list[str] = []
     last: dict[str, Any] = {}
     tokens = 0
-    with resp:
-        for raw in resp:
-            line = raw.decode("utf-8").strip()
-            if not line:
-                continue
-            msg = json.loads(line)
-            if msg.get("error"):
-                raise ModelError(f"the model failed: {msg['error']}")
-            piece = (msg.get("message") or {}).get("content") or ""
-            if piece:
-                parts.append(piece)
-                tokens += 1
-                if on_tokens is not None:
-                    on_tokens(tokens)
-            if msg.get("done"):
-                last = msg
-                break
+    try:
+        with resp:
+            for raw in resp:
+                line = raw.decode("utf-8").strip()
+                if not line:
+                    continue
+                msg = json.loads(line)
+                if msg.get("error"):
+                    raise ModelError(f"the model failed: {msg['error']}")
+                piece = (msg.get("message") or {}).get("content") or ""
+                if piece:
+                    parts.append(piece)
+                    tokens += 1
+                    if on_tokens is not None:
+                        on_tokens(tokens)
+                if msg.get("done"):
+                    last = msg
+                    break
+    except (OSError, http.client.HTTPException, ValueError) as e:
+        raise ModelError(f"Ollama stopped answering part-way ({type(e).__name__}): ask again") from e
+    if not last:
+        raise ModelError("Ollama stopped answering part-way (the reply ended unfinished): ask again")
     return {
         "content": "".join(parts),
         "prompt_tokens": last.get("prompt_eval_count"),
@@ -293,13 +303,7 @@ def parse_reply(content: str) -> dict[str, Any] | None:
     try:
         d = json.loads(content)
     except (TypeError, ValueError):
-        m = re.search(r"\{.*\}", content or "", re.S)
-        if not m:
-            return None
-        try:
-            d = json.loads(m.group(0))
-        except ValueError:
-            return None
+        return None
     if not isinstance(d, dict) or d.get("status") not in STATUSES or not isinstance(d.get("claims", []), list):
         return None
     claims = []
@@ -410,14 +414,16 @@ def ask(libs: list[Library], question: str, *, model: str | None = None, k: int 
         embedder: Any = None, on_progress: Callable[[dict[str, Any]], None] | None = None,
         chat_fn: Callable[..., dict[str, Any]] = chat) -> dict[str, Any]:
     """Retrieve, ask, check: `{question, libs, model, status, summary, claims, dropped, missing,
-    sources, retrieval, timing, error?}`. `sources` are every passage the model was given, each
-    with its number `n` and `cited` (whether a kept claim cites it)."""
+    sources, retrieval, timing, error?, warning?}`. `sources` are every passage the model was
+    given, each with its number `n` and `cited` (whether a kept claim cites it). `k` is held to
+    1..`MAX_K`; `warning` says a prompt and reply that filled the model's window."""
     question = (question or "").strip()
     if not question:
         raise ValueError("an empty question")
     if not libs:
         raise ValueError("no library to ask")
     model = model or default_model(libs[0])
+    k = max(1, min(MAX_K, int(k)))
     url = (url or default_url()).rstrip("/")
     say = on_progress or (lambda _e: None)
     t0 = time.monotonic()
@@ -463,6 +469,8 @@ def ask(libs: list[Library], question: str, *, model: str | None = None, k: int 
         return out
     out["timing"].update(model=r["seconds"], load=r.get("load_seconds"), prompt_tokens=r.get("prompt_tokens"), tokens=r.get("tokens"),
                          tokens_per_second=round(r["tokens"] / r["eval_seconds"], 1) if r.get("eval_seconds") else None)
+    if (r.get("prompt_tokens") or 0) + (r.get("tokens") or 0) >= CONTEXT:
+        out["warning"] = f"The question and its passages filled {model}'s {CONTEXT:,}-token window: part of them may not have been read. Ask with fewer passages."
     reply = parse_reply(r["content"])
     if reply is None:
         out.update(status="unanswered", error=f"{model} did not answer in the shape asked for" + (" (cut short)" if r.get("done_reason") == "length" else ""), raw=r["content"][:2000])
@@ -507,17 +515,19 @@ def judge_case(case: dict[str, Any], a: dict[str, Any]) -> dict[str, Any]:
     """One question of the grounding set against its answer. A case with `answer` is in the
     library: `found` (the answering passage — the paper's DOI, every anchor — was among the
     sources), `answered` (status answered or partial), `cites_answer` (a kept claim cites that
-    passage). A case with `absent: true` is not: `refused` (status not_found, or no claim kept).
-    Both count claims kept, supported and weak, and claims dropped."""
+    passage). A case with `absent: true` is not: `refused` (status not_found). Both count claims
+    kept, supported and weak, and claims dropped. An `unanswered` case — no model, a broken
+    reply — is judged on neither: it carries `error` and nothing else."""
     out: dict[str, Any] = {"id": case["id"], "status": a["status"], "claims": len(a["claims"]),
                            "supported": sum(c["support"] == "supported" for c in a["claims"]),
                            "weak": sum(c["support"] == "weak" for c in a["claims"]), "dropped": len(a["dropped"]),
                            "seconds": a["timing"].get("total"), "model_seconds": a["timing"].get("model"),
                            "tokens_per_second": a["timing"].get("tokens_per_second")}
-    if a.get("error"):
-        out["error"] = a["error"]
+    if a["status"] == "unanswered":
+        out["error"] = a.get("error") or "unanswered"
+        return out
     if case.get("absent"):
-        out["refused"] = a["status"] == "not_found" or not a["claims"]
+        out["refused"] = a["status"] == "not_found"
         return out
     want = case["answer"]
     answering = {s["n"] for s in a["sources"] if (s.get("doi") or "").lower() == want["doi"].lower() and _holds_all(s["text"], want["contains"])}
@@ -532,7 +542,8 @@ def measure(root: Path, cases: list[dict[str, Any]], model: str | None = None, k
             on_case: Callable[[dict[str, Any], dict[str, Any]], None] | None = None) -> dict[str, Any]:
     """Every case asked and judged: `{model, cases, present {n, found, answered, cites_answer,
     refused_wrongly}, absent {n, refused, answered_wrongly}, claims {kept, supported, weak,
-    dropped, support_rate}, seconds {mean, median}, tokens_per_second}`."""
+    dropped, support_rate}, seconds {mean, median}, tokens_per_second, errors}`. `model` is the
+    model the answers used; a case left `unanswered` counts under `errors` and in no rate."""
     rows: list[dict[str, Any]] = []
     answers: list[dict[str, Any]] = []
     for case in cases:
@@ -543,25 +554,26 @@ def measure(root: Path, cases: list[dict[str, Any]], model: str | None = None, k
         answers.append({"case": case, "answer": a})
         if on_case:
             on_case(case, j)
-    present = [r for r in rows if "found" in r]
-    absent = [r for r in rows if "refused" in r]
-    kept = sum(r["claims"] for r in rows)
-    sup = sum(r["supported"] for r in rows)
-    secs = sorted(r["seconds"] for r in rows if r.get("seconds") is not None)
-    tps = [r["tokens_per_second"] for r in rows if r.get("tokens_per_second")]
+    judged = [r for r in rows if "error" not in r]
+    present = [r for r in judged if "found" in r]
+    absent = [r for r in judged if "refused" in r]
+    kept = sum(r["claims"] for r in judged)
+    sup = sum(r["supported"] for r in judged)
+    secs = sorted(r["seconds"] for r in judged if r.get("seconds") is not None)
+    tps = [r["tokens_per_second"] for r in judged if r.get("tokens_per_second")]
     return {
-        "model": model or default_model(),
+        "model": ", ".join(sorted({x["answer"]["model"] for x in answers})),
         "k": k,
         "cases": rows,
         "present": {"n": len(present), "found": sum(r["found"] for r in present), "answered": sum(r["answered"] for r in present),
                     "cites_answer": sum(r["cites_answer"] for r in present), "cites_paper": sum(r["cites_paper"] for r in present),
                     "refused_wrongly": sum(not r["answered"] for r in present if r["found"])},
         "absent": {"n": len(absent), "refused": sum(r["refused"] for r in absent), "answered_wrongly": sum(not r["refused"] for r in absent)},
-        "claims": {"kept": kept, "supported": sup, "weak": sum(r["weak"] for r in rows), "dropped": sum(r["dropped"] for r in rows),
+        "claims": {"kept": kept, "supported": sup, "weak": sum(r["weak"] for r in judged), "dropped": sum(r["dropped"] for r in judged),
                    "support_rate": round(sup / kept, 3) if kept else None},
         "seconds": {"mean": round(sum(secs) / len(secs), 2) if secs else None, "median": secs[len(secs) // 2] if secs else None},
         "tokens_per_second": round(sum(tps) / len(tps), 1) if tps else None,
-        "errors": sum(1 for r in rows if r.get("error")),
+        "errors": len(rows) - len(judged),
         "answers": answers,
     }
 
@@ -569,60 +581,30 @@ def measure(root: Path, cases: list[dict[str, Any]], model: str | None = None, k
 # -- the command line --------------------------------------------------------------------------------------------------
 
 
-def _print(a: dict[str, Any]) -> None:
-    print(f"{a['status']} · {a['model']} · {a['timing'].get('total')} s")
-    print()
-    print(a["summary"])
-    if a.get("missing") and a["status"] == "partial":
-        print(f"\nNot in the passages: {a['missing']}")
-    weak = [c for c in a["claims"] if c["support"] == "weak"]
-    if weak:
-        print("\nCheck these against their passages (a number or most words not found there):")
-        for c in weak:
-            print(f"  - {c['text']} {c['sources']}" + (f" · numbers not in the passage: {', '.join(c['numbers_missing'])}" if c["numbers_missing"] else ""))
-    if a["dropped"]:
-        print(f"\n{len(a['dropped'])} sentence(s) left out, citing no passage given.")
-    print()
-    for s in a["sources"]:
-        mark = "*" if s.get("cited") else " "
-        print(f"{mark}[{s['n']}] {where(s)}" + (f" · {s['lib']}" if len(a["libs"]) > 1 else ""))
-        if s.get("doi"):
-            print(f"      doi:{s['doi']} · {s['node_id']}")
+def _line(j: dict[str, Any]) -> str:
+    if "error" in j:
+        judged = f" error={j['error']}"
+    elif "found" in j:
+        judged = f" found={j['found']} cites={j['cites_answer']}"
+    else:
+        judged = f" refused={j['refused']}"
+    return f"  {j['id']}: {j['status']}{judged} claims={j['claims']} weak={j['weak']} {j['seconds']}s"
 
 
 def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(prog="litrag_parser.answer", description=__doc__.split("\n\n")[0])
-    ap.add_argument("question", nargs="?")
+    ap = argparse.ArgumentParser(prog="litrag_parser.answer", description="The grounding set asked and judged: cited answers measured on questions the library answers and questions it cannot.")
+    ap.add_argument("--measure", required=True, help="a grounding set (JSON lines): ask every case and report")
     ap.add_argument("--root", default=os.environ.get("LITRAG_ROOT") or os.environ.get("PROTRACKER_LIBRARY") or str(Path.home() / ".protracker" / "library"))
-    ap.add_argument("--lib", action="append", default=[], help="a library (repeatable; 'all' for every one)")
     ap.add_argument("--model", help=f"the chat model (default LITRAG_ANSWER_MODEL, the library's ollama.answer, or {DEFAULT_MODEL})")
-    ap.add_argument("--k", type=int, default=K, help="passages handed to the model")
-    ap.add_argument("--json", nargs="?", const="-", help="the answer as JSON (with --measure, a file to write the report to)")
-    ap.add_argument("--measure", help="a grounding set (JSON lines): ask every case and report")
+    ap.add_argument("--k", type=int, default=K, help=f"passages handed to the model (1 to {MAX_K})")
+    ap.add_argument("--json", help="a file to write the whole report to, every answer in it")
     args = ap.parse_args(argv)
-    root = Path(args.root).expanduser()
-    if args.measure:
-        cases = [json.loads(l) for l in Path(args.measure).read_text("utf-8").splitlines() if l.strip()]
-        rep = measure(root, cases, model=args.model, k=args.k,
-                      on_case=lambda c, j: print(f"  {j['id']}: {j['status']}" + (f" found={j['found']} cites={j['cites_answer']}" if "found" in j else f" refused={j['refused']}") + f" claims={j['claims']} weak={j['weak']} {j['seconds']}s", file=sys.stderr))
-        brief = {k: v for k, v in rep.items() if k not in ("cases", "answers")}
-        print(json.dumps(brief, indent=2))
-        if args.json and args.json != "-":
-            Path(args.json).write_text(json.dumps(rep, indent=2, ensure_ascii=False, default=str), "utf-8")
-        return 0
-    if not args.question or not args.lib:
-        ap.print_help()
-        return 2
-    try:
-        a = ask(resolve(root, args.lib), args.question, model=args.model, k=args.k)
-    except ValueError as e:
-        print(json.dumps({"ok": False, "message": str(e)}) if args.json else str(e), file=sys.stdout if args.json else sys.stderr)
-        return 1
+    cases = [json.loads(l) for l in Path(args.measure).read_text("utf-8").splitlines() if l.strip()]
+    rep = measure(Path(args.root).expanduser(), cases, model=args.model, k=args.k, on_case=lambda c, j: print(_line(j), file=sys.stderr))
+    print(json.dumps({k: v for k, v in rep.items() if k not in ("cases", "answers")}, indent=2))
     if args.json:
-        print(json.dumps(a, ensure_ascii=False, default=str))
-    else:
-        _print(a)
-    return 0 if a["status"] != "unanswered" else 1
+        Path(args.json).write_text(json.dumps(rep, indent=2, ensure_ascii=False, default=str), "utf-8")
+    return 0
 
 
 if __name__ == "__main__":

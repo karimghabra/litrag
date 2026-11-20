@@ -1348,15 +1348,7 @@ class Worker:
                 elif op == "ask":
                     from . import answer
 
-                    names = req.get("libs") or [req.get("lib")]
-                    if any(str(n or "").strip().lower() in ("all", "*") for n in names):
-                        libs = list_libraries(self.root)
-                    else:
-                        libs = []
-                        for name in names:
-                            lib = self._lib({"lib": name})
-                            if all(l.id != lib.id for l in libs):
-                                libs.append(lib)
+                    libs = answer.resolve(self.root, req.get("libs") or [req.get("lib") or ""])
                     out = answer.ask(libs, str(req.get("question") or ""), model=req.get("model") or None, k=int(req.get("k") or answer.K),
                                      on_progress=lambda e: emit({"event": "asking", "id": req_id, "op": "ask", **e}))
                     emit({"event": "answer", "id": req_id, **out})

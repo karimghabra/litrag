@@ -35,4 +35,9 @@ describe('the Ask tab', () => {
     const meta = metaLine(answer({ claims: [{ text: 'x', sources: [1], support: 'weak' }], dropped: [{ text: 'y', reason: 'cites nothing' }] }));
     expect(meta).toEqual(['qwen3.5:9b', '12.3 s', '41.5 tokens/s', '3 passages from 2 papers', '1 sentence to check', '1 sentence left out: it cited no passage given']);
   });
+
+  it('carries the warning an answer came with in its footing', () => {
+    expect(metaLine(answer({ warning: 'The window was filled.' }))).toContain('The window was filled.');
+    expect(metaLine(answer())).not.toContain('The window was filled.');
+  });
 });

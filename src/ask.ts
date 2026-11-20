@@ -41,6 +41,7 @@ export interface AskAnswer {
   sources: AskSource[];
   timing?: { total?: number; tokens_per_second?: number | null };
   error?: string;
+  warning?: string;
 }
 
 export interface AskParams {
@@ -83,11 +84,13 @@ export function askWorker(command: Command, root: string, p: AskParams, onEvent:
     };
     child.stdin.on('error', () => undefined); // a worker gone before the quit line is no failure of the answer
     child.on('error', (e) => finish(() => reject(new Error(`The worker would not start (${command.cmd}): ${e.message}`))));
-    child.stderr.on('data', (d: Buffer) => {
-      err = (err + d.toString('utf8')).slice(-4000);
+    child.stdout.setEncoding('utf8');
+    child.stderr.setEncoding('utf8');
+    child.stderr.on('data', (d: string) => {
+      err = (err + d).slice(-4000);
     });
-    child.stdout.on('data', (d: Buffer) => {
-      const lines = (rest + d.toString('utf8')).split('\n');
+    child.stdout.on('data', (d: string) => {
+      const lines = (rest + d).split('\n');
       rest = lines.pop() ?? '';
       for (const line of lines) {
         let ev: Record<string, unknown>;
@@ -116,6 +119,7 @@ export function where(s: AskSource): string {
 /** The answer for a person: the cited prose, what to check, what was left out, the passages. */
 export function formatAnswer(a: AskAnswer): string {
   const out: string[] = [`${a.status} · ${a.model}${a.timing?.total !== undefined ? ` · ${a.timing.total} s` : ''}`, '', a.summary];
+  if (a.warning) out.push('', a.warning);
   if (a.missing && a.status === 'partial') out.push('', `Not in the passages: ${a.missing}`);
   const weak = a.claims.filter((c) => c.support === 'weak');
   if (weak.length) {
