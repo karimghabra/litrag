@@ -124,8 +124,9 @@ def test_the_status_says_what_the_claims_show():
 def test_a_reply_not_in_the_shape_asked_for_is_none():
     assert answer.parse_reply("not json") is None
     assert answer.parse_reply('{"status": "maybe", "claims": []}') is None
-    got = answer.parse_reply('noise {"status": "answered", "claims": [{"text": " A  b. ", "sources": [1, true, "2", 3]}, {"text": ""}], "missing": null} noise')
-    assert got == {"status": "answered", "claims": [{"text": "A b.", "sources": [1, 3]}], "missing": ""}
+    shaped = '{"status": "answered", "claims": [{"text": " A  b. ", "sources": [1, true, "2", 3]}, {"text": ""}], "missing": null}'
+    assert answer.parse_reply(f"noise {shaped} noise") is None
+    assert answer.parse_reply(shaped) == {"status": "answered", "claims": [{"text": "A b.", "sources": [1, 3]}], "missing": ""}
 
 
 def test_the_summary_closes_every_sentence_with_its_citations():
@@ -182,6 +183,38 @@ def test_a_model_that_cannot_be_had_still_hands_back_the_passages(lib):
     assert garbled["status"] == "unanswered" and "cut short" in garbled["error"]
 
 
+def test_any_number_of_passages_asked_for_is_held_to_what_the_window_takes(lib):
+    seen = []
+
+    def refuse(name, system, user, **kw):
+        seen.append(user)
+        return {"content": '{"status": "not_found", "claims": [], "missing": ""}', "seconds": 0, "tokens": 1, "prompt_tokens": 900}
+
+    for k in (-1, 0):
+        one = answer.ask([lib], QUESTION, embedder=emb(), chat_fn=refuse, k=k)
+        assert len(one["sources"]) == 1 and len(seen) == 1 and "warning" not in one  # the model was asked, about one passage
+        seen.clear()
+    many = answer.ask([lib], QUESTION, embedder=emb(), chat_fn=refuse, k=500)
+    assert 8 < len(many["sources"]) <= 20
+
+
+def test_twenty_long_passages_make_a_prompt_that_leaves_the_reply_its_room():
+    long = [{"n": n, "title": "A paper on gels", "year": "2026", "ancestry": ["3 Results", "3.1 Thermal stability"], "page": 4, "text": "collagen fibril " * 400} for n in range(1, 21)]
+    chars = len(answer.SYSTEM) + len(answer.prompt(QUESTION, long))
+    assert chars / 3 <= 8192 - 1200  # scientific prose runs to three characters a token at the worst; 1,200 tokens are the reply's
+    eight = answer.prompt(QUESTION, long[:8])
+    assert all(("collagen fibril " * 90) in block for block in eight.split("\n\n[")[1:])  # at eight, each keeps about 1,500 characters
+
+
+def test_a_prompt_that_filled_the_window_is_said(lib):
+    def full(prompt_tokens, tokens):
+        return lambda *a, **k: {"content": '{"status": "not_found", "claims": [], "missing": ""}', "seconds": 1, "tokens": tokens, "prompt_tokens": prompt_tokens}
+
+    assert "8,192-token window" in answer.ask([lib], QUESTION, embedder=emb(), chat_fn=full(8192, 20))["warning"]
+    assert "warning" in answer.ask([lib], QUESTION, embedder=emb(), chat_fn=full(7500, 700))  # the reply ran past the window's end
+    assert "warning" not in answer.ask([lib], QUESTION, embedder=emb(), chat_fn=full(2700, 300))
+
+
 def test_nothing_retrieved_is_not_found_without_asking(lib, tmp_path):
     empty = create_library(tmp_path, "Empty")
     open_store(empty.store_path).close()
@@ -224,6 +257,23 @@ def test_a_case_of_the_grounding_set_is_judged_on_the_passage_and_on_the_refusal
     assert present["found"] and present["answered"] and present["cites_answer"] and present["supported"] == 1
     absent = answer.judge_case({"id": "q", "absent": True}, {**a, "status": "not_found", "claims": []})
     assert absent["refused"] and "found" not in absent
+    failed = {**a, "status": "unanswered", "claims": [], "error": "Ollama does not have m: ollama pull m"}
+    for case in ({"id": "q", "absent": True}, {"id": "p", "answer": {"doi": "10.1/a", "contains": ["27.25"]}}):
+        j = answer.judge_case(case, failed)
+        assert "ollama pull" in j["error"] and "refused" not in j and "found" not in j and "answered" not in j
+
+
+def test_a_model_that_cannot_be_had_is_an_error_of_the_measure_never_a_refusal(lib, monkeypatch):
+    lib.manifest["ollama"] = {"answer": "library-model"}
+    lib.manifest_path.write_text(json.dumps(lib.manifest), "utf-8")
+    monkeypatch.delenv("LITRAG_ANSWER_MODEL", raising=False)
+    monkeypatch.setenv("LITRAG_OLLAMA_URL", "http://127.0.0.1:9")
+    cases = [{"id": "absent", "lib": lib.id, "question": QUESTION, "absent": True},
+             {"id": "present", "lib": lib.id, "question": QUESTION, "answer": {"doi": "10.3390/mi15070851", "contains": ["PDMS"]}}]
+    rep = answer.measure(lib.root, cases)
+    assert rep["errors"] == 2 and rep["model"] == "library-model"
+    assert rep["absent"] == {"n": 0, "refused": 0, "answered_wrongly": 0}
+    assert rep["present"]["n"] == 0 and rep["present"]["refused_wrongly"] == 0
 
 
 # -- Ollama, stood in on 127.0.0.1 ------------------------------------------------------------------------
@@ -233,8 +283,8 @@ class FakeOllama:
     """`/api/tags`, `/api/embed` and a streamed `/api/chat`, as Ollama answers them. `think` makes
     the first chat refuse a `think` field the way a model without thinking does."""
 
-    def __init__(self, reply: dict, think_refused: bool = False):
-        self.reply, self.think_refused, self.chats = reply, think_refused, []
+    def __init__(self, reply: dict, think_refused: bool = False, breaks: str | None = None):
+        self.reply, self.think_refused, self.chats, self.breaks = reply, think_refused, [], breaks
         fake = self
 
         class H(BaseHTTPRequestHandler):
@@ -265,6 +315,18 @@ class FakeOllama:
                 if fake.think_refused and "think" in body:
                     return self._send(400, {"error": f"\"{body['model']}\" does not support thinking"})
                 text = json.dumps(fake.reply)
+                first = json.dumps({"message": {"content": text[:7]}, "done": False}).encode() + b"\n"
+                if fake.breaks == "garbage":
+                    return self._send(200, first + b"<html>502 Bad Gateway</html>\n", "application/x-ndjson")
+                if fake.breaks == "dies":
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/x-ndjson")
+                    self.send_header("Transfer-Encoding", "chunked")
+                    self.end_headers()
+                    self.wfile.write(b"%x\r\n%s\r\n" % (len(first), first))
+                    self.wfile.flush()
+                    self.close_connection = True
+                    return
                 lines = [{"message": {"content": text[i : i + 7]}, "done": False} for i in range(0, len(text), 7)]
                 lines.append({"message": {"content": ""}, "done": True, "done_reason": "stop", "prompt_eval_count": 800, "eval_count": len(lines), "eval_duration": 1_000_000_000, "load_duration": 0})
                 self._send(200, "".join(json.dumps(l) + "\n" for l in lines).encode(), "application/x-ndjson")
@@ -294,6 +356,16 @@ def test_chat_streams_the_answer_and_says_what_went_wrong():
     with pytest.raises(answer.ModelError, match="not answering"):
         answer.chat("stand-in:9b", "s", "u", url="http://127.0.0.1:9", timeout=2)
     assert answer.models("http://127.0.0.1:9", timeout=1)["down"]
+
+
+@pytest.mark.parametrize("breaks", ["garbage", "dies"])
+def test_a_model_lost_part_way_through_its_answer_still_hands_back_the_passages(lib, breaks):
+    fake = FakeOllama({"status": "not_found", "claims": [], "missing": "none"}, breaks=breaks)
+    try:
+        a = answer.ask([lib], QUESTION, model="stand-in:9b", url=fake.url, embedder=emb())
+    finally:
+        fake.close()
+    assert a["status"] == "unanswered" and "part-way" in a["error"] and a["sources"] and a["claims"] == []
 
 
 def test_the_worker_answers_ask_over_its_wire(lib, monkeypatch):

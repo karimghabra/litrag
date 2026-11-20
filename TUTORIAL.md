@@ -1099,6 +1099,8 @@ Ask "What is the tensile strength of hagfish slime threads?" and the status read
 | `not_found` | "Not in the library" | the passages do not answer it; the model says what they cover instead |
 | `unanswered` | "No answer from the model" | Ollama or the model could not be had, or it replied in a broken shape; the reason is shown, and the passages still come back |
 
+When the question and its passages fill the model's 8,192-token window, the line under the status says so, and `lit ask` prints it: part of them may not have been read, so ask again with fewer passages.
+
 The model's citations are checked before anything is shown:
 
 - **A citation to a passage the model was not given** is removed. A sentence left with no citation is not shown as part of the answer. The footing line counts it: "1 sentence left out: it cited no passage given".
@@ -1130,7 +1132,7 @@ Any chat model Ollama holds can be picked. A model too large for the card runs p
 | Stage | What it does |
 | --- | --- |
 | Retrieve | each project's `query` retrieval (words and meaning, fused; see Asking the library (Query)); with several projects, the hits are merged by fused score, a paper held in two of them is given once, and the best `k` are kept |
-| Number | each passage becomes "[n] paper (year) — headings — p. N", followed by its text, cut to 1,500 characters |
+| Number | each passage becomes "[n] paper (year) — headings — p. N", followed by its text, cut to 1,500 characters; with more than 8 passages each is cut shorter (12,000 characters between them), so the prompt still fits the window |
 | Ask | Ollama's `/api/chat` at `LITRAG_OLLAMA_URL` (127.0.0.1:11434): a fixed set of rules, the question and the numbered passages; a JSON schema for the reply (status, claims each with their passage numbers, what is missing), thinking off, temperature 0, seed 7, an 8,192-token window |
 | Check | each claim held against the passages it cites, as above |
 | Answer | the claims joined into prose, each closed by its citations; the passages, each with what the window needs to open it: project, paper key, node, section, page and box |
@@ -1147,18 +1149,13 @@ npm run lit -- ask all "…" --json                      # every project; the an
 npm run lit -- ask archive "…" --with collagen-simulations --model gemma4:12b --limit 12
 ```
 
-The progress lines go to stderr and the answer goes to stdout. A cited passage is marked `*`, followed by its DOI and node id. `lit ask` exits with 1 when the answer is `unanswered`. The parser module answers too, without the worker:
-
-```sh
-uv run --project parser --no-sync python -m litrag_parser.answer --root ~/.protracker/library \
-  --lib collagen-simulations "What was the DSC peak of the type III collagen cold gel?" --json
-```
+The progress lines go to stderr and the answer goes to stdout. A cited passage is marked `*`, followed by its DOI and node id. `lit ask` exits with 1 when the answer is `unanswered`. `--limit` is the number of passages, held to 1 to 20.
 
 ### From a script
 
 | Op | Asks | Answer |
 | --- | --- | --- |
-| `ask` | `lib` or `libs[]` (`all` for every project), `question`; opt. `model`, `k` (8) | `asking` events (`stage`: retrieve, model, writing; `message`), then `answer` |
+| `ask` | `lib` or `libs[]` (`all` for every project), `question`; opt. `model`, `k` (8, held to 1 to 20) | `asking` events (`stage`: retrieve, model, writing; `message`), then `answer` |
 | `models` | opt. `lib` | `models`: `url`, `down`, `error`, `models[]` (`name`, `size`, `family`, `parameters`, `quantization`), `default` |
 
 The example above, with the passages cut to the cited one and without their text:
@@ -1187,6 +1184,7 @@ It prints one line per question, then totals:
 - **Refusals:** absent questions refused, and absent questions answered anyway.
 - **Claims:** kept, supported, to check, and left out.
 - **Speed:** seconds per question and tokens per second.
+- **Errors:** questions left `unanswered` (Ollama down, the model not pulled, a broken reply). They count in none of the totals above.
 
 `run.json` keeps every answer. Write it outside the checkout.
 
@@ -2256,7 +2254,7 @@ The worker answers these 51 ops, each sent as one JSON line with an `id`; a queu
 | `mapping` | now | `lib`, `key` | `mapping`, `canonical` |
 | `query` | own thread | `lib` or `libs[]` (`["*"]` for every project), `question`; opt. `k` (8) | `query`: `hits[]` with their context, `embedder`, `counts`, `scope`, `left_out`, `seconds` |
 | `retrieval` | now | `lib` | `retrieval`: `units`, `embedded`, `model`, `down`, `error` |
-| `ask` | own thread | `lib` or `libs[]` (`all` for every project), `question`; opt. `model`, `k` (8) | `asking` events, then `answer`: `status`, `summary`, `claims[]`, `dropped[]`, `missing`, `sources[]`, `retrieval`, `timing` |
+| `ask` | own thread | `lib` or `libs[]` (`all` for every project), `question`; opt. `model`, `k` (8) | `asking` events, then `answer`: `status`, `summary`, `claims[]`, `dropped[]`, `missing`, `sources[]`, `retrieval`, `timing`, `warning` when the prompt filled the model's window |
 | `models` | own thread | opt. `lib` | `models`: `url`, `down`, `error`, `models[]` (embedders left out) with `name`, `size`, `parameters`, `quantization`, and `default` |
 | `sql` | now | `lib`, `sql`; opt. `limit` (200, at most 5000) | `rows`: `columns`, `rows` |
 | `graph` | now | `lib`; opt. `candidates` (`cited`), `min_cited` (2) | `graph`: `nodes`, `edges`, `hidden` |

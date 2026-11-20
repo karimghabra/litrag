@@ -47,6 +47,7 @@ export interface AskAnswer {
   sources: AskSource[];
   timing?: { total?: number; model?: number; tokens_per_second?: number | null; prompt_tokens?: number | null; tokens?: number | null };
   error?: string;
+  warning?: string;
 }
 
 interface Models {
@@ -91,6 +92,7 @@ export function metaLine(a: AskAnswer): string[] {
   const weak = a.claims.filter((c) => c.support === 'weak').length;
   if (weak) out.push(`${weak} sentence${weak === 1 ? '' : 's'} to check`);
   if (a.dropped.length) out.push(`${a.dropped.length} sentence${a.dropped.length === 1 ? '' : 's'} left out: ${a.dropped.length === 1 ? 'it cited' : 'they cited'} no passage given`);
+  if (a.warning) out.push(a.warning);
   return out;
 }
 

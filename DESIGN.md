@@ -804,7 +804,11 @@ not state — and costs nothing.
 **One window, one temperature.** Thinking off, temperature 0, seed 7, and an
 8,192-token window for every question (Ollama reloads a model whose window changes):
 the same question over the same passages is the same answer. Eight passages of at
-most 1,500 characters and the rules fit with room for the reply.
+most 1,500 characters and the rules fit with room for the reply; a question may ask
+for up to 20, and past 8 each is cut shorter (12,000 characters between them), so the
+prompt fits whatever the number. A prompt and reply that fill the window all the same
+(a very long question, long headings) are said in the answer's `warning`, never
+passed off as a full reading.
 
 **The model is chosen on the grounding set, and is a setting.**
 `campaign/answers/grounding.jsonl` holds questions whose answering passage is known
@@ -818,7 +822,8 @@ a 10 GB card beside the embedder. The bake-off and the choice are in NOTES.md
 `ollama.answer` names another.
 
 **A model that cannot be had still answers with the passages.** Ollama down, the
-model not pulled, or a reply not in the shape asked: `status: unanswered`, the reason
+model not pulled, the model lost part-way through its answer, or a reply not in the
+shape asked: `status: unanswered`, the reason
 in words a person can act on (`ollama pull …`), and the passages, so the question is
 not wasted.
 
