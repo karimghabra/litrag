@@ -757,9 +757,16 @@ def load_image(path: str | Path) -> np.ndarray:
 
 
 def ensure_schema(conn: sqlite3.Connection) -> None:
-    """The digitisations' tables, made on the first call that needs them."""
+    """The digitisations' tables, made on the first call that needs them. A store whose rows
+    were kept before a series was bound to its picture is brought along: each row's picture is
+    the image it was saved with, and a name is its figure's own among the series that have one."""
     have = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('digitised', 'digitised_points', 'digitised_fits')")}
     if len(have) == 3:
+        if "picture" not in {r[1] for r in conn.execute("PRAGMA table_info(digitised)")}:
+            with conn:
+                conn.execute("ALTER TABLE digitised ADD COLUMN picture TEXT NOT NULL DEFAULT ''")
+                conn.execute("UPDATE digitised SET picture = COALESCE(json_extract(image, '$.sha256'), '')")
+                conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS digitised_of_figure ON digitised(figure, series) WHERE orphan = 0")
         return
     conn.executescript(
         """
@@ -824,11 +831,13 @@ def _image(image: dict[str, Any] | None) -> dict[str, Any]:
 
 
 def save(lib_dir: Path, conn: sqlite3.Connection, figure: str, series: str, calibration: dict[str, Any], points: Sequence[dict[str, Any]], *, image: dict[str, Any], colour: str | None = None,
-         method: dict[str, Any] | None = None, axes: dict[str, Any] | None = None, source: dict[str, Any] | None = None, replace: bool = False) -> dict[str, Any]:
+         method: dict[str, Any] | None = None, axes: dict[str, Any] | None = None, source: dict[str, Any] | None = None, series_id: int | None = None) -> dict[str, Any]:
     """A series saved on a figure: every point's value read again from its pixel through
-    `calibration`. A name the figure has a series under already is refused — a second curve is
-    not to take the first's place unasked — unless `replace` says the one of that name is to be
-    replaced, its points and its fits (never one kept for review: it is no figure's). `image` is the one the figure was opened as (`render`): the points are pixels
+    `calibration`. A series is its id; its name is a label. With `series_id` the figure's series
+    of that id is saved again — renamed, when the name is another; its points replaced, and with
+    them its fits, when the points are others — and without one a new series is made. Either
+    way the name must be the figure's only one: a second curve never takes the first's place
+    by being called the same (one kept for review is no figure's, and in no name's way). `image` is the one the figure was opened as (`render`): the points are pixels
     of it, so it must be the picture of the figure on disk still, and a copy of it is kept by its
     hash, which binds the series to the figure. `source` is the one the figure was opened with:
     where the store knows no place for the figure (an XML paper's, found on the PDF kept beside it
@@ -856,16 +865,19 @@ def save(lib_dir: Path, conn: sqlite3.Connection, figure: str, series: str, cali
     ax = axes or {}
     x, y = ax.get("x") or {}, ax.get("y") or {}
     with conn:
-        old = conn.execute("SELECT id FROM digitised WHERE figure = ? AND series = ? AND orphan = 0", (figure, name)).fetchone()
-        if old is not None and not replace:
-            raise ValueError(f"the figure has a series named {name!r} already: give this one another name, or say it replaces that one")
+        if series_id is not None and conn.execute("SELECT 1 FROM digitised WHERE id = ? AND figure = ? AND orphan = 0", (series_id, figure)).fetchone() is None:
+            raise ValueError(f"the figure has no series {series_id}")
+        if conn.execute("SELECT 1 FROM digitised WHERE figure = ? AND series = ? AND orphan = 0 AND id IS NOT ?", (figure, name, series_id)).fetchone() is not None:
+            raise ValueError(f"the figure has a series named {name!r} already: give this one a name of its own")
         row = (src["paper"], figure, sha, src.get("label"), src.get("page"), json.dumps(src.get("bbox")) if src.get("bbox") else None, name, colour,
                json.dumps(cal.to_dict()), json.dumps({"reader": METHOD, **(method or {})}), json.dumps(_image(image)),
                x.get("label"), x.get("unit"), y.get("label"), y.get("unit"), now_iso())
-        if old is not None:
-            did = old["id"]
+        if series_id is not None:
+            did = series_id
+            was = [tuple(r) for r in conn.execute("SELECT x, y, px, py, how FROM digitised_points WHERE digitised = ? ORDER BY ordinal", (did,))]
+            if was != [(p["x"], p["y"], p["px"], p["py"], p["how"]) for p in pts]:
+                conn.execute("DELETE FROM digitised_fits WHERE digitised = ?", (did,))  # the points changed: a fit of the old ones is no fit of these
             conn.execute("DELETE FROM digitised_points WHERE digitised = ?", (did,))
-            conn.execute("DELETE FROM digitised_fits WHERE digitised = ?", (did,))  # the points changed: a fit of the old ones is no fit of these
             conn.execute("UPDATE digitised SET paper=?, figure=?, picture=?, figure_label=?, page=?, bbox=?, series=?, colour=?, calibration=?, method=?, image=?, x_label=?, x_unit=?, y_label=?, y_unit=?, at=? WHERE id = ?",
                          (*row, did))
         else:
@@ -1241,8 +1253,8 @@ def answer(op: str, req: dict[str, Any], get_lib: Any) -> dict[str, Any]:
     - `digitise_extract` {image, colour, tolerance, region, mode, calibration} → `extracted`
       {mode, colour, points, ...}: a series found by its colour in the rendered image.
     - `digitise_save` {lib, figure, series, calibration, points, colour, method, image, axes, source,
-      replace} → `digitised` {series}: saved; in place of the one of that name only when `replace`
-      says so; `source` the open's, for its place.
+      series_id} → `digitised` {series}: the figure's series of that id saved again, or with no
+      id a new one; `series` its name, a label; `source` the open's, for its place.
     - `digitise_delete` {lib, series_id} → `digitised` {deleted}.
     - `digitise_attach` {lib, series_id, figure} → `digitised` {series}: a series put on a figure
       of its paper by a person (`attach`).
@@ -1321,7 +1333,7 @@ def answer(op: str, req: dict[str, Any], get_lib: Any) -> dict[str, Any]:
     try:
         if op == "digitise_save":
             saved = save(lib.dir, conn, str(req["figure"]), str(req.get("series") or ""), req["calibration"], req.get("points") or [], image=req.get("image") or {}, colour=req.get("colour"),
-                         method=req.get("method"), axes=req.get("axes"), source=req.get("source"), replace=bool(req.get("replace")))
+                         method=req.get("method"), axes=req.get("axes"), source=req.get("source"), series_id=int(req["series_id"]) if req.get("series_id") is not None else None)
             return {"event": "digitised", "lib": lib.id, "series": saved}
         if op == "digitise_attach":
             return {"event": "digitised", "lib": lib.id, "series": attach(lib.dir, conn, int(req["series_id"]), str(req["figure"]))}

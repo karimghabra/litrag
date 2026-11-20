@@ -119,6 +119,13 @@ export function nextName(taken: string[]): string {
   return `series ${n}`;
 }
 
+/** Whether a name is another saved series' of the figure than the one being saved (`active`, its
+ *  id; null for a new one). A series is its id and its name a label, so the series being saved may
+ *  keep its name or take a new one, but never one that is another's. */
+export function nameTaken(saved: { id: number; series: string }[], active: number | null, name: string): boolean {
+  return saved.some((s) => s.series === name && s.id !== active);
+}
+
 /** The point nearest (px, py) within `reach` pixels, or -1. */
 export function nearest(points: Pt[], px: number, py: number, reach: number): number {
   let best = -1;

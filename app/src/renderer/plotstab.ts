@@ -10,7 +10,7 @@
  * digitise.ts's; this module draws and listens.
  */
 
-import { Calibration, addPoint, charted, deletePoint, exportName, fitRows, fitSvg, hex, movePoint, nearest, nextName, num, onPicture, sameCurve, tryCalibration, valued, type AxisCal, type CalibrationDict, type FitResult, type Pt } from './digitise.ts';
+import { Calibration, addPoint, charted, deletePoint, exportName, fitRows, fitSvg, hex, movePoint, nameTaken, nearest, nextName, num, onPicture, sameCurve, tryCalibration, valued, type AxisCal, type CalibrationDict, type FitResult, type Pt } from './digitise.ts';
 import { $, activity, ctx, el, hooks, log, onProjectChange, onViewShown, projectName, rejectionText, request, showView } from './shared.ts';
 
 interface FoundFigure {
@@ -710,7 +710,7 @@ function renderPalette(): void {
 
 function renderAll(): void {
   const has = !!st.opened?.image;
-  for (const id of ['dg-extract', 'dg-save', 'dg-clear', 'dg-export', 'dg-fit', 'dg-use-auto']) $<HTMLButtonElement>(id).disabled = !has;
+  for (const id of ['dg-extract', 'dg-save', 'dg-new', 'dg-clear', 'dg-export', 'dg-fit', 'dg-use-auto']) $<HTMLButtonElement>(id).disabled = !has;
   renderAxes();
   renderPalette();
   renderSaved();
@@ -786,11 +786,15 @@ async function save(): Promise<SavedSeries | null> {
   }
   const name = $<HTMLInputElement>('dg-name').value.trim() || nextName(opened.saved.map((s) => s.series));
   $<HTMLInputElement>('dg-name').value = name;
-  const old = opened.saved.find((s) => s.series === name);
-  if (old && !window.confirm(`Replace the saved series “${name}” (${old.points.length} point${old.points.length === 1 ? '' : 's'}) with the ${st.points.length} on the picture? Its points and its fits are replaced. To keep both, cancel and give this one another name.`)) return null;
+  const old = opened.saved.find((s) => s.id === st.activeSaved);
+  if (nameTaken(opened.saved, old?.id ?? null, name)) {
+    log('error', `Save: this figure has another series named “${name}”. Give this one a name of its own`);
+    return null;
+  }
+  if (old && !window.confirm(`Save over the saved series “${old.series}” (${old.points.length} point${old.points.length === 1 ? '' : 's'}) with the ${st.points.length} on the picture${old.series === name ? '' : `, as “${name}”`}? To keep it as it is and save these beside it, cancel and click New series.`)) return null;
   try {
     const r = await request<{ series: SavedSeries }>('digitise_save', {
-      lib: ctx.lib, figure: st.figure, series: name, calibration: cal.c, points: st.points, colour: st.colour, method: st.method ?? { mode: 'manual' }, image: opened.image, axes: axesOf(), source: opened.source, replace: !!old,
+      lib: ctx.lib, figure: st.figure, series: name, calibration: cal.c, points: st.points, colour: st.colour, method: st.method ?? { mode: 'manual' }, image: opened.image, axes: axesOf(), source: opened.source, series_id: old?.id,
     });
     if (st.opened !== opened) return null;
     opened.saved = [...opened.saved.filter((s) => s.id !== r.series.id), r.series];
@@ -965,6 +969,10 @@ export function initPlots(): void {
   });
   $('dg-extract').addEventListener('click', () => void extract());
   $('dg-save').addEventListener('click', () => void save());
+  $('dg-new').addEventListener('click', () => {
+    newSeries();
+    renderAll();
+  });
   $('dg-clear').addEventListener('click', () => {
     st.points = [];
     changed();

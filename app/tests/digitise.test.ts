@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { Calibration, addPoint, charted, deletePoint, exportName, fitRows, fitSvg, hex, movePoint, nearest, nextName, num, onPicture, sameCurve, tryCalibration, valued, type FitResult, type Pt } from '../src/renderer/digitise.ts';
+import { Calibration, addPoint, charted, deletePoint, exportName, fitRows, fitSvg, hex, movePoint, nameTaken, nearest, nextName, num, onPicture, sameCurve, tryCalibration, valued, type FitResult, type Pt } from '../src/renderer/digitise.ts';
 
 const square = { x: { p1: [100, 400] as [number, number], v1: 0, p2: [500, 400] as [number, number], v2: 60, log: false }, y: { p1: [100, 400] as [number, number], v1: 0, p2: [100, 100] as [number, number], v2: 0.8, log: false } };
 
@@ -186,5 +186,20 @@ describe('a colour picked, and the curve the series being edited was found by', 
 
   it('is another curve for a series found by no colour', () => {
     expect(sameCurve(null, blue, tolerance)).toBe(false);
+  });
+});
+
+describe('a series is its id, and its name a label', () => {
+  const saved = [{ id: 7, series: 'series 1' }, { id: 9, series: 'Collagen 37 °C' }];
+
+  it('lets the series being saved keep its name or take a new one', () => {
+    expect(nameTaken(saved, 7, 'series 1')).toBe(false); // saved again as it is
+    expect(nameTaken(saved, 7, 'Collagen 25 °C')).toBe(false); // renamed: the same series, another label
+  });
+
+  it('refuses a name that is another series’, for a rename and for a new series alike', () => {
+    expect(nameTaken(saved, 7, 'Collagen 37 °C')).toBe(true);
+    expect(nameTaken(saved, null, 'series 1')).toBe(true); // a second curve under the first's name
+    expect(nameTaken(saved, null, nextName(saved.map((s) => s.series)))).toBe(false); // the name a new series is offered
   });
 });
