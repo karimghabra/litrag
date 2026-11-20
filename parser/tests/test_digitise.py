@@ -28,7 +28,7 @@ TRUTH = json.loads((HERE / "truth.json").read_text())
 def test_two_points_an_axis_map_pixels_to_values_and_back():
     cal = Calibration(Axis((100, 400), 0, (500, 400), 60), Axis((100, 400), 0, (100, 100), 0.8))
     assert cal.value(300, 250) == pytest.approx((30, 0.4))
-    assert cal.pixel(45, 0.2) == pytest.approx((400, 325))
+    assert cal.value(400, 325) == pytest.approx((45, 0.2))
     assert Calibration.from_dict(cal.to_dict()).value(300, 250) == pytest.approx((30, 0.4))
 
 
@@ -42,7 +42,7 @@ def test_a_turned_plot_is_calibrated_as_well_as_a_square_one():
 def test_log_axes_are_calibrated_in_decades():
     cal = Calibration(Axis((0, 100), 0.01, (400, 100), 100, log=True), Axis((0, 100), 1, (0, 0), 1e4, log=True))
     assert cal.value(200, 50) == pytest.approx((1.0, 100.0))
-    assert cal.pixel(10, 1000) == pytest.approx((300, 25))
+    assert cal.value(300, 25) == pytest.approx((10.0, 1000.0))
     with pytest.raises(ValueError, match="above zero"):
         Calibration(Axis((0, 100), 0, (400, 100), 100, log=True), Axis((0, 100), 1, (0, 0), 10))
 
@@ -170,7 +170,7 @@ def test_a_photograph_offers_no_axes():
 def _library(tmp_path, name="turbidity_markers", caption="Figure 1. Turbidity of collagen over time at 37 °C."):
     """A library folder with one PDF paper whose one picture is a fixture plot, whole, captioned."""
     lib = tmp_path / "lib"
-    (lib / "papers").mkdir(parents=True)
+    (lib / "papers").mkdir(parents=True, exist_ok=True)
     shutil.copy(HERE / TRUTH[name]["pdf"], lib / "papers" / "paper.pdf")
     conn = open_store(lib / "store.sqlite")
     key = file_paper(conn, title="Collagen kinetics", file="paper.pdf", sha256="d1", fmt="pdf", doi="10.1000/dig", pmid=None, pmcid=None, now="t").key
@@ -563,6 +563,40 @@ def test_a_library_of_more_figures_than_a_statement_binds_is_listed(tmp_path):
     assert got["total"] == more + 1 and len(got["figures"]) == 5
     assert got["figures"][0]["figure"] == fig and "Turbidity" in got["figures"][0]["caption"]  # the one with a caption that speaks of a trend, first
     assert [f["figure"] for f in digitise.find(conn, "turbidity")["figures"]] == [fig]
+
+
+def test_a_figure_is_cut_from_its_pdf_on_the_ingest_thread_and_no_other(tmp_path, monkeypatch):
+    """pdfium is not safe to call from two threads, whatever documents they hold: the worker's
+    rule is that the ingest thread alone calls it. A figure opened in the Plots tab is cut there
+    too, behind whatever is being read, and its answer closes the request."""
+    import threading
+    import time
+
+    from litrag_parser import worker as w
+    from litrag_parser.library import create_library
+
+    assert create_library(tmp_path, "lib").dir == tmp_path / "lib"
+    _, conn, key, fig = _library(tmp_path)
+    conn.close()
+    out, cut_on = [], []
+    monkeypatch.setattr(w, "emit", out.append)
+    cut = digitise._cut
+    monkeypatch.setattr(digitise, "_cut", lambda *a: (cut_on.append(threading.current_thread().name), cut(*a))[1])
+    worker = w.Worker(tmp_path)
+    threading.Thread(target=worker.ingest_loop, daemon=True, name="ingest").start()
+    worker.answer({"id": "r1", "op": "digitise_open", "lib": "lib", "figure": fig})
+    until = time.time() + 120
+    while not out and time.time() < until:
+        time.sleep(0.05)
+    assert cut_on == ["ingest"]
+    assert [(m.get("event"), m["id"]) for m in out] == [("digitise", "r1")] and Path(out[0]["image"]["path"]).is_file()
+
+
+def test_an_image_file_s_export_names_the_file_not_where_it_lay(tmp_path):
+    item = {"series": "a", "calibration": CAL, "points": PTS, "image": {"width": 600, "height": 450, "scale": 1.0, "sha256": "ab", "path": "/home/someone/plots/digitised/scan.png"}}
+    ex = digitise.answer("digitise_export", {"path": str(tmp_path / "out.csv"), "source": {"file": "/home/someone/plots/scan.jpg"}, "series": [item]}, None)
+    text = Path(ex["files"][0]["sidecar"]).read_text()
+    assert json.loads(text)["figure"]["file"] == "scan.jpg" and "someone" not in text
 
 
 def test_the_worker_answers_the_digitiser_s_ops(tmp_path):

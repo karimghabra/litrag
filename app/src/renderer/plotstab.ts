@@ -10,7 +10,7 @@
  * digitise.ts's; this module draws and listens.
  */
 
-import { Calibration, addPoint, deletePoint, exportName, fitRows, fitSvg, hex, movePoint, nearest, num, onPicture, tryCalibration, valued, type AxisCal, type CalibrationDict, type FitResult, type Pt } from './digitise.ts';
+import { Calibration, addPoint, charted, deletePoint, exportName, fitRows, fitSvg, hex, movePoint, nearest, num, onPicture, tryCalibration, valued, type AxisCal, type CalibrationDict, type FitResult, type Pt } from './digitise.ts';
 import { $, activity, ctx, el, hooks, log, onProjectChange, onViewShown, projectName, rejectionText, request, showView } from './shared.ts';
 
 interface FoundFigure {
@@ -637,7 +637,7 @@ function renderFit(): void {
   const box = $('dg-fit-out');
   box.innerHTML = '';
   const cal = calibration();
-  const pts = valued(st.points, cal).filter((p) => p.x !== undefined).map((p) => [p.x!, p.y!] as [number, number]);
+  const pts = charted(valued(st.points, cal), st.opened?.saved.find((x) => x.id === st.activeSaved)?.points);
   const f = st.fit;
   if (!f) {
     if (pts.length) box.insertAdjacentHTML('beforeend', fitSvg(pts, null, { xLabel: axisHead('x'), yLabel: axisHead('y'), colour: st.colour ?? undefined }));

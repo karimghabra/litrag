@@ -106,17 +106,10 @@ class Calibration:
         rx = np.linalg.solve(a, np.array([x.t(x.v1), x.t(x.v2), 0.0]))
         ry = np.linalg.solve(b, np.array([y.t(y.v1), y.t(y.v2), 0.0]))
         self.m = np.vstack([rx, ry])  # [[ax, bx, cx], [ay, by, cy]]
-        self.inv = np.linalg.inv(self.m[:, :2])
 
     def value(self, px: float, py: float) -> tuple[float, float]:
         u, v = self.m @ np.array([px, py, 1.0])
         return (10 ** u if self.x.log else float(u)), (10 ** v if self.y.log else float(v))
-
-    def pixel(self, xv: float, yv: float) -> tuple[float, float]:
-        u = self.x.t(xv)
-        v = self.y.t(yv)
-        px, py = self.inv @ (np.array([u, v]) - self.m[:, 2])
-        return float(px), float(py)
 
     def to_dict(self) -> dict[str, Any]:
         return {"x": self.x.to_dict(), "y": self.y.to_dict()}
@@ -225,14 +218,14 @@ def _continues(a: tuple[float, float], b: tuple[float, float], max_jump: float) 
     return dy <= max_jump + 0.25 * dx or math.hypot(dx, dy) <= 1.5 * max_jump
 
 
-def extract_line(mask: np.ndarray, step: float = 0, max_jump: float = 0) -> list[tuple[float, float]]:
+def extract_line(mask: np.ndarray, max_jump: float = 0) -> list[tuple[float, float]]:
     """A line's points: the colour's runs chained into tracks from column to column
     (`_tracks`), the longest track taken, and lengthened by the tracks before and after it that
     continue it — that start within `max_jump` of where it ends — so a gap where another curve
     is drawn over it is crossed, a steep stretch drawn in pieces is joined, and a legend's swatch, a
     word or a stray mark is not. Then
-    thinned to one point, their mean, every `step` pixels along the line (0: a hundredth of the
-    width, at least 2), so a steep rise keeps as many points as a level stretch."""
+    thinned to one point, their mean, every hundredth of the width along the line (at least 2
+    pixels), so a steep rise keeps as many points as a level stretch."""
     h, w = mask.shape
     if not mask.any():
         return []
@@ -260,7 +253,7 @@ def extract_line(mask: np.ndarray, step: float = 0, max_jump: float = 0) -> list
         t = min(prv, key=lambda t: math.hypot(start[0] - t[-1][0], start[1] - t[-1][1]))
         line = [p for p in t if p[0] < start[0]] + line
         rest.remove(t)
-    step = step or max(2.0, w / 100)
+    step = max(2.0, w / 100)
     out: list[tuple[float, float]] = []
     bucket: list[tuple[float, float]] = []
     along = 0.0  # pixels along the line since the last point: a steep rise keeps its points
@@ -371,8 +364,8 @@ def looks_like_markers(mask: np.ndarray) -> bool:
 
 
 def extract(img: np.ndarray, colour: str | Sequence[int], *, tol: float = TOLERANCE, region: Sequence[float] | None = None, mode: str = "auto",
-            step: float = 0, calibration: Calibration | None = None, words: list[Word] | None = None) -> dict[str, Any]:
-    """A series' points found by its colour: `{mode, colour, tolerance, region, step, pixels,
+            calibration: Calibration | None = None, words: list[Word] | None = None) -> dict[str, Any]:
+    """A series' points found by its colour: `{mode, colour, tolerance, region, pixels,
     legend, points: [{px, py, x, y, how}]}`. `mode` is `line`, `markers` or `auto` (markers when
     the colour stands in compact blobs of one size, else a line). Given the figure's `words`, a
     marker with a word set level just to its right is a legend's, and is left out."""
@@ -390,7 +383,7 @@ def extract(img: np.ndarray, colour: str | Sequence[int], *, tol: float = TOLERA
             legend = len(pts) - len(kept)
             pts = kept
     elif chosen == "line":
-        pts = extract_line(mask, step=step)
+        pts = extract_line(mask)
     else:
         raise ValueError(f"no mode {mode!r}: line, markers or auto")
     out = []
@@ -401,7 +394,7 @@ def extract(img: np.ndarray, colour: str | Sequence[int], *, tol: float = TOLERA
             x, y = calibration.value(p["px"], p["py"])
             p["x"], p["y"] = _r(x), _r(y)
         out.append(p)
-    return {"mode": chosen, "asked": mode, "colour": hex_of(rgb), "tolerance": tol, "region": [x0, y0, x1, y1], "step": step, "pixels": int(mask.sum()), "legend": legend, "points": out}
+    return {"mode": chosen, "asked": mode, "colour": hex_of(rgb), "tolerance": tol, "region": [x0, y0, x1, y1], "pixels": int(mask.sum()), "legend": legend, "points": out}
 
 
 def colour_at(img: np.ndarray, px: float, py: float, reach: int = 2) -> str | None:
@@ -780,7 +773,7 @@ CREATE TABLE IF NOT EXISTS digitised (
   series TEXT NOT NULL,             -- the name a person gave it
   colour TEXT,                      -- the colour it was found by, #rrggbb
   calibration TEXT NOT NULL,        -- JSON {x: {p1, v1, p2, v2, log}, y: {...}}: pixels of the saved image to values
-  method TEXT NOT NULL,             -- JSON {reader, mode, tolerance, region, step, auto_axes}: how the points were found
+  method TEXT NOT NULL,             -- JSON {reader, mode, tolerance, region, auto_axes}: how the points were found
   image TEXT NOT NULL,              -- JSON {width, height, scale, sha256}: the image the pixels are of, a copy kept as digitised/originals/<sha256>.png
   x_label TEXT, x_unit TEXT, y_label TEXT, y_unit TEXT,
   orphan INTEGER NOT NULL DEFAULT 0,-- 1 when the paper no longer draws its picture: no figure's, for a person to review
@@ -1070,13 +1063,13 @@ def sidecar(series: Sequence[dict[str, Any]], *, library: str | None, paper: dic
 
 def unsaved(item: dict[str, Any], source: dict[str, Any] | None = None) -> dict[str, Any]:
     """A series not kept in a store — read from an image file — in the shape `one` gives a
-    saved one, every value read again from its pixel."""
+    saved one, every value read again from its pixel. Of the file, its name: not where it lay."""
     from .library import now_iso
 
     cal = Calibration.from_dict(item["calibration"])
     ax = item.get("axes") or {}
     src = source or {}
-    return {"id": None, "paper": None, "figure": None, "figure_label": None, "page": None, "bbox": None, "file": src.get("file"),
+    return {"id": None, "paper": None, "figure": None, "figure_label": None, "page": None, "bbox": None, "file": Path(str(src["file"])).name if src.get("file") else None,
             "series": str(item.get("series") or "series"), "colour": item.get("colour"), "calibration": cal.to_dict(),
             "method": {"reader": METHOD, **(item.get("method") or {})}, "image": _image(item.get("image")),
             "axes": {"x": {"label": (ax.get("x") or {}).get("label"), "unit": (ax.get("x") or {}).get("unit"), "log": cal.x.log},
@@ -1242,7 +1235,7 @@ def answer(op: str, req: dict[str, Any], get_lib: Any) -> dict[str, Any]:
       saved series, and its paper's series to review, each with the `picture` it was read from.
     - `digitise_axes` {image, near} → `axes` {auto}: the axes offered again, of the plot that
       holds the pixel `near` (a panel of a figure of several).
-    - `digitise_extract` {image, colour, tolerance, region, mode, step, calibration} → `extracted`
+    - `digitise_extract` {image, colour, tolerance, region, mode, calibration} → `extracted`
       {mode, colour, points, ...}: a series found by its colour in the rendered image.
     - `digitise_save` {lib, figure, series, calibration, points, colour, method, image, axes, source} →
       `digitised` {series}: saved in place of the one of that name; `source` the open's, for its place.
@@ -1292,7 +1285,7 @@ def answer(op: str, req: dict[str, Any], get_lib: Any) -> dict[str, Any]:
         img = load_image(path)
         cal = Calibration.from_dict(req["calibration"]) if req.get("calibration") else None
         got = extract(img, str(req.get("colour") or ""), tol=float(req.get("tolerance") or TOLERANCE), region=req.get("region"), mode=str(req.get("mode") or "auto"),
-                      step=float(req.get("step") or 0), calibration=cal, words=load_words(path))
+                      calibration=cal, words=load_words(path))
         return {"event": "extracted", **got}
     if op == "digitise_axes":
         path = _image_path(str(req.get("image") or ""))

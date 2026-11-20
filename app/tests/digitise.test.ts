@@ -1,17 +1,17 @@
 import { describe, expect, it } from 'vitest';
-import { Calibration, addPoint, deletePoint, exportName, fitRows, fitSvg, hex, movePoint, nearest, num, onPicture, tryCalibration, valued, type FitResult, type Pt } from '../src/renderer/digitise.ts';
+import { Calibration, addPoint, charted, deletePoint, exportName, fitRows, fitSvg, hex, movePoint, nearest, num, onPicture, tryCalibration, valued, type FitResult, type Pt } from '../src/renderer/digitise.ts';
 
 const square = { x: { p1: [100, 400] as [number, number], v1: 0, p2: [500, 400] as [number, number], v2: 60, log: false }, y: { p1: [100, 400] as [number, number], v1: 0, p2: [100, 100] as [number, number], v2: 0.8, log: false } };
 
 describe('the calibration, as the worker makes it', () => {
-  it('maps pixels to values and back on linear axes', () => {
+  it('maps pixels to values on linear axes', () => {
     const c = new Calibration(square);
     const [x, y] = c.value(300, 250);
     expect(x).toBeCloseTo(30);
     expect(y).toBeCloseTo(0.4);
-    const [px, py] = c.pixel(45, 0.2);
-    expect(px).toBeCloseTo(400);
-    expect(py).toBeCloseTo(325);
+    const [x2, y2] = c.value(400, 325);
+    expect(x2).toBeCloseTo(45);
+    expect(y2).toBeCloseTo(0.2);
   });
 
   it('maps a turned plot as well as a square one', () => {
@@ -118,5 +118,24 @@ describe('a saved series, on the picture shown', () => {
     expect(onPicture({ ...saved, image: {} }, 'aaa').same).toBe(false);
     expect(onPicture({ calibration: square, points: saved.points }, 'aaa').points).toEqual([]);
     expect(onPicture(saved, undefined).calibration).toBeNull();
+  });
+});
+
+describe('what a fit is drawn over', () => {
+  const kept: Pt[] = [{ px: 10, py: 90, how: 'auto', x: 0, y: 0.05 }, { px: 50, py: 50, how: 'auto', x: 30, y: 0.45 }, { px: 90, py: 10, how: 'moved', x: 60, y: 0.85 }];
+  const fit: FitResult = { model: 'logistic', status: 'fit', formula: 'y', n: 3, params: {}, derived: {}, curve: [[0, 0.05], [30, 0.45], [60, 0.85]], residuals: [0, 0.01, -0.01] } as unknown as FitResult;
+
+  it('is the points on the picture, when there are any', () => {
+    expect(charted([{ px: 1, py: 2, how: 'auto', x: 5, y: 6 }], kept)).toEqual([[5, 6]]);
+    expect(charted([{ px: 1, py: 2, how: 'auto' }], undefined)).toEqual([]); // no axes yet: no values
+  });
+
+  it('is a kept series’ saved values when none of its points is on the picture, so its fit is drawn', () => {
+    const pts = charted([], kept);
+    expect(pts).toEqual([[0, 0.05], [30, 0.45], [60, 0.85]]);
+    const svg = fitSvg(pts, fit);
+    expect(svg).toContain('<polyline');
+    expect(svg.match(/<circle/g)?.length ?? 0).toBeGreaterThanOrEqual(3);
+    expect(fitSvg([], fit)).not.toContain('<polyline'); // what it was: the numbers over an empty chart
   });
 });
