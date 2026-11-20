@@ -133,8 +133,8 @@ The Papers tab:
 | Log | the worker's stages and Docling's own log lines, as they happen |
 
 A JATS paper has no page to draw, so the page pane shows the tree as the
-paper it came from — headings, paragraphs, formulas, tables, figure
-placeholders with their captions — and a click on either side selects the
+paper it came from — headings, paragraphs, formulas, tables, figures as
+their images (a placeholder where none was had) with their captions — and a click on either side selects the
 node on both.
 
 ## What the layout model misses, read back from the page

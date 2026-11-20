@@ -668,7 +668,7 @@ The Papers tab shows every paper of the current project as litrag read it. Come 
 
 ![Clicking a paragraph selects it in three places: its row in the tree, a bold box on page 2, and the detail with its crumbs, lane, type, Docling label, page, box and text.](tutorial/21-papers-pdf-node-detail.png)
 
-11. Click an XML paper, such as "Microfluidically Aligned Collagen to Maintain the Phenotype of Tenocytes In Vitro". It has no pages, so the page pane reads "XML · the paper as read" and lays the paper out from its tree, each block edged in its lane's colour. Figures are placeholders. Click a block to select its node; **‹** and **›** do nothing here.
+11. Click an XML paper, such as "Microfluidically Aligned Collagen to Maintain the Phenotype of Tenocytes In Vitro". It has no pages, so the page pane reads "XML · the paper as read" and lays the paper out from its tree, each block edged in its lane's colour. A figure is drawn as its image where one was fetched (see The acquisition routes), else as a placeholder. Click a block to select its node; **‹** and **›** do nothing here.
 
 ![An XML paper selected: its tree with lane colours, item counts and citation arrows, and the paper laid out from that tree under "XML · the paper as read".](tutorial/18-papers-xml-tree.png)
 
