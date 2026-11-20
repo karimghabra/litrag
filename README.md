@@ -647,6 +647,12 @@ PDF does not print, no number to match by, no PDF. Nothing is pinned by
 order or position: a plot under no caption of the paper's is counted, not
 kept.
 
+An XML paper's figures are drawn in its reading as images
+(`figure_images.py`): each image its XML names is fetched by PMCID from the
+PMC Cloud Service, else Europe PMC, else cut from a PDF of the paper, when it
+is filed — or with **Fetch figure images** for papers filed before — and kept
+under `figures/<key>/`, each joined to its figure by the caption's number.
+
 **Where an open PDF comes from.** The PMC Cloud Service
 (`pmc-oa-opendata.s3.amazonaws.com`) is the National Library of Medicine's
 copy of PMC's open-access articles as files, the successor NCBI named when

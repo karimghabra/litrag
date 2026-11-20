@@ -353,6 +353,7 @@ table.sql-table tr.linked:hover td { background: var(--soft); }
 #page-reading .rv.footnote { font-size: 12px; color: var(--muted); }
 #page-reading figure { margin: 12px 0; padding: 10px 12px; border: 1px dashed var(--line); }
 #page-reading figure .placeholder { color: var(--muted); font-size: 12px; }
+#page-reading figure .rv-image { display: block; max-width: 100%; height: auto; margin: 0 auto 6px; background: #fff; }
 #page-reading figcaption { font-size: 12px; color: var(--muted); margin-top: 6px; }
 #page-reading table { border-collapse: collapse; font-size: 12px; }
 #page-reading td { border: 1px solid var(--line); padding: 3px 6px; vertical-align: top; }
