@@ -19,6 +19,8 @@
  *   6. the Types tab: the kinds of paper, a canonical structure, a paper's mapping onto it;
  *   7. the Query tab: passages embedded, a question answered with passages hydrated from the
  *      tree — the paragraphs around each, and the methods a finding was measured by;
+ *  7b. the Ask tab: the local model's cited answer (or, with no model, the passages and why),
+ *      and a citation opening the paper at its passage;
  *   8. a second project, and both merged into a third: one paper held twice is filed once;
  *   9. the local model drafts search queries from the project's description (LITRAG_E2E_MODELS=0 skips it);
  *  10. nothing went to the log as an error.
@@ -295,6 +297,28 @@ test('7. Query: passages embedded, a question answered with its context and its 
   // "Open in the tree" lands on the passage
   const nodeId = (await hits.first().getAttribute('data-node'))!;
   await hits.first().locator('.qhit-foot button').click();
+  await expect(page.locator('#view-papers')).toBeVisible();
+  await expect(page.locator('#tree .tree-node.selected')).toHaveAttribute('data-id', nodeId, { timeout: 20_000 });
+});
+
+test('7b. Ask: a cited answer from the local model, and a citation opens the paper at its passage', async () => {
+  test.setTimeout(10 * 60 * 1000);
+  await tab('ask');
+  await expect(page.locator('#ask-model option').first()).toBeAttached({ timeout: 20_000 });
+  await page.fill('#ask-q', 'How do genipin concentration and crosslinking duration affect the degree of crosslinking of collagen threads?');
+  await page.click('#ask-go');
+  const box = page.locator('#ask-answer');
+  await expect(box).toHaveAttribute('data-status', /^(answered|partial|not_found|unanswered)$/, { timeout: 8 * 60 * 1000 });
+  const status = (await box.getAttribute('data-status'))!;
+  // the passages the model was given are listed whatever it made of them
+  await expect(page.locator('#ask-sources .ask-source').first()).toBeVisible();
+  await expect(page.locator('#ask-meta .ask-status')).not.toBeEmpty();
+  if (MODELS) expect(status, 'the local model answered (LITRAG_E2E_MODELS=0 allows it not to)').not.toBe('unanswered');
+  // a citation in the prose, else a listed passage, opens the paper at that passage
+  const cite = page.locator('#ask-answer button.cite[data-node]').first();
+  const target = (await cite.count()) ? cite : page.locator('#ask-sources .ask-source').first().locator('.qhit-foot button');
+  const nodeId = (await cite.count()) ? (await cite.getAttribute('data-node'))! : (await page.locator('#ask-sources .ask-source').first().getAttribute('data-node'))!;
+  await target.click();
   await expect(page.locator('#view-papers')).toBeVisible();
   await expect(page.locator('#tree .tree-node.selected')).toHaveAttribute('data-id', nodeId, { timeout: 20_000 });
 });

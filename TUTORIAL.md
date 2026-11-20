@@ -12,7 +12,7 @@ litrag keeps a library of scientific papers for each research project. It reads 
 
 Three parts do the work.
 
-- **The window** is an Electron app with six tabs, listed down its left edge: Projects, Search, Papers, Types, Query and Graph. A log pane runs along the bottom. It shows and asks. It never writes the store itself.
+- **The window** is an Electron app with seven tabs, listed down its left edge: Projects, Search, Papers, Types, Ask, Query and Graph. A log pane runs along the bottom. It shows and asks. It never writes the store itself.
 - **The worker** is a Python process the window starts. It reads papers with Docling, writes the store, and answers every request as one line of JSON. An assistant or a script can send it the same requests.
 - **The library** is one folder per project under the library root. Its `store.sqlite` holds the rows. Its `parsed/` folder keeps each paper's raw Docling document, and `papers/` keeps the files.
 
@@ -24,7 +24,7 @@ Five rules from the project's own guide shape everything this tutorial shows.
 4. **Unassignable beats misassigned.** A section's role comes from the heading above it. When nothing names it with confidence, it is `other`, never a guess.
 5. **Every answer is JSON,** and progress streams as events, so the window shows what is happening rather than a spinner.
 
-The tutorial follows the order in which a person meets each function. Install and first start, Projects, and Finding and fetching papers get a library started. How a paper is read and The Papers tab show how a paper is read and how to inspect the result. Types, Asking the library (Query), Method links and labelling, Figures as numbers and The citation graph cover what you do with the rows. The last four sections cover scripting, upkeep, known limits and a quick reference.
+The tutorial follows the order in which a person meets each function. Install and first start, Projects, and Finding and fetching papers get a library started. How a paper is read and The Papers tab show how a paper is read and how to inspect the result. Types, Asking the library (Query), Cited answers (Ask), Method links and labelling, Figures as numbers and The citation graph cover what you do with the rows. The last four sections cover scripting, upkeep, known limits and a quick reference.
 
 The examples come from a library of 226 papers. 223 of them were read on a CPU-only machine without Ollama: 151 JATS XML and 72 PDF. The other three are PDFs left queued. In the screenshots the library holds 227 papers, because one more was fetched from Europe PMC while they were taken. Functions that need Ollama are described from the code and appear in their not-available state.
 
@@ -1049,6 +1049,133 @@ That returns cards 2, 3 and 7 of the example. `--paper <key>` keeps one paper, `
 - **Questions are not saved.** The `queries` in `library.json` are the Search tab's Europe PMC searches.
 - **A `--role` filter drops `other`.** That lane holds 7,456 of the 16,157 passages here, 7,425 of them from reviews, whose topical headings fit no lane. Add `--role other` when reviews matter.
 
+## Cited answers (Ask)
+
+The Ask tab answers a question in prose, written by a chat model running on your machine from the passages a Query would find. Every sentence ends with the passages it rests on, and each citation opens the paper at that passage. When the passages do not answer the question, the tab says so instead of guessing. Use it for a first answer to read against its sources. A Query card is still the place to read a passage in full context.
+
+The example below comes from a 402-paper library on collagen, with every passage embedded, and qwen3.5:9b on an RTX 3080 (10 GB).
+
+### Try it
+
+1. Install Ollama and pull a chat model once: `ollama pull qwen3.5:9b` (6.6 GB). Keep `nomic-embed-text` as well, for search by meaning.
+2. Click **Ask** in the sidebar. The head shows the project and a **Model** picker listing the chat models Ollama holds; embedders are left out. If the default model is missing, the head says "qwen3.5:9b is not pulled: ollama pull qwen3.5:9b". If Ollama is not running, it says so.
+3. Type a question, for example "What was the denaturation temperature of the triple helix measured by DSC for the recombinant humanized type III collagen cold gel?". Use the words the papers would use, as in Query.
+4. Leave **Over** at "this project", or choose "every project" to ask all of them at once. **Passages** sets how many passages the model is given, from 1 to 20. It starts at 8.
+5. Click **Ask**, or press Ctrl+Enter (Cmd+Enter on a Mac). The line under the box follows the work: "Retrieving passages from 1 library", then "Asking qwen3.5:9b about 8 passages from 5 papers", then "qwen3.5:9b is writing: 69 tokens".
+6. Read the status line, "Answered from the library", and the answer: "The denaturation temperature (Tm) of the recombinant humanized type III collagen cold gel (C3Gel) measured by DSC was 27.25 °C [8]." The line above it gives the footing: "qwen3.5:9b · 1.7 s · 86.3 tokens/s · 8 passages from 5 papers".
+7. Click **8**. The Papers tab opens on "Structural characterization of recombinant humanized type III collagen cold gel…" (Frontiers in Medicine, 2026), with "3 Results › 3.1 Structure characterization › 3.1.7 DSC Thermal stability analysis" selected. For a PDF paper, its page and box show as well.
+8. Under the answer, **Passages given to the model (8)** lists every passage, cited ones first. Each card has its place, its lane, up to 900 characters of its text, and **Open at this passage**.
+
+Ask "What is the tensile strength of hagfish slime threads?" and the status reads "Not in the library". The model says what the passages did cover: "The provided passages discuss electrochemically aligned collagen threads, glutaraldehyde crosslinked collagen fibres, peptide crystals, and pneumatospun scaffolds, but none of them contain information regarding the tensile strength of hagfish slime threads." The passages are listed anyway, so you can see what was searched.
+
+### What the answer shows
+
+| Status | Status line | Meaning |
+| --- | --- | --- |
+| `answered` | "Answered from the library" | the passages answer the question; every sentence is cited |
+| `partial` | "Partly answered: the library leaves some of it out" | some of it is answered; what the passages leave out follows the answer |
+| `not_found` | "Not in the library" | the passages do not answer it; the model says what they cover instead |
+| `unanswered` | "No answer from the model" | Ollama or the model could not be had, or it replied in a broken shape; the reason is shown, and the passages still come back |
+
+When the question and its passages fill the model's 8,192-token window, the line under the status says so, and `lit ask` prints it: part of them may not have been read, so ask again with fewer passages.
+
+The model's citations are checked before anything is shown:
+
+- **A citation to a passage the model was not given** is removed. A sentence left with no citation is not shown as part of the answer. The footing line counts it: "1 sentence left out: it cited no passage given".
+- **A sentence to check** is underlined with dots, with the reason on hover. A sentence gets this mark when a number it states is printed in none of the passages it cites, or when under half its words are in those passages or in their papers' titles and headings. The footing line counts these, for example "1 sentence to check".
+- **The status follows the sentences that are kept.** An "answered" with none left becomes "Not in the library".
+
+A sentence to check is not necessarily wrong. On the grounding set below, one was a unit conversion the model worked out itself: "10 °C/h (equivalent to approximately 0.167 °C/min)". The passage prints only "10 °C/h". Another said "melting temperature" where the passage says "Tm".
+
+### Choosing the model
+
+The model comes from, in order: the **Model** picker (or `--model`, or the op's `model`), `LITRAG_ANSWER_MODEL`, the project's `library.json` key `ollama.answer`, then qwen3.5:9b.
+
+Three open-weights models were compared on the grounding set, all under the Apache 2.0 licence, which allows lab use. NOTES.md has the full table. qwen3.5:9b is the default:
+
+| Model | Download | Card memory, with the embedder | Absent questions refused | Answering passage cited, of the 18 retrieved | Claims supported | Seconds a question |
+| --- | --- | --- | --- | --- | --- | --- |
+| **qwen3.5:9b** (default) | 6.6 GB | 7.2 GB | 10 of 10 | 18 | 30 of 32 | 2.5 (median 2.0) |
+| ministral-3:8b | 6.0 GB | 7.5 GB | 9 of 10 | 18 | 38 of 45 | 2.5 (median 2.1) |
+| gemma4:12b | 8.0 GB | does not fit: 8.8 GB on its own, so the embedder is unloaded for it on every question | 10 of 10 | 18 | 48 of 49 | 24.6 (median 13.5) |
+
+ministral-3:8b answered one absent question anyway: asked how tardigrade proteins protect collagen, it wrote four claims from passages about other proteins. gemma4:12b is the most careful of the three. It also declined a question whose answering passage was not retrieved, where the other two answered from another study. On a 10 GB card, though, it and the embedder take turns, which costs about 20 s a question. On a larger card, `LITRAG_ANSWER_MODEL=gemma4:12b` is worth trying.
+
+Any chat model Ollama holds can be picked. A model too large for the card runs partly on the CPU and is much slower. The first question after Ollama starts also loads the model from disk: that took about a minute here, and later questions took about 2 s. Ollama unloads an idle model after 5 minutes.
+
+### What happens underneath
+
+**Ask** sends the `ask` op. The worker answers on its own thread, so reading continues, and it stores nothing about the question.
+
+| Stage | What it does |
+| --- | --- |
+| Retrieve | each project's `query` retrieval (words and meaning, fused; see Asking the library (Query)); with several projects, the hits are merged by fused score, a paper held in two of them is given once, and the best `k` are kept |
+| Number | each passage becomes "[n] paper (year) — headings — p. N", followed by its text, cut to 1,500 characters; with more than 8 passages each is cut shorter (12,000 characters between them), so the prompt still fits the window |
+| Ask | Ollama's `/api/chat` at `LITRAG_OLLAMA_URL` (127.0.0.1:11434): a fixed set of rules, the question and the numbered passages; a JSON schema for the reply (status, claims each with their passage numbers, what is missing), thinking off, temperature 0, seed 7, an 8,192-token window |
+| Check | each claim held against the passages it cites, as above |
+| Answer | the claims joined into prose, each closed by its citations; the passages, each with what the window needs to open it: project, paper key, node, section, page and box |
+
+When nothing is retrieved, the model is not asked and the answer is "Not in the library". Nothing in this path leaves the machine.
+
+### From the command line
+
+`lit ask` sends the worker one `ask`, the same way the window does, and prints the answer:
+
+```sh
+npm run lit -- ask collagen-simulations "What is the tensile strength of hagfish slime threads?"
+npm run lit -- ask all "…" --json                      # every project; the answer as JSON
+npm run lit -- ask archive "…" --with collagen-simulations --model gemma4:12b --limit 12
+```
+
+The progress lines go to stderr and the answer goes to stdout. A cited passage is marked `*`, followed by its DOI and node id. `lit ask` exits with 1 when the answer is `unanswered`. `--limit` is the number of passages, held to 1 to 20.
+
+### From a script
+
+| Op | Asks | Answer |
+| --- | --- | --- |
+| `ask` | `lib` or `libs[]` (`all` for every project), `question`; opt. `model`, `k` (8, held to 1 to 20) | `asking` events (`stage`: retrieve, model, writing; `message`), then `answer` |
+| `models` | opt. `lib` | `models`: `url`, `down`, `error`, `models[]` (`name`, `size`, `family`, `parameters`, `quantization`), `default` |
+
+The example above, with the passages cut to the cited one and without their text:
+
+```json
+{"id":"a1","op":"ask","lib":"collagen-simulations","question":"What was the denaturation temperature of the triple helix measured by DSC for the recombinant humanized type III collagen cold gel?"}
+{"event":"asking","id":"a1","op":"ask","stage":"retrieve","message":"Retrieving passages from 1 library"}
+{"event":"answer","id":"a1","status":"answered","summary":"The denaturation temperature (Tm) of the recombinant humanized type III collagen cold gel (C3Gel) measured by DSC was 27.25 °C [8].","claims":[{"text":"The denaturation temperature (Tm) of the recombinant humanized type III collagen cold gel (C3Gel) measured by DSC was 27.25 °C.","sources":[8],"numbers_missing":[],"words":0.75,"support":"supported"}],"dropped":[],"missing":"",
+ "sources":[{"n":8,"lib":"collagen-simulations","node_id":"doi:10.3389/fmed.2026.1749460#section-5#section-1#section-7#paragraph-3","paper":"doi:10.3389/fmed.2026.1749460","title":"Structural characterization of recombinant humanized type III collagen cold gel and its effects on the biological functions of HaCaT cells","year":"2026","journal":"Frontiers in Medicine","section":"3.1.7 DSC Thermal stability analysis","ancestry":["3 Results","3.1 Structure characterization","3.1.7 DSC Thermal stability analysis"],"role":"results","type":"paragraph","page":null,"bbox":null,"score":0.025712,"ranks":{"words":26,"meaning":11},"cited":true,"text":"…"}],
+ "timing":{"retrieve":0.49,"model":1.24,"load":0,"prompt_tokens":2135,"tokens":88,"tokens_per_second":86.3,"total":1.73}}
+```
+
+### Measuring it
+
+`campaign/answers/grounding.jsonl` holds 30 questions on the collagen-simulations library. For 20 of them, the answering passage is known: the paper's DOI and words the passage must contain. The other 10 have no answer in the library, each with a note saying why: krill, ostrich skin, a drug's half-life, a battery anode. Run it against a library root:
+
+```sh
+uv run --project parser --no-sync python -m litrag_parser.answer --root ~/.protracker/library \
+  --measure campaign/answers/grounding.jsonl --model qwen3.5:9b --json run.json
+```
+
+It prints one line per question, then totals:
+
+- **Retrieval:** how often the answering passage was retrieved.
+- **Answers:** how often an answer was given, and how often it cited that passage.
+- **Refusals:** absent questions refused, and absent questions answered anyway.
+- **Claims:** kept, supported, to check, and left out.
+- **Speed:** seconds per question and tokens per second.
+- **Errors:** questions left `unanswered` (Ollama down, the model not pulled, a broken reply). They count in none of the totals above.
+
+`run.json` keeps every answer. Write it outside the checkout.
+
+### Good to know
+
+- **The answer is only as good as the retrieval.** For 2 of the 20 questions, the passage holding the answer was not among the 8 retrieved. The model then answered "partly" from other papers' passages, correctly cited but about other studies. Check the paper titles on the citations. More **Passages**, or the papers' own words in the question, help.
+- **A sentence with several citations is checked against them together.** Each claim is held by at least one of them, but not necessarily by every one. On the grounding set, "The hydrodynamic radius of (POG)10 was Rh = 1.9 nm [1, 3]" is printed in [1]; [3] is about the same peptide's turbidity.
+- **It reads passages, not the graph.** The method behind a finding and the figures it cites appear on a Query card, but the model is not given them.
+- **A question names one study, the model does not check.** Asked about "the force field limitations study", it answered from another paper's constant-pH method and said only that the replica count was missing.
+- **Without vectors**, retrieval is by words alone, as in Query. The answer still works but finds less.
+- **Questions and answers are not saved.**
+- **The worker never calls a model service.** The only model calls go to Ollama on 127.0.0.1 (or `LITRAG_OLLAMA_URL`). `lit ask` starts the same worker the window starts.
+
 ## Method links and labelling
 
 A result is half an answer until you know how it was measured. litrag links each finding to the methods in its own paper that produced it. Label the links to learn how far to trust them.
@@ -1583,7 +1710,7 @@ The worker answers an op in one of three ways:
 | How | Ops | What comes back |
 | --- | --- | --- |
 | At once | the other reads, and small writes such as `init`, `describe`, `stage`, `dismiss`, `label` | one answer event |
-| On its own thread | `search`, `suggest`, `query` | one answer event, which may arrive after the answers to later requests |
+| On its own thread | `search`, `suggest`, `query`, `ask`, `models` | one answer event (`ask` streams `asking` events first), which may arrive after the answers to later requests |
 | Queued | `ingest`, `reparse`, `rebuild`, `judge`, `fetch`, `merge`, `embed`, `model_label`, `figures`, `round`, `expand` | `queued` at once, then a stream of events, then `done` or `error` |
 
 Queued jobs run one at a time, in order. Reads are still answered while a job runs.
@@ -1880,7 +2007,7 @@ The store adds new columns itself when next opened. Then rebuild every library. 
 | `xvfb-run node app/tests/installed.mjs <install root> [out dir]` | starts an installed litrag as a person would, waits for the worker, asks `hello` and saves a screenshot to `installed-out`; prints the log and exits 1 when the worker did not start | an install made by the install script; a display; Playwright from `npm --prefix app install` |
 | `xvfb-run node app/tests/shots.mjs <out dir> [project id]` | screenshots of Projects, Search, Papers (printed and canonical), Types and Query, then the log's error lines; with `SHOT_QUESTION` set, Query asks it first | the app built (`npm --prefix app run build`); a display; Playwright |
 | `LITRAG_HEADLESS=1 npm --prefix app run e2e -- app.spec.ts` | the real window and worker on the JATS fixture, about 15 s | no models; `LITRAG_E2E_PAPERS=<folder>` runs it on your own papers, which needs Docling's models |
-| `LITRAG_HEADLESS=1 npm run e2e:studio` | the product end to end: a project, a search, fetches, Collect, Papers, Types, Query, a merge, suggested queries | Docling's models; Ollama with `nomic-embed-text`, and `qwen3:14b` unless `LITRAG_E2E_MODELS=0`; two PDFs from the archive beside the checkout, or `LITRAG_E2E_PDF_OPEN` and `LITRAG_E2E_PDF_CLOSED`. Europe PMC is stood in by a local server |
+| `LITRAG_HEADLESS=1 npm run e2e:studio` | the product end to end: a project, a search, fetches, Collect, Papers, Types, Query, Ask, a merge, suggested queries | Docling's models; Ollama with `nomic-embed-text`, and `qwen3.5:9b` (Ask) and `qwen3:14b` (suggested queries) unless `LITRAG_E2E_MODELS=0`; two PDFs from the archive beside the checkout, or `LITRAG_E2E_PDF_OPEN` and `LITRAG_E2E_PDF_CLOSED`. Europe PMC is stood in by a local server |
 | `npm --prefix app run e2e:report` | opens the HTML report of the last end-to-end run, kept in `app/e2e-report`, with a trace of each test that failed | an earlier `e2e` run |
 | `npm run harness -- --lib <dir> --json <file>`, then `--baseline <file> --gate` | judges a change to the reader on a whole library, from its saved documents | a library; keep the saved runs outside the repository |
 
@@ -2045,7 +2172,7 @@ Run these from the root of a checkout, the folder that holds `package.json`, `ap
 | Run every check | `npm run check:all` | The CLI's typecheck and tests, the app's typecheck, tests and build, and the parser's pytest; no network, no models |
 | Smoke run | `npm --prefix app run smoke` | Needs a display (`xvfb-run` on Linux); `SMOKE_PDF` names a paper to read first, `SMOKE_OUT` a folder for the screenshots; passes only on a root that already holds a library |
 | End-to-end run | `npm run e2e -- app.spec.ts` | The real window and worker on the JATS fixture; `LITRAG_E2E_PAPERS=<folder>` runs it on your own papers; a bare `npm run e2e` runs the studio suite too |
-| The product end to end | `LITRAG_HEADLESS=1 npm run e2e:studio` | Needs Docling's models, Ollama with `nomic-embed-text`, and two PDFs from the archive beside the checkout; its query-drafting step also asks the chat model, unless `LITRAG_E2E_MODELS=0` |
+| The product end to end | `LITRAG_HEADLESS=1 npm run e2e:studio` | Needs Docling's models, Ollama with `nomic-embed-text`, and two PDFs from the archive beside the checkout; its Ask and query-drafting steps also need the chat models, unless `LITRAG_E2E_MODELS=0` |
 | Measure the reader on a library | `npm run harness -- --lib <root>/<library>` | Add `--json run.json`, kept outside the checkout; after a change, `--baseline run.json --gate` |
 | Start the worker by hand | `uv run --project parser --no-sync litrag-parser --root=/path/to/root` | Only `--root=` with the `=` is read; then type one JSON request per line |
 | Start an installed worker (Linux) | `~/.local/share/litrag/venv/bin/litrag-parser --root=…` | Windows: `%LOCALAPPDATA%\litrag\venv\Scripts\litrag-parser.exe --root=…` |
@@ -2061,6 +2188,7 @@ Each tab works on the project chosen in the header's **Project** picker, and the
 | **Search** | The query box, **Search**, **Suggest from the project**; under **Results**: a tick box on each hit, **all**, **Fetch & read selected** (**Fetch & read 1** with one hit ticked), **More results**; under **Candidates**: status chips, **Fetch** on a candidate, **Collect PDFs**, which shows its counts, as in **Collect PDFs (117 for figures)**, and **Ask PMC for N figure PDFs** beside it | `search`, `suggest`, `candidates`, `wanted`, `fetch`, `ingest`, `figures_fetch` |
 | **Papers** | **Add papers…**, **Reparse all**, **Label links**; **Sort** ("as added", "format", "type", "title", "year, newest first", "confidence, lowest first") and format, type and confidence chips; **Printed** and **Canonical** over the tree, with lane chips; **‹** and **›** over the page; **Label** on a finding, **Read the figures** on a figure whose paper was never read, **Ask PMC for its PDF** or **Ask PMC again** on a figure of an XML paper with no PDF beside it; in the labelling panel **Let the model label**, **Close**, **Skip**, **Save & next** | `papers`, `tree`, `mapping`, `refs`, `edges`, `charts`, `file`, `ingest`, `reparse`, `figures`, `figures_fetch`, `label_queue`, `label`, `model_label`, `truth` |
 | **Types** | One tab per type with its count; **Canonical structure**; **How each paper maps onto it**, with a paper picker and **Open in Papers** | `types`, `mapping` |
+| **Ask** | **Model** (the chat models Ollama holds), the question box, **Over** ("this project" or "every project"), **Passages** (8), **Ask** (Ctrl+Enter); a numbered citation after each sentence and **Open at this passage** on each passage, both opening the Papers tab at the passage | `ask`, `models` |
 | **Query** | The question box, **Passages** (8), **Ask**; **Embed passages** with its count of passages embedded; **Open in the tree** on each hit | `query`, `retrieval`, `embed` |
 | **Graph** | **and what cites them**, **OpenAlex too**, the number to read (10), **Expand: read the most cited**, **Citation round**; **Candidates** ("none", "cited by at least", "all") with its number (2), **Colour** ("round", "year", "held or not"), the find box, **Fit**; in the side panel **Open in Papers**, **Citation round from it**, **here** and **Europe PMC** by each author, **Fetch & read** on a candidate; under **Ask in SQL** the presets **Held, oldest first**, **Next round**, **By an author**, **Authors here**, **Who cites whom**, **Rounds**, then **Run** (Ctrl+Enter) and **Fetch & read selected** | `graph`, `round`, `expand`, `sql`, `passages`, `fetch` |
 | Any tab | **Project** picker; drop PDFs or JATS XML anywhere (**Drop to ingest**) | `hello`, `projects`, `ingest` |
@@ -2068,7 +2196,7 @@ Each tab works on the project chosen in the header's **Project** picker, and the
 
 ### Worker ops
 
-The worker answers these 45 ops, each sent as one JSON line with an `id`; a queued op answers `queued` at once and ends with `done` or `error`.
+The worker answers these 47 ops, each sent as one JSON line with an `id`; a queued op answers `queued` at once and ends with `done` or `error`.
 
 | Op | Mode | Key fields | Answers with |
 | --- | --- | --- | --- |
@@ -2104,6 +2232,8 @@ The worker answers these 45 ops, each sent as one JSON line with an `id`; a queu
 | `mapping` | now | `lib`, `key` | `mapping`, `canonical` |
 | `query` | own thread | `lib`, `question`; opt. `k` (8) | `query`: `hits[]` with their context, `embedder`, `counts`, `seconds` |
 | `retrieval` | now | `lib` | `retrieval`: `units`, `embedded`, `model`, `down`, `error` |
+| `ask` | own thread | `lib` or `libs[]` (`all` for every project), `question`; opt. `model`, `k` (8) | `asking` events, then `answer`: `status`, `summary`, `claims[]`, `dropped[]`, `missing`, `sources[]`, `retrieval`, `timing`, `warning` when the prompt filled the model's window |
+| `models` | own thread | opt. `lib` | `models`: `url`, `down`, `error`, `models[]` (embedders left out) with `name`, `size`, `parameters`, `quantization`, and `default` |
 | `sql` | now | `lib`, `sql`; opt. `limit` (200, at most 5000) | `rows`: `columns`, `rows` |
 | `graph` | now | `lib`; opt. `candidates` (`cited`), `min_cited` (2) | `graph`: `nodes`, `edges`, `hidden` |
 | `refs` | now | `lib`, `key` | `refs`: `paper`, `refs[]` with the `work` each entry names |
@@ -2138,6 +2268,7 @@ Set a switch in the environment before you start the app or the worker, since th
 | `LITRAG_OUTLINE` | off | `on`: the outline judge reads every paper on ingest and reparse |
 | `LITRAG_OUTLINE_MODEL` | `qwen3:14b` | The outline judge's model |
 | `LITRAG_SUGGEST_MODEL` | `LITRAG_JUDGE_MODEL`, else `qwen3:14b` | The model behind **Suggest from the project** |
+| `LITRAG_ANSWER_MODEL` | `library.json`'s `ollama.answer`, else `qwen3.5:9b` | The model behind **Ask** and `lit ask`, unless the request names one |
 | `LITRAG_LABEL_MODEL` | `qwen3:14b` | The model behind **Let the model label** |
 | `LITRAG_LABELLER` | your login name | The `by` written on your link labels |
 | `LITRAG_BOUNDARY` | off | `on`: a small model from Hugging Face scores the page breaks the rules leave open |
@@ -2172,7 +2303,7 @@ These serve tests, experiments and measurement; for a reading rule that is on by
 | `LITRAG_REVIEW`, `LITRAG_REVIEW_MODEL` | off, `qwen3:14b` | Read only by `review.py`'s own measurement |
 | `LITRAG_EPMC_URL`, `LITRAG_EPMC_PDF_URL`, `LITRAG_NCBI_URL`, `LITRAG_PMC_CLOUD_URL`, `LITRAG_OPENALEX_URL` | the real services | Point a network source at a test server |
 | `LITRAG_DOI_RESOLVER` | `https://doi.org/` | The resolver the **Collect PDFs** window opens papers through |
-| `LITRAG_E2E_PAPERS`, `LITRAG_E2E_MIN_METHODS`, `LITRAG_E2E_MIN_TITLES`, `LITRAG_E2E_SHOTS`, `LITRAG_E2E_MODELS`, `LITRAG_E2E_PDF_OPEN`, `LITRAG_E2E_PDF_CLOSED` | unset | The end-to-end suites: a folder of papers, the pass marks, a folder for screenshots, `0` to skip the model step, the studio's two PDFs |
+| `LITRAG_E2E_PAPERS`, `LITRAG_E2E_MIN_METHODS`, `LITRAG_E2E_MIN_TITLES`, `LITRAG_E2E_SHOTS`, `LITRAG_E2E_MODELS`, `LITRAG_E2E_PDF_OPEN`, `LITRAG_E2E_PDF_CLOSED` | unset | The end-to-end suites: a folder of papers, the pass marks, a folder for screenshots, `0` to skip the query-drafting step and let Ask pass with no model, the studio's two PDFs |
 | `LITRAG_FAKE_LAYOUT`, `LITRAG_FAKE_COUNTER`, `LITRAG_MARK` | unset | Unit tests only |
 | `LITRAG_PT` | `pt` | Protracker's command, for the deprecated `lit` CLI |
 

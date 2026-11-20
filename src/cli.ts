@@ -7,6 +7,7 @@
  */
 
 import { list, one, parseArgs, type Args } from './args.ts';
+import { askWorker, formatAnswer, workerCommand } from './ask.ts';
 import { resolveProject } from './protracker.ts';
 import { allPapers, openDb, statusView, upsertPaper } from './db.ts';
 import { hashEmbedder, localEmbedder, type Embedder } from './embed.ts';
@@ -50,6 +51,10 @@ usage: lit [--root DIR] [--json] <command> [args]
   papers <lib>                          the papers, one line each
   query <lib> <question> [--limit N] [--no-spine] [--no-graph] [--trace]
                                         chunks with citations: words, meaning and the graph walk fused
+  ask <lib | all> <question> [--with LIB]... [--model M] [--limit N]
+                                        a cited answer from the local model over the papers' trees
+                                        (store.sqlite, through the worker): every sentence names the
+                                        passage it rests on, or the answer says the library has none
   sql <lib> <select ...> [--limit N]    read-only SQL against the store
   snowball <lib> <paper-key>            stage what a paper cites
   where                                 the library root
@@ -424,6 +429,22 @@ async function main(argv: string[]): Promise<number> {
           out(`   ${h.text.length > 600 ? `${h.text.slice(0, 600)}…` : h.text}\n`);
         });
         return 0;
+      }
+
+      case 'ask': {
+        // the tree store's, not lit.sqlite's: the library is resolved by the worker, which reads it
+        const first = rest[0] ?? '';
+        if (!first) throw new Error('Which library? lit ask <lib | all> <question>');
+        if (first.toLowerCase() !== 'all') need(openLibrary(root, first), first);
+        const question = rest.slice(1).join(' ').trim();
+        if (!question) throw new Error('Ask what? lit ask <lib | all> <question>');
+        const libs = [first, ...list(flags['with'])];
+        for (const extra of libs.slice(1)) need(openLibrary(root, extra), extra);
+        const limit = one(flags['limit']);
+        const answer = await askWorker(workerCommand(), root, { libs, question, model: one(flags['model']), k: limit ? Number(limit) : undefined }, (ev) => log(String(ev['message'] ?? '')));
+        if (json) return out(answer), answer.status === 'unanswered' ? 1 : 0;
+        out(formatAnswer(answer));
+        return answer.status === 'unanswered' ? 1 : 0;
       }
 
       case 'sql': {

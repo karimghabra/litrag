@@ -112,7 +112,7 @@ published release, installs each once on a clean runner, and attaches them.
 
 ## What you see
 
-Six tabs over one project at a time, picked at the top:
+Seven tabs over one project at a time, picked at the top:
 
 | Tab | What it is for |
 |---|---|
@@ -120,6 +120,7 @@ Six tabs over one project at a time, picked at the top:
 | Search | a Europe PMC query (or one the local model drafts from the project's description); each hit with what can be had of it — open XML, an open PDF, nothing open — kept as a candidate; **Fetch & read** takes the XML first (Europe PMC's, else NCBI's for an NIH author manuscript), the PDF second (NLM's PMC Cloud Service, else EBI's bulk area, else the open copy OpenAlex names when it prints the paper's DOI or title), and lists the rest with their links |
 | Papers | the three panes below; the tree pane's **Canonical** face re-hangs the paper under its type's structure, each section tagged with the mechanism that placed it |
 | Types | the kinds of paper the project holds, each kind's canonical structure (its slots in order, how often its papers have each), and any paper drawn onto it: a line from each printed section to its slot, coloured by the vocabulary, the catalogue, the embedder, a built heading or the outline judge; the slots it lacks drawn empty |
+| Ask | a question answered by a chat model running on this machine from the project's passages (or every project's): every sentence closed by the passages it rests on — paper, section, page — and a click on one opens the paper at that passage, its box drawn on its page; a sentence whose numbers or words are not in its passage is marked to be checked, and a question the library does not answer is said to be one. The passages given to the model are listed under the answer |
 | Query | a question, and the passages that answer it, each hydrated from its tree: the headings above it, the paragraphs either side, the methods a finding was measured by (the paragraph it rests on, where the method is described in another paper, statistics and materials apart), the findings a method measured, the figures and references it cites — a figure with the numbers read from its charts; **Open in the tree** lands on it |
 | Graph | the papers and the citations between them, drawn as a graph with the works they cite most beside them; **Citation round** files what the papers cite (and what cites them) as the next round's candidates; SQL over `works`, `authors` and `cites`, its candidates fetched and read from the results |
 
@@ -806,6 +807,45 @@ where state = 'candidate' order by cited_here desc, year desc;
   it cites and what cites it), a double click opens a held paper. A query's
   rows are lit in the graph, and a row clicked is found in it.
 
+## Cited answers from a local model
+
+The **Ask** tab answers a question from the project's papers in a few
+sentences, every one closed by the passages it rests on:
+
+> The denaturation temperature (Tm) of the recombinant humanized type III
+> collagen cold gel (C3Gel) measured by DSC was 27.25 °C [8].
+
+A citation is a button: it opens the paper in the Papers tab at that
+passage, on its page with its box (an XML paper's reading view for one with
+no page). Under the answer are the passages the model was given, the cited
+ones first. **Over** asks this project or every project at once.
+
+The answer is written by a chat model running on this machine through
+Ollama, from the passages a `query` retrieves and nothing else, and then
+checked: a sentence citing no passage it was given is left out and counted;
+a sentence stating a number its passage does not print, or few of its
+passage's words, is kept but underlined to be checked; a question the
+passages do not answer reads **Not in the library**. With Ollama down or
+the model not pulled, the passages still come back, with the command that
+would fix it.
+
+```
+ollama pull qwen3.5:9b                         once: the default answerer, 6.6 GB
+lit ask collagen-simulations "At what temperature does the type III collagen cold gel melt?" [--json]
+```
+
+The model is the Ask tab's **Model** list, else `LITRAG_ANSWER_MODEL`, else
+a library's `ollama.answer`, else qwen3.5:9b — chosen over gemma4:12b and
+ministral-3:8b on a grounding set of answerable and unanswerable questions
+(`campaign/answers/grounding.jsonl`; the numbers are in `NOTES.md`): it
+refused all 10 questions the library cannot answer, every claim it kept is
+stated by a passage it cites, and it answers in about 2 s on a 10 GB card
+with the embedder beside it (gemma4:12b is as careful but does not fit
+beside the embedder there; ministral-3:8b answered one question from
+passages about something else). On a CPU alone it takes about 100 s.
+`python -m litrag_parser.answer --measure campaign/answers/grounding.jsonl
+--model M` measures another. DESIGN.md R4.6 has the reasons.
+
 ## The harness and the end-to-end suite
 
 Two ways to judge the reader on papers rather than on a fixture:
@@ -908,7 +948,9 @@ chunks, embeddings, hybrid retrieval with a graph walk, `lit query`, `lit
 sql`. It still runs (`npm run lit -- help`) against its own store and is
 not yet wired to the tree; `DESIGN.md` says how it will be. It is
 deprecated: kept until its verbs are ported to the tree store
-(`BACKLOG.md`), and `PIPELINE.md` says what to use instead.
+(`BACKLOG.md`), and `PIPELINE.md` says what to use instead. One verb is
+ported already: `lit ask <lib | all> "<question>" [--json]` starts the
+worker and asks it for a cited answer (above), the same as the Ask tab.
 
 ## The documents
 
