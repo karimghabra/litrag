@@ -1257,6 +1257,17 @@ class Worker:
             rebuilt = out["keys_to_rebuild"]
         if out["keys_to_parse"]:
             self.do_reparse({"id": f"{req_id}-reparse", "op": "reparse", "lib": target, "keys": out["keys_to_parse"]})
+        held = [k for k in out.get("digitised", []) if k not in out["keys_to_rebuild"] and k not in out["keys_to_parse"]]
+        if held:  # a paper the target read before the merge: its reading draws the pictures now, and no rebuild will ask
+            from . import digitise
+
+            lib = self._lib({"lib": target})
+            conn = open_store(lib.store_path)
+            try:
+                for key in held:
+                    digitise.reattach(lib.dir, conn, key)
+            finally:
+                conn.close()
         if not figures_enabled():
             if out["keys_to_read_figures"]:
                 emit({"event": "stage", "id": req_id, "lib": target, "stage": "figures", "message": f"{len(out['keys_to_read_figures'])} kept for their figures; not read: LITRAG_FIGURES=off"})

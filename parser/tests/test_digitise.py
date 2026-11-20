@@ -576,6 +576,42 @@ def test_a_stub_s_digitised_series_go_to_the_paper_it_was_a_stub_of(tmp_path):
     assert [(s["id"], s["orphan"], len(s["points"])) for s in digitise.of_figure(conn, own)] == [(a, False, 8)]
 
 
+def test_a_merge_brings_a_paper_s_digitised_series_with_their_points_fits_and_pictures(tmp_path):
+    """A curve digitised and fitted in one library, the library merged into another: the series
+    is the merged paper's, for review, with every point, its fit and the picture it was read from;
+    a reading of the paper there puts it on its figure; merging again brings nothing twice."""
+    from litrag_parser import projects
+    from litrag_parser.library import create_library, open_library
+
+    root = tmp_path / "root"
+    src = create_library(root, "lib")
+    assert src.dir == root / "lib"
+    lib, conn, key, fig = _library(root)
+    a = _saved(lib, conn, fig, "lag", colour="#1f4e9c", axes={"x": {"label": "Time", "unit": "min"}, "y": {"label": "Absorbance", "unit": None}})
+    digitise.save_fit(conn, a["id"], fit.fit([(float(i), 0.05 + 0.8 / (1 + math.exp(-0.25 * (i - 25)))) for i in range(0, 60, 2)], "logistic"))
+    a = digitise.one(conn, a["id"])
+    rows = [tuple(r) for r in conn.execute("SELECT node_id, paper, parent, ordinal, depth, type, label, role, heading, ancestry, text, page, bbox_l, bbox_t, bbox_r, bbox_b FROM nodes WHERE paper = ?", (key,))]
+    conn.close()
+    out = projects.merge(root, ["lib"], "Merged")
+    target = open_library(root, out["target"]["id"])
+    assert out["digitised"] == [key] and out["filed"] == 1
+    tconn = open_store(target.store_path)
+    came = digitise.orphans(tconn, key)
+    assert [(s["series"], s["points"], s["calibration"], s["colour"], s["axes"], s["image"]) for s in came] == [("lag", a["points"], a["calibration"], "#1f4e9c", a["axes"], a["image"])]
+    assert came[0]["fits"]["logistic"]["derived"] == a["fits"]["logistic"]["derived"]
+    assert hashlib.sha256(digitise.original_path(target.dir, a["image"]["sha256"]).read_bytes()).hexdigest() == a["image"]["sha256"]
+    # the target's reading of the paper: the nodes a rebuild derives, the figure drawn as the same picture
+    tconn.executemany("INSERT INTO nodes(node_id, paper, parent, ordinal, depth, type, label, role, heading, ancestry, text, page, bbox_l, bbox_t, bbox_r, bbox_b) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", rows)
+    tconn.commit()
+    assert digitise.follow(target.dir, tconn, key) == []
+    assert [(s["series"], s["orphan"], len(s["points"])) for s in digitise.of_figure(tconn, fig)] == [("lag", False, 8)]
+    tconn.close()
+    again = projects.merge(root, ["lib"], "", into=target.id)
+    tconn = open_store(target.store_path)
+    assert again["digitised"] == [] and tconn.execute("SELECT COUNT(*) FROM digitised").fetchone()[0] == 1
+    assert [s["id"] for s in digitise.of_figure(tconn, fig)] == [came[0]["id"]]
+
+
 def test_a_stub_dropped_for_a_pdf_kept_beside_an_xml_paper_hands_over_its_series(tmp_path):
     from litrag_parser.store import sha256_of
 

@@ -195,6 +195,9 @@ export const hooks = {
   search: (_query: string): void => undefined,
   /** open a figure in the Plots tab's digitiser */
   digitise: (_figure: string): void => undefined,
+  /** whether the Plots tab's series may be left: asked before another project is chosen, since
+   *  what is on its picture and not saved goes with the project */
+  mayLeavePlots: async (): Promise<boolean> => true,
 };
 
 export function fmtInt(n: number | null | undefined): string {

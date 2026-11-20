@@ -992,6 +992,39 @@ def carry(conn: sqlite3.Connection, stub: str, key: str) -> int:
     return conn.execute("UPDATE digitised SET paper = ?, orphan = 1 WHERE paper = ?", (key, stub)).rowcount
 
 
+def merge_from(src_dir: Path, sconn: sqlite3.Connection, key: str, target_dir: Path, tconn: sqlite3.Connection, tkey: str) -> int:
+    """A paper's digitised series brought from one library's store into another's, where the
+    paper is `tkey` (projects.merge): each series with its points, its fits and the copy of the
+    picture it was read from. They come for review — the target's reading of the paper puts
+    each on the figure drawn as its picture (`reattach`), or a person does. A series the target
+    holds already — the paper's, of that name and picture, saved at that moment — is not brought
+    twice. How many came. Not committed."""
+    if sconn.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'digitised'").fetchone() is None:
+        return 0
+    rows = sconn.execute("SELECT * FROM digitised WHERE paper = ? ORDER BY id", (key,)).fetchall()
+    if not rows:
+        return 0
+    ensure_schema(tconn)
+    cols = ["figure_label", "page", "bbox", "series", "colour", "calibration", "method", "image", "x_label", "x_unit", "y_label", "y_unit", "at", "picture"]
+    came = 0
+    for r in rows:
+        if tconn.execute("SELECT 1 FROM digitised WHERE paper = ? AND series = ? AND picture = ? AND at = ?", (tkey, r["series"], r["picture"], r["at"])).fetchone() is not None:
+            continue
+        figure = tkey + r["figure"][len(key):] if tkey != key and r["figure"].startswith(key + "#") else r["figure"]
+        cur = tconn.execute(f"INSERT INTO digitised(paper, figure, orphan, {', '.join(cols)}) VALUES (?, ?, 1, {', '.join('?' * len(cols))})", (tkey, figure, *[r[c] for c in cols]))
+        did = cur.lastrowid
+        tconn.executemany("INSERT INTO digitised_points(digitised, ordinal, x, y, px, py, how) VALUES (?,?,?,?,?,?,?)",
+                          [(did, *tuple(p)) for p in sconn.execute("SELECT ordinal, x, y, px, py, how FROM digitised_points WHERE digitised = ? ORDER BY ordinal", (r["id"],))])
+        tconn.executemany("INSERT INTO digitised_fits(digitised, model, status, result, plateau, max_rate, t_half, lag, r2, at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                          [(did, *tuple(f)) for f in sconn.execute("SELECT model, status, result, plateau, max_rate, t_half, lag, r2, at FROM digitised_fits WHERE digitised = ?", (r["id"],))])
+        kept, dest = original_path(src_dir, r["picture"]), original_path(target_dir, r["picture"])
+        if kept.is_file() and not dest.exists():
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_bytes(kept.read_bytes())
+        came += 1
+    return came
+
+
 def follow(lib_dir: Path, conn: sqlite3.Connection, key: str) -> list[tuple[str, str]]:
     """Once a paper's nodes are replaced, whatever replaced them: its plots follow their figures
     or are removed (`figures.remap`), its digitised series stay with the figures drawn as their

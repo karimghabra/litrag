@@ -188,12 +188,29 @@ async function open(req: Record<string, unknown>, doing: string): Promise<void> 
   }
 }
 
+/** Asked before anything takes the place of the series on the picture — a saved series loaded,
+ *  another curve's colour, another figure or image, a new series, another project: with changes
+ *  that are not saved it is the person's to say whether they are saved first, discarded, or the
+ *  action called off. True when the series may go. An image file's points are kept nowhere but
+ *  an export, so there the choice is to discard them or not. */
+async function mayReplace(): Promise<boolean> {
+  if (!st.opened || !st.dirty || (!st.points.length && st.activeSaved === null)) return true;
+  if (!st.figure || !ctx.lib) {
+    return (await window.litrag.choose('The points on the picture are not exported, and an image file’s are not kept in the library. Discard them?', ['Discard', 'Cancel'])) === 0;
+  }
+  const name = st.opened.saved.find((s) => s.id === st.activeSaved)?.series ?? ($<HTMLInputElement>('dg-name').value.trim() || 'the new series');
+  const answer = await window.litrag.choose(`“${name}” has changes on the picture that are not saved. Save them first?`, ['Save', 'Discard', 'Cancel']);
+  if (answer === 0) return (await save()) !== null;
+  return answer === 1;
+}
+
 async function openFigure(figure: string): Promise<void> {
-  if (!ctx.lib) return;
+  if (!ctx.lib || !(await mayReplace())) return;
   await open({ lib: ctx.lib, figure }, 'Cutting the figure from its page and reading its axes');
 }
 
 async function openImage(): Promise<void> {
+  if (!(await mayReplace())) return;
   const path = await window.litrag.chooseImage();
   if (!path) return;
   await open({ lib: ctx.lib ?? undefined, path }, 'Reading the image’s axes');
@@ -346,7 +363,7 @@ function onDown(ev: MouseEvent): void {
   }
   if (st.tool === 'colour') {
     const c = pickColour(px, py);
-    if (c) pickedColour(c);
+    if (c) void pickedColour(c);
     return;
   }
   if (st.tool === 'add') {
@@ -470,18 +487,25 @@ function recount(opened: Opened): void {
   }
 }
 
-/** A colour that is not the one the saved series being edited was found by — not within the
- *  tolerance its points are found with — is another curve's: what is found by it is a new series,
- *  not that one's points. */
-function anotherCurve(colour: string): boolean {
+/** The colour the series on the picture is of: the one the saved series being edited was found
+ *  by, else the one the points on it were found by; none for a series found by none. */
+function workingColour(): string | null {
   const s = st.opened?.saved.find((x) => x.id === st.activeSaved);
-  return !!s && !sameCurve(s.colour, colour, Number($<HTMLInputElement>('dg-tol').value));
+  return s ? s.colour : ((st.method?.['colour'] as string | undefined) ?? null);
 }
 
-/** A colour a person picked. Another curve's starts a new series, unless the points on the
- *  picture were edited and are not saved yet: those stay until points are found by the new colour. */
-function pickedColour(c: string): void {
-  if (!st.edited && anotherCurve(c)) {
+/** A colour that is not the working series' — not within the tolerance its points are found
+ *  with — is another curve's: what is found by it is a new series, not that one's points. */
+function anotherCurve(colour: string): boolean {
+  const mine = workingColour();
+  return mine !== null && !sameCurve(mine, colour, Number($<HTMLInputElement>('dg-tol').value));
+}
+
+/** A colour a person picked. Another curve's starts a new series, once the one on the picture
+ *  may go (`mayReplace`). */
+async function pickedColour(c: string): Promise<void> {
+  if (anotherCurve(c)) {
+    if (!(await mayReplace())) return;
     newSeries();
     renderAll();
   }
@@ -587,7 +611,7 @@ function renderSaved(): void {
     });
     row.append(el('span', 'spacer'), del);
     row.title = 'Edit this series';
-    row.addEventListener('click', () => loadSaved(s.id));
+    row.addEventListener('click', () => void mayReplace().then((ok) => ok && loadSaved(s.id)));
     box.append(row);
   }
   const orphans = st.opened?.orphans ?? [];
@@ -726,7 +750,7 @@ function renderPalette(): void {
     const b = el('button', 'ghost') as HTMLButtonElement;
     b.style.background = p.colour;
     b.title = `${p.colour}: ${(100 * p.share).toFixed(1)}% of the plot’s ink`;
-    b.addEventListener('click', () => pickedColour(p.colour));
+    b.addEventListener('click', () => void pickedColour(p.colour));
     box.append(b);
   }
 }
@@ -755,17 +779,19 @@ async function extract(): Promise<void> {
   const mode = $<HTMLSelectElement>('dg-mode').value;
   const tolerance = Number($<HTMLInputElement>('dg-tol').value);
   const colour = st.colour;
+  // points found take the place of those on the picture: another curve's, or ones found by no colour, are a series of their own
+  if (anotherCurve(colour) || (workingColour() === null && st.points.length > 0)) {
+    if (!(await mayReplace())) return;
+    newSeries();
+    setColour(colour);
+    renderAll();
+  }
   const latest = ticket('extract');
   try {
     const r = await request<{ mode: string; points: Pt[]; legend: number; pixels: number; region: number[] }>('digitise_extract', {
       image: st.imagePath, colour, tolerance, mode, region: st.region ?? undefined, calibration: cal ? cal.c : undefined,
     });
     if (!latest()) return;
-    if (anotherCurve(colour)) {
-      newSeries();
-      setColour(colour);
-      renderSaved();
-    }
     st.points = r.points.map((p) => ({ px: p.px, py: p.py, how: 'auto' as const }));
     st.method = { mode: r.mode, asked: mode, tolerance, region: r.region, colour, auto_axes: st.fromAuto };
     changed();
@@ -997,8 +1023,12 @@ export function initPlots(): void {
   $('dg-extract').addEventListener('click', () => void extract());
   $('dg-save').addEventListener('click', () => void save());
   $('dg-new').addEventListener('click', () => {
-    newSeries(true);
-    renderAll();
+    void (async () => {
+      if (st.edited) newSeries(true);
+      else if (await mayReplace()) newSeries();
+      else return;
+      renderAll();
+    })();
   });
   $('dg-clear').addEventListener('click', () => {
     st.points = [];
@@ -1042,6 +1072,7 @@ export function initPlots(): void {
     $('plots-project').textContent = projectName();
     if (!st.list.length && ctx.lib) void find();
   });
+  hooks.mayLeavePlots = mayReplace;
   hooks.digitise = (figure: string) => {
     showView('plots');
     void openFigure(figure);
