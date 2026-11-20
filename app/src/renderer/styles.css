@@ -543,7 +543,7 @@ select.narrow-select { min-width: 0; }
 .dg-points td:first-child, .dg-fit td:first-child { text-align: left; }
 .dg-points tr.how-added td, .dg-points tr.how-moved td { color: var(--accent); }
 .dg-fit svg { max-width: 100%; height: auto; }
-.dg-fit .warn { color: var(--warn); }
+.dg-fit .warn, .dg-points .warn { color: var(--warn); }
 .dg-sec .row { flex-wrap: wrap; }
 .dg-sec .row .field { flex: 1; min-width: 0; }
 .dg-sec .row .field input { flex: 1; min-width: 0; }

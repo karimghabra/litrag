@@ -10,7 +10,7 @@
  * digitise.ts's; this module draws and listens.
  */
 
-import { Calibration, addPoint, deletePoint, exportName, fitRows, fitSvg, hex, movePoint, nearest, num, tryCalibration, valued, type AxisCal, type CalibrationDict, type FitResult, type Pt } from './digitise.ts';
+import { Calibration, addPoint, deletePoint, exportName, fitRows, fitSvg, hex, movePoint, nearest, num, onPicture, tryCalibration, valued, type AxisCal, type CalibrationDict, type FitResult, type Pt } from './digitise.ts';
 import { $, activity, ctx, el, hooks, log, onProjectChange, onViewShown, projectName, rejectionText, request, showView } from './shared.ts';
 
 interface FoundFigure {
@@ -57,6 +57,7 @@ interface SavedSeries {
   colour: string | null;
   calibration: CalibrationDict;
   method: Record<string, unknown>;
+  image: { sha256?: string };
   axes: { x: { label: string | null; unit: string | null }; y: { label: string | null; unit: string | null } };
   points: Pt[];
   fits: Record<string, FitResult>;
@@ -458,7 +459,7 @@ function drawOverlay(): void {
   // saved series other than the one being edited, faint
   for (const s of st.opened?.saved ?? []) {
     if (s.id === st.activeSaved) continue;
-    for (const p of s.points) o.append(svg('circle', { cx: p.px, cy: p.py, r: 2.5 * k, fill: s.colour ?? '#999', opacity: 0.45 }));
+    for (const p of onPicture(s, st.opened?.image?.sha256).points) o.append(svg('circle', { cx: p.px, cy: p.py, r: 2.5 * k, fill: s.colour ?? '#999', opacity: 0.45 }));
   }
   for (const p of st.points) {
     o.append(svg('circle', { cx: p.px, cy: p.py, r: 4 * k, fill: 'none', stroke: '#fff', 'stroke-width': 3 * k }));
@@ -506,7 +507,7 @@ function renderSaved(): void {
     const row = el('div', `saved${s.id === st.activeSaved ? ' on' : ''}`);
     const dot = el('span', 'dot');
     dot.style.background = s.colour ?? '#999';
-    row.append(dot, el('span', undefined, s.series), el('span', 'muted', `${s.points.length} points${Object.keys(s.fits).length ? ` · fit: ${Object.keys(s.fits).join(', ')}` : ''}`));
+    row.append(dot, el('span', undefined, s.series), el('span', 'muted', `${s.points.length} points${Object.keys(s.fits).length ? ` · fit: ${Object.keys(s.fits).join(', ')}` : ''}${onPicture(s, st.opened?.image?.sha256).same ? '' : ' · read from another picture'}`));
     const del = el('button', 'ghost small', '×') as HTMLButtonElement;
     del.title = 'Delete this saved series';
     del.addEventListener('click', (ev) => {
@@ -537,11 +538,14 @@ function renderSaved(): void {
 function loadSaved(id: number): void {
   const s = st.opened?.saved.find((x) => x.id === id);
   if (!s) return;
+  const on = onPicture(s, st.opened?.image?.sha256);
   st.activeSaved = id;
-  st.cal = { x: { ...s.calibration.x }, y: { ...s.calibration.y } };
-  st.fromAuto = false;
-  st.confirmed = true;
-  st.points = s.points.map((p) => ({ px: p.px, py: p.py, how: p.how }));
+  if (on.calibration) {
+    st.cal = on.calibration;
+    st.fromAuto = false;
+  }
+  st.confirmed = on.same;
+  st.points = on.points;
   st.method = s.method;
   st.dirty = false;
   if (s.colour) setColour(s.colour);
@@ -562,6 +566,11 @@ function renderPoints(): void {
   const box = $('dg-points');
   box.innerHTML = '';
   if (!pts.length) {
+    const s = st.opened?.saved.find((x) => x.id === st.activeSaved);
+    if (s && !st.dirty && !onPicture(s, st.opened?.image?.sha256).same) {
+      box.append(el('div', 'warn', `The picture of this figure has changed since “${s.series}” was digitised. Its ${s.points.length} saved point${s.points.length === 1 ? '' : 's'} are kept as they were and are not drawn on this picture: confirm the axes on it before finding new points.`));
+      return;
+    }
     box.append(el('div', 'muted', 'No points yet: pick the series’ colour and Find points, or add them by hand.'));
     return;
   }
@@ -695,6 +704,10 @@ async function save(): Promise<SavedSeries | null> {
   }
   const opened = st.opened;
   if (!opened) return null;
+  if (!st.points.length) {
+    log('error', 'Save: there are no points to save');
+    return null;
+  }
   const name = $<HTMLInputElement>('dg-name').value.trim() || `series ${opened.saved.length + 1}`;
   $<HTMLInputElement>('dg-name').value = name;
   try {
