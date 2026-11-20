@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { Calibration, addPoint, charted, deletePoint, exportName, fitRows, fitSvg, hex, movePoint, nearest, num, onPicture, tryCalibration, valued, type FitResult, type Pt } from '../src/renderer/digitise.ts';
+import { Calibration, addPoint, charted, deletePoint, exportName, fitRows, fitSvg, hex, movePoint, nearest, nextName, num, onPicture, tryCalibration, valued, type FitResult, type Pt } from '../src/renderer/digitise.ts';
 
 const square = { x: { p1: [100, 400] as [number, number], v1: 0, p2: [500, 400] as [number, number], v2: 60, log: false }, y: { p1: [100, 400] as [number, number], v1: 0, p2: [100, 100] as [number, number], v2: 0.8, log: false } };
 
@@ -143,5 +143,21 @@ describe('what a fit is drawn over', () => {
     expect(svg).toContain('<polyline');
     expect(svg.match(/<circle/g)?.length ?? 0).toBeGreaterThanOrEqual(3);
     expect(fitSvg([], fit)).not.toContain('<polyline'); // what it was: the numbers over an empty chart
+  });
+});
+
+describe('the name a new series is offered', () => {
+  it('counts on from the figure’s saved series', () => {
+    expect(nextName([])).toBe('series 1');
+    expect(nextName(['series 1'])).toBe('series 2');
+    expect(nextName(['series 1', 'series 2'])).toBe('series 3');
+    expect(nextName(['Collagen 37 °C'])).toBe('series 2');
+  });
+
+  it('is never a name already saved, whatever was deleted or typed before', () => {
+    expect(nextName(['series 2'])).toBe('series 3'); // series 1 deleted: 2 is taken
+    expect(nextName(['a', 'series 3'])).toBe('series 4');
+    const taken = ['series 1', 'series 3', 'series 4'];
+    expect(taken).not.toContain(nextName(taken));
   });
 });

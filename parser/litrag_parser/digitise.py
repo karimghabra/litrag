@@ -824,10 +824,11 @@ def _image(image: dict[str, Any] | None) -> dict[str, Any]:
 
 
 def save(lib_dir: Path, conn: sqlite3.Connection, figure: str, series: str, calibration: dict[str, Any], points: Sequence[dict[str, Any]], *, image: dict[str, Any], colour: str | None = None,
-         method: dict[str, Any] | None = None, axes: dict[str, Any] | None = None, source: dict[str, Any] | None = None) -> dict[str, Any]:
-    """A series saved in place of the one of that name on that figure (never of one kept for
-    review: it is no figure's): every point's value read again from its pixel through
-    `calibration`. `image` is the one the figure was opened as (`render`): the points are pixels
+         method: dict[str, Any] | None = None, axes: dict[str, Any] | None = None, source: dict[str, Any] | None = None, replace: bool = False) -> dict[str, Any]:
+    """A series saved on a figure: every point's value read again from its pixel through
+    `calibration`. A name the figure has a series under already is refused — a second curve is
+    not to take the first's place unasked — unless `replace` says the one of that name is to be
+    replaced, its points and its fits (never one kept for review: it is no figure's). `image` is the one the figure was opened as (`render`): the points are pixels
     of it, so it must be the picture of the figure on disk still, and a copy of it is kept by its
     hash, which binds the series to the figure. `source` is the one the figure was opened with:
     where the store knows no place for the figure (an XML paper's, found on the PDF kept beside it
@@ -856,6 +857,8 @@ def save(lib_dir: Path, conn: sqlite3.Connection, figure: str, series: str, cali
     x, y = ax.get("x") or {}, ax.get("y") or {}
     with conn:
         old = conn.execute("SELECT id FROM digitised WHERE figure = ? AND series = ? AND orphan = 0", (figure, name)).fetchone()
+        if old is not None and not replace:
+            raise ValueError(f"the figure has a series named {name!r} already: give this one another name, or say it replaces that one")
         row = (src["paper"], figure, sha, src.get("label"), src.get("page"), json.dumps(src.get("bbox")) if src.get("bbox") else None, name, colour,
                json.dumps(cal.to_dict()), json.dumps({"reader": METHOD, **(method or {})}), json.dumps(_image(image)),
                x.get("label"), x.get("unit"), y.get("label"), y.get("unit"), now_iso())
@@ -1237,8 +1240,9 @@ def answer(op: str, req: dict[str, Any], get_lib: Any) -> dict[str, Any]:
       holds the pixel `near` (a panel of a figure of several).
     - `digitise_extract` {image, colour, tolerance, region, mode, calibration} → `extracted`
       {mode, colour, points, ...}: a series found by its colour in the rendered image.
-    - `digitise_save` {lib, figure, series, calibration, points, colour, method, image, axes, source} →
-      `digitised` {series}: saved in place of the one of that name; `source` the open's, for its place.
+    - `digitise_save` {lib, figure, series, calibration, points, colour, method, image, axes, source,
+      replace} → `digitised` {series}: saved; in place of the one of that name only when `replace`
+      says so; `source` the open's, for its place.
     - `digitise_delete` {lib, series_id} → `digitised` {deleted}.
     - `digitise_attach` {lib, series_id, figure} → `digitised` {series}: a series put on a figure
       of its paper by a person (`attach`).
@@ -1317,7 +1321,7 @@ def answer(op: str, req: dict[str, Any], get_lib: Any) -> dict[str, Any]:
     try:
         if op == "digitise_save":
             saved = save(lib.dir, conn, str(req["figure"]), str(req.get("series") or ""), req["calibration"], req.get("points") or [], image=req.get("image") or {}, colour=req.get("colour"),
-                         method=req.get("method"), axes=req.get("axes"), source=req.get("source"))
+                         method=req.get("method"), axes=req.get("axes"), source=req.get("source"), replace=bool(req.get("replace")))
             return {"event": "digitised", "lib": lib.id, "series": saved}
         if op == "digitise_attach":
             return {"event": "digitised", "lib": lib.id, "series": attach(lib.dir, conn, int(req["series_id"]), str(req["figure"]))}

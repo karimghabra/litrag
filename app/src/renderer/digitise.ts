@@ -111,6 +111,14 @@ export function charted(points: Pt[], kept: { calibration: CalibrationDict; poin
   return from.filter((p) => p.x !== undefined && p.y !== undefined).map((p) => [p.x!, p.y!]);
 }
 
+/** The name a new series is offered: "series N", N one more than the figure's saved series, and
+ *  on past any name already taken — never the name of one that is saved. */
+export function nextName(taken: string[]): string {
+  let n = taken.length + 1;
+  while (taken.includes(`series ${n}`)) n += 1;
+  return `series ${n}`;
+}
+
 /** The point nearest (px, py) within `reach` pixels, or -1. */
 export function nearest(points: Pt[], px: number, py: number, reach: number): number {
   let best = -1;

@@ -10,7 +10,7 @@
  * digitise.ts's; this module draws and listens.
  */
 
-import { Calibration, addPoint, charted, deletePoint, exportName, fitRows, fitSvg, hex, movePoint, nearest, num, onPicture, tryCalibration, valued, type AxisCal, type CalibrationDict, type FitResult, type Pt } from './digitise.ts';
+import { Calibration, addPoint, charted, deletePoint, exportName, fitRows, fitSvg, hex, movePoint, nearest, nextName, num, onPicture, tryCalibration, valued, type AxisCal, type CalibrationDict, type FitResult, type Pt } from './digitise.ts';
 import { $, activity, ctx, el, hooks, log, onProjectChange, onViewShown, projectName, rejectionText, request, showView } from './shared.ts';
 
 interface FoundFigure {
@@ -342,7 +342,7 @@ function onDown(ev: MouseEvent): void {
   }
   if (st.tool === 'colour') {
     const c = pickColour(px, py);
-    if (c) setColour(c);
+    if (c) pickedColour(c);
     return;
   }
   if (st.tool === 'add') {
@@ -432,6 +432,34 @@ function changed(): void {
 function axesChanged(): void {
   renderAxes();
   changed();
+}
+
+/** The working series put aside for a new one: nothing of it on the picture, no saved series
+ *  being edited, the next default name. The saved ones stay as they are. */
+function newSeries(): void {
+  st.activeSaved = null;
+  st.points = [];
+  st.method = null;
+  st.fit = null;
+  st.dirty = false;
+  $<HTMLInputElement>('dg-name').value = nextName((st.opened?.saved ?? []).map((s) => s.series));
+}
+
+/** A colour other than the one the saved series being edited was found by is another curve's:
+ *  what is found by it is a new series, not that one's points. */
+function anotherCurve(colour: string): boolean {
+  const s = st.opened?.saved.find((x) => x.id === st.activeSaved);
+  return !!s && s.colour !== colour;
+}
+
+/** A colour a person picked. Another curve's starts a new series, unless edits to the one on the
+ *  picture are not saved yet: those stay until points are found by the new colour. */
+function pickedColour(c: string): void {
+  if (!st.dirty && anotherCurve(c)) {
+    newSeries();
+    renderAll();
+  }
+  setColour(c);
 }
 
 function setColour(c: string): void {
@@ -671,7 +699,7 @@ function renderPalette(): void {
     const b = el('button', 'ghost') as HTMLButtonElement;
     b.style.background = p.colour;
     b.title = `${p.colour}: ${(100 * p.share).toFixed(1)}% of the plot’s ink`;
-    b.addEventListener('click', () => setColour(p.colour));
+    b.addEventListener('click', () => pickedColour(p.colour));
     box.append(b);
   }
 }
@@ -706,6 +734,7 @@ async function extract(): Promise<void> {
       image: st.imagePath, colour, tolerance, mode, region: st.region ?? undefined, calibration: cal ? cal.c : undefined,
     });
     if (!latest()) return;
+    if (anotherCurve(colour)) newSeries();
     st.points = r.points.map((p) => ({ px: p.px, py: p.py, how: 'auto' as const }));
     st.method = { mode: r.mode, asked: mode, tolerance, region: r.region, colour, auto_axes: st.fromAuto };
     changed();
@@ -747,11 +776,13 @@ async function save(): Promise<SavedSeries | null> {
     log('error', 'Save: there are no points to save');
     return null;
   }
-  const name = $<HTMLInputElement>('dg-name').value.trim() || `series ${opened.saved.length + 1}`;
+  const name = $<HTMLInputElement>('dg-name').value.trim() || nextName(opened.saved.map((s) => s.series));
   $<HTMLInputElement>('dg-name').value = name;
+  const old = opened.saved.find((s) => s.series === name);
+  if (old && !window.confirm(`Replace the saved series “${name}” (${old.points.length} point${old.points.length === 1 ? '' : 's'}) with the ${st.points.length} on the picture? Its points and its fits are replaced. To keep both, cancel and give this one another name.`)) return null;
   try {
     const r = await request<{ series: SavedSeries }>('digitise_save', {
-      lib: ctx.lib, figure: st.figure, series: name, calibration: cal.c, points: st.points, colour: st.colour, method: st.method ?? { mode: 'manual' }, image: opened.image, axes: axesOf(), source: opened.source,
+      lib: ctx.lib, figure: st.figure, series: name, calibration: cal.c, points: st.points, colour: st.colour, method: st.method ?? { mode: 'manual' }, image: opened.image, axes: axesOf(), source: opened.source, replace: !!old,
     });
     if (st.opened !== opened) return null;
     opened.saved = [...opened.saved.filter((s) => s.id !== r.series.id), r.series];
@@ -781,7 +812,7 @@ async function deleteSaved(id: number): Promise<void> {
     if (st.opened !== opened) return;
     opened.saved = opened.saved.filter((s) => s.id !== id);
     opened.orphans = opened.orphans.filter((s) => s.id !== id);
-    if (st.activeSaved === id) st.activeSaved = null;
+    if (st.activeSaved === id) newSeries();
     renderAll();
   } catch (e) {
     log('error', `delete: ${rejectionText(e)}`);

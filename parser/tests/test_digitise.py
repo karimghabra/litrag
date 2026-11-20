@@ -207,9 +207,9 @@ def test_a_figure_is_rendered_offered_found_saved_and_exported_traceably(tmp_pat
     assert [p["x"] for p in saved["points"]] == sorted(p["x"] for p in saved["points"])
     assert any(p["how"] == "added" for p in saved["points"])
     # saved again under the same name: replaced, not added
-    again = digitise.save(lib, conn, fig, s["name"], got["auto"]["calibration"], points[:5], colour=s["colour"], image=got["image"])
+    again = digitise.save(lib, conn, fig, s["name"], got["auto"]["calibration"], points[:5], colour=s["colour"], image=got["image"], replace=True)
     assert again["id"] == saved["id"] and len(digitise.of_figure(conn, fig)) == 1 and len(again["points"]) == 5
-    saved = digitise.save(lib, conn, fig, s["name"], got["auto"]["calibration"], points, colour=s["colour"], image=got["image"], axes={"x": got["auto"]["x"], "y": got["auto"]["y"]})
+    saved = digitise.save(lib, conn, fig, s["name"], got["auto"]["calibration"], points, colour=s["colour"], image=got["image"], replace=True, axes={"x": got["auto"]["x"], "y": got["auto"]["y"]})
     f = fit.fit([(p["x"], p["y"]) for p in saved["points"] if p["how"] == "auto"], "logistic")
     digitise.save_fit(conn, saved["id"], f)
     out = digitise.export(conn, [saved["id"]], tmp_path / "out" / "turbidity", library="lib")
@@ -224,6 +224,28 @@ def test_a_figure_is_rendered_offered_found_saved_and_exported_traceably(tmp_pat
     assert side["series"][0]["points"][0].keys() >= {"x", "y", "px", "py", "how"} and side["series"][0]["image"]["sha256"] == got["image"]["sha256"]
     assert side["series"][0]["fits"]["logistic"]["derived"]["t_half"]["value"] == pytest.approx(f["derived"]["t_half"]["value"])
     assert out["fits"] and Path(out["fits"][0]).read_text().splitlines()[0] == "model,logistic"
+
+
+def test_a_second_curve_saved_under_the_first_s_name_does_not_take_its_place_unasked(tmp_path):
+    """The turbidity figure's two curves, digitised one after the other. Saving the second under
+    the name the first was saved with is refused, and the first stays as it was; under a name of
+    its own both are kept; only a save that says it replaces the first does."""
+    lib, conn, key, fig = _library(tmp_path)
+    got, first, a_pts = _digitised(lib, conn, fig, 0)
+    _, second, b_pts = _digitised(lib, conn, fig, 1)
+    cal = got["auto"]["calibration"]
+    assert first["colour"] != second["colour"] and a_pts["points"] != b_pts["points"]
+    a = digitise.save(lib, conn, fig, "series 1", cal, a_pts["points"], colour=first["colour"], image=got["image"])
+    digitise.save_fit(conn, a["id"], fit.fit([(p["x"], p["y"]) for p in a["points"]], "logistic"))
+    with pytest.raises(ValueError, match="already"):
+        digitise.save(lib, conn, fig, "series 1", cal, b_pts["points"], colour=second["colour"], image=got["image"])
+    kept = digitise.one(conn, a["id"])
+    assert kept["points"] == a["points"] and kept["colour"] == first["colour"] and set(kept["fits"]) == {"logistic"}
+    b = digitise.save(lib, conn, fig, "series 2", cal, b_pts["points"], colour=second["colour"], image=got["image"])
+    assert [(s["series"], s["colour"], len(s["points"])) for s in digitise.of_figure(conn, fig)] == [
+        ("series 1", first["colour"], len(a_pts["points"])), ("series 2", second["colour"], len(b_pts["points"]))]
+    over = digitise.save(lib, conn, fig, "series 1", cal, b_pts["points"], colour=second["colour"], image=got["image"], replace=True)
+    assert over["id"] == a["id"] and over["points"] == b["points"] and over["fits"] == {} and len(digitise.of_figure(conn, fig)) == 2
 
 
 def test_an_xml_paper_without_a_pdf_says_why_it_cannot_be_drawn(tmp_path):
