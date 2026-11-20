@@ -609,7 +609,85 @@ def test_a_merge_brings_a_paper_s_digitised_series_with_their_points_fits_and_pi
     again = projects.merge(root, ["lib"], "", into=target.id)
     tconn = open_store(target.store_path)
     assert again["digitised"] == [] and tconn.execute("SELECT COUNT(*) FROM digitised").fetchone()[0] == 1
-    assert [s["id"] for s in digitise.of_figure(tconn, fig)] == [came[0]["id"]]
+    assert [(s["id"], s["uid"]) for s in digitise.of_figure(tconn, fig)] == [(came[0]["id"], a["uid"])]
+
+
+def _merged(tmp_path):
+    """A library with one series, merged into another whose reading of the paper holds the series
+    on its figure: `(root, source dir, source figure, the series there, target library, key)`."""
+    from litrag_parser import projects
+    from litrag_parser.library import create_library, open_library
+
+    root = tmp_path / "root"
+    create_library(root, "lib")
+    lib, conn, key, fig = _library(root)
+    a = _saved(lib, conn, fig, "lag", colour="#1f4e9c")
+    rows = [tuple(r) for r in conn.execute("SELECT node_id, paper, parent, ordinal, depth, type, label, role, heading, ancestry, text, page, bbox_l, bbox_t, bbox_r, bbox_b FROM nodes WHERE paper = ?", (key,))]
+    conn.close()
+    target = open_library(root, projects.merge(root, ["lib"], "Merged")["target"]["id"])
+    tconn = open_store(target.store_path)
+    tconn.executemany("INSERT INTO nodes(node_id, paper, parent, ordinal, depth, type, label, role, heading, ancestry, text, page, bbox_l, bbox_t, bbox_r, bbox_b) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", rows)
+    tconn.commit()
+    digitise.follow(target.dir, tconn, key)
+    tconn.close()
+    return root, lib, fig, a, target, key
+
+
+def _series(target, key):
+    """Every series of the paper in a library, on a figure or for review: `[(uid, name, points)]`."""
+    conn = open_store(target.store_path)
+    try:
+        return [(s["uid"], s["series"], len(s["points"])) for s in (digitise.one(conn, r[0]) for r in conn.execute("SELECT id FROM digitised WHERE paper = ? ORDER BY id", (key,)))]
+    finally:
+        conn.close()
+
+
+def test_a_series_saved_again_or_renamed_where_it_was_merged_to_is_not_brought_a_second_time(tmp_path):
+    """Merged, then worked on in the merged library — a point moved, then a real name given — and
+    the same source merged again after each: the source has not changed, so nothing comes, and
+    the work done in the merged library stands."""
+    from litrag_parser import projects
+
+    root, lib, fig, a, target, key = _merged(tmp_path)
+    tconn = open_store(target.store_path)
+    mine = digitise.of_figure(tconn, fig)[0]
+    image = digitise.render(target.dir, tconn, fig, offer=False)["image"]
+    digitise.save(target.dir, tconn, fig, "lag", CAL, PTS[:6], image=image, colour="#1f4e9c", series_id=mine["id"])
+    tconn.close()
+    assert projects.merge(root, ["lib"], "", into=target.id)["digitised"] == []
+    assert _series(target, key) == [(a["uid"], "lag", 6)]
+    tconn = open_store(target.store_path)
+    digitise.save(target.dir, tconn, fig, "Collagen 37 °C", CAL, PTS[:6], image=image, colour="#1f4e9c", series_id=mine["id"])
+    tconn.close()
+    assert projects.merge(root, ["lib"], "", into=target.id)["digitised"] == []
+    assert _series(target, key) == [(a["uid"], "Collagen 37 °C", 6)]
+
+
+def test_a_series_changed_in_both_libraries_is_kept_in_each_form_and_neither_is_written_over(tmp_path):
+    """Changed in the merged library and changed in its source, then merged again: the merged
+    library's stays as it is and the source's comes beside it, named after its library — once,
+    however often the merge is repeated; a further change in the source comes as another."""
+    from litrag_parser import projects
+
+    root, lib, fig, a, target, key = _merged(tmp_path)
+    tconn = open_store(target.store_path)
+    mine = digitise.of_figure(tconn, fig)[0]
+    digitise.save(target.dir, tconn, fig, "lag", CAL, PTS[:6], image=digitise.render(target.dir, tconn, fig, offer=False)["image"], colour="#1f4e9c", series_id=mine["id"])
+    tconn.close()
+    sconn = open_store(lib / "store.sqlite")
+    image = digitise.render(lib, sconn, fig, offer=False)["image"]
+    digitise.save(lib, sconn, fig, "lag", CAL, PTS[:4], image=image, colour="#1f4e9c", series_id=a["id"])
+    sconn.close()
+    assert projects.merge(root, ["lib"], "", into=target.id)["digitised"] == [key]
+    both = _series(target, key)
+    assert [(name, n) for _, name, n in both] == [("lag", 6), ("lag (lib)", 4)] and both[0][0] == a["uid"] != both[1][0]
+    assert projects.merge(root, ["lib"], "", into=target.id)["digitised"] == [] and _series(target, key) == both
+    sconn = open_store(lib / "store.sqlite")
+    digitise.save(lib, sconn, fig, "lag", CAL, PTS[:3], image=image, colour="#1f4e9c", series_id=a["id"])
+    assert digitise.one(sconn, a["id"])["uid"] == a["uid"]  # a series is the same series through its saves
+    sconn.close()
+    assert projects.merge(root, ["lib"], "", into=target.id)["digitised"] == [key]
+    assert [(name, n) for _, name, n in _series(target, key)] == [("lag", 6), ("lag (lib)", 4), ("lag (lib)", 3)]
 
 
 def test_a_stub_dropped_for_a_pdf_kept_beside_an_xml_paper_hands_over_its_series(tmp_path):

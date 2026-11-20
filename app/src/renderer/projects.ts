@@ -5,7 +5,7 @@
  * into a new one.
  */
 
-import { $, activity, ctx, el, fmtInt, log, onWorkerEvent, queryText, request, setProject, showView, type ProjectSummary } from './shared.ts';
+import { $, activity, chooseProject, ctx, el, fmtInt, log, onWorkerEvent, queryText, request, showView, type ProjectSummary } from './shared.ts';
 
 const TYPE_COLORS: Record<string, string> = {
   research: 'var(--methods)', review: 'var(--abstract)', letter: 'var(--results)', editorial: 'var(--discussion)',
@@ -50,7 +50,7 @@ export function initProjects(loadAll: () => Promise<void>): void {
       const figures = kept || notKept ? `, ${kept} PDF${kept === 1 ? '' : 's'} kept beside an XML paper for its figures, ${notKept} not kept` : '';
       log('stage', `Merged into ${target}: ${ev['filed']} papers filed, ${ev['duplicates']} already there, ${(ev['rebuilt'] as unknown[] | undefined)?.length ?? 0} rebuilt${figures}`);
       void reload?.().then(() => {
-        if (target) setProject(target);
+        if (target) void chooseProject(target);
       });
     }
     if (ev['event'] === 'done' && ev['op'] === 'migrate') {
@@ -78,7 +78,7 @@ async function createProject(): Promise<void> {
     $<HTMLTextAreaElement>('np-description').value = '';
     log('stage', `Created project ${r.library.id}`);
     await reload?.();
-    setProject(r.library.id);
+    await chooseProject(r.library.id);
   } catch (e) {
     log('error', (e as Error).message);
     window.alert((e as Error).message);
@@ -225,8 +225,7 @@ function card(p: ProjectSummary): HTMLElement {
     const b = el('button', primary ? 'primary small' : 'ghost small', label);
     b.addEventListener('click', (e) => {
       e.stopPropagation();
-      setProject(p.id);
-      showView(view);
+      void chooseProject(p.id).then((ok) => ok && showView(view));
     });
     actions.append(b);
   };
@@ -248,9 +247,6 @@ function card(p: ProjectSummary): HTMLElement {
   });
   actions.append(edit);
   c.append(actions);
-  c.addEventListener('click', () => {
-    setProject(p.id);
-    showView('papers');
-  });
+  c.addEventListener('click', () => void chooseProject(p.id).then((ok) => ok && showView('papers')));
   return c;
 }
