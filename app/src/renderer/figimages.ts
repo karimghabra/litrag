@@ -28,10 +28,12 @@ export interface FigureImage {
 /** what an XML paper's figure images came to (figure_images.states): none for a paper never asked */
 export interface ImageState {
   figures: number;
-  /** figures with an image on disk */
+  /** figures with an image on disk now */
   had: number;
-  /** whether asking again would change anything: every figure had, or every source answered for the rest */
+  /** whether asking the services again would change nothing: every figure had, or each answered for the rest */
   settled: boolean;
+  /** whether the PDF fallback answered for good: a PDF of the paper searched, or none to be had */
+  fallback: boolean;
   sources: string | null;
   why: string | null;
   at: string | null;
@@ -73,12 +75,13 @@ export function imageAlt(image: FigureImage): string {
   return words.length > 160 ? `${words.slice(0, 157)}…` : words || 'figure';
 }
 
-/** Whether a paper read from XML still lacks the image of some figure that a fetch could change:
- *  never asked, or asked and not settled. A paper whose ask settled was answered by every source. */
+/** Whether a paper read from XML still lacks the image of some figure that a fetch could change
+ *  (figure_images.wanting): never asked, or lacking some while the services or the PDF fallback
+ *  have yet to answer for good. */
 export function wantsImages(p: Imaged): boolean {
   if (p.format !== 'jats' || p.status !== 'parsed') return false;
   const s = p.images;
-  return !s || (!s.settled && s.had < s.figures);
+  return !s || (s.had < s.figures && !(s.settled && s.fallback));
 }
 
 /** Whether a paper's figures are there to read and not read yet: unread, or not read with the
@@ -144,7 +147,7 @@ export function imagesChip(p: Imaged): { text: string; title: string; whole: boo
   return {
     text: whole ? `${s.figures} image${s.figures === 1 ? '' : 's'}` : `${s.had} of ${s.figures} images`,
     title: (s.had ? `The images of ${s.had} of its ${s.figures} figures${from ? `, from ${from}` : ''}, drawn in its reading.` : `No image for its ${s.figures} figures yet.`) +
-      (!whole && s.why ? ` For the rest: ${s.why}.` : '') + (!whole && !s.settled ? ' Fetch figure images asks again.' : ''),
+      (!whole && s.why ? ` For the rest: ${s.why}.` : '') + (!whole && !(s.settled && s.fallback) ? ' Fetch figure images asks again.' : ''),
     whole,
   };
 }

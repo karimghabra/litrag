@@ -21,9 +21,10 @@ Each image is a file under the library's `figures/<safe key>/` and a row in `fig
 the figure's place among the XML's figures, its label and caption as the XML prints them, the
 file, where it came from, its SHA-256, size and pixels. What a paper's ask came to is a row in
 `figure_image_asks`: how many images the XML names, how many are on disk, and whether asking again
-would change anything (`settled`) — so a run over a whole library is resumable: a paper settled
-is passed by, a file on disk whose hash holds is not fetched again, and a run broken off by the
-network picks up where it stopped.
+would change anything (`settled`), and whether the PDF fallback answered for good (`fallback`:
+a PDF searched, or none to be had; the worker's to say) — so a run over a whole library is
+resumable: a paper both have answered for is passed by, a file on disk whose hash holds is not
+fetched again, and a run broken off by the network picks up where it stopped.
 
 A row joins its figure's node by the key the caption gives both (figures.figure_key: "2", "S2",
 "Scheme 1"), never by order; a figure the XML gives no number joins a node only when the node's
@@ -32,7 +33,7 @@ shown (invariant 5). A rebuild renumbers nodes and changes nothing here, since t
 when asked (`images_for`).
 
 Requests go one at a time, a little apart, and one that breaks off (a reset, a timeout, an answer
-cut short, a busy 429/502/503/504) is asked again after a pause; a refused connection is not
+cut short, a busy 429/500/502/503/504) is asked again after a pause; a refused connection is not
 (nothing is listening). Every base can be pointed elsewhere, as acquire.py's are:
 `LITRAG_PMC_CLOUD_URL`, `LITRAG_EPMC_URL`. `LITRAG_FIGURE_IMAGES=off` stops the fetching.
 """
@@ -95,8 +96,9 @@ CREATE TABLE IF NOT EXISTS figure_image_asks (
   images INTEGER NOT NULL,          -- the images they name
   had INTEGER NOT NULL,             -- the figures with an image on disk now
   sources TEXT,                     -- where those came from, ", "-joined
-  settled INTEGER NOT NULL,         -- 1 when asking again would change nothing: every figure had, or every source answered for the rest
-  why TEXT                          -- each source's answer, for the figures not had
+  settled INTEGER NOT NULL,         -- 1 when asking the services again would change nothing: every figure had, or each of the two answered for the rest
+  why TEXT,                         -- each source's answer, for the figures not had
+  fallback INTEGER NOT NULL DEFAULT 0  -- 1 when the PDF fallback answered for good: a PDF of the paper searched, or none to be had (worker._images_fallback)
 );
 """
 
@@ -110,6 +112,8 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
     have = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('figure_images', 'figure_image_asks')")}
     if len(have) < 2:
         conn.executescript(SCHEMA)
+    if "fallback" not in {r[1] for r in conn.execute("PRAGMA table_info(figure_image_asks)")}:
+        conn.execute("ALTER TABLE figure_image_asks ADD COLUMN fallback INTEGER NOT NULL DEFAULT 0")
     conn.commit()
 
 
@@ -201,7 +205,7 @@ def _broke_off(e: BaseException) -> bool:
     """A request that broke off on the way, worth asking again: a reset, a timeout, an answer cut
     short, a busy service. A refused connection is not: nothing is listening."""
     if isinstance(e, urllib.error.HTTPError):
-        return e.code in (429, 502, 503, 504)
+        return e.code in (429, 500, 502, 503, 504)
     if isinstance(e, urllib.error.URLError):
         e = e.reason if isinstance(e.reason, BaseException) else e
         if isinstance(e, urllib.error.URLError):
@@ -341,15 +345,16 @@ def from_europepmc(pmcid: str, hrefs: list[str], timeout: float, scratch: Path, 
     """Europe PMC's zip of the article's images, for these hrefs: `({href: Got}, why the rest were
     not had, settled)`. The zip is written to `scratch` and gone after; each member is checked by
     its CRC as it is read, and one that fails it is not taken (nor settled). Settled when Europe
-    PMC answered for every href it did not give: a zip without it, a 404, or the 500 it answers
-    for an article outside its open-access subset (PMC3535565, an author manuscript, 2026-11-20).
-    Raises `Unreachable` when it could not be asked."""
+    PMC answered for every href it did not give: a zip without it, or a 404. A 500 is a fault of
+    its own, asked again as a busy answer is and never settled (an author manuscript, which it
+    answers so, is settled by the Cloud Service and not asked here). Raises `Unreachable` when it
+    could not be asked."""
     url = f"{acquire.rest_base(base)}/{pmcid.upper()}/supplementaryFiles?includeInlineImage=yes"
     scratch.parent.mkdir(parents=True, exist_ok=True)
     try:
         fetch(url, max(timeout, 120), host="epmc", most=ZIP_MOST, to=scratch)
     except urllib.error.HTTPError as e:
-        return {}, f"HTTP {e.code}", e.code in (404, 500)
+        return {}, f"HTTP {e.code}", e.code == 404
     except ValueError as e:
         return {}, str(e), False
     got: dict[str, Got] = {}
@@ -452,6 +457,14 @@ def _on_disk(lib_dir: Path, row: sqlite3.Row) -> bool:
         return False
 
 
+def _there(lib_dir: Path, row: sqlite3.Row) -> bool:
+    """Whether a row's file is on disk at the size it was stored at: `_on_disk` without reading it."""
+    try:
+        return (Path(lib_dir) / row["file"]).stat().st_size == row["bytes"]
+    except OSError:
+        return False
+
+
 def _held(conn: sqlite3.Connection, lib_dir: Path, key: str) -> dict[tuple[int, int], sqlite3.Row]:
     return {(r["ordinal"], r["part"]): r for r in conn.execute("SELECT * FROM figure_images WHERE paper = ?", (key,)) if _on_disk(lib_dir, r)}
 
@@ -487,9 +500,19 @@ def _figures_of(conn: sqlite3.Connection, lib_dir: Path, key: str) -> list[XmlFi
 
 def _record(conn: sqlite3.Connection, key: str, a: Asked, now: str, sources: list[str]) -> None:
     conn.execute(
-        "INSERT OR REPLACE INTO figure_image_asks(paper, at, figures, images, had, sources, settled, why) VALUES (?,?,?,?,?,?,?,?)",
+        "INSERT INTO figure_image_asks(paper, at, figures, images, had, sources, settled, why) VALUES (?,?,?,?,?,?,?,?) "
+        "ON CONFLICT(paper) DO UPDATE SET at = excluded.at, figures = excluded.figures, images = excluded.images, had = excluded.had, "
+        "sources = excluded.sources, settled = excluded.settled, why = excluded.why",
         (key, now, a.figures, a.images, a.had, ", ".join(sources) or None, int(a.settled), "; ".join(a.why)[:400] or None),
     )
+
+
+def fallback_answered(conn: sqlite3.Connection, key: str, final: bool) -> None:
+    """What the PDF fallback came to for a paper asked, kept on its ask: `final` when it answered
+    for good (a PDF of the paper searched, or none to be had), so the next run passes it by; not
+    when it broke off (a host not reached, a budget spent), so the next run tries it again."""
+    conn.execute("UPDATE figure_image_asks SET fallback = ? WHERE paper = ?", (int(final), key))
+    conn.commit()
 
 
 def _had_sources(conn: sqlite3.Connection, key: str) -> list[str]:
@@ -501,8 +524,9 @@ def from_services(conn: sqlite3.Connection, lib_dir: Path, key: str, *, timeout:
     """A paper's figure images from the services that publish its XML, the PMC Cloud Service
     first, then Europe PMC, each asked only for what the one before did not give; the rows and
     the paper's ask written. A figure with every image on disk in its stored bytes is not asked
-    again, and a paper whose last ask settled is passed by unless `again`. A paper not read from
-    XML, or whose file is gone, is asked nothing. Never raises for the network: a source that
+    again, and a paper whose last ask settled is passed by unless `again`; one that has lost an
+    image it had since then is asked again, and the PDF fallback's answer no longer stands. A
+    paper not read from XML, or whose file is gone, is asked nothing. Never raises for the network: a source that
     could not be asked is `unreachable`, and what it would have given is not settled."""
     from .library import now_iso
 
@@ -522,7 +546,10 @@ def from_services(conn: sqlite3.Connection, lib_dir: Path, key: str, *, timeout:
             _record(conn, key, a, now_iso(), _had_sources(conn, key))
             conn.commit()
         return a
-    if last is not None and last["settled"] and last["figures"] == a.figures and a.had >= last["had"] and not again:
+    if last is not None and a.had < last["had"]:
+        conn.execute("UPDATE figure_image_asks SET had = ?, settled = 0, fallback = 0 WHERE paper = ?", (a.had, key))
+        conn.commit()
+    elif last is not None and last["settled"] and last["figures"] == a.figures and not again:
         a.settled = True  # asked before, every source answered for what it did not give, and nothing it gave is gone since
         return a
     row = conn.execute("SELECT pmcid FROM papers WHERE key = ?", (key,)).fetchone()
@@ -701,27 +728,32 @@ def images_for(conn: sqlite3.Connection, lib_dir: Path, key: str) -> dict[str, l
     return out
 
 
-def image_of(conn: sqlite3.Connection, lib_dir: Path, figure: str) -> list[dict[str, Any]]:
-    """One figure node's images (`images_for`); none for a node that has none."""
-    row = conn.execute("SELECT paper FROM nodes WHERE node_id = ?", (figure,)).fetchone()
-    return images_for(conn, lib_dir, row[0]).get(figure, []) if row is not None else []
-
-
-def states(conn: sqlite3.Connection) -> dict[str, dict[str, Any]]:
-    """Each XML paper's images, from the rows alone: `{figures, had, settled, sources, why, at}`
-    for a paper asked, nothing for one never asked."""
+def states(conn: sqlite3.Connection, lib_dir: Path) -> dict[str, dict[str, Any]]:
+    """Each XML paper's images, from the rows and the files' presence: `{figures, had, settled,
+    fallback, sources, why, at}` for a paper asked, nothing for one never asked. `had` counts the
+    figures with an image on disk now, at the size it was stored at; `settled` is whether the
+    services answered for the rest and `fallback` whether the PDF fallback did for good, neither
+    standing once an image had at the last ask is gone."""
     if not conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'figure_image_asks'").fetchone():
         return {}
-    return {r["paper"]: {"figures": r["figures"], "had": r["had"], "settled": bool(r["settled"]), "sources": r["sources"], "why": r["why"], "at": r["at"]}
-            for r in conn.execute("SELECT * FROM figure_image_asks")}
+    ensure_schema(conn)
+    there: dict[str, set[int]] = {}
+    for r in conn.execute("SELECT paper, ordinal, file, bytes FROM figure_images"):
+        if _there(lib_dir, r):
+            there.setdefault(r["paper"], set()).add(r["ordinal"])
+    out: dict[str, dict[str, Any]] = {}
+    for r in conn.execute("SELECT * FROM figure_image_asks"):
+        had = len(there.get(r["paper"], ()))
+        whole = had >= r["had"]
+        out[r["paper"]] = {"figures": r["figures"], "had": had, "settled": bool(r["settled"]) and whole, "fallback": bool(r["fallback"]) and whole,
+                           "sources": r["sources"], "why": r["why"], "at": r["at"]}
+    return out
 
 
-def message(key_count: int, totals: dict[str, Any]) -> str:
-    """The line a run over papers ends with."""
-    src = ", ".join(f"{n} from {s}" for s, n in sorted(totals.get("sources", {}).items())) or "none new"
-    return (f"figure images: {totals.get('with', 0)} of {key_count} XML papers have every figure's image "
-            f"({totals.get('had', 0)} of {totals.get('figures', 0)} figures; {src})"
-            + (f"; {totals['unreachable']} papers could not be asked" if totals.get("unreachable") else ""))
+def wanting(state: dict[str, Any] | None) -> bool:
+    """Whether a fetch could still change a paper's images, by its state (`states`): never asked,
+    or lacking some figure's image while the services or the PDF fallback have yet to answer for good."""
+    return state is None or (state["had"] < state["figures"] and not (state["settled"] and state["fallback"]))
 
 
 #: The registrants a report names, for the papers whose figures have no image.
