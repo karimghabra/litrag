@@ -144,7 +144,7 @@ const pointsOf = (text: string | null) => Number(text!.match(/(\d+) points?/)![1
 test('points found while a saved series is being edited are saved beside it, or kept for a new series', async () => {
   const rows = page.locator('#dg-saved .saved');
   await expect(rows).toHaveCount(1);
-  const first = pointsOf(await rows.first().textContent());
+  const first = pointsOf(await rows.first().locator('.muted').textContent());
   // the saved series is the one being edited: its curve found again, and a point added by hand
   await page.click('#dg-extract');
   await expect(page.locator('#dg-count')).toContainText('not saved');
@@ -156,9 +156,9 @@ test('points found while a saved series is being edited are saved beside it, or 
   await page.click('#dg-save');
   await expect(rows).toHaveCount(2);
   await expect(rows.first()).toContainText(TRUTH['turbidity_markers']!.series[0]!.name);
-  expect(pointsOf(await rows.first().textContent())).toBe(first);
+  expect(pointsOf(await rows.first().locator('.muted').textContent())).toBe(first);
   await expect(rows.nth(1)).toContainText('series 2');
-  expect(pointsOf(await rows.nth(1).textContent())).toBe(working);
+  expect(pointsOf(await rows.nth(1).locator('.muted').textContent())).toBe(working);
   await expect(page.locator('#dg-saved .saved.on')).toContainText('series 2');
   await expect(page.locator('#plots-list .plot-card').first()).toContainText('2 digitised');
   // edited again, Save, "Cancel": nothing is saved; then New series keeps the points on the picture as its own
@@ -171,8 +171,8 @@ test('points found while a saved series is being edited are saved beside it, or 
   await expect(page.locator('#dg-saved .saved.on')).toHaveCount(0);
   await expect(page.locator('#dg-name')).toHaveValue('series 3');
   await expect(rows).toHaveCount(2);
-  expect(pointsOf(await rows.first().textContent())).toBe(first);
-  expect(pointsOf(await rows.nth(1).textContent())).toBe(working);
+  expect(pointsOf(await rows.first().locator('.muted').textContent())).toBe(first);
+  expect(pointsOf(await rows.nth(1).locator('.muted').textContent())).toBe(working);
   // nothing takes the place of points that are not saved without asking; "Cancel" (2) leaves them as they are
   const unsaved = `${working + 1} points · not saved`;
   await answerWith(2);
@@ -189,7 +189,7 @@ test('points found while a saved series is being edited are saved beside it, or 
   await rows.first().click();
   await expect(rows).toHaveCount(3);
   await expect(rows.nth(2)).toContainText('series 3');
-  expect(pointsOf(await rows.nth(2).textContent())).toBe(working + 1);
+  expect(pointsOf(await rows.nth(2).locator('.muted').textContent())).toBe(working + 1);
   await expect(page.locator('#dg-saved .saved.on')).toContainText(TRUTH['turbidity_markers']!.series[0]!.name);
   await expect(page.locator('#dg-count')).toHaveText(`${first} points`);
   // an edit to the axes alone is a change too; "Discard" (1): New series starts with none of the saved series' points
@@ -200,7 +200,7 @@ test('points found while a saved series is being edited are saved beside it, or 
   await expect(page.locator('#dg-count')).toHaveText('');
   await expect(page.locator('#dg-name')).toHaveValue('series 4');
   await expect(rows).toHaveCount(3);
-  expect(pointsOf(await rows.first().textContent())).toBe(first);
+  expect(pointsOf(await rows.first().locator('.muted').textContent())).toBe(first);
   expect(await page.locator('#log .log-line.error').count()).toBe(0);
 });
 
