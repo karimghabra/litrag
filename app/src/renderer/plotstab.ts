@@ -45,16 +45,19 @@ interface Opened {
   auto: { found: boolean; confident: boolean; calibration: CalibrationDict | null; plot_region?: number[]; frame?: number[]; reason: string | null; x: AxisOffer; y: AxisOffer; words?: string } | null;
   palette: { colour: string; share: number }[];
   saved: SavedSeries[];
+  /** The paper's series that have no figure in this reading: listed apart, never loaded onto this one. */
+  orphans: SavedSeries[];
 }
 
 interface SavedSeries {
   id: number;
+  figure: string;
+  figure_label: string | null;
   series: string;
   colour: string | null;
   calibration: CalibrationDict;
   method: Record<string, unknown>;
   axes: { x: { label: string | null; unit: string | null }; y: { label: string | null; unit: string | null } };
-  orphan: boolean;
   points: Pt[];
   fits: Record<string, FitResult>;
 }
@@ -318,9 +321,8 @@ function onDown(ev: MouseEvent): void {
     const order: Place[] = ['x1', 'x2', 'y1', 'y2'];
     const unset = order.filter((q) => !st.cal[q[0] as 'x' | 'y'][q[1] === '1' ? 'p1' : 'p2']);
     setPlacing(unset[0] ?? null);
-    renderAxes();
+    axesChanged();
     document.querySelector<HTMLInputElement>(`.dg-val[data-val="${p}"]`)?.focus();
-    drawOverlay();
     return;
   }
   if (st.tool === 'colour') {
@@ -375,14 +377,17 @@ function onUp(): void {
 /** The axes read again, of the plot the region was drawn over: a figure of several panels offers
  *  the largest first, and a person points at the one they want. A calibration they set is kept. */
 async function readPanel(region: number[]): Promise<void> {
-  if (!st.imagePath || !st.opened) return;
+  const opened = st.opened;
+  if (!st.imagePath || !opened) return;
   const near = [(region[0]! + region[2]!) / 2, (region[1]! + region[3]!) / 2];
   try {
     const r = await request<{ auto: NonNullable<Opened['auto']> }>('digitise_axes', { image: st.imagePath, near });
-    st.opened.auto = r.auto;
+    if (st.opened !== opened) return;
+    opened.auto = r.auto;
     const mine = !st.fromAuto && tryCalibration(st.cal).cal !== null;
     if (r.auto.found && !mine) {
       applyAuto();
+      axesChanged();
       for (const [axis, lab, unit] of [['x', 'dg-xlabel', 'dg-xunit'], ['y', 'dg-ylabel', 'dg-yunit']] as const) {
         const o = r.auto[axis];
         if (o?.label) $<HTMLInputElement>(lab).value = o.label.replace(/\s*\([^()]*\)\s*$/, '');
@@ -391,6 +396,7 @@ async function readPanel(region: number[]): Promise<void> {
     }
     renderAxes();
     renderPoints();
+    renderFit();
   } catch (e) {
     log('error', `axes: ${rejectionText(e)}`);
   }
@@ -402,6 +408,14 @@ function changed(): void {
   renderPoints();
   drawOverlay();
   renderFit();
+}
+
+/** The axes were edited — a point placed, a value typed, a scale ticked, the offer taken, a label
+ *  or a unit changed: every value reads differently now, so what is saved is not what is shown,
+ *  and a fit of the old values is no fit of these. */
+function axesChanged(): void {
+  renderAxes();
+  changed();
 }
 
 function setColour(c: string): void {
@@ -492,7 +506,7 @@ function renderSaved(): void {
     const row = el('div', `saved${s.id === st.activeSaved ? ' on' : ''}`);
     const dot = el('span', 'dot');
     dot.style.background = s.colour ?? '#999';
-    row.append(dot, el('span', undefined, s.series), el('span', 'muted', `${s.points.length} points${Object.keys(s.fits).length ? ` · fit: ${Object.keys(s.fits).join(', ')}` : ''}${s.orphan ? ' · its figure is gone from this reading' : ''}`));
+    row.append(dot, el('span', undefined, s.series), el('span', 'muted', `${s.points.length} points${Object.keys(s.fits).length ? ` · fit: ${Object.keys(s.fits).join(', ')}` : ''}`));
     const del = el('button', 'ghost small', '×') as HTMLButtonElement;
     del.title = 'Delete this saved series';
     del.addEventListener('click', (ev) => {
@@ -502,6 +516,20 @@ function renderSaved(): void {
     row.append(el('span', 'spacer'), del);
     row.title = 'Edit this series';
     row.addEventListener('click', () => loadSaved(s.id));
+    box.append(row);
+  }
+  const orphans = st.opened?.orphans ?? [];
+  if (orphans.length) box.append(el('div', 'muted', 'Without a figure in this reading of the paper — kept, not this figure’s:'));
+  for (const s of orphans) {
+    const row = el('div', 'orphan');
+    const dot = el('span', 'dot');
+    dot.style.background = s.colour ?? '#999';
+    row.append(dot, el('span', undefined, s.series), el('span', 'muted', `${s.points.length} points · was on ${s.figure_label ? `Figure ${s.figure_label}` : s.figure}`));
+    const del = el('button', 'ghost small', '×') as HTMLButtonElement;
+    del.title = 'Delete this series';
+    del.addEventListener('click', () => void deleteSaved(s.id));
+    row.append(el('span', 'spacer'), del);
+    row.title = 'A later reading that finds its figure again puts it back there';
     box.append(row);
   }
 }
@@ -518,10 +546,10 @@ function loadSaved(id: number): void {
   st.dirty = false;
   if (s.colour) setColour(s.colour);
   $<HTMLInputElement>('dg-name').value = s.series;
-  if (s.axes.x.label) $<HTMLInputElement>('dg-xlabel').value = s.axes.x.label;
-  if (s.axes.x.unit) $<HTMLInputElement>('dg-xunit').value = s.axes.x.unit;
-  if (s.axes.y.label) $<HTMLInputElement>('dg-ylabel').value = s.axes.y.label;
-  if (s.axes.y.unit) $<HTMLInputElement>('dg-yunit').value = s.axes.y.unit;
+  $<HTMLInputElement>('dg-xlabel').value = s.axes.x.label ?? '';
+  $<HTMLInputElement>('dg-xunit').value = s.axes.x.unit ?? '';
+  $<HTMLInputElement>('dg-ylabel').value = s.axes.y.label ?? '';
+  $<HTMLInputElement>('dg-yunit').value = s.axes.y.unit ?? '';
   const model = $<HTMLSelectElement>('dg-model').value;
   st.fit = s.fits[model] ?? Object.values(s.fits)[0] ?? null;
   renderAll();
@@ -624,10 +652,12 @@ async function extract(): Promise<void> {
   const cal = calibration();
   const mode = $<HTMLSelectElement>('dg-mode').value;
   const tolerance = Number($<HTMLInputElement>('dg-tol').value);
+  const opened = st.opened;
   try {
     const r = await request<{ mode: string; points: Pt[]; legend: number; pixels: number; region: number[] }>('digitise_extract', {
       image: st.imagePath, colour: st.colour, tolerance, mode, region: st.region ?? undefined, calibration: cal ? cal.c : undefined,
     });
+    if (st.opened !== opened) return;
     st.points = r.points.map((p) => ({ px: p.px, py: p.py, how: 'auto' as const }));
     st.method = { mode: r.mode, asked: mode, tolerance, region: r.region, colour: st.colour, auto_axes: st.fromAuto };
     changed();
@@ -663,14 +693,16 @@ async function save(): Promise<SavedSeries | null> {
     if (cal && !st.figure) log('error', 'Save: an image opened from a file is not a figure of the library; Export CSV writes its points');
     return null;
   }
-  const name = $<HTMLInputElement>('dg-name').value.trim() || `series ${(st.opened?.saved.length ?? 0) + 1}`;
+  const opened = st.opened;
+  if (!opened) return null;
+  const name = $<HTMLInputElement>('dg-name').value.trim() || `series ${opened.saved.length + 1}`;
   $<HTMLInputElement>('dg-name').value = name;
   try {
     const r = await request<{ series: SavedSeries }>('digitise_save', {
-      lib: ctx.lib, figure: st.figure, series: name, calibration: cal.c, points: st.points, colour: st.colour, method: st.method ?? { mode: 'manual' }, image: st.opened?.image, axes: axesOf(), source: st.opened?.source,
+      lib: ctx.lib, figure: st.figure, series: name, calibration: cal.c, points: st.points, colour: st.colour, method: st.method ?? { mode: 'manual' }, image: opened.image, axes: axesOf(), source: opened.source,
     });
-    const saved = st.opened!.saved.filter((s) => s.id !== r.series.id);
-    st.opened!.saved = [...saved, r.series];
+    if (st.opened !== opened) return null;
+    opened.saved = [...opened.saved.filter((s) => s.id !== r.series.id), r.series];
     st.activeSaved = r.series.id;
     st.dirty = false;
     renderSaved();
@@ -678,7 +710,7 @@ async function save(): Promise<SavedSeries | null> {
     log('info', `Saved “${name}”: ${r.series.points.length} points`);
     const f = st.list.find((x) => x.figure === st.figure);
     if (f) {
-      f.digitised = st.opened!.saved.length;
+      f.digitised = opened.saved.length;
       renderList();
     }
     if (st.fit) await fitSaved(r.series.id, st.fit.model);
@@ -690,10 +722,13 @@ async function save(): Promise<SavedSeries | null> {
 }
 
 async function deleteSaved(id: number): Promise<void> {
-  if (!ctx.lib) return;
+  const opened = st.opened;
+  if (!ctx.lib || !opened) return;
   try {
     await request('digitise_delete', { lib: ctx.lib, series_id: id });
-    st.opened!.saved = st.opened!.saved.filter((s) => s.id !== id);
+    if (st.opened !== opened) return;
+    opened.saved = opened.saved.filter((s) => s.id !== id);
+    opened.orphans = opened.orphans.filter((s) => s.id !== id);
     if (st.activeSaved === id) st.activeSaved = null;
     renderAll();
   } catch (e) {
@@ -705,20 +740,21 @@ async function exportCsv(): Promise<void> {
   const cal = ready('Export');
   if (!cal) return;
   const name = $<HTMLInputElement>('dg-name').value.trim() || 'series';
-  const src = st.opened?.source;
+  const opened = st.opened;
+  const src = opened?.source;
   const path = await window.litrag.saveAs(exportName(src?.paper ?? null, src?.label ?? null, st.figure ? 'digitised' : name));
-  if (!path) return;
+  if (!path || !opened || st.opened !== opened) return;
   try {
     let r: { files: { csv: string; sidecar: string; fits: string[] }[]; points: number };
     if (st.figure && ctx.lib) {
       if (st.dirty || st.activeSaved === null) {
         const s = await save();
-        if (!s) return;
+        if (!s || st.opened !== opened) return;
       }
-      r = await request('digitise_export', { lib: ctx.lib, ids: st.opened!.saved.map((s) => s.id), path });
+      r = await request('digitise_export', { lib: ctx.lib, ids: opened.saved.map((s) => s.id), path });
     } else {
       const fits = st.fit ? { [st.fit.model]: st.fit } : {};
-      r = await request('digitise_export', { lib: undefined, path, source: { file: src?.file ?? null }, series: [{ series: name, colour: st.colour, calibration: cal.c, points: st.points, method: st.method ?? { mode: 'manual' }, image: st.opened?.image, axes: axesOf(), fits }] });
+      r = await request('digitise_export', { lib: undefined, path, source: { file: src?.file ?? null }, series: [{ series: name, colour: st.colour, calibration: cal.c, points: st.points, method: st.method ?? { mode: 'manual' }, image: opened.image, axes: axesOf(), fits }] });
     }
     const fits = r.files.reduce((n, f) => n + f.fits.length, 0);
     const where = r.files.length === 1 ? `${r.files[0]!.csv}, its sidecar ${r.files[0]!.sidecar}` : `${r.files.length} files, one for each set of axes, each with its sidecar: ${r.files.map((f) => f.csv).join(', ')}`;
@@ -732,9 +768,11 @@ async function exportCsv(): Promise<void> {
  *  that fails leaves none showing. */
 async function fitSaved(id: number, model: string): Promise<void> {
   st.fit = null;
+  const opened = st.opened;
   try {
     const r = await request<{ fits: Record<string, FitResult> }>('fit', { lib: ctx.lib, series_id: id, model });
-    const s = st.opened?.saved.find((x) => x.id === id);
+    if (st.opened !== opened) return;
+    const s = opened?.saved.find((x) => x.id === id);
     if (s) s.fits = { ...s.fits, ...r.fits };
     if (st.activeSaved === id) st.fit = r.fits[model] ?? null;
   } catch (e) {
@@ -755,9 +793,11 @@ async function runFit(): Promise<void> {
     await fitSaved(st.activeSaved, model);
     return;
   }
+  const opened = st.opened;
   try {
     const pts = valued(st.points, cal).map((p) => [p.x, p.y]);
     const r = await request<{ fits: Record<string, FitResult> }>('fit', { points: pts, model });
+    if (st.opened !== opened) return;
     st.fit = r.fits[model] ?? null;
     renderFit();
   } catch (e) {
@@ -783,23 +823,22 @@ export function initPlots(): void {
       (st.cal[axis] as Partial<AxisCal>)[key[1] === '1' ? 'v1' : 'v2'] = v;
       st.fromAuto = false;
       st.confirmed = false;
-      renderAxes();
-      renderPoints();
+      axesChanged();
     });
   }
   for (const box of document.querySelectorAll<HTMLInputElement>('.dg-log')) {
     box.addEventListener('change', () => {
       st.cal[box.dataset['log'] as 'x' | 'y'].log = box.checked;
+      st.fromAuto = false;
       st.confirmed = false;
-      renderAxes();
-      renderPoints();
+      axesChanged();
     });
   }
-  for (const id of ['dg-xlabel', 'dg-xunit', 'dg-ylabel', 'dg-yunit']) $(id).addEventListener('input', () => {
-    renderPoints();
-    renderFit();
+  for (const id of ['dg-xlabel', 'dg-xunit', 'dg-ylabel', 'dg-yunit']) $(id).addEventListener('input', axesChanged);
+  $('dg-use-auto').addEventListener('click', () => {
+    applyAuto();
+    axesChanged();
   });
-  $('dg-use-auto').addEventListener('click', applyAuto);
   $('dg-extract').addEventListener('click', () => void extract());
   $('dg-save').addEventListener('click', () => void save());
   $('dg-clear').addEventListener('click', () => {
@@ -828,6 +867,9 @@ export function initPlots(): void {
     st.list = [];
     st.figure = null;
     st.opened = null;
+    st.imagePath = null;
+    st.pixels = null;
+    reset();
     $('plots-project').textContent = projectName();
     $('plots-total').textContent = '';
     $('dg-canvas-wrap').hidden = true;

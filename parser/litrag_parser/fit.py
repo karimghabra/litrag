@@ -334,9 +334,9 @@ def _r(v: float) -> float:
     return round(v, max(0, 6 - int(math.floor(math.log10(abs(v))))))
 
 
-def both(points: Sequence[Sequence[float]]) -> dict[str, Any]:
-    """Both models fitted, and which the AIC prefers."""
-    fits = {name: fit(points, name) for name in MODELS}
+def both(points: Sequence[Sequence[float]], models: Sequence[str] = MODELS) -> dict[str, Any]:
+    """The models fitted — both, unless some are named — and which of them the AIC prefers."""
+    fits = {name: fit(points, name) for name in models}
     scored = [(f["aic"], name) for name, f in fits.items() if f["status"] == "fit" and f.get("aic") is not None]
     return {"fits": fits, "preferred": min(scored)[1] if scored else None}
 
