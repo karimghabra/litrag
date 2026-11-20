@@ -123,6 +123,7 @@ Seven tabs over one project at a time, picked at the top:
 | Ask | a question answered by a chat model running on this machine from the project's passages (or every project's): every sentence closed by the passages it rests on — paper, section, page — and a click on one opens the paper at that passage, its box drawn on its page; a sentence whose numbers or words are not in its passage is marked to be checked, and a question the library does not answer is said to be one. The passages given to the model are listed under the answer |
 | Query | a question, and the passages that answer it, each hydrated from its tree: the headings above it, the paragraphs either side, the methods a finding was measured by (the paragraph it rests on, where the method is described in another paper, statistics and materials apart), the findings a method measured, the figures and references it cites — a figure with the numbers read from its charts; **Open in the tree** lands on it |
 | Graph | the papers and the citations between them, drawn as a graph with the works they cite most beside them; **Citation round** files what the papers cite (and what cites them) as the next round's candidates; SQL over `works`, `authors` and `cites`, its candidates fetched and read from the results |
+| Plots | the figures that are data plots, found by the words of their captions; one digitised into its (x, y) points, exported as CSV, and a sigmoid fitted to it (below, "A plot digitised by hand, and a curve fitted") |
 
 The Papers tab:
 

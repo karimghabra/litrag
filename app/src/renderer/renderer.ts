@@ -1,5 +1,5 @@
 /**
- * The window. Five tabs over one project at a time: Projects, Search, Papers, Types, Query.
+ * The window: tabs over one project at a time (index.html names them).
  * This module is the Papers tab — papers on the left as they are ingested, the tree of the
  * chosen paper in the middle (as printed, or re-hung under its type's canonical structure), and
  * on the right the page the chosen node came from with its box drawn on it — and the wiring of
