@@ -435,6 +435,67 @@ def test_a_fallback_that_broke_off_is_tried_again_and_one_answered_for_good_is_n
     assert len([p for p in epmc.seen if p.startswith(work)]) == 3  # unless asked again
 
 
+def _manuscript_with_no_pdf_anywhere(tmp_path, monkeypatch, epmc, oa_url):
+    """A library of one author manuscript (no image file, no PDF at PMC) whose open copy OpenAlex names at `oa_url`."""
+    monkeypatch.setenv("LITRAG_FIGURES", "off")
+    monkeypatch.setenv("LITRAG_OPEN_COPIES", "on")
+    monkeypatch.setenv("LITRAG_OPENALEX", "on")
+    monkeypatch.setenv("LITRAG_OPENALEX_URL", f"{epmc.url}/openalex")
+    lib, conn, key = library(tmp_path, caps=["Figure 1 Fold change.", "Figure 2 Gene expression.", "Figure 3 More."])
+    conn.close()
+    epmc.cloud(PMCID, manuscript=True)
+    epmc.json("/openalex/works/doi:10.3390/mi15070851", {"id": "https://openalex.org/W1", "doi": "https://doi.org/10.3390/mi15070851", "open_access": {"is_oa": bool(oa_url), "oa_url": oa_url}})
+    return lib, key
+
+
+def _state(lib, key):
+    conn = open_store(lib.store_path)
+    try:
+        return fi.states(conn, lib.dir)[key]
+    finally:
+        conn.close()
+
+
+def test_an_open_copy_s_host_refusing_a_program_is_an_answer_for_good(tmp_path, monkeypatch, capsys, epmc):
+    from litrag_parser.worker import Worker
+
+    lib, key = _manuscript_with_no_pdf_anywhere(tmp_path, monkeypatch, epmc, f"{epmc.url}/repo/paper.pdf")
+    epmc.routes["/repo/paper.pdf"] = (403, "text/html", b"<html>Forbidden</html>")
+    w = Worker(tmp_path)
+    w.do_figure_images({"id": "a", "op": "figure_images", "lib": lib.id})
+    assert epmc.seen.count("/repo/paper.pdf") == 1
+    state = _state(lib, key)
+    assert (state["settled"], state["fallback"]) == (True, True) and not fi.wanting(state)  # a 403 is the host's answer, not a fault on the way
+    seen = len(epmc.seen)
+    capsys.readouterr()
+    w.do_figure_images({"id": "b", "op": "figure_images", "lib": lib.id})
+    done = [e for e in _events(capsys) if e["event"] == "done"][-1]
+    assert (done["asked"], done["passed"]) == (0, 1) and len(epmc.seen) == seen  # the host that refused is not asked again
+
+
+def test_a_pdf_kept_beside_a_paper_after_the_fallback_answered_is_cut_from(tmp_path, monkeypatch, capsys, epmc):
+    from litrag_parser.worker import Worker
+
+    lib, key = _manuscript_with_no_pdf_anywhere(tmp_path, monkeypatch, epmc, None)
+    monkeypatch.setattr("litrag_parser.acquire.first_pages", lambda path, pages=3: "doi:10.3390/mi15070851")  # page_paper.pdf names the paper
+    w = Worker(tmp_path)
+    w.do_figure_images({"id": "a", "op": "figure_images", "lib": lib.id})
+    state = _state(lib, key)
+    assert (state["had"], state["fallback"]) == (0, True) and not fi.wanting(state)  # no PDF anywhere: answered for good
+    dropped = tmp_path / "dropped.pdf"
+    shutil.copy(FIXTURES / "charts" / "page_paper.pdf", dropped)  # then a person drops its PDF on the paper
+    w.do_ingest({"id": "i", "op": "ingest", "lib": lib.id, "paths": [str(dropped)], "known": {str(dropped): {"paper": key}}, "offline": True})
+    assert fi.wanting(_state(lib, key))  # a PDF to cut from now: the earlier answer stands no longer
+    capsys.readouterr()
+    w.do_figure_images({"id": "b", "op": "figure_images", "lib": lib.id})
+    done = [e for e in _events(capsys) if e["event"] == "done"][-1]
+    assert (done["asked"], done["passed"], done["had"]) == (1, 0, 1)
+    conn = open_store(lib.store_path)
+    assert [tuple(r) for r in conn.execute("SELECT figure_label, source FROM figure_images")] == [("2", "pdf")]  # figure 2, an image on page 2 of it
+    conn.close()
+    assert not fi.wanting(_state(lib, key))
+
+
 def test_a_settled_paper_whose_image_is_gone_from_disk_says_so_and_is_fetched_again(tmp_path, capsys, epmc):
     from litrag_parser.worker import Worker
 

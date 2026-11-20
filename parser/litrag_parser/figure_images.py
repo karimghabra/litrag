@@ -515,6 +515,15 @@ def fallback_answered(conn: sqlite3.Connection, key: str, final: bool) -> None:
     conn.commit()
 
 
+def pdf_kept(conn: sqlite3.Connection, key: str) -> None:
+    """A PDF newly kept beside a paper (figures.keep_beside): what the PDF fallback answered before
+    was about another PDF, or none, and stands no longer, so the next run cuts from this one.
+    Written with the caller's own commit."""
+    if conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'figure_image_asks'").fetchone():
+        ensure_schema(conn)
+        conn.execute("UPDATE figure_image_asks SET fallback = 0 WHERE paper = ?", (key,))
+
+
 def _had_sources(conn: sqlite3.Connection, key: str) -> list[str]:
     return [r[0] for r in conn.execute("SELECT source FROM figure_images WHERE paper = ? GROUP BY source ORDER BY MIN(ordinal)", (key,))]
 

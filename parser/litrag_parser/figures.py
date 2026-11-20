@@ -642,7 +642,8 @@ def keep_beside(conn: sqlite3.Connection, papers_dir: Path, key: str, src: Path,
        disk counts as none.
     5. The PDF is copied in through a temporary file, so no reader meets half of it, and the
        paper's `figures_file` set; PMC's answer that it had none to give (`figures_note`) goes,
-       since a PDF draws the figures now. The last read of the paper's figures goes when it names
+       since a PDF draws the figures now, and with it what the figure images' PDF fallback
+       answered before (figure_images.pdf_kept), so its images are cut from this one. The last read of the paper's figures goes when it names
        the file it read: that was another file, whatever it was named, and the figures op reads
        this one (a read that names none, a merge's copy, is left to its caller). The same bytes
        filed before as a paper of their own, which only their hash could meet (no DOI, no PMID),
@@ -703,6 +704,9 @@ def keep_beside(conn: sqlite3.Connection, papers_dir: Path, key: str, src: Path,
     os.replace(tmp, dest)
     ensure_schema(conn)  # before the writes: it commits what is pending
     conn.execute("UPDATE papers SET figures_file = ?, figures_note = NULL WHERE key = ?", (dest.name, key))
+    from .figure_images import pdf_kept
+
+    pdf_kept(conn, key)
     conn.execute("DELETE FROM figure_reads WHERE paper = ? AND file IS NOT NULL", (key,))  # a name is not the bytes: what was read is not what is kept now
     stub = _drop_stub(conn, key, dest)
     conn.commit()
