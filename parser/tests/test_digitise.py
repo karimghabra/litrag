@@ -216,7 +216,7 @@ def test_a_figure_is_rendered_offered_found_saved_and_exported_traceably(tmp_pat
     assert len(out["files"]) == 1 and out["points"] == len(points)
     out = out["files"][0]
     rows = list(csv.reader(open(out["csv"])))
-    assert rows[0] == ["Time (min)", "Absorbance (313 nm)"] or rows[0][0] == "Time (min)"
+    assert rows[0] == [TRUTH["turbidity_markers"]["x_label"], TRUTH["turbidity_markers"]["y_label"]] == ["Time (min)", "Absorbance (313 nm)"]
     assert len(rows) == len(points) + 1
     side = json.loads(Path(out["sidecar"]).read_text())
     assert side["paper"]["doi"] == "10.1000/dig" and side["figure"]["node"] == fig and side["series"][0]["page"] == 1
