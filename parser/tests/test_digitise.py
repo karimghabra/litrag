@@ -656,6 +656,33 @@ def test_a_figure_is_cut_from_its_pdf_on_the_ingest_thread_and_no_other(tmp_path
     assert [(m.get("event"), m["id"]) for m in out] == [("digitise", "r1")] and Path(out[0]["image"]["path"]).is_file()
 
 
+def test_a_csv_s_header_keeps_a_unit_that_is_only_in_the_axis_s_name(tmp_path):
+    """"Absorbance (a.u.)" typed as the label with the unit box left empty: the header says so.
+    A unit given stands in place of the parenthetical, once."""
+    item = {"series": "a", "calibration": CAL, "points": PTS, "axes": {"x": {"label": "Time (min)", "unit": "min"}, "y": {"label": "Absorbance (a.u.)", "unit": None}}}
+    ex = digitise.answer("digitise_export", {"path": str(tmp_path / "out.csv"), "source": {"file": "scan.jpg"}, "series": [item]}, None)
+    assert next(csv.reader(open(ex["files"][0]["csv"]))) == ["Time (min)", "Absorbance (a.u.)"]
+    bare = {**item, "axes": {"x": {"label": "Time", "unit": "min"}, "y": {"label": None, "unit": None}}}
+    ex = digitise.answer("digitise_export", {"path": str(tmp_path / "bare.csv"), "source": {"file": "scan.jpg"}, "series": [bare]}, None)
+    assert next(csv.reader(open(ex["files"][0]["csv"]))) == ["Time (min)", "y"]
+
+
+def test_words_read_from_one_cut_of_a_picture_do_not_stay_beside_another(tmp_path):
+    """An image opened and its axes read leaves the words OCR found beside its picture. The same
+    file changed to a picture with no plot in it, opened again: no words are its, and none are kept."""
+    import cv2
+
+    src = tmp_path / "scan.png"
+    shutil.copy(HERE / "turbidity_markers.png", src)
+    first = digitise.open_image(src, lib_dir=tmp_path)
+    path = Path(first["image"]["path"])
+    assert first["auto"]["found"] and digitise.load_words(path)
+    cv2.imwrite(str(src), np.full((300, 400, 3), 255, np.uint8))
+    again = digitise.open_image(src, lib_dir=tmp_path)
+    assert Path(again["image"]["path"]) == path and again["image"]["sha256"] != first["image"]["sha256"] and not again["auto"]["found"]
+    assert digitise.load_words(path) is None
+
+
 def test_an_image_file_s_export_names_the_file_not_where_it_lay(tmp_path):
     item = {"series": "a", "calibration": CAL, "points": PTS, "image": {"width": 600, "height": 450, "scale": 1.0, "sha256": "ab", "path": "/home/someone/plots/digitised/scan.png"}}
     ex = digitise.answer("digitise_export", {"path": str(tmp_path / "out.csv"), "source": {"file": "/home/someone/plots/scan.jpg"}, "series": [item]}, None)

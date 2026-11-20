@@ -111,6 +111,32 @@ export function charted(points: Pt[], kept: { calibration: CalibrationDict; poin
   return from.filter((p) => p.x !== undefined && p.y !== undefined).map((p) => [p.x!, p.y!]);
 }
 
+/** An axis's heading — of a table's column here, of the CSV's in the worker (`_head` there, the
+ *  same rule): its name and, in parentheses, its unit. A name that ends in a parenthetical loses
+ *  it only when a unit is given to stand there instead ("Time (min)" with unit "min" is not
+ *  "Time (min) (min)"); with no unit the name is kept whole, the parenthetical being all there is
+ *  of one. */
+export function axisHeading(label: string, unit: string, fallback: string): string {
+  if (!unit) return label || fallback;
+  return `${label.replace(/\s*\([^()]*\)\s*$/, '').trim() || fallback} (${unit})`;
+}
+
+/** What the answer to "save over the saved series?" saves: over it (0: the series of that id,
+ *  under the name given), beside it (1: a new series, under the next default name), or nothing
+ *  (anything else). */
+export function saveOver(answer: number, saved: { id: number; series: string }[], active: number, name: string): { id: number | null; name: string } | null {
+  if (answer === 0) return { id: active, name };
+  if (answer === 1) return { id: null, name: nextName(saved.map((s) => s.series)) };
+  return null;
+}
+
+/** The points a new series starts with: those on the picture that are not saved — they are no
+ *  saved series' yet, so they are the new one's — and none when what is on the picture is a saved
+ *  series as it was saved. */
+export function carried(points: Pt[], unsaved: boolean): Pt[] {
+  return unsaved ? points : [];
+}
+
 /** The name a new series is offered: "series N", N one more than the figure's saved series, and
  *  on past any name already taken — never the name of one that is saved. */
 export function nextName(taken: string[]): string {

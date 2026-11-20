@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { Calibration, addPoint, charted, deletePoint, exportName, fitRows, fitSvg, hex, movePoint, nameTaken, nearest, nextName, num, onPicture, sameCurve, tryCalibration, valued, type FitResult, type Pt } from '../src/renderer/digitise.ts';
+import { Calibration, addPoint, axisHeading, carried, charted, deletePoint, exportName, fitRows, fitSvg, hex, movePoint, nameTaken, nearest, nextName, num, onPicture, sameCurve, saveOver, tryCalibration, valued, type FitResult, type Pt } from '../src/renderer/digitise.ts';
 
 const square = { x: { p1: [100, 400] as [number, number], v1: 0, p2: [500, 400] as [number, number], v2: 60, log: false }, y: { p1: [100, 400] as [number, number], v1: 0, p2: [100, 100] as [number, number], v2: 0.8, log: false } };
 
@@ -201,5 +201,44 @@ describe('a series is its id, and its name a label', () => {
     expect(nameTaken(saved, 7, 'Collagen 37 °C')).toBe(true);
     expect(nameTaken(saved, null, 'series 1')).toBe(true); // a second curve under the first's name
     expect(nameTaken(saved, null, nextName(saved.map((s) => s.series)))).toBe(false); // the name a new series is offered
+  });
+});
+
+describe('points found for another curve while a saved series is the one being edited', () => {
+  // series A is saved and active; a near shade of its colour found the second curve's points, corrected by hand
+  const saved = [{ id: 7, series: 'series 1' }];
+  const onPicture: Pt[] = [{ px: 10, py: 90, how: 'auto' }, { px: 50, py: 40, how: 'moved' }, { px: 90, py: 12, how: 'added' }];
+
+  it('are saved beside it, under a name of their own, when that is the answer', () => {
+    const to = saveOver(1, saved, 7, 'series 1');
+    expect(to).toEqual({ id: null, name: 'series 2' });
+    expect(nameTaken(saved, to!.id, to!.name)).toBe(false);
+  });
+
+  it('replace it only when that is the answer, and nothing is saved on the way out', () => {
+    expect(saveOver(0, saved, 7, 'Collagen 37 °C')).toEqual({ id: 7, name: 'Collagen 37 °C' });
+    expect(saveOver(2, saved, 7, 'series 1')).toBeNull();
+    expect(saveOver(-1, saved, 7, 'series 1')).toBeNull();
+  });
+
+  it('stay on the picture as the new series’ when New series is clicked after the way out', () => {
+    expect(carried(onPicture, true)).toEqual(onPicture);
+  });
+
+  it('are not carried when what is on the picture is the saved series as it was saved', () => {
+    expect(carried(onPicture, false)).toEqual([]);
+  });
+});
+
+describe('an axis’s heading', () => {
+  it('puts the unit after the name, in place of a parenthetical the name ends in', () => {
+    expect(axisHeading('Time', 'min', 'x')).toBe('Time (min)');
+    expect(axisHeading('Time (min)', 'min', 'x')).toBe('Time (min)');
+    expect(axisHeading('', 'min', 'x')).toBe('x (min)');
+  });
+
+  it('keeps the name whole when no unit is given: the parenthetical is all there is of one', () => {
+    expect(axisHeading('Absorbance (a.u.)', '', 'y')).toBe('Absorbance (a.u.)');
+    expect(axisHeading('', '', 'y')).toBe('y');
   });
 });

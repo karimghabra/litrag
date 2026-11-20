@@ -10,7 +10,7 @@
  * digitise.ts's; this module draws and listens.
  */
 
-import { Calibration, addPoint, charted, deletePoint, exportName, fitRows, fitSvg, hex, movePoint, nameTaken, nearest, nextName, num, onPicture, sameCurve, tryCalibration, valued, type AxisCal, type CalibrationDict, type FitResult, type Pt } from './digitise.ts';
+import { Calibration, addPoint, axisHeading, carried, charted, deletePoint, exportName, fitRows, fitSvg, hex, movePoint, nameTaken, nearest, nextName, num, onPicture, sameCurve, saveOver, tryCalibration, valued, type AxisCal, type CalibrationDict, type FitResult, type Pt } from './digitise.ts';
 import { $, activity, ctx, el, hooks, log, onProjectChange, onViewShown, projectName, rejectionText, request, showView } from './shared.ts';
 
 interface FoundFigure {
@@ -236,7 +236,7 @@ async function show(r: Opened): Promise<void> {
   }
   for (const [axis, lab, unit] of [['x', 'dg-xlabel', 'dg-xunit'], ['y', 'dg-ylabel', 'dg-yunit']] as const) {
     const o = a?.[axis];
-    if (o?.label) $<HTMLInputElement>(lab).value = o.label.replace(/\s*\([^()]*\)\s*$/, '');
+    if (o?.label) $<HTMLInputElement>(lab).value = o.unit ? o.label.replace(/\s*\([^()]*\)\s*$/, '') : o.label;
     if (o?.unit) $<HTMLInputElement>(unit).value = o.unit;
   }
   if (a?.plot_region) st.region = a.plot_region;
@@ -406,7 +406,7 @@ async function readPanel(region: number[]): Promise<void> {
       axesChanged();
       for (const [axis, lab, unit] of [['x', 'dg-xlabel', 'dg-xunit'], ['y', 'dg-ylabel', 'dg-yunit']] as const) {
         const o = r.auto[axis];
-        if (o?.label) $<HTMLInputElement>(lab).value = o.label.replace(/\s*\([^()]*\)\s*$/, '');
+        if (o?.label) $<HTMLInputElement>(lab).value = o.unit ? o.label.replace(/\s*\([^()]*\)\s*$/, '') : o.label;
         if (o?.unit) $<HTMLInputElement>(unit).value = o.unit;
       }
     }
@@ -434,16 +434,29 @@ function axesChanged(): void {
   changed();
 }
 
-/** The working series put aside for a new one: nothing of it on the picture, no saved series
- *  being edited, no colour it was found by, the next default name. The saved ones stay as they are. */
-function newSeries(): void {
+/** A new series started: no saved series being edited, the next default name. The saved ones
+ *  stay as they are. With `keep`, the points on the picture that are not saved are the new
+ *  series' (`carried`), with the colour and the way they were found; otherwise nothing of the
+ *  working series is left on the picture. */
+function newSeries(keep = false): void {
+  st.points = carried(st.points, keep && st.dirty);
   st.activeSaved = null;
-  setColour(null);
-  st.points = [];
-  st.method = null;
   st.fit = null;
-  st.dirty = false;
+  st.dirty = st.points.length > 0;
+  if (!st.dirty) {
+    setColour(null);
+    st.method = null;
+  }
   $<HTMLInputElement>('dg-name').value = nextName((st.opened?.saved ?? []).map((s) => s.series));
+}
+
+/** The figure's card says how many series it has saved. */
+function recount(opened: Opened): void {
+  const f = st.list.find((x) => x.figure === st.figure);
+  if (f) {
+    f.digitised = opened.saved.length;
+    renderList();
+  }
 }
 
 /** A colour that is not the one the saved series being edited was found by — not within the
@@ -660,9 +673,7 @@ function renderPoints(): void {
 }
 
 function axisHead(a: 'x' | 'y'): string {
-  const label = $<HTMLInputElement>(a === 'x' ? 'dg-xlabel' : 'dg-ylabel').value.trim() || a;
-  const unit = $<HTMLInputElement>(a === 'x' ? 'dg-xunit' : 'dg-yunit').value.trim();
-  return unit ? `${label} (${unit})` : label;
+  return axisHeading($<HTMLInputElement>(a === 'x' ? 'dg-xlabel' : 'dg-ylabel').value.trim(), $<HTMLInputElement>(a === 'x' ? 'dg-xunit' : 'dg-yunit').value.trim(), a);
 }
 
 function renderFit(): void {
@@ -784,17 +795,27 @@ async function save(): Promise<SavedSeries | null> {
     log('error', 'Save: there are no points to save');
     return null;
   }
-  const name = $<HTMLInputElement>('dg-name').value.trim() || nextName(opened.saved.map((s) => s.series));
-  $<HTMLInputElement>('dg-name').value = name;
+  let name = $<HTMLInputElement>('dg-name').value.trim() || nextName(opened.saved.map((s) => s.series));
   const old = opened.saved.find((s) => s.id === st.activeSaved);
-  if (nameTaken(opened.saved, old?.id ?? null, name)) {
+  let id = old?.id ?? null;
+  if (old) {
+    const points = (n: number) => `${n} point${n === 1 ? '' : 's'}`;
+    const answer = await window.litrag.choose(
+      `“${old.series}” is saved with ${points(old.points.length)}. Replace it with the ${points(st.points.length)} on the picture${old.series === name ? '' : `, as “${name}”`}, or save these as a new series beside it?`,
+      [`Replace “${old.series}”`, 'Save as a new series', 'Cancel'],
+    );
+    const to = saveOver(answer, opened.saved, old.id, name);
+    if (!to || st.opened !== opened) return null;
+    ({ id, name } = to);
+  }
+  if (nameTaken(opened.saved, id, name)) {
     log('error', `Save: this figure has another series named “${name}”. Give this one a name of its own`);
     return null;
   }
-  if (old && !window.confirm(`Save over the saved series “${old.series}” (${old.points.length} point${old.points.length === 1 ? '' : 's'}) with the ${st.points.length} on the picture${old.series === name ? '' : `, as “${name}”`}? To keep it as it is and save these beside it, cancel and click New series.`)) return null;
+  $<HTMLInputElement>('dg-name').value = name;
   try {
     const r = await request<{ series: SavedSeries }>('digitise_save', {
-      lib: ctx.lib, figure: st.figure, series: name, calibration: cal.c, points: st.points, colour: st.colour, method: st.method ?? { mode: 'manual' }, image: opened.image, axes: axesOf(), source: opened.source, series_id: old?.id,
+      lib: ctx.lib, figure: st.figure, series: name, calibration: cal.c, points: st.points, colour: st.colour, method: st.method ?? { mode: 'manual' }, image: opened.image, axes: axesOf(), source: opened.source, series_id: id ?? undefined,
     });
     if (st.opened !== opened) return null;
     opened.saved = [...opened.saved.filter((s) => s.id !== r.series.id), r.series];
@@ -803,11 +824,7 @@ async function save(): Promise<SavedSeries | null> {
     renderSaved();
     renderPoints();
     log('info', `Saved “${name}”: ${r.series.points.length} points`);
-    const f = st.list.find((x) => x.figure === st.figure);
-    if (f) {
-      f.digitised = opened.saved.length;
-      renderList();
-    }
+    recount(opened);
     if (st.fit) await fitSaved(r.series.id, st.fit.model);
     return r.series;
   } catch (e) {
@@ -825,6 +842,7 @@ async function deleteSaved(id: number): Promise<void> {
     opened.saved = opened.saved.filter((s) => s.id !== id);
     opened.orphans = opened.orphans.filter((s) => s.id !== id);
     if (st.activeSaved === id) newSeries();
+    recount(opened);
     renderAll();
   } catch (e) {
     log('error', `delete: ${rejectionText(e)}`);
@@ -840,11 +858,7 @@ async function attachSaved(id: number): Promise<void> {
     if (st.opened !== opened) return;
     opened.orphans = opened.orphans.filter((s) => s.id !== id);
     opened.saved = [...opened.saved, r.series];
-    const f = st.list.find((x) => x.figure === st.figure);
-    if (f) {
-      f.digitised = opened.saved.length;
-      renderList();
-    }
+    recount(opened);
     renderAll();
   } catch (e) {
     log('error', `review: ${rejectionText(e)}`);
@@ -970,7 +984,7 @@ export function initPlots(): void {
   $('dg-extract').addEventListener('click', () => void extract());
   $('dg-save').addEventListener('click', () => void save());
   $('dg-new').addEventListener('click', () => {
-    newSeries();
+    newSeries(true);
     renderAll();
   });
   $('dg-clear').addEventListener('click', () => {
