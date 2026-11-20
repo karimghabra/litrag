@@ -62,6 +62,22 @@ when it turns out durable. Mark inference as inference.
   word-match false positives and left already-good answers alone. Modest
   until the model stage adds materials and methods as entities.
 
+- **The digitiser, measured (2026-11-20).** `python -m litrag_parser.digitise_bench`
+  on the synthetic plots: axes offered on 9 of 9 readings, confidently on 8,
+  within 0.15 % of each axis's range; lines within 0.09 % on average, 0.45 % at
+  the 95th percentile; markers within 0.26 % on average, 0.9 % at worst, recall
+  0.89, every miss a circle drawn under the other series' square. On three figures of
+  collagen-simulations measured by hand with a zoomed pixel grid (Figure 1A of
+  10.1038/s41598-020-76107-0, the magenta curve; Figure 7a and 7b of
+  10.1039/c5tb00877h, the red turbidity curve and the green log–log diamonds), on
+  the hand-placed axes and a click's colour: 0.25 %, 0.17 % and 0.33 % mean
+  error, 1.4 %, 0.44 % and 0.93 % at worst; 17 of 17 diamonds. The axes were offered
+  only for the first (not confidently: 0.55 % off). The truth file and a scratch
+  library of the five papers it needs live in `~/.cache/litrag-digitise-bench`, not
+  in the repository. What fails: a frame the reader does not find (boxed axes over
+  grey shading, 10.1016/j.mtbio.2026.103133's Figure 1B), where a person places the
+  four points by hand.
+
 ### Standing decisions
 
 - **2026-09-30** — NCBI is allowed (Karim: "yes, access ncbi"): E-utilities'

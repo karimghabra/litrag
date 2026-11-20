@@ -773,6 +773,61 @@ from images (slower, and every record with images has a PDF); captions with no s
 after the number, Springer's "Fig. 1 Title", which leave such a PDF's figures at "not
 in PDF" until the reader learns them (`BACKLOG.md`).
 
+## R4.6 A plot digitised by a person, and a curve fitted to it
+
+*Built 2026-11-20.* Feedback asked for plots turned back into numbers — a
+turbidity curve's points as CSV, and a sigmoid fitted to them for its lag and
+growth — and for a way to find the plots worth it. The chart reader (R4.5,
+`charts.py`) reads bars and markers on its own, and says curves without markers
+unread; this is the other half: a person drives, the machine helps.
+
+**Which figures are plots is the chart reader's answer, not a model's.** A data
+plot is a frame with numbers beside its axes — the same test `charts.read` already
+runs on every figure it reads, deterministic and measured on the chart fixtures.
+A small vision model would have to be fetched, would answer differently on a
+re-run, and could say nothing the frame test cannot. A figure not read yet is
+`unknown`, ranked by its caption's words (time, kinetics, turbidity, versus) and
+never called a plot; the search is FTS over the captions already in `nodes_fts`.
+
+**WebPlotDigitizer's workflow, on the figure's own pixels.** Two points of known
+value an axis, linear or log each, need not be square to the image: the x axis's
+two share a y value and the y axis's an x value, which with the four values fixes
+an affine map (`Calibration`, mirrored in the window's `digitise.ts` so a point's
+value shows while it is dragged). The machine offers the four points from the
+numbers the chart reader reads — the text layer, else OCR — and the offer is never
+taken unconfirmed in the window; from a shell, only when the reader is confident,
+else with `--accept-axes`. A series is picked by its colour; markers are found by
+their cores (the pixels deeper than most of a marker's radius, so the lines joining
+them fall away), a line by its runs chained column to column, the longest track
+lengthened by the ones that continue it — so a legend's swatch, a word in the
+series' colour or a crossing curve is not jumped to. Long straight strokes (axes,
+gridlines) are never a series.
+
+**The pixels are the truth.** Every point keeps its pixel and how it came (auto,
+added, moved); its value is always the calibration's reading of the pixel, read
+again by the worker when it is saved. Pixel indices are taken at their middles, so
+a click and a found point mean the same place.
+
+**A person's work is never dropped by a reading.** `digitised` rows follow their
+figure through a rebuild by its caption's number, else its page and box; one that
+finds no figure is kept and marked an orphan, never deleted, unlike the reader's own
+plots, which can be read again.
+
+**Fits are numpy's.** Logistic and Zwietering's Gompertz, both with a baseline,
+fitted by Levenberg–Marquardt from starts read off the data; intervals from the
+fit's covariance on Student's t, the derived quantities (plateau, maximum rate, time
+to half maximum, lag as the tangent's crossing of the baseline) by the delta method.
+On fresh noise the 95% intervals hold the truth about 95% of the time
+(`test_digitise.py`). No scipy: the environment has no need of it otherwise.
+
+**Traceable exports.** The CSV is two columns headed by each axis's name and unit;
+the JSON sidecar beside it names the paper, the figure, its page and box, the
+image's hash, the calibration, the method and every point's pixel, so a number can
+be found again on the page it came from.
+
+Not done: error bars of digitised points; several series found at once; a
+magnifier under the cursor (the stage zooms to 8×).
+
 ---
 
 # Revision 1 — the retrieval loop (2026-09-03)

@@ -18,10 +18,11 @@ Where things are:
   `tree.py` turns a Docling document into the node tree; `store.py` is the
   SQLite schema and its reads; `worker.py` speaks JSON lines over stdio.
 - `app/` — Electron, TypeScript, built with esbuild. `src/main` spawns the
-  worker and relays its events; `src/renderer` is the window: six tabs
+  worker and relays its events; `src/renderer` is the window: seven tabs
   over one project — Projects, Search, Papers (tree, page with boxes,
-  canonical face), Types, Query, Graph (citations, rounds, SQL) — and the
-  log.
+  canonical face), Types, Query, Graph (citations, rounds, SQL), Plots
+  (figures found by caption, one digitised by a person, a sigmoid fitted:
+  `digitise.py`, `fit.py`) — and the log.
 - `src/`, `tests/` — the `lit` CLI (Node): Europe PMC, chunks, embeddings,
   hybrid retrieval. Not yet wired to the tree store, and deprecated: kept
   until its verbs are ported to it (`BACKLOG.md`).
@@ -75,6 +76,15 @@ the app's typecheck, tests and build, and the parser's pytest (fixtures are
 saved Docling documents; nothing touches the network or the models). A real
 run of the app is `npm run app`; a headless one is `app/tests/smoke.mjs`;
 the product end to end is `LITRAG_HEADLESS=1 npm run e2e:studio` (Docling's
-models, Ollama, and two PDFs from the archive beside the checkout).
+models, Ollama, and two PDFs from the archive beside the checkout); the Plots
+tab end to end, without models, is `npx playwright test digitise.spec.ts` in
+`app/`. A request's `id` is the wire's own: an op naming a row takes another key.
 The libraries live outside the repository (`LITRAG_ROOT`, default
 `~/.protracker/library`) and never enter it.
+
+## Maintaining this file
+
+Keep this file for knowledge useful to almost every future agent session in this project.
+Do not repeat what the codebase already shows; point to the authoritative file or command instead.
+Prefer rewriting or pruning existing entries over appending new ones.
+When updating this file, preserve this bar for all agents and keep entries concise.

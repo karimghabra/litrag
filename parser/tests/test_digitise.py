@@ -288,14 +288,14 @@ def test_the_worker_answers_the_digitiser_s_ops(tmp_path):
     assert ex["event"] == "extracted" and ex["mode"] == "markers" and len(ex["points"]) >= 10
     sv = digitise.answer("digitise_save", {"lib": "lib", "figure": fig, "series": "A", "calibration": opened["auto"]["calibration"], "points": ex["points"], "colour": s["colour"]}, get)
     assert sv["event"] == "digitised" and sv["series"]["series"] == "A"
-    ft = digitise.answer("fit", {"lib": "lib", "id": sv["series"]["id"]}, get)
+    ft = digitise.answer("fit", {"lib": "lib", "series_id": sv["series"]["id"]}, get)
     assert ft["event"] == "fit" and set(ft["fits"]) == {"logistic", "gompertz"} and ft["preferred"] in ("logistic", "gompertz")
     assert set(digitise.answer("digitise_open", {"lib": "lib", "figure": fig}, get)["saved"][0]["fits"]) == {"logistic", "gompertz"}
     ex2 = digitise.answer("digitise_export", {"lib": "lib", "ids": [sv["series"]["id"]], "path": str(tmp_path / "a.csv")}, get)
     assert ex2["event"] == "exported" and Path(ex2["sidecar"]).is_file() and len(ex2["fits"]) == 2
     found = digitise.answer("plots", {"lib": "lib", "query": "turbidity"}, get)
     assert found["event"] == "plots" and found["figures"][0]["digitised"] == 1
-    assert digitise.answer("digitise_delete", {"lib": "lib", "id": sv["series"]["id"]}, get)["deleted"] is True
+    assert digitise.answer("digitise_delete", {"lib": "lib", "series_id": sv["series"]["id"]}, get)["deleted"] is True
 
 
 # -- the fits -----------------------------------------------------------------------------------------------------

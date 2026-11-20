@@ -12,7 +12,7 @@ litrag keeps a library of scientific papers for each research project. It reads 
 
 Three parts do the work.
 
-- **The window** is an Electron app with six tabs, listed down its left edge: Projects, Search, Papers, Types, Query and Graph. A log pane runs along the bottom. It shows and asks. It never writes the store itself.
+- **The window** is an Electron app with seven tabs, listed down its left edge: Projects, Search, Papers, Types, Query, Graph and Plots. A log pane runs along the bottom. It shows and asks. It never writes the store itself.
 - **The worker** is a Python process the window starts. It reads papers with Docling, writes the store, and answers every request as one line of JSON. An assistant or a script can send it the same requests.
 - **The library** is one folder per project under the library root. Its `store.sqlite` holds the rows. Its `parsed/` folder keeps each paper's raw Docling document, and `papers/` keeps the files.
 
@@ -1315,6 +1315,40 @@ from charts group by paper, figure order by plots desc
 - **Not read yet:** curves without markers, box, violin and dot plots, horizontal bars. A curve may still give stray points, like Figure 2's "(A) Stress (MPa)".
 - **A cut-off read leaves no numbers.** Run `figures` without `keys`, or click **Read the figures**.
 - **`LITRAG_FIGURES=off`** skips the figures stage and the ask of PMC for an XML paper's PDF, at a fetch or a drop. The window offers no figure action: a figure not read says "Figures are off (LITRAG_FIGURES=off)", and its card has no chip. The `figures` op still reads, and `figures_fetch` still asks. A PDF you drop for an XML paper is kept, not read, until you ask.
+
+## Digitising a plot (the Plots tab)
+
+The chart reader reads bars and markers by itself. When you want a curve's points — a turbidity or absorbance curve over time, say — or want to check what the reader took, digitise the plot yourself in the **Plots** tab, then fit a sigmoid to it.
+
+### Try it
+
+1. Open **Plots**. Type caption words into the box, such as `turbidity` or `fibril formation`, and click **Find plots**. With **trends only** ticked the list holds plots of a numeric x, and unread figures whose caption speaks of a curve over time. Each card says **plot** (the chart reader found axes with numbers in it), **no plot**, or **unknown** (not read yet), with **trend** and how many series are digitised. **no image** means no PDF here draws the figure: an XML paper needs the PDF kept beside it.
+2. Click a card. The figure is cut from its page and drawn in the middle. Under **1 · Axes**, the worker offers the four calibration points read from the numbers beside the axes, X1 and X2 on the x axis, Y1 and Y2 on the y axis, with their values and the axis labels and units. Check that each cross sits on its tick, then click **Confirm these axes**. To set one yourself, click its button (**X1** …) and then the tick on the figure, and type its value. Tick **log** for an axis that goes by powers of ten. A figure of several panels offers the largest first; drag a **Region** over the panel you want and its axes are read again.
+3. Under **2 · Series**, take the series' colour: with **Pick colour** on, click its line or a marker, or click one of the figure's own colours offered as swatches. Then click **Find points**. Markers are found at their centres and a line along its length; the log says how many, and a legend's own marker is left out.
+4. Fix what the colour missed: **Add** places a point at a click, **Move** drags one, **Delete** removes one. Points you placed or moved show green, found ones red. **3 · Points** lists every point with its value and pixel.
+5. Name the series and click **Save series**. It is kept with the figure; click it in the list to edit it again.
+6. Under **4 · Fit**, choose **logistic** or **Gompertz** and click **Fit**. The table gives the plateau, maximum rate, time to half maximum, lag time and baseline, each with its 95% interval and unit, with R² and RMSE. The plot draws the points, the curve, the lag and the half-maximum time, and the residuals underneath.
+7. Click **Export CSV…** and choose where. Beside the CSV, `<name>.csv.json` traces every value to the paper, figure, page and pixel, and `<name>.<series>.<model>.fit.csv` holds each fit's quantities.
+8. **Open an image…** digitises a plot from an image file the same way. Its series is not saved in the library, but it exports.
+
+A figure's pane in the **Papers** tab has a **Digitise** button that opens it here.
+
+### From a script
+
+```
+lit digitise "doi:10.1038/x#section-4#picture-2" --lib my-project --colour '#a700e1' --save "Col-Ver" --fit both
+lit digitise plot.png --x 120:0,580:60 --y 410:0,40:0.8 --csv out.csv
+lit fit out.csv --model gompertz
+```
+
+The axes are yours when given (`--x` pixel columns, `--y` pixel rows, `--xlog`, `--ylog`, or `--calibration` with a sidecar). Otherwise the ones read from the figure are taken only when the reader is confident of them, or with `--accept-axes`; the axes used are always printed. Without `--colour` the series is the figure's commonest colour that is not black or grey.
+
+### Good to know
+
+- **Markers drawn under others are not found.** Where two series overlap, the one drawn first hides behind the other: add those points by hand.
+- **A curve hidden under another curve** is followed up to where it disappears and on again after; the stretch it was hidden for has no points.
+- **Units come from the axis title's parentheses.** "Absorbance (313 nm)" gives "313 nm". Correct the unit fields before exporting.
+- **A rebuild keeps your series.** It follows its figure by its caption's number, else its page and box. If no figure matches, the series is kept and marked as having lost its figure.
 
 ## The citation graph
 

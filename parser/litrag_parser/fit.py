@@ -267,7 +267,6 @@ def fit(points: Sequence[Sequence[float]], model: str = "logistic") -> dict[str,
     n, k = len(t), len(p)
     dof = n - k
     fitted = m.f(t, p)
-    resid = y - fitted
     s2 = rss / dof if dof > 0 else math.nan
     j = _jacobian(m, t, p)
     try:
@@ -298,7 +297,6 @@ def fit(points: Sequence[Sequence[float]], model: str = "logistic") -> dict[str,
     })
     if not ok:
         out["reason"] = "the fit stopped before it settled: read its numbers with care"
-    _ = resid
     return out
 
 
