@@ -24,6 +24,7 @@ import sys
 import threading
 import time
 import traceback
+import urllib.error
 import urllib.parse
 from pathlib import Path
 from typing import Any
@@ -966,8 +967,8 @@ class Worker:
         """The open copy OpenAlex names for an XML paper, kept beside its XML for its figures
         (figures.keep_beside, which takes it only when its first pages name the paper): 'kept',
         'refused', 'none' (no copy named, or its host answered with no PDF for a program: a page
-        naming none, a bot check), 'missed' (an ask that broke off: OpenAlex not reached or its
-        budget spent, the copy's host failing, a PDF that could not be written), or 'off' (open
+        naming none, a bot check, a 4xx other than 408 and 429), 'missed' (an ask that broke off: OpenAlex not reached or its
+        budget spent, the copy's host timing out or answering 5xx, 408 or 429, a PDF that could not be written), or 'off' (open
         copies or OpenAlex switched off). 'refused' and 'none' are answers for good; 'missed' is
         worth asking again. The address is the candidate's (`candidates.oa_url`), else OpenAlex's
         for the paper's DOI: an identifier out, one request at a time, paced (openalex.GAP). Each
@@ -1001,6 +1002,9 @@ class Worker:
 
         try:
             body, why = acquire.open_copy_pdf(url, timeout)
+        except urllib.error.HTTPError as e:
+            say(f"no PDF from the open copy at {url}: HTTP {e.code}")
+            return "none" if 400 <= e.code < 500 and e.code not in (408, 429) else "missed"
         except Exception as e:  # noqa: BLE001
             say(f"no PDF from the open copy at {url}: {type(e).__name__}: {e}")
             return "missed"
@@ -1121,6 +1125,9 @@ class Worker:
             own = row["file"] if (lib.papers_dir / row["file"]).exists() else None  # a PDF no longer on disk is kept for nothing
             if own:
                 conn.execute("UPDATE papers SET figures_file = ?, figures_note = NULL WHERE key = ?", (own, key))
+                from .figure_images import pdf_kept
+
+                pdf_kept(conn, key)
             log_event(conn, key, now_iso(), "filed", "read from its XML now" + (f": its PDF {own} is kept beside it for its figures" if own else ""))
 
     def do_reparse(self, req: dict[str, Any]) -> None:
