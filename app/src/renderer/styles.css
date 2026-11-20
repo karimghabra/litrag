@@ -519,3 +519,4 @@ table.chart-table th:first-child { text-align: left; font-weight: 500; }
 .dg-sec .row .field { flex: 1; min-width: 0; }
 .dg-sec .row .field input { flex: 1; min-width: 0; }
 .dg-sec .row button { white-space: nowrap; }
+.dg-sec-head h2 { white-space: nowrap; }

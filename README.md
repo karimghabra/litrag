@@ -648,8 +648,9 @@ lines are found within 0.1 % on average (0.45 % at the 95th percentile), markers
 within 0.26 % on average and 0.9 % at worst, every marker that shows is found and
 the legend's is left out. On three figures of a collagen library measured by hand
 — a turbidity curve, an absorbance curve and a log–log viscosity panel of
-markers — the points found lie within 0.17–0.33 % of the hand-traced curve on
-average, 0.93 % at worst, and all 17 markers were found.
+markers — the points found lie within 0.16–0.33 % of the hand-traced curve on
+average, 1.4 % at worst, each curve followed over the whole of its traced
+length (its steep rise included), and all 17 markers were found.
 
 **An XML paper's figures come from a PDF of it.** JATS names its figures
 (`<graphic xlink:href="…g001.jpg"/>`) and holds none; Europe PMC's figure

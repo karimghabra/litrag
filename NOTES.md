@@ -70,8 +70,11 @@ when it turns out durable. Mark inference as inference.
   collagen-simulations measured by hand with a zoomed pixel grid (Figure 1A of
   10.1038/s41598-020-76107-0, the magenta curve; Figure 7a and 7b of
   10.1039/c5tb00877h, the red turbidity curve and the green log–log diamonds), on
-  the hand-placed axes and a click's colour: 0.25 %, 0.17 % and 0.33 % mean
-  error, 1.4 %, 0.44 % and 0.93 % at worst; 17 of 17 diamonds. The axes were offered
+  the hand-placed axes and a click's colour: 0.26 %, 0.16 % and 0.33 % mean
+  error, 1.4 %, 0.75 % and 0.93 % at worst; both curves covered end to end (the
+  magenta one's steep rise, drawn in pieces between dotted SEM marks, was lost
+  until line pieces could join by their ends: score coverage, not only error);
+  17 of 17 diamonds. The axes were offered
   only for the first (not confidently: 0.55 % off). The truth file and a scratch
   library of the five papers it needs live in `~/.cache/litrag-digitise-bench`, not
   in the repository. What fails: a frame the reader does not find (boxed axes over

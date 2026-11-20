@@ -407,3 +407,25 @@ def test_lit_digitise_takes_the_axes_a_person_gives_and_refuses_half_of_them(tmp
     assert score["recall"] == 1.0
     assert digitise_cli.main(["digitise", str(HERE / "log_y_markers.png"), "--x", x]) == 2
     assert "both --x and --y" in capsys.readouterr().err
+
+
+def test_points_that_show_only_a_plateau_say_the_lag_cannot_be_told():
+    t = np.linspace(40, 200, 40)
+    y = 0.52 - 0.15 * np.exp(-(t - 40) / 12)  # the end of a rise, no baseline
+    f = fit.fit(list(zip(t, y)), "logistic")
+    assert f["status"] == "fit" and "cannot be told" in (f["reason"] or "")
+
+
+def test_a_steep_rise_drawn_in_pieces_is_followed_and_keeps_its_points():
+    img = np.full((300, 400, 3), 255, np.uint8)
+    xs = np.arange(20, 380)
+    ys = (250 - 200 / (1 + np.exp(-(xs - 200) / 4))).astype(int)  # a near-vertical rise at x = 200
+    for x, y in zip(xs, ys):
+        img[y - 1 : y + 2, x] = (167, 0, 225)
+    for x0, x1 in zip(xs[:-1], xs[1:]):  # the vertical joins, every other one broken: a rise drawn in pieces
+        a, b = sorted((int(ys[x0 - 20]), int(ys[x1 - 20])))
+        if (x0 // 2) % 2:
+            img[a:b + 1, x1] = (167, 0, 225)
+    got = digitise.extract_line(digitise.colour_mask(img, (167, 0, 225)))
+    assert got[0][0] < 30 and got[-1][0] > 370
+    assert sum(80 <= y <= 220 for _, y in got) >= 4  # points on the rise itself, not only either side of it
