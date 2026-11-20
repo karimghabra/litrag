@@ -290,11 +290,18 @@ class Worker:
         whether or not the figures are read after, so no plot is left on a node that is gone."""
         from .figures import remap, removed_note
 
+        from . import digitise
+
         out = remap(conn, key)
         message = removed_note(out)
         if message:
             log_event(conn, key, now_iso(), "figures", message)
             emit({"event": "log", "id": req_id, "lib": lib.id, "paper": key, "logger": "figures", "message": message})
+        kept = digitise.remap(conn, key)  # a person's digitised series follow their figures too, and are never dropped
+        if kept["orphaned"]:
+            note = f"{kept['orphaned']} digitised series no longer {'have' if kept['orphaned'] != 1 else 'has'} a figure in this reading: kept, marked without one"
+            log_event(conn, key, now_iso(), "digitise", note)
+            emit({"event": "log", "id": req_id, "lib": lib.id, "paper": key, "logger": "digitise", "message": note})
         return out
 
     @staticmethod
@@ -1345,6 +1352,10 @@ class Worker:
                     finally:
                         conn.close()
                     emit({"event": "query", "id": req_id, "lib": lib.id, **out})
+                elif op in ("digitise_open", "digitise_extract"):
+                    from . import digitise
+
+                    emit({"id": req_id, **digitise.answer(op, req, lambda: self._lib(req))})
                 else:
                     raise ValueError(f"Unknown op {op!r}")
             except Exception as e:  # noqa: BLE001 — the answer to a failed read is the reason
@@ -1375,8 +1386,12 @@ class Worker:
             elif op == "describe":
                 lib = self._lib(req)
                 emit({"event": "project", "id": req_id, "project": project_rows.describe(lib, name=req.get("name"), description=req.get("description"))})
-            elif op in ("search", "suggest", "query"):
-                self.answer_async(req)
+            elif op in ("search", "suggest", "query", "digitise_open", "digitise_extract"):
+                self.answer_async(req)  # the digitiser's: a page rendered, OCR run
+            elif op in ("plots", "digitise_save", "digitise_delete", "digitise_export", "fit"):
+                from . import digitise
+
+                emit({"id": req_id, **digitise.answer(op, req, lambda: self._lib(req))})
             elif op in ("candidates", "wanted", "dismiss", "stage"):
                 lib = self._lib(req)
                 conn = open_store(lib.store_path)

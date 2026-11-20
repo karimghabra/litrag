@@ -146,7 +146,7 @@ def colour_mask(img: np.ndarray, colour: Sequence[int], tol: float = TOLERANCE) 
     return (d * d).sum(axis=2) <= tol * tol
 
 
-def _straight(mask: np.ndarray, frac: float = 0.9) -> np.ndarray:
+def _straight(mask: np.ndarray, frac: float = 0.75) -> np.ndarray:
     """The long straight strokes of a mask — axes, gridlines, a frame — at least `frac` of the
     region across (a gridline, not a curve's plateau), as a mask of their own."""
     h, w = mask.shape
@@ -371,7 +371,8 @@ def extract(img: np.ndarray, colour: str | Sequence[int], *, tol: float = TOLERA
         raise ValueError(f"no mode {mode!r}: line, markers or auto")
     out = []
     for px, py in pts:
-        p = {"px": round(x0 + px, 2), "py": round(y0 + py, 2), "how": "auto"}
+        # a pixel's index is its left (top) edge: its middle, where the ink is, is half a pixel on
+        p = {"px": round(float(x0 + px + 0.5), 2), "py": round(float(y0 + py + 0.5), 2), "how": "auto"}
         if calibration is not None:
             x, y = calibration.value(p["px"], p["py"])
             p["x"], p["y"] = _r(x), _r(y)
@@ -514,6 +515,7 @@ def _axis_offer(s: charts.Scale | None, *, vertical: bool, at: float) -> dict[st
         return {"axis": None, "ticks": 0, "residual": None, "log": False}
     pts = sorted(s.ticks)
     (pa, va), (pb, vb) = pts[0], pts[-1]
+    pa, pb, at = pa + 0.5, pb + 0.5, at + 0.5  # pixel indices to the middles of those pixels, as `extract` gives them
     if vertical:
         p1, p2 = (at, pa), (at, pb)
     else:
@@ -1021,6 +1023,103 @@ def find(conn: sqlite3.Connection, query: str = "", *, trend: bool = False, limi
                     "plots": ps, "digitised": dig.get(f, 0), "image": has_image, "format": r["format"], "page": r["page"], "score": round(score, 3)})
     out.sort(key=lambda x: -x["score"])
     return {"figures": out[:limit], "total": len(out), "query": query}
+
+
+# -- the worker's ops ---------------------------------------------------------------------------------------------
+
+
+def _image_path(lib_dir: Path | None, path: str) -> Path:
+    """An image a request names: one this module rendered under the library, or a file a person chose."""
+    p = Path(path).expanduser()
+    if not p.is_file():
+        raise ValueError(f"no image at {path}")
+    return p
+
+
+def answer(op: str, req: dict[str, Any], get_lib: Any) -> dict[str, Any]:
+    """The worker's digitiser ops, each answered with one event (`worker.py` emits it):
+
+    - `plots` {lib, query, trend, limit} → `plots` {figures, total, query}: `find`.
+    - `digitise_open` {lib, figure} | {path} → `digitise` {source, image, auto, palette, saved}: the
+      figure rendered (or the image opened), the axes and colours offered, its saved series.
+    - `digitise_extract` {image, colour, tolerance, region, mode, step, calibration} → `extracted`
+      {mode, colour, points, ...}: a series found by its colour in the rendered image.
+    - `digitise_save` {lib, figure, series, calibration, points, colour, method, image, axes} →
+      `digitised` {series}: saved in place of the one of that name.
+    - `digitise_delete` {lib, id} → `digitised` {deleted}.
+    - `digitise_export` {lib, ids, path} → `exported` {csv, sidecar, fits, points}.
+    - `fit` {points, model} | {lib, id, model} → `fit` {fits, preferred}: both models unless one
+      is named; a saved series' fits are kept with it.
+    """
+    from . import fit as fitting
+    from .store import open_store
+
+    if op == "plots":
+        lib = get_lib()
+        conn = open_store(lib.store_path)
+        try:
+            out = find(conn, str(req.get("query") or ""), trend=bool(req.get("trend")), limit=int(req.get("limit") or 50), papers_dir=lib.papers_dir)
+        finally:
+            conn.close()
+        return {"event": "plots", "lib": lib.id, **out}
+    if op == "digitise_open":
+        if req.get("path") and not req.get("figure"):
+            lib = get_lib() if req.get("lib") else None
+            got = open_image(Path(str(req["path"])), out_dir=(lib.dir / DIRS) if lib else None)
+            got.pop("_img", None)
+            got.pop("_words", None)
+            return {"event": "digitise", "lib": lib.id if lib else None, **got, "saved": []}
+        lib = get_lib()
+        conn = open_store(lib.store_path)
+        try:
+            got = render(lib.dir, conn, str(req["figure"]))
+            saved = of_figure(conn, str(req["figure"]))
+        finally:
+            conn.close()
+        got.pop("_img", None)
+        got.pop("_words", None)
+        return {"event": "digitise", "lib": lib.id, "figure": str(req["figure"]), **got, "saved": saved}
+    if op == "digitise_extract":
+        path = _image_path(None, str(req.get("image") or ""))
+        img = load_image(path)
+        cal = Calibration.from_dict(req["calibration"]) if req.get("calibration") else None
+        got = extract(img, str(req.get("colour") or ""), tol=float(req.get("tolerance") or TOLERANCE), region=req.get("region"), mode=str(req.get("mode") or "auto"),
+                      step=float(req.get("step") or 0), calibration=cal, words=load_words(path))
+        return {"event": "extracted", **got}
+    if op == "fit":
+        did = req.get("id")
+        if did is not None:
+            lib = get_lib()
+            conn = open_store(lib.store_path)
+            try:
+                s_ = one(conn, int(did))
+                pts = [(p["x"], p["y"]) for p in s_["points"]]
+                models = [str(req["model"])] if req.get("model") else list(fitting.MODELS)
+                fits = {m: fitting.fit(pts, m) for m in models}
+                for f in fits.values():
+                    save_fit(conn, int(did), f)
+            finally:
+                conn.close()
+        else:
+            pts = [(float(a), float(b)) for a, b in (req.get("points") or [])]
+            models = [str(req["model"])] if req.get("model") else list(fitting.MODELS)
+            fits = {m: fitting.fit(pts, m) for m in models}
+        scored = [(f["aic"], m) for m, f in fits.items() if f["status"] == "fit" and f.get("aic") is not None]
+        return {"event": "fit", "series": did, "fits": fits, "preferred": min(scored)[1] if scored else None}
+    lib = get_lib()
+    conn = open_store(lib.store_path)
+    try:
+        if op == "digitise_save":
+            saved = save(conn, str(req["figure"]), str(req.get("series") or ""), req["calibration"], req.get("points") or [], colour=req.get("colour"),
+                         method=req.get("method"), image=req.get("image"), axes=req.get("axes"))
+            return {"event": "digitised", "lib": lib.id, "series": saved}
+        if op == "digitise_delete":
+            return {"event": "digitised", "lib": lib.id, "deleted": delete(conn, int(req["id"]))}
+        if op == "digitise_export":
+            return {"event": "exported", "lib": lib.id, **export(conn, [int(i) for i in req.get("ids") or []], Path(str(req["path"])).expanduser(), library=lib.id)}
+    finally:
+        conn.close()
+    raise ValueError(f"Unknown op {op!r}")
 
 
 # -- helpers ------------------------------------------------------------------------------------------------------
