@@ -5,7 +5,7 @@ import type { FigureState, FigureTag } from '../src/renderer/figstate';
 const img = (over: Partial<FigureImage> = {}): FigureImage => ({
   path: '/lib/p/figures/doi_1/a-g001.jpg', file: 'figures/doi_1/a-g001.jpg', label: 'Figure 2', caption: 'Turbidity against time at pH 7.4.', source: 'pmc-cloud', width: 800, height: 600, mime: 'image/jpeg', ...over,
 });
-const ask = (over: Partial<ImageState>): ImageState => ({ figures: 6, had: 6, settled: true, sources: 'pmc-cloud', why: null, at: '2026-11-20T00:00:00Z', ...over });
+const ask = (over: Partial<ImageState>): ImageState => ({ figures: 6, had: 6, settled: true, fallback: false, sources: 'pmc-cloud', why: null, at: '2026-11-20T00:00:00Z', ...over });
 const st = (over: Partial<FigureState>): FigureState => ({
   kind: 'read', figures: 0, numbered: 0, pinned: 0, no_plot: 0, no_caption: 0, unnumbered: 0, same_number: 0, small: 0, unplaced: 0, unread: 0,
   plots: 0, read: 0, values: 0, unmatched: null, pages: null, pages_read: null, file: null, at: null, note: null, asked: null, ...over,
@@ -38,7 +38,9 @@ describe('which papers want images, and which want their figures read', () => {
   it('wants images for an XML paper never asked, or asked and not settled', () => {
     expect(wantsImages(xml())).toBe(true);
     expect(wantsImages(xml({ images: ask({ had: 2, settled: false }) }))).toBe(true);
-    expect(wantsImages(xml({ images: ask({ had: 2, settled: true, why: 'PMC Cloud: an author manuscript' }) }))).toBe(false); // every source answered
+    expect(wantsImages(xml({ images: ask({ had: 2, settled: true, fallback: true, why: 'PMC Cloud: an author manuscript' }) }))).toBe(false); // every source answered
+    expect(wantsImages(xml({ images: ask({ had: 2, settled: true, fallback: false }) }))).toBe(true); // the services answered, the PDF fallback has not for good
+    expect(wantsImages(xml({ images: ask({ had: 2, settled: false, fallback: true }) }))).toBe(true);
     expect(wantsImages(xml({ images: ask({}) }))).toBe(false);
     expect(wantsImages({ format: 'pdf', status: 'parsed' })).toBe(false);
     expect(wantsImages(xml({ status: 'failed' }))).toBe(false);

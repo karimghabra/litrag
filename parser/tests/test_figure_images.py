@@ -119,8 +119,10 @@ def test_images_from_the_pmc_cloud_service_checked_stored_and_joined_to_their_fi
     assert "/rest/" not in "".join(asked(epmc))  # Europe PMC not asked: the Cloud gave them all
     joined = fi.images_for(conn, lib.dir, key)
     assert {n: [i["file"].rsplit("/", 1)[1] for i in v] for n, v in joined.items()} == {f"{key}#s#picture-{i}": [NAMES[i - 1]] for i in range(1, 7)}
-    assert joined[f"{key}#s#picture-1"][0]["path"] == str(lib.dir / rows[0][4]) and fi.image_of(conn, lib.dir, f"{key}#s#picture-2")[0]["label"] == "Figure 2"
-    assert fi.states(conn)[key] == {"figures": 6, "had": 6, "settled": True, "sources": "pmc-cloud", "why": None, "at": fi.states(conn)[key]["at"]}
+    assert joined[f"{key}#s#picture-1"][0]["path"] == str(lib.dir / rows[0][4]) and joined[f"{key}#s#picture-2"][0]["label"] == "Figure 2"
+    state = fi.states(conn, lib.dir)[key]
+    assert state == {"figures": 6, "had": 6, "settled": True, "fallback": False, "sources": "pmc-cloud", "why": None, "at": state["at"]}
+    assert not fi.wanting(state)  # every figure had: the fallback has nothing to answer for
 
 
 def test_a_second_run_asks_nothing_and_a_file_gone_is_fetched_alone(tmp_path, epmc):
@@ -176,12 +178,24 @@ def test_an_author_manuscript_is_settled_without_asking_europe_pmc(tmp_path, epm
     assert len(epmc.seen) > seen  # unless asked again
 
 
-def test_neither_service_holding_it_is_settled_and_a_500_from_europe_pmc_is_its_answer(tmp_path, epmc):
+def test_neither_service_holding_it_is_settled(tmp_path, epmc):
+    lib, conn, key = library(tmp_path)  # the Cloud lists no version of it, and Europe PMC answers 404
+    a = fi.from_services(conn, lib.dir, key)
+    assert (a.had, a.settled, a.why) == (0, True, ["PMC Cloud: not in its open-access datasets", "Europe PMC: HTTP 404"])
+    assert tuple(conn.execute("SELECT figures, had, settled FROM figure_image_asks WHERE paper = ?", (key,)).fetchone()) == (6, 0, 1)
+
+
+def test_a_500_from_europe_pmc_is_asked_again_and_never_its_settled_answer(tmp_path, epmc):
     lib, conn, key = library(tmp_path)
     epmc.routes[f"/rest/{PMCID}/supplementaryFiles"] = (500, "text/html", b"<html>Error: 500</html>")
     a = fi.from_services(conn, lib.dir, key)
-    assert (a.had, a.settled, a.why) == (0, True, ["PMC Cloud: not in its open-access datasets", "Europe PMC: HTTP 500"])
-    assert tuple(conn.execute("SELECT figures, had, settled FROM figure_image_asks WHERE paper = ?", (key,)).fetchone()) == (6, 0, 1)
+    assert (a.had, a.settled, a.why) == (0, False, ["PMC Cloud: not in its open-access datasets", "Europe PMC: HTTP 500"])
+    assert len([p for p in epmc.seen if p.startswith("/rest/")]) == fi.RETRIES + 1  # a server's fault, asked again as a busy answer is
+    assert conn.execute("SELECT settled FROM figure_image_asks WHERE paper = ?", (key,)).fetchone()[0] == 0
+    assert fi.wanting(fi.states(conn, lib.dir)[key])
+    epmc.routes[f"/rest/{PMCID}/supplementaryFiles"] = (200, "application/zip", THUMBS)  # the fault over: the next ask has them
+    b = fi.from_services(conn, lib.dir, key)
+    assert (b.had, b.settled, b.sources) == (6, True, {"europepmc": 6})
 
 
 def test_a_busy_answer_is_asked_again(tmp_path, epmc):
@@ -340,11 +354,14 @@ def test_an_xml_filed_fetches_its_figure_images_and_the_tree_draws_them(tmp_path
     assert _events(capsys)[-1]["papers"][0]["images"]["had"] == 6
 
 
-def test_an_xml_whose_images_no_service_has_asks_pmc_for_its_pdf_and_cuts_them_from_it(tmp_path, monkeypatch, capsys, epmc):
+def test_with_the_figures_off_a_filing_asks_for_no_pdf_and_the_op_asks_pmc_and_cuts_from_it(tmp_path, monkeypatch, capsys, epmc):
     from litrag_parser.worker import Worker
 
     monkeypatch.setenv("LITRAG_FIGURE_IMAGES", "on")
     monkeypatch.setenv("LITRAG_FIGURES", "off")
+    monkeypatch.setenv("LITRAG_OPEN_COPIES", "on")
+    monkeypatch.setenv("LITRAG_OPENALEX", "on")
+    monkeypatch.setenv("LITRAG_OPENALEX_URL", f"{epmc.url}/openalex")
     _parse_as_reader(monkeypatch, caps=["Figure 1 Fold change.", "Figure 2 Gene expression.", "Figure 3 More."])
     monkeypatch.setattr("litrag_parser.acquire.first_pages", lambda path, pages=3: "doi:10.3390/mi15070851")  # page_paper.pdf names the paper
     pdf = (FIXTURES / "charts" / "page_paper.pdf").read_bytes()
@@ -354,14 +371,92 @@ def test_an_xml_whose_images_no_service_has_asks_pmc_for_its_pdf_and_cuts_them_f
     lib = create_library(tmp_path, "Fallback")
     (lib.inbox_dir / "PMC11278924.xml").write_bytes(XML)
     capsys.readouterr()
-    Worker(tmp_path).do_ingest({"id": "i", "op": "ingest", "lib": lib.id, "paths": [str(lib.inbox_dir / "PMC11278924.xml")]})
+    w = Worker(tmp_path)
+    w.do_ingest({"id": "i", "op": "ingest", "lib": lib.id, "paths": [str(lib.inbox_dir / "PMC11278924.xml")]})
     messages = [e["message"] for e in _events(capsys) if e["event"] == "log"]
-    assert messages[0].startswith("figure images: 0 of 6 figures have one; for the rest — PMC Cloud: 6 of 6: no file of that name; Europe PMC: HTTP 404")
+    assert messages == ["figure images: 0 of 6 figures have one; for the rest — PMC Cloud: 6 of 6: no file of that name; Europe PMC: HTTP 404"]
+    # the figures off: the image files were asked for, and no PDF of the paper, of PMC, OpenAlex or an open copy's host
+    assert not [p for p in epmc.seen if p.endswith(".pdf") or p.startswith(("/oa/", "/openalex/"))]
+    w.answer({"id": "p", "op": "papers", "lib": lib.id})
+    images = _events(capsys)[-1]["papers"][0]["images"]
+    assert (images["had"], images["settled"], images["fallback"]) == (0, True, False) and fi.wanting(images)  # the fetch is still to be asked for
+    w.do_figure_images({"id": "f", "op": "figure_images", "lib": lib.id})  # asked for: the off switch does not stop it
+    events = _events(capsys)
+    messages = [e["message"] for e in events if e["event"] == "log"]
     assert any(m.endswith("kept for its figures, from the PMC Cloud Service") for m in messages)
     assert messages[-1] == "figure images: 1 of 3 figures without one cut from doi_10.3390_mi15070851.figures.pdf"
+    done = [e for e in events if e["event"] == "done"][-1]
+    assert (done["asked"], done["passed"], done["kept"], done["had"]) == (1, 0, 1, 1)
     conn = open_store(lib.store_path)
     assert [tuple(r) for r in conn.execute("SELECT figure_label, source FROM figure_images")] == [("2", "pdf")]
+    state = fi.states(conn, lib.dir)[conn.execute("SELECT key FROM papers").fetchone()[0]]
     conn.close()
+    assert (state["had"], state["fallback"]) == (1, True) and not fi.wanting(state)  # a PDF searched: answered for good
+    seen = len(epmc.seen)
+    w.do_figure_images({"id": "g", "op": "figure_images", "lib": lib.id})
+    done = [e for e in _events(capsys) if e["event"] == "done"][-1]
+    assert (done["asked"], done["passed"]) == (0, 1) and len(epmc.seen) == seen
+
+
+def test_a_fallback_that_broke_off_is_tried_again_and_one_answered_for_good_is_not(tmp_path, monkeypatch, capsys, epmc):
+    from litrag_parser.worker import Worker
+
+    monkeypatch.setenv("LITRAG_OPEN_COPIES", "on")
+    monkeypatch.setenv("LITRAG_OPENALEX", "on")
+    monkeypatch.setenv("LITRAG_OPENALEX_URL", f"{epmc.url}/openalex")
+    lib, conn, key = library(tmp_path)
+    conn.close()
+    epmc.cloud(PMCID, manuscript=True)  # the services settle at once: an author manuscript, no image file and no PDF
+    work = "/openalex/works/doi:10.3390/mi15070851"
+    epmc.routes[work] = (500, "text/plain", b"OpenAlex is down")
+    capsys.readouterr()
+    w = Worker(tmp_path)
+
+    def run(req_id):
+        w.do_figure_images({"id": req_id, "op": "figure_images", "lib": lib.id})
+        done = [e for e in _events(capsys) if e["event"] == "done"][-1]
+        conn = open_store(lib.store_path)
+        try:
+            return done, fi.states(conn, lib.dir)[key], len([p for p in epmc.seen if p.startswith(work)])
+        finally:
+            conn.close()
+
+    done, state, asked_openalex = run("a")
+    assert (state["settled"], state["fallback"], asked_openalex) == (True, False, 1)  # the services answered; OpenAlex could not be asked
+    assert fi.wanting(state)
+    epmc.json(work, {"id": "https://openalex.org/W1", "doi": "https://doi.org/10.3390/mi15070851", "open_access": {"is_oa": False, "oa_url": None}})
+    done, state, asked_openalex = run("b")
+    assert (done["asked"], done["passed"], asked_openalex) == (1, 0, 2)  # tried again, though the services had settled
+    assert (state["settled"], state["fallback"]) == (True, True) and not fi.wanting(state)  # PMC has no PDF and OpenAlex names no open copy: for good
+    seen = len(epmc.seen)
+    done, state, asked_openalex = run("c")
+    assert (done["asked"], done["passed"], asked_openalex) == (0, 1, 2) and len(epmc.seen) == seen  # passed by: nothing asked
+    w.do_figure_images({"id": "d", "op": "figure_images", "lib": lib.id, "again": True})
+    assert len([p for p in epmc.seen if p.startswith(work)]) == 3  # unless asked again
+
+
+def test_a_settled_paper_whose_image_is_gone_from_disk_says_so_and_is_fetched_again(tmp_path, capsys, epmc):
+    from litrag_parser.worker import Worker
+
+    lib, conn, key = library(tmp_path)
+    images = {n: jpeg(i) for i, n in enumerate(NAMES)}
+    cloud(epmc, images)
+    w = Worker(tmp_path)
+    w.do_figure_images({"id": "f", "op": "figure_images", "lib": lib.id})
+    gone = lib.dir / conn.execute("SELECT file FROM figure_images WHERE paper = ? AND ordinal = 3", (key,)).fetchone()[0]
+    gone.unlink()
+    capsys.readouterr()
+    w.answer({"id": "p", "op": "papers", "lib": lib.id})
+    state = _events(capsys)[-1]["papers"][0]["images"]
+    assert (state["figures"], state["had"], state["settled"]) == (6, 5, False) and fi.wanting(state)  # five on disk, not the six once had
+    seen = len(epmc.seen)
+    w.do_figure_images({"id": "g", "op": "figure_images", "lib": lib.id})
+    done = [e for e in _events(capsys) if e["event"] == "done"][-1]
+    assert (done["asked"], done["passed"], done["had"]) == (1, 0, 6) and gone.read_bytes() == images[NAMES[2]]
+    assert [p.rsplit("/", 1)[1] for p in epmc.seen[seen:] if "g00" in p] == [NAMES[2]]  # the one file, not the six
+    state = fi.states(conn, lib.dir)[key]
+    conn.close()
+    assert (state["had"], state["settled"]) == (6, True) and not fi.wanting(state)
 
 
 def test_the_figure_images_op_over_a_library_resumes_and_counts(tmp_path, monkeypatch, capsys, epmc):

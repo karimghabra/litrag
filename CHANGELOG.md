@@ -9,10 +9,10 @@
   or the open copy OpenAlex names, kept through `keep_beside` (`figure_images.py`). Images live
   under `figures/<key>/` with `figure_images` rows (label and caption from the XML, source,
   SHA-256, pixels), join their node by the caption's number, and are drawn in the reading with
-  where they came from. Filing an XML paper fetches them (`LITRAG_FIGURE_IMAGES=off` stops it,
-  independent of `LITRAG_FIGURES`); the `figure_images` op, **Fetch figure images** on the Papers
+  where they came from. Filing an XML paper fetches them (`LITRAG_FIGURE_IMAGES=off` stops it;
+  with `LITRAG_FIGURES=off` the image files are fetched and no PDF is asked for); the `figure_images` op, **Fetch figure images** on the Papers
   tab, does it for papers filed before: resumable, polite, retrying a request that breaks off,
-  passing by what is settled (`figure_image_asks`). The tree op carries `images`, the papers op
+  passing by what the services and the PDF fallback each answered for good (`figure_image_asks`). The tree op carries `images`, the papers op
   each paper's image counts, and a merge carries the images. **Read all figures** beside it reads
   every paper whose figures are not read (the `figures` op), for a library filed with the figures
   off.
