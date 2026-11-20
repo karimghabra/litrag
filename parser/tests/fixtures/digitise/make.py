@@ -147,5 +147,12 @@ def scan(png):
 
 truth |= save("noisy_scan", fig, ax, (0, 40), (0, 1.4), [{"name": "Turbidity", "colour": "#d35400", "kind": "markers", "x": t.tolist(), "y": y.tolist()}], "Time (h)", "Turbidity", pdf=False, degrade=scan)
 
+def sig(v, digits=7):
+    return v if v == 0 else round(v, max(0, digits - 1 - int(np.floor(np.log10(abs(v))))))
+
+
+for t_ in truth.values():
+    for s_ in t_["series"]:
+        s_["x"], s_["y"] = [sig(v) for v in s_["x"]], [sig(v) for v in s_["y"]]
 (HERE / "truth.json").write_text(json.dumps(truth, indent=1))
 print("wrote", ", ".join(truth))
