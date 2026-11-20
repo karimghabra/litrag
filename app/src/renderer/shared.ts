@@ -86,6 +86,15 @@ export function setProject(id: string | null): void {
   for (const fn of projectListeners) fn(id);
 }
 
+/** Another project chosen — by a person, or for them when one is made or merged: first what is
+ *  not saved on the Plots tab's picture is asked about (`hooks.mayLeavePlots`), since it goes with
+ *  the project. Whether the project is the one chosen now. */
+export async function chooseProject(id: string | null): Promise<boolean> {
+  if (ctx.lib !== id && !(await hooks.mayLeavePlots())) return false;
+  setProject(id);
+  return true;
+}
+
 export function rememberedProject(): string | null {
   try {
     return window.localStorage.getItem('litrag.project');

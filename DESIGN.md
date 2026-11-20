@@ -830,7 +830,10 @@ review until a reading of it draws their pictures. The cost is known: a change i
 figures are cut (a new renderer, another PDF) sends series to review that a person
 must put back. A merge of projects brings a paper's series with it — points, fits and
 the kept pictures — for review in the merged library until its reading of the paper
-draws their pictures; a second merge brings none twice.
+draws their pictures. A series is one series in every library, known by a `uid` given
+when it is made: a merge repeated brings none twice, whatever was done to the copy in
+the merged library; a series changed in its source since it was brought comes beside
+the merged library's, named after the library it came from, and neither is written over.
 
 **Fits are numpy's.** Logistic and Zwietering's Gompertz, both with a baseline,
 fitted by Levenberg–Marquardt from starts read off the data; intervals from the

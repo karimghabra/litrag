@@ -927,6 +927,7 @@ async function exportCsv(): Promise<void> {
   if (!path || st.opened !== opened) return;
   try {
     let r: { files: { csv: string; sidecar: string; fits: string[] }[]; points: number };
+    const exported = st.points;
     if (library) {
       if (toSave) {
         const s = await save();
@@ -936,6 +937,11 @@ async function exportCsv(): Promise<void> {
     } else {
       const fits = st.fit ? { [st.fit.model]: st.fit } : {};
       r = await request('digitise_export', { lib: undefined, path, source: { file: src.file ?? null }, series: [{ series: name, colour: st.colour, calibration: cal!.c, points: st.points, method: st.method ?? { mode: 'manual' }, image: opened.image, axes: axesOf(), fits }] });
+    }
+    if (!library && st.opened === opened && st.points === exported) {
+      st.dirty = false;
+      st.edited = false;
+      renderPoints();
     }
     const fits = r.files.reduce((n, f) => n + f.fits.length, 0);
     const where = r.files.length === 1 ? `${r.files[0]!.csv}, its sidecar ${r.files[0]!.sidecar}` : `${r.files.length} files, one for each set of axes, each with its sidecar: ${r.files.map((f) => f.csv).join(', ')}`;

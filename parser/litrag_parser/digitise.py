@@ -42,6 +42,7 @@ import json
 import math
 import re
 import sqlite3
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Sequence
@@ -767,6 +768,8 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
         """
 CREATE TABLE IF NOT EXISTS digitised (
   id INTEGER PRIMARY KEY,
+  uid TEXT NOT NULL UNIQUE,         -- the series wherever it goes: given when it is made, kept through saves, renames and merges
+  brought TEXT,                     -- for a series a merge brought: what it was then (`_signature`), so the next merge knows whether its source has changed since
   paper TEXT NOT NULL REFERENCES papers(key) ON DELETE CASCADE,
   figure TEXT NOT NULL,             -- the picture node the series is with — or, for one to review, the one it was with
   picture TEXT NOT NULL,            -- the sha256 of the picture that binds it to its figure: while the paper draws it, the series is that figure's
@@ -876,7 +879,7 @@ def save(lib_dir: Path, conn: sqlite3.Connection, figure: str, series: str, cali
             conn.execute("UPDATE digitised SET paper=?, figure=?, picture=?, figure_label=?, page=?, bbox=?, series=?, colour=?, calibration=?, method=?, image=?, x_label=?, x_unit=?, y_label=?, y_unit=?, at=? WHERE id = ?",
                          (*row, did))
         else:
-            cur = conn.execute("INSERT INTO digitised(paper, figure, picture, figure_label, page, bbox, series, colour, calibration, method, image, x_label, x_unit, y_label, y_unit, at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", row)
+            cur = conn.execute("INSERT INTO digitised(uid, paper, figure, picture, figure_label, page, bbox, series, colour, calibration, method, image, x_label, x_unit, y_label, y_unit, at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", (uuid.uuid4().hex, *row))
             did = cur.lastrowid
         conn.executemany("INSERT INTO digitised_points(digitised, ordinal, x, y, px, py, how) VALUES (?,?,?,?,?,?,?)",
                          [(did, i, p["x"], p["y"], p["px"], p["py"], p["how"]) for i, p in enumerate(pts)])
@@ -904,7 +907,7 @@ def one(conn: sqlite3.Connection, did: int) -> dict[str, Any]:
         raise ValueError(f"no digitised series {did}")
     pts = [dict(p) for p in conn.execute("SELECT x, y, px, py, how FROM digitised_points WHERE digitised = ? ORDER BY ordinal", (did,))]
     fits = {f["model"]: json.loads(f["result"]) for f in conn.execute("SELECT model, result FROM digitised_fits WHERE digitised = ?", (did,))}
-    return {"id": r["id"], "paper": r["paper"], "figure": r["figure"], "figure_label": r["figure_label"], "page": r["page"], "bbox": json.loads(r["bbox"]) if r["bbox"] else None,
+    return {"id": r["id"], "uid": r["uid"], "paper": r["paper"], "figure": r["figure"], "figure_label": r["figure_label"], "page": r["page"], "bbox": json.loads(r["bbox"]) if r["bbox"] else None,
             "series": r["series"], "colour": r["colour"], "calibration": json.loads(r["calibration"]), "method": json.loads(r["method"]), "image": json.loads(r["image"]),
             "axes": {"x": {"label": r["x_label"], "unit": r["x_unit"], "log": json.loads(r["calibration"])["x"].get("log", False)},
                      "y": {"label": r["y_label"], "unit": r["y_unit"], "log": json.loads(r["calibration"])["y"].get("log", False)}},
@@ -992,26 +995,49 @@ def carry(conn: sqlite3.Connection, stub: str, key: str) -> int:
     return conn.execute("UPDATE digitised SET paper = ?, orphan = 1 WHERE paper = ?", (key, stub)).rowcount
 
 
-def merge_from(src_dir: Path, sconn: sqlite3.Connection, key: str, target_dir: Path, tconn: sqlite3.Connection, tkey: str) -> int:
-    """A paper's digitised series brought from one library's store into another's, where the
-    paper is `tkey` (projects.merge): each series with its points, its fits and the copy of the
-    picture it was read from. They come for review — the target's reading of the paper puts
-    each on the figure drawn as its picture (`reattach`), or a person does. A series the target
-    holds already — the paper's, of that name and picture, saved at that moment — is not brought
-    twice. How many came. Not committed."""
+_CONTENT = ("series", "colour", "calibration", "image", "picture", "x_label", "x_unit", "y_label", "y_unit")
+
+
+def _signature(conn: sqlite3.Connection, did: int) -> str:
+    """What a series is — its name, colour, calibration, image, axes and every point — as one
+    hash: two copies of a series are the same when theirs are."""
+    r = conn.execute(f"SELECT {', '.join(_CONTENT)} FROM digitised WHERE id = ?", (did,)).fetchone()
+    pts = [tuple(p) for p in conn.execute("SELECT x, y, px, py, how FROM digitised_points WHERE digitised = ? ORDER BY ordinal", (did,))]
+    return hashlib.sha256(json.dumps([list(r), pts], sort_keys=True).encode("utf-8")).hexdigest()
+
+
+def merge_from(src_dir: Path, sconn: sqlite3.Connection, key: str, target_dir: Path, tconn: sqlite3.Connection, tkey: str, origin: str) -> int:
+    """A paper's digitised series brought from the library `origin`'s store into another's, where
+    the paper is `tkey` (projects.merge): each series with its points, its fits and the copy of
+    the picture it was read from. They come for review — the target's reading of the paper puts
+    each on the figure drawn as its picture (`reattach`), or a person does.
+
+    A series is known by its `uid` in every library. One the target does not hold comes as it
+    is. One it holds is left alone, whatever was done to it there, when the source's copy is the
+    same as the target's or is still what it was when it was brought (`brought`). When the
+    source's copy has changed since and is not the target's, neither is written over: the
+    source's comes beside it as a series of its own, named after `origin`, once for each state
+    of it. How many came. Not committed."""
     if sconn.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'digitised'").fetchone() is None:
         return 0
     rows = sconn.execute("SELECT * FROM digitised WHERE paper = ? ORDER BY id", (key,)).fetchall()
     if not rows:
         return 0
     ensure_schema(tconn)
-    cols = ["figure_label", "page", "bbox", "series", "colour", "calibration", "method", "image", "x_label", "x_unit", "y_label", "y_unit", "at", "picture"]
+    cols = ["figure_label", "page", "bbox", "colour", "calibration", "method", "image", "x_label", "x_unit", "y_label", "y_unit", "at", "picture"]
     came = 0
     for r in rows:
-        if tconn.execute("SELECT 1 FROM digitised WHERE paper = ? AND series = ? AND picture = ? AND at = ?", (tkey, r["series"], r["picture"], r["at"])).fetchone() is not None:
-            continue
+        uid, name, sig = r["uid"], r["series"], _signature(sconn, r["id"])
+        held = tconn.execute("SELECT id, brought FROM digitised WHERE uid = ?", (uid,)).fetchone()
+        if held is not None:
+            if sig in (held["brought"], _signature(tconn, held["id"])):
+                continue
+            uid, name = uuid.uuid5(uuid.UUID(hex=r["uid"]), sig).hex, f"{name} ({origin})"
+            if tconn.execute("SELECT 1 FROM digitised WHERE uid = ?", (uid,)).fetchone() is not None:
+                continue
         figure = tkey + r["figure"][len(key):] if tkey != key and r["figure"].startswith(key + "#") else r["figure"]
-        cur = tconn.execute(f"INSERT INTO digitised(paper, figure, orphan, {', '.join(cols)}) VALUES (?, ?, 1, {', '.join('?' * len(cols))})", (tkey, figure, *[r[c] for c in cols]))
+        cur = tconn.execute(f"INSERT INTO digitised(uid, brought, paper, figure, series, orphan, {', '.join(cols)}) VALUES (?, ?, ?, ?, ?, 1, {', '.join('?' * len(cols))})",
+                            (uid, sig, tkey, figure, name, *[r[c] for c in cols]))
         did = cur.lastrowid
         tconn.executemany("INSERT INTO digitised_points(digitised, ordinal, x, y, px, py, how) VALUES (?,?,?,?,?,?,?)",
                           [(did, *tuple(p)) for p in sconn.execute("SELECT ordinal, x, y, px, py, how FROM digitised_points WHERE digitised = ? ORDER BY ordinal", (r["id"],))])
