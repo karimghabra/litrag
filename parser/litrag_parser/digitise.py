@@ -181,42 +181,60 @@ def series_mask(img: np.ndarray, colour: Sequence[int], tol: float, region: Sequ
 
 def _tracks(mask: np.ndarray, max_jump: float, gap: int) -> list[list[tuple[float, float]]]:
     """The colour's runs, column by column, chained into tracks: each run joins the track whose
-    last point is nearest it within `max_jump` rows and `gap` columns, one run per track per
-    column; a run near none starts a track of its own."""
-    active: list[list[tuple[float, float]]] = []
-    done: list[list[tuple[float, float]]] = []
+    last run it touches — their rows overlap, or come within `max_jump` of each other — within
+    `gap` columns, one run per track per column, the nearest middles first; a run touching none
+    starts a track of its own. Touching, not middles near: on a steep stretch a column's run is
+    long and its middle far from the last one's."""
+    active: list[list[tuple[float, float, int, int]]] = []
+    done: list[list[tuple[float, float, int, int]]] = []
     for c in np.flatnonzero(mask.any(axis=0)):
-        mids = [(s + e) / 2 for s, e in charts._runs(mask[:, c], 1)]
+        runs = charts._runs(mask[:, c], 1)
         still = []
         for tr in active:
             (done if c - tr[-1][0] > gap else still).append(tr)
         active = still
-        pairs = sorted(((abs(m - tr[-1][1]), i, j) for i, m in enumerate(mids) for j, tr in enumerate(active) if abs(m - tr[-1][1]) <= max_jump), key=lambda p: p[0])
+        pairs = []
+        for i, (rs, re_) in enumerate(runs):
+            for j, tr in enumerate(active):
+                _, ly, ls, le = tr[-1]
+                apart = max(rs - le, ls - re_, 0)  # rows between the two runs; 0 when they overlap
+                if apart <= max_jump:
+                    pairs.append((apart, abs((rs + re_) / 2 - ly), i, j))
+        pairs.sort()
         took_run, took_track = set(), set()
-        for _, i, j in pairs:
+        for _, _, i, j in pairs:
             if i in took_run or j in took_track:
                 continue
-            active[j].append((float(c), mids[i]))
+            rs, re_ = runs[i]
+            active[j].append((float(c), (rs + re_) / 2, rs, re_))
             took_run.add(i)
             took_track.add(j)
-        for i, m in enumerate(mids):
+        for i, (rs, re_) in enumerate(runs):
             if i not in took_run:
-                active.append([(float(c), m)])
-    return done + active
+                active.append([(float(c), (rs + re_) / 2, rs, re_)])
+    return [[(x, y) for x, y, _, _ in tr] for tr in done + active]
+
+
+def _continues(a: tuple[float, float], b: tuple[float, float], max_jump: float) -> bool:
+    """Whether a track starting at `b` continues one ending at `a`, left of it: little rise or
+    fall for the columns between — or, on a steep stretch drawn in pieces, an end close by."""
+    dx, dy = b[0] - a[0], abs(b[1] - a[1])
+    return dy <= max_jump + 0.25 * dx or math.hypot(dx, dy) <= 1.5 * max_jump
 
 
 def extract_line(mask: np.ndarray, step: float = 0, max_jump: float = 0) -> list[tuple[float, float]]:
     """A line's points: the colour's runs chained into tracks from column to column
     (`_tracks`), the longest track taken, and lengthened by the tracks before and after it that
     continue it — that start within `max_jump` of where it ends — so a gap where another curve
-    is drawn over it is crossed and a legend's swatch, a word or a stray mark is not. Then
-    thinned to one point, their mean, every `step` pixels along x (0: a hundredth of the width,
-    at least 2)."""
+    is drawn over it is crossed, a steep stretch drawn in pieces is joined, and a legend's swatch, a
+    word or a stray mark is not. Then
+    thinned to one point, their mean, every `step` pixels along the line (0: a hundredth of the
+    width, at least 2), so a steep rise keeps as many points as a level stretch."""
     h, w = mask.shape
     if not mask.any():
         return []
     max_jump = max_jump or max(8.0, 0.08 * h)
-    tracks = [t for t in _tracks(mask, max_jump=max(3.0, 0.03 * h), gap=max(3, int(0.015 * w))) if t]
+    tracks = [t for t in _tracks(mask, max_jump=max(2.0, 0.01 * h), gap=max(3, int(0.015 * w))) if t]
     if not tracks:
         return []
     best = max(tracks, key=lambda t: (t[-1][0] - t[0][0], len(t)))
@@ -224,29 +242,33 @@ def extract_line(mask: np.ndarray, step: float = 0, max_jump: float = 0) -> list
     rest = [t for t in tracks if t is not best]
     while True:  # rightwards
         end = line[-1]
-        nxt = [t for t in rest if t[0][0] > end[0] and abs(t[0][1] - end[1]) <= max_jump + 0.25 * (t[0][0] - end[0])]
+        # a piece may share a column with the line's end (a steep stretch splits a column's run): its part beyond
+        nxt = [t for t in rest if t[-1][0] > end[0] and t[0][0] >= end[0] - 1 and _continues(end, next(p for p in t if p[0] > end[0]), max_jump)]
         if not nxt:
             break
-        t = min(nxt, key=lambda t: (t[0][0] - end[0]) + abs(t[0][1] - end[1]))
-        line += t
+        t = min(nxt, key=lambda t: math.hypot(t[0][0] - end[0], t[0][1] - end[1]))
+        line += [p for p in t if p[0] > end[0]]
         rest.remove(t)
     while True:  # leftwards
         start = line[0]
-        prv = [t for t in rest if t[-1][0] < start[0] and abs(t[-1][1] - start[1]) <= max_jump + 0.25 * (start[0] - t[-1][0])]
+        prv = [t for t in rest if t[0][0] < start[0] and t[-1][0] <= start[0] + 1 and _continues(next(p for p in reversed(t) if p[0] < start[0]), start, max_jump)]
         if not prv:
             break
-        t = min(prv, key=lambda t: (start[0] - t[-1][0]) + abs(t[-1][1] - start[1]))
-        line = t + line
+        t = min(prv, key=lambda t: math.hypot(start[0] - t[-1][0], start[1] - t[-1][1]))
+        line = [p for p in t if p[0] < start[0]] + line
         rest.remove(t)
     step = step or max(2.0, w / 100)
     out: list[tuple[float, float]] = []
     bucket: list[tuple[float, float]] = []
-    edge = line[0][0]
+    along = 0.0  # pixels along the line since the last point: a steep rise keeps its points
+    prev = line[0]
     for x, y in line:
-        if x - edge >= step and bucket:
+        along += math.hypot(x - prev[0], y - prev[1])
+        prev = (x, y)
+        if along >= step and bucket:
             out.append((float(np.mean([p[0] for p in bucket])), float(np.mean([p[1] for p in bucket]))))
             bucket = []
-            edge = x
+            along = 0.0
         bucket.append((x, y))
     if bucket:
         out.append((float(np.mean([p[0] for p in bucket])), float(np.mean([p[1] for p in bucket]))))

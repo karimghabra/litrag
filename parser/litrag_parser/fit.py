@@ -253,17 +253,26 @@ def fit(points: Sequence[Sequence[float]], model: str = "logistic") -> dict[str,
         else:
             q[3] = float(t[0]) + (frac - 0.2) * span
         tries.append(q)
+    for tm in np.linspace(float(t[0]) + 0.1 * span, float(t[-1]) - 0.1 * span, 5):  # and a grid of midpoints, for a curve whose rise the starts misread
+        q = tries[0].copy()
+        q[3] = tm if model == "logistic" else tm - 0.1 * span
+        tries.append(q)
     best: tuple[float, np.ndarray, bool] | None = None
+    sane: tuple[float, np.ndarray, bool] | None = None
     for p0 in tries:
         p, ok = levenberg_marquardt(m, t, y, p0)
         r = y - m.f(t, p)
         cost = float(r @ r)
-        if np.all(np.isfinite(p)) and np.isfinite(cost) and (best is None or cost < best[0]):
+        if not (np.all(np.isfinite(p)) and np.isfinite(cost)):
+            continue
+        if best is None or cost < best[0]:
             best = (cost, p, ok)
+        if plausible(m, p, t, y) and (sane is None or cost < sane[0]):
+            sane = (cost, p, ok)
     if best is None:
         out["reason"] = "the fit did not converge"
         return out
-    rss, p, ok = best
+    rss, p, ok = sane or best
     n, k = len(t), len(p)
     dof = n - k
     fitted = m.f(t, p)
@@ -295,9 +304,22 @@ def fit(points: Sequence[Sequence[float]], model: str = "logistic") -> dict[str,
         "residuals": [{"t": _r(a), "y": _r(b), "fit": _r(c), "residual": _r(b - c)} for a, b, c in zip(t, y, fitted)],
         "curve": [[_r(a), _r(float(b))] for a, b in zip(np.linspace(t[0], t[-1], 120), m.f(np.linspace(t[0], t[-1], 120), p))],
     })
-    if not ok:
+    if sane is None:
+        out["reason"] = ("the best curve through these points puts its rise or its baseline far outside them: they do not show "
+                         "both the baseline and the plateau, so the lag and the midpoint cannot be told from them")
+    elif not ok:
         out["reason"] = "the fit stopped before it settled: read its numbers with care"
     return out
+
+
+def plausible(m: Model, p: np.ndarray, t: np.ndarray, y: np.ndarray) -> bool:
+    """A fit the points can vouch for: its midpoint within half their span of them, its rise no
+    more than three times their range, its baseline and plateau within a range of them."""
+    d = m.derived(p)
+    span, rng = float(np.ptp(t)), float(np.ptp(y))
+    lo, hi = float(y.min()) - rng, float(y.max()) + rng
+    return (math.isfinite(d["t_half"]) and t[0] - 0.5 * span <= d["t_half"] <= t[-1] + 0.5 * span
+            and abs(float(p[1])) <= 3 * rng and lo <= d["baseline"] <= hi and lo <= d["plateau"] <= hi)
 
 
 def _ci(v: float, se: float, tq: float) -> dict[str, float | None]:
