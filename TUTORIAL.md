@@ -1710,7 +1710,7 @@ The worker answers an op in one of three ways:
 | How | Ops | What comes back |
 | --- | --- | --- |
 | At once | the other reads, and small writes such as `init`, `describe`, `stage`, `dismiss`, `label` | one answer event |
-| On its own thread | `search`, `suggest`, `query` | one answer event, which may arrive after the answers to later requests |
+| On its own thread | `search`, `suggest`, `query`, `ask`, `models` | one answer event (`ask` streams `asking` events first), which may arrive after the answers to later requests |
 | Queued | `ingest`, `reparse`, `rebuild`, `judge`, `fetch`, `merge`, `embed`, `model_label`, `figures`, `round`, `expand` | `queued` at once, then a stream of events, then `done` or `error` |
 
 Queued jobs run one at a time, in order. Reads are still answered while a job runs.
@@ -2007,7 +2007,7 @@ The store adds new columns itself when next opened. Then rebuild every library. 
 | `xvfb-run node app/tests/installed.mjs <install root> [out dir]` | starts an installed litrag as a person would, waits for the worker, asks `hello` and saves a screenshot to `installed-out`; prints the log and exits 1 when the worker did not start | an install made by the install script; a display; Playwright from `npm --prefix app install` |
 | `xvfb-run node app/tests/shots.mjs <out dir> [project id]` | screenshots of Projects, Search, Papers (printed and canonical), Types and Query, then the log's error lines; with `SHOT_QUESTION` set, Query asks it first | the app built (`npm --prefix app run build`); a display; Playwright |
 | `LITRAG_HEADLESS=1 npm --prefix app run e2e -- app.spec.ts` | the real window and worker on the JATS fixture, about 15 s | no models; `LITRAG_E2E_PAPERS=<folder>` runs it on your own papers, which needs Docling's models |
-| `LITRAG_HEADLESS=1 npm run e2e:studio` | the product end to end: a project, a search, fetches, Collect, Papers, Types, Query, a merge, suggested queries | Docling's models; Ollama with `nomic-embed-text`, and `qwen3:14b` unless `LITRAG_E2E_MODELS=0`; two PDFs from the archive beside the checkout, or `LITRAG_E2E_PDF_OPEN` and `LITRAG_E2E_PDF_CLOSED`. Europe PMC is stood in by a local server |
+| `LITRAG_HEADLESS=1 npm run e2e:studio` | the product end to end: a project, a search, fetches, Collect, Papers, Types, Query, Ask, a merge, suggested queries | Docling's models; Ollama with `nomic-embed-text`, and `qwen3.5:9b` (Ask) and `qwen3:14b` (suggested queries) unless `LITRAG_E2E_MODELS=0`; two PDFs from the archive beside the checkout, or `LITRAG_E2E_PDF_OPEN` and `LITRAG_E2E_PDF_CLOSED`. Europe PMC is stood in by a local server |
 | `npm --prefix app run e2e:report` | opens the HTML report of the last end-to-end run, kept in `app/e2e-report`, with a trace of each test that failed | an earlier `e2e` run |
 | `npm run harness -- --lib <dir> --json <file>`, then `--baseline <file> --gate` | judges a change to the reader on a whole library, from its saved documents | a library; keep the saved runs outside the repository |
 
@@ -2172,7 +2172,7 @@ Run these from the root of a checkout, the folder that holds `package.json`, `ap
 | Run every check | `npm run check:all` | The CLI's typecheck and tests, the app's typecheck, tests and build, and the parser's pytest; no network, no models |
 | Smoke run | `npm --prefix app run smoke` | Needs a display (`xvfb-run` on Linux); `SMOKE_PDF` names a paper to read first, `SMOKE_OUT` a folder for the screenshots; passes only on a root that already holds a library |
 | End-to-end run | `npm run e2e -- app.spec.ts` | The real window and worker on the JATS fixture; `LITRAG_E2E_PAPERS=<folder>` runs it on your own papers; a bare `npm run e2e` runs the studio suite too |
-| The product end to end | `LITRAG_HEADLESS=1 npm run e2e:studio` | Needs Docling's models, Ollama with `nomic-embed-text`, and two PDFs from the archive beside the checkout; its query-drafting step also asks the chat model, unless `LITRAG_E2E_MODELS=0` |
+| The product end to end | `LITRAG_HEADLESS=1 npm run e2e:studio` | Needs Docling's models, Ollama with `nomic-embed-text`, and two PDFs from the archive beside the checkout; its Ask and query-drafting steps also need the chat models, unless `LITRAG_E2E_MODELS=0` |
 | Measure the reader on a library | `npm run harness -- --lib <root>/<library>` | Add `--json run.json`, kept outside the checkout; after a change, `--baseline run.json --gate` |
 | Start the worker by hand | `uv run --project parser --no-sync litrag-parser --root=/path/to/root` | Only `--root=` with the `=` is read; then type one JSON request per line |
 | Start an installed worker (Linux) | `~/.local/share/litrag/venv/bin/litrag-parser --root=…` | Windows: `%LOCALAPPDATA%\litrag\venv\Scripts\litrag-parser.exe --root=…` |
@@ -2268,6 +2268,7 @@ Set a switch in the environment before you start the app or the worker, since th
 | `LITRAG_OUTLINE` | off | `on`: the outline judge reads every paper on ingest and reparse |
 | `LITRAG_OUTLINE_MODEL` | `qwen3:14b` | The outline judge's model |
 | `LITRAG_SUGGEST_MODEL` | `LITRAG_JUDGE_MODEL`, else `qwen3:14b` | The model behind **Suggest from the project** |
+| `LITRAG_ANSWER_MODEL` | `library.json`'s `ollama.answer`, else `qwen3.5:9b` | The model behind **Ask** and `lit ask`, unless the request names one |
 | `LITRAG_LABEL_MODEL` | `qwen3:14b` | The model behind **Let the model label** |
 | `LITRAG_LABELLER` | your login name | The `by` written on your link labels |
 | `LITRAG_BOUNDARY` | off | `on`: a small model from Hugging Face scores the page breaks the rules leave open |
@@ -2302,7 +2303,7 @@ These serve tests, experiments and measurement; for a reading rule that is on by
 | `LITRAG_REVIEW`, `LITRAG_REVIEW_MODEL` | off, `qwen3:14b` | Read only by `review.py`'s own measurement |
 | `LITRAG_EPMC_URL`, `LITRAG_EPMC_PDF_URL`, `LITRAG_NCBI_URL`, `LITRAG_PMC_CLOUD_URL`, `LITRAG_OPENALEX_URL` | the real services | Point a network source at a test server |
 | `LITRAG_DOI_RESOLVER` | `https://doi.org/` | The resolver the **Collect PDFs** window opens papers through |
-| `LITRAG_E2E_PAPERS`, `LITRAG_E2E_MIN_METHODS`, `LITRAG_E2E_MIN_TITLES`, `LITRAG_E2E_SHOTS`, `LITRAG_E2E_MODELS`, `LITRAG_E2E_PDF_OPEN`, `LITRAG_E2E_PDF_CLOSED` | unset | The end-to-end suites: a folder of papers, the pass marks, a folder for screenshots, `0` to skip the model step, the studio's two PDFs |
+| `LITRAG_E2E_PAPERS`, `LITRAG_E2E_MIN_METHODS`, `LITRAG_E2E_MIN_TITLES`, `LITRAG_E2E_SHOTS`, `LITRAG_E2E_MODELS`, `LITRAG_E2E_PDF_OPEN`, `LITRAG_E2E_PDF_CLOSED` | unset | The end-to-end suites: a folder of papers, the pass marks, a folder for screenshots, `0` to skip the query-drafting step and let Ask pass with no model, the studio's two PDFs |
 | `LITRAG_FAKE_LAYOUT`, `LITRAG_FAKE_COUNTER`, `LITRAG_MARK` | unset | Unit tests only |
 | `LITRAG_PT` | `pt` | Protracker's command, for the deprecated `lit` CLI |
 

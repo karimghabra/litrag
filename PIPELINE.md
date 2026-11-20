@@ -18,7 +18,7 @@ sync's `--extra` would swap for PyPI's (README, Quick start).
 | Part | Status | Use it for |
 |---|---|---|
 | `app/`, the window (`npm run app`) | current | seven tabs over one project at a time: **Projects** (make one, describe it, merge several), **Search** (Europe PMC, XML first — Europe PMC's, else NCBI's for an author manuscript — then open PDFs, the PMC Cloud Service's before EBI's, then the open copy OpenAlex names when it prints the paper's DOI or title, the rest listed to download by hand), **Papers** (trees, pages, citations, edges, the canonical face; **Reparse all**), **Types** (each kind of paper's canonical structure, a paper's mapping onto it), **Ask** (a question answered by the local model from the project's passages, or every project's, each sentence citing the passage it rests on, a click opening the paper there), **Query** (passages retrieved and hydrated from the tree), **Graph** (the papers and their citations drawn; citation rounds; SQL over works, authors and citations) |
-| `npm run e2e:studio` | current | the window end to end: a search against Europe PMC stood in on 127.0.0.1, a fetch, two real PDFs through Docling, types, a hydrated query through the embedder, a merge — the harness a change to the product has to pass |
+| `npm run e2e:studio` | current | the window end to end: a search against Europe PMC stood in on 127.0.0.1, a fetch, two real PDFs through Docling, types, a hydrated query through the embedder, a cited answer from the local model (or, with none, its passages), a merge — the harness a change to the product has to pass |
 | `npm run gate:ingestion -- --pairs A:B … [--min 0.95]`, `python -m litrag_parser.bench` | measurement | the reader judged in the unit retrieval returns (a paragraph node in the right lane, against the XML twin); retrieval judged on questions with a known answering passage, the tree beside the `lit` CLI |
 | `parser/`, the worker (`uv run --project parser --no-sync litrag-parser`) | current | what the window does, and the ops it has no button for, among them `rebuild`, `judge`, `audit` and `sql` |
 | `npm run harness`, `npm run audit` | current | judging a change to the reader on whole libraries |
@@ -204,7 +204,7 @@ on re-embeds a whole library the next time its papers are read.
 | `LITRAG_LANES` | on | `off` runs with no oracle: whatever the rules do not name is `other` | current; the tests turn it off |
 | `LITRAG_LANES_MODEL` | `nomic-embed-text` | the embedder | current |
 | `LITRAG_LANES_REFRESH` | off | ask the embedder again for a stored verdict that carries no ranking, so it gains one and a threshold can be tried against it. Re-embeds a whole library once | current; the campaign turns it on per corpus |
-| `LITRAG_OLLAMA_URL` | `http://127.0.0.1:11434` | where the embedder and the judge are asked; keep it local | current |
+| `LITRAG_OLLAMA_URL` | `http://127.0.0.1:11434` | where the embedder, the judge and the answerer are asked; keep it local | current |
 | `LITRAG_ANSWER_MODEL` | the library's `ollama.answer`, else `qwen3.5:9b` | the chat model the `ask` op (the Ask tab, `lit ask`) writes cited answers with; a request's `model` wins over it | current |
 | `LITRAG_JUDGE`, `LITRAG_JUDGE_MODEL` | off, `qwen3:14b` | `1` asks the judge on every ingest and reparse | opt-in |
 | `LITRAG_OUTLINE`, `LITRAG_OUTLINE_MODEL` | off, `qwen3:14b` | `on` asks the outline judge on every PDF ingest and reparse, and replays its rows on rebuild | opt-in; measured on the pairs (NOTES.md) |
