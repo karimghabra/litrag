@@ -464,3 +464,54 @@ table.chart-table th:first-child { text-align: left; font-weight: 500; }
 .graphview-tip .gv-tip-title { font-weight: 600; margin-bottom: 3px; }
 .graphview-tip .gv-tip-meta { color: var(--graph-muted); font-size: 11px; }
 .graphview-tip .gv-tip-hint { color: var(--graph-muted); font-size: 11px; font-style: italic; margin-top: 3px; }
+
+/* plots: find, digitise, fit */
+.plots-layout { display: grid; grid-template-columns: minmax(220px, 300px) minmax(0, 1fr) minmax(300px, 380px); gap: 12px; padding: 0 18px 12px; min-height: 0; flex: 1; }
+.plot-card { padding: 8px 12px; border-bottom: 1px solid var(--line); cursor: pointer; }
+.plot-card:hover { background: var(--hover); }
+.plot-card.on { background: var(--soft); }
+.plot-card .what { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-bottom: 3px; }
+.plot-card .paper { font-weight: 600; }
+.plot-card .cap { color: var(--muted); font-size: 12px; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.pill.plot { color: #fff; background: var(--ok); border-color: var(--ok); }
+.pill.unknown { color: var(--muted); }
+.pill.noplot { color: var(--failed); border-color: var(--failed); }
+.pill.trend { color: var(--accent); border-color: var(--accent); }
+.dg-stage { position: relative; flex: 1; min-height: 0; overflow: auto; background: #fbfaf7; }
+.dg-canvas-wrap { position: relative; display: inline-block; margin: 8px; }
+.dg-canvas-wrap[hidden] { display: none; }
+.dg-canvas-wrap canvas { display: block; image-rendering: pixelated; box-shadow: 0 0 0 1px var(--line); }
+.dg-overlay { position: absolute; left: 0; top: 0; width: 100%; height: 100%; }
+.dg-stage.tool-colour, .dg-stage.tool-add, .dg-stage.tool-place, .dg-stage.tool-region { cursor: crosshair; }
+.dg-stage.tool-move { cursor: grab; }
+.dg-stage.tool-delete { cursor: not-allowed; }
+.dg-caption { padding: 6px 12px; border-top: 1px solid var(--line); font-size: 12px; max-height: 64px; overflow: auto; }
+#dg-tools button.on, .dg-place.on { background: var(--accent); color: #fff; border-color: var(--accent); }
+#dg-tools .sep { width: 1px; background: var(--line); margin: 0 4px; }
+.dg-panel { padding: 0 12px 12px; }
+.dg-sec { padding: 10px 0; border-bottom: 1px solid var(--line); display: flex; flex-direction: column; gap: 6px; }
+.dg-sec-head { display: flex; align-items: center; gap: 8px; }
+.dg-axis { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.dg-axis-name { width: 14px; font-weight: 650; }
+.dg-axis input.dg-val { width: 76px; }
+.dg-labels { display: grid; grid-template-columns: 1fr auto; gap: 4px 6px; }
+.dg-labels input { width: 100%; min-width: 0; }
+.dg-labels input.narrow { width: 64px; }
+.dg-swatch { width: 22px; height: 22px; border-radius: 4px; border: 1px solid var(--line); background: repeating-linear-gradient(45deg, #fff 0 4px, #eee 4px 8px); flex: none; }
+.dg-palette button { width: 22px; height: 22px; padding: 0; border-radius: 4px; }
+.dg-series-row { flex-wrap: wrap; }
+.dg-series-row input[type=range] { width: 90px; }
+.dg-series-row select, .dg-fit select, .dg-sec-head select { min-width: 0; }
+.dg-saved { display: flex; flex-direction: column; gap: 2px; }
+.dg-saved .saved { display: flex; gap: 6px; align-items: center; padding: 2px 4px; border-radius: 4px; cursor: pointer; }
+.dg-saved .saved:hover { background: var(--hover); }
+.dg-saved .saved.on { background: var(--soft); }
+.dg-saved .dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+.dg-points { max-height: 220px; overflow: auto; }
+.dg-points table, .dg-fit table { border-collapse: collapse; width: 100%; font-size: 12px; }
+.dg-points td, .dg-points th, .dg-fit td, .dg-fit th { padding: 2px 6px; border-bottom: 1px solid var(--line); text-align: right; }
+.dg-points th, .dg-fit th { color: var(--muted); font-weight: 500; }
+.dg-points td:first-child, .dg-fit td:first-child { text-align: left; }
+.dg-points tr.how-added td, .dg-points tr.how-moved td { color: var(--accent); }
+.dg-fit svg { max-width: 100%; height: auto; }
+.dg-fit .warn { color: var(--warn); }

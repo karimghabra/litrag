@@ -54,6 +54,8 @@ export const TERMINAL = new Set([
   'charts',
   // the works and the citations between them, and the passages that cite one
   'graph', 'passages',
+  // the digitiser: plots found, a figure opened, a series found, saved, exported, fitted
+  'plots', 'digitise', 'axes', 'extracted', 'digitised', 'exported', 'fit',
 ]);
 
 /** `tree` answers a `tree` request and also streams during ingest; only the former closes a request. */

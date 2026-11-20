@@ -84,6 +84,26 @@ ipcMain.handle('dialog:pdfs', async () => {
   return r.canceled ? [] : r.filePaths;
 });
 
+ipcMain.handle('dialog:image', async () => {
+  if (!win) return null;
+  const r = await dialog.showOpenDialog(win, {
+    title: 'An image of a plot to digitise',
+    properties: ['openFile'],
+    filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'tif', 'tiff', 'bmp', 'webp'] }],
+  });
+  return r.canceled ? null : (r.filePaths[0] ?? null);
+});
+
+ipcMain.handle('dialog:save', async (_e, defaultName: string) => {
+  if (!win) return null;
+  const r = await dialog.showSaveDialog(win, {
+    title: 'Export the points',
+    defaultPath: String(defaultName || 'points.csv'),
+    filters: [{ name: 'CSV', extensions: ['csv'] }],
+  });
+  return r.canceled || !r.filePath ? null : r.filePath;
+});
+
 ipcMain.handle('file:read', async (_e, path: string) => {
   const buf = await readFile(path);
   return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);

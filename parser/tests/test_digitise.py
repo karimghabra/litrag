@@ -371,3 +371,39 @@ def test_a_fit_as_csv_carries_each_quantity_with_its_interval_and_unit():
     by = {r[0]: r for r in rows if r}
     assert by["t_half"][4] == "min" and by["max_rate"][4] == "OD/min" and by["plateau"][4] == "OD"
     assert float(by["t_half"][2]) < float(by["t_half"][1]) < float(by["t_half"][3])
+
+
+# -- from a shell ---------------------------------------------------------------------------------------------------
+
+
+def test_lit_digitise_reads_an_image_into_a_csv_with_its_sidecar_and_lit_fit_fits_it(tmp_path, capsys):
+    from litrag_parser import digitise_cli
+
+    out = tmp_path / "points.csv"
+    s = TRUTH["turbidity_markers"]["series"][0]
+    assert digitise_cli.main(["digitise", str(HERE / "turbidity_markers.png"), "--colour", s["colour"], "--fit", "logistic", "--csv", str(out)]) == 0
+    err = capsys.readouterr().err
+    assert "axes read, confident" in err and "legend marker" in err
+    rows = list(csv.reader(out.read_text().splitlines()))
+    assert rows[0][0] == "Time (min)" and len(rows) >= 12
+    side = json.loads(out.with_suffix(".csv.json").read_text())
+    assert side["figure"]["file"].endswith("turbidity_markers.png") and side["series"][0]["method"]["by"] == "lit digitise"
+    assert digitise_cli.main(["fit", str(out), "--model", "both", "--json"]) == 0
+    got = json.loads(capsys.readouterr().out)
+    assert got["fits"]["logistic"]["status"] == "fit" and got["units"]["x"] == "min"
+
+
+def test_lit_digitise_takes_the_axes_a_person_gives_and_refuses_half_of_them(tmp_path, capsys):
+    from litrag_parser import digitise_cli
+
+    c = TRUTH["log_y_markers"]["calibration"]
+    x = f"{c['x']['p1'][0]}:{c['x']['v1']},{c['x']['p2'][0]}:{c['x']['v2']}"
+    y = f"{c['y']['p1'][1]}:{c['y']['v1']},{c['y']['p2'][1]}:{c['y']['v2']}"
+    assert digitise_cli.main(["digitise", str(HERE / "log_y_markers.png"), "--x", x, "--y", y, "--ylog", "--json"]) == 0
+    got = json.loads(capsys.readouterr().out)
+    assert got["axes_from"] == "given" and got["mode"] == "markers" and got["colour"] == "#117a65"
+    s = TRUTH["log_y_markers"]["series"][0]
+    score = digitise_bench.score_markers([(p["x"], p["y"]) for p in got["points"]], list(zip(s["x"], s["y"])), Calibration.from_dict(got["calibration"]))
+    assert score["recall"] == 1.0
+    assert digitise_cli.main(["digitise", str(HERE / "log_y_markers.png"), "--x", x]) == 2
+    assert "both --x and --y" in capsys.readouterr().err

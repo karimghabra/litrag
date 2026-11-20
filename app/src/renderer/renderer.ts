@@ -17,6 +17,7 @@ import { BANDS, SORT_KEYS, arrived, bandOf, countBy, filedLine, filterPapers, re
 import { initProjects, renderProjects } from './projects.ts';
 import { initGraph } from './graphtab.ts';
 import { initQuery } from './query.ts';
+import { initPlots } from './plotstab.ts';
 import { initSearch, loadCandidates } from './search.ts';
 import { $, ROLES, activity, ctx, dispatch, el, escapeHtml, hooks, log, onProjectChange, onViewShown, rejectionText, rememberedProject, request, roleColor, setProject, setStatus, showView, showWorkerProblem, type ProjectSummary } from './shared.ts';
 import { initTypes, renderCanonicalTree, type CanonicalTree, type Mapping } from './types.ts';
@@ -816,6 +817,14 @@ async function loadCharts(n: Node, into: HTMLElement) {
     });
     head.append(b);
   }
+  // a figure is digitised by hand in the Plots tab: its axes confirmed, a series picked by its colour, a curve fitted
+  const dig = el('button', 'ghost small label-act', 'Digitise') as HTMLButtonElement;
+  dig.title = 'Open this figure in the Plots tab: calibrate its axes, pick a series by its colour, export its points as CSV and fit a curve to them';
+  dig.addEventListener('click', (ev) => {
+    ev.stopPropagation();
+    hooks.digitise(n.node_id);
+  });
+  head.append(dig);
   box.append(head);
   if (note.line) box.append(el('div', 'muted', note.line));
   renderPlots(box, r.plots);
@@ -1158,6 +1167,7 @@ function wire() {
   initTypes();
   initQuery();
   initGraph();
+  initPlots();
   initLabels();
   onProjectChange(() => {
     state.selectedPaper = null;

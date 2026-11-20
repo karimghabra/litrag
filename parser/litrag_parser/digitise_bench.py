@@ -170,12 +170,44 @@ def synthetic(fixtures: Path = FIXTURES, *, ocr: Any = None) -> dict[str, Any]:
     return results
 
 
+def score_curve(found: Sequence[tuple[float, float]], truth: Sequence[tuple[float, float]], cal: Calibration) -> dict[str, Any]:
+    """Each found point's distance to the curve a person traced (the polyline through their
+    points), each axis scaled by its range — for a real line, whose steep stretches a person
+    traces no better in x than in y."""
+    lx, ly = cal.x.log, cal.y.log
+    sx = _span(cal, "x", [p[0] for p in truth])
+    sy = _span(cal, "y", [p[1] for p in truth])
+    pts = sorted((_t(x, lx) / sx, _t(y, ly) / sy) for x, y in truth)
+    segs = list(zip(pts, pts[1:]))
+    errs, xs = [], []
+    for x, y in found:
+        if (lx and x <= 0) or (ly and y <= 0):
+            continue
+        u, v = _t(x, lx) / sx, _t(y, ly) / sy
+        if u < pts[0][0] - 0.01 or u > pts[-1][0] + 0.01:
+            continue
+        best = math.inf
+        for (ax, ay), (bx, by) in segs:
+            dx, dy = bx - ax, by - ay
+            k = max(0.0, min(1.0, ((u - ax) * dx + (v - ay) * dy) / (dx * dx + dy * dy or 1e-12)))
+            best = min(best, math.hypot(u - ax - k * dx, v - ay - k * dy))
+        errs.append(best)
+        xs.append(u)
+    cover = (max(xs) - min(xs)) / ((pts[-1][0] - pts[0][0]) or 1.0) if xs else 0.0
+    return {"found": len(found), "cover": round(cover, 4), "mean": round(float(np.mean(errs)), 5) if errs else None,
+            "p95": round(float(np.percentile(errs, 95)), 5) if errs else None, "max": round(float(np.max(errs)), 5) if errs else None}
+
+
 def real(spec: Path, root: Path) -> dict[str, Any]:
+    """Each figure measured by hand, read as a person would read it: the axes offered (scored
+    against the person's, not used), then the series by the colour a click on it picks
+    (`pick`) or names (`colour`), inside the region over its panel, on the person's axes."""
     from .library import open_library
     from .store import open_store
 
     results = {}
     for item in json.loads(spec.read_text()):
+        name = f"{item['figure']} · {item.get('name', 'series')}"
         lib = open_library(root, item["lib"])
         conn = open_store(lib.store_path)
         try:
@@ -183,25 +215,30 @@ def real(spec: Path, root: Path) -> dict[str, Any]:
         finally:
             conn.close()
         if r["image"] is None:
-            results[item["figure"]] = {"error": r["source"].get("reason")}
+            results[name] = {"error": r["source"].get("reason")}
             continue
         img = r.pop("_img")
-        cal = Calibration.from_dict(item["calibration"])
-        series = [{"name": item.get("name", "series"), "colour": item["colour"], "kind": item.get("kind", "markers"), "x": [p[0] for p in item["points"]], "y": [p[1] for p in item["points"]]}]
-        auto = r["auto"] or {}
         words = r.pop("_words", None)
-        out: dict[str, Any] = {"offered": auto.get("found", False), "confident": auto.get("confident", False), "axes_error": None}
+        cal = Calibration.from_dict(item["calibration"])
         h, w = img.shape[:2]
+        region = item.get("region")
+        auto = digitise.auto_axes(img, digitise.load_words(r["image"]["path"], whole=True),
+                                  near=[(region[0] + region[2]) / 2, (region[1] + region[3]) / 2] if region else None)
+        auto.pop("_words", None)
+        out: dict[str, Any] = {"offered": auto.get("found", False), "confident": auto.get("confident", False), "axes_error": None, "used": "person"}
         if auto.get("found"):
-            out["axes_error"] = round(axes_error(Calibration.from_dict(auto["calibration"]), cal, w, h, auto.get("plot_region")), 5)
-        got = digitise.extract(img, item["colour"], region=item.get("region") or auto.get("plot_region"), calibration=cal, mode=item.get("mode", "auto"), tol=item.get("tolerance", digitise.TOLERANCE), words=words)
+            out["axes_error"] = round(axes_error(Calibration.from_dict(auto["calibration"]), cal, w, h, region), 5)
+        colour = item.get("colour") or digitise.colour_at(img, *item["pick"])
+        got = digitise.extract(img, colour, region=region or auto.get("plot_region"), calibration=cal, mode=item.get("mode", "auto"),
+                               tol=item.get("tolerance", digitise.TOLERANCE), words=words)
         pts = [(p["x"], p["y"]) for p in got["points"]]
-        s = series[0]
-        score = score_markers(pts, list(zip(s["x"], s["y"])), cal) if s["kind"] == "markers" else score_line(pts, list(zip(s["x"], s["y"])), cal)
-        out["series"] = [{"name": s["name"], "kind": s["kind"], "mode": got["mode"], **score}]
+        truth = [tuple(p) for p in item["points"]]
+        kind = item.get("kind", "markers")
+        score = score_markers(pts, truth, cal) if kind == "markers" else score_curve(pts, truth, cal)
+        out["series"] = [{"name": item.get("name", "series"), "kind": kind, "mode": got["mode"], "colour": colour, **score}]
         out["paper"] = r["source"]["paper"]
         out["label"] = r["source"].get("label")
-        results[item["figure"]] = out
+        results[name] = out
     return results
 
 

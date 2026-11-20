@@ -380,6 +380,20 @@ def extract(img: np.ndarray, colour: str | Sequence[int], *, tol: float = TOLERA
     return {"mode": chosen, "asked": mode, "colour": hex_of(rgb), "tolerance": tol, "region": [x0, y0, x1, y1], "step": step, "pixels": int(mask.sum()), "legend": legend, "points": out}
 
 
+def colour_at(img: np.ndarray, px: float, py: float, reach: int = 2) -> str | None:
+    """The colour a click at (px, py) picks, as the window picks it: of the pixels within `reach`,
+    the one most like ink — dark and saturated — since a thin line is easy to miss by a pixel;
+    None on paper."""
+    h, w = img.shape[:2]
+    x, y = int(round(px)), int(round(py))
+    box = img[max(y - reach, 0) : min(y + reach + 1, h), max(x - reach, 0) : min(x + reach + 1, w), :3].reshape(-1, 3).astype(int)
+    if not len(box):
+        return None
+    ink = 765 - box.sum(axis=1) + 2 * (box.max(axis=1) - box.min(axis=1))
+    i = int(np.argmax(ink))
+    return hex_of(box[i]) if ink[i] > 40 else None
+
+
 def palette(img: np.ndarray, region: Sequence[float] | None = None, n: int = 8) -> list[dict[str, Any]]:
     """The figure's own colours, commonest first: what is ink, not paper, quantised to steps of
     32 and averaged within each step; black and greys are one colour each way they are drawn.
@@ -569,8 +583,9 @@ def figure_source(conn: sqlite3.Connection, figure: str) -> dict[str, Any]:
 
 def _beside_region(pdf: Any, label: str, node: str) -> tuple[int, tuple[float, float, float, float]] | None:
     """The page of the PDF kept beside an XML paper that prints the figure's caption, and the
-    figure's region on it: the images its caption claims, else what stands between the caption
-    and the text above it — failing both, the page above the caption."""
+    figure's region on it: the images its caption claims that stand above it; else, the figure
+    drawn as vectors, the plot frames found above the caption (up to the caption before it) with
+    a margin for their numbers and titles; failing both, the band above the caption."""
     from . import figures
 
     for pno, page, words, caps in figures.caption_pages(pdf, {label: node}):
@@ -580,14 +595,21 @@ def _beside_region(pdf: Any, label: str, node: str) -> tuple[int, tuple[float, f
             page.close()
             continue
         cap = mine[0]
-        boxes = [list(box) for _, box in figures._images(page, w, h) if figures.claimed(list(box), caps, {label: node}) == label]
+        boxes = [list(box) for _, box in figures._images(page, w, h)
+                 if box[3] <= cap.y0 + 6 and figures.claimed(list(box), caps, {label: node}) == label]  # above it: an image beside the caption is a logo
+        above = [c.y1 for n, c in caps if c.y1 <= cap.y0 - 2]
+        top = max(above) + 2 if above else 0.03 * h
+        bottom = max(cap.y0 - 1, top + 10)
+        if not boxes:
+            scale = 150 / 72
+            band = np.asarray(page.render(scale=scale, crop=(0, h - bottom, 0, top)).to_pil().convert("RGB"))
+            for v, hz in charts.frames(charts.foreground(band)):
+                x0, y0, x1, y1 = v.mid / scale, top + v.a0 / scale, hz.a1 / scale, top + hz.mid / scale
+                boxes.append([x0 - 45, y0 - 18, x1 + 12, y1 + 32])  # the numbers left and under, a title over it
         page.close()
         if boxes:
-            return pno + 1, (min(b[0] for b in boxes), min(b[1] for b in boxes), max(b[2] for b in boxes), max(b[3] for b in boxes))
-        # vector: the band above the caption, up to the nearest other caption above it, else the page's top margin
-        above = [c.y1 for n, c in caps if c.y1 <= cap.y0 - 2]
-        top = max(above) + 2 if above else 0.04 * h
-        return pno + 1, (0.04 * w, top, 0.96 * w, max(cap.y0 - 1, top + 10))
+            return pno + 1, (max(min(b[0] for b in boxes), 0.0), max(min(b[1] for b in boxes), top), min(max(b[2] for b in boxes), w), min(max(b[3] for b in boxes), bottom))
+        return pno + 1, (0.04 * w, top, 0.96 * w, bottom)
     return None
 
 
@@ -657,16 +679,22 @@ def _finish(lib_dir: Path | None, figure: str | None, img: np.ndarray, words: li
         words = auto.pop("_words", None) or words
     region = auto.get("plot_region") if auto else None
     if image["path"] is not None and words is not None:
-        Path(image["path"]).with_suffix(".words.json").write_text(json.dumps([[round(w.x0, 1), round(w.y0, 1), round(w.x1, 1), round(w.y1, 1), w.text] for w in words]), encoding="utf-8")
+        # the text layer is every word of the figure; OCR's, only those around the plot it read
+        whole = src.get("drawn") == "vector"
+        Path(image["path"]).with_suffix(".words.json").write_text(json.dumps({"whole": whole, "words": [[round(w.x0, 1), round(w.y0, 1), round(w.x1, 1), round(w.y1, 1), w.text] for w in words]}), encoding="utf-8")
     return {"source": src, "image": image, "auto": auto, "palette": palette(img, region), "_img": img, "_words": words}
 
 
-def load_words(image_path: str | Path) -> list[Word] | None:
-    """The words saved beside a rendered image, in its pixels; None when none were."""
+def load_words(image_path: str | Path, whole: bool = False) -> list[Word] | None:
+    """The words saved beside a rendered image, in its pixels; None when none were — or, asked
+    for the `whole` figure's, when they are only what OCR read around one plot."""
     p = Path(image_path).with_suffix(".words.json")
     if not p.exists():
         return None
-    return [Word(a, b, c, d, t) for a, b, c, d, t in json.loads(p.read_text("utf-8"))]
+    d = json.loads(p.read_text("utf-8"))
+    if whole and not d.get("whole"):
+        return None
+    return [Word(a, b, c, e, t) for a, b, c, e, t in d.get("words", [])]
 
 
 def load_image(path: str | Path) -> np.ndarray:
@@ -908,12 +936,30 @@ def sidecar(series: Sequence[dict[str, Any]], *, library: str | None, paper: dic
     }
 
 
-def export(conn: sqlite3.Connection, ids: Sequence[int], path: Path, *, library: str | None = None) -> dict[str, Any]:
-    """Saved series written out: `<path>` the CSV, `<path>.json` beside it the sidecar, and for
-    each series with a fit `<stem>.<series>.<model>.fit.csv` its parameters. `{csv, sidecar, fits}`."""
+def unsaved(item: dict[str, Any], source: dict[str, Any] | None = None) -> dict[str, Any]:
+    """A series not kept in a store — read from an image file — in the shape `one` gives a
+    saved one, every value read again from its pixel."""
+    from .library import now_iso
+
+    cal = Calibration.from_dict(item["calibration"])
+    ax = item.get("axes") or {}
+    src = source or {}
+    return {"id": None, "paper": None, "figure": None, "figure_label": None, "page": None, "bbox": None, "file": src.get("file"),
+            "series": str(item.get("series") or "series"), "colour": item.get("colour"), "calibration": cal.to_dict(),
+            "method": {"reader": METHOD, **(item.get("method") or {})}, "image": item.get("image") or {},
+            "axes": {"x": {"label": (ax.get("x") or {}).get("label"), "unit": (ax.get("x") or {}).get("unit"), "log": cal.x.log},
+                     "y": {"label": (ax.get("y") or {}).get("label"), "unit": (ax.get("y") or {}).get("unit"), "log": cal.y.log}},
+            "orphan": False, "at": now_iso(), "points": _points(cal, item.get("points") or []), "fits": item.get("fits") or {}}
+
+
+def export(conn: sqlite3.Connection | None, ids: Sequence[int], path: Path, *, library: str | None = None, inline: Sequence[dict[str, Any]] = ()) -> dict[str, Any]:
+    """Series written out — saved ones by their ids, or `inline` ones from an image file
+    (`unsaved`) — `<path>` the CSV, `<path>.json` beside it the sidecar, and for each series
+    with a fit `<stem>.<series>.<model>.fit.csv` its parameters. `{csv, sidecar, fits, points}`."""
     from . import fit as fitting
 
-    series = [one(conn, int(i)) for i in ids]
+    series = [one(conn, int(i)) for i in ids] if conn is not None else []
+    series += list(inline)
     if not series:
         raise ValueError("no series to export")
     figs = {s["figure"] for s in series}
@@ -935,8 +981,11 @@ def export(conn: sqlite3.Connection, ids: Sequence[int], path: Path, *, library:
             fp.write_text(fitting.params_csv(f, s["axes"]["x"].get("unit"), s["axes"]["y"].get("unit")), encoding="utf-8")
             fit_names[s["series"]] = fp.name
             written.append(str(fp))
-    p = conn.execute("SELECT key, doi, pmid, pmcid, title, year, journal FROM papers WHERE key = ?", (series[0]["paper"],)).fetchone()
-    meta = sidecar(series, library=library, paper=dict(p) if p else {"key": series[0]["paper"]}, csv_name=path.name, fit_names=fit_names)
+    p = conn.execute("SELECT key, doi, pmid, pmcid, title, year, journal FROM papers WHERE key = ?", (series[0]["paper"],)).fetchone() if conn is not None and series[0]["paper"] else None
+    paper = dict(p) if p else ({"key": series[0]["paper"]} if series[0]["paper"] else None)
+    meta = sidecar(series, library=library, paper=paper, csv_name=path.name, fit_names=fit_names)
+    if series[0].get("file"):
+        meta["figure"]["file"] = series[0]["file"]
     side = path.with_suffix(".csv.json")
     side.write_text(json.dumps(meta, indent=2, ensure_ascii=False), encoding="utf-8")
     return {"csv": str(path), "sidecar": str(side), "fits": written, "points": sum(len(s["points"]) for s in series)}
@@ -1042,12 +1091,15 @@ def answer(op: str, req: dict[str, Any], get_lib: Any) -> dict[str, Any]:
     - `plots` {lib, query, trend, limit} → `plots` {figures, total, query}: `find`.
     - `digitise_open` {lib, figure} | {path} → `digitise` {source, image, auto, palette, saved}: the
       figure rendered (or the image opened), the axes and colours offered, its saved series.
+    - `digitise_axes` {image, near} → `axes` {auto}: the axes offered again, of the plot that
+      holds the pixel `near` (a panel of a figure of several).
     - `digitise_extract` {image, colour, tolerance, region, mode, step, calibration} → `extracted`
       {mode, colour, points, ...}: a series found by its colour in the rendered image.
     - `digitise_save` {lib, figure, series, calibration, points, colour, method, image, axes} →
       `digitised` {series}: saved in place of the one of that name.
     - `digitise_delete` {lib, id} → `digitised` {deleted}.
-    - `digitise_export` {lib, ids, path} → `exported` {csv, sidecar, fits, points}.
+    - `digitise_export` {lib, ids, path} | {series, source, path} → `exported` {csv, sidecar, fits,
+      points}: saved series by id, or unsaved ones (an image file's) given whole.
     - `fit` {points, model} | {lib, id, model} → `fit` {fits, preferred}: both models unless one
       is named; a saved series' fits are kept with it.
     """
@@ -1086,6 +1138,13 @@ def answer(op: str, req: dict[str, Any], get_lib: Any) -> dict[str, Any]:
         got = extract(img, str(req.get("colour") or ""), tol=float(req.get("tolerance") or TOLERANCE), region=req.get("region"), mode=str(req.get("mode") or "auto"),
                       step=float(req.get("step") or 0), calibration=cal, words=load_words(path))
         return {"event": "extracted", **got}
+    if op == "digitise_axes":
+        path = _image_path(None, str(req.get("image") or ""))
+        img = load_image(path)
+        near = req.get("near")
+        got = auto_axes(img, load_words(path, whole=True), near=[float(v) for v in near] if near else None)
+        got.pop("_words", None)
+        return {"event": "axes", "auto": got}
     if op == "fit":
         did = req.get("id")
         if did is not None:
@@ -1106,6 +1165,9 @@ def answer(op: str, req: dict[str, Any], get_lib: Any) -> dict[str, Any]:
             fits = {m: fitting.fit(pts, m) for m in models}
         scored = [(f["aic"], m) for m, f in fits.items() if f["status"] == "fit" and f.get("aic") is not None]
         return {"event": "fit", "series": did, "fits": fits, "preferred": min(scored)[1] if scored else None}
+    if op == "digitise_export" and not req.get("lib"):
+        inline = [unsaved(x, req.get("source")) for x in req.get("series") or []]
+        return {"event": "exported", "lib": None, **export(None, [], Path(str(req["path"])).expanduser(), inline=inline)}
     lib = get_lib()
     conn = open_store(lib.store_path)
     try:
@@ -1116,7 +1178,8 @@ def answer(op: str, req: dict[str, Any], get_lib: Any) -> dict[str, Any]:
         if op == "digitise_delete":
             return {"event": "digitised", "lib": lib.id, "deleted": delete(conn, int(req["id"]))}
         if op == "digitise_export":
-            return {"event": "exported", "lib": lib.id, **export(conn, [int(i) for i in req.get("ids") or []], Path(str(req["path"])).expanduser(), library=lib.id)}
+            inline = [unsaved(x, req.get("source")) for x in req.get("series") or []]
+            return {"event": "exported", "lib": lib.id, **export(conn, [int(i) for i in req.get("ids") or []], Path(str(req["path"])).expanduser(), library=lib.id, inline=inline)}
     finally:
         conn.close()
     raise ValueError(f"Unknown op {op!r}")
