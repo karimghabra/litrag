@@ -45,7 +45,8 @@ interface Opened {
   auto: { found: boolean; confident: boolean; calibration: CalibrationDict | null; plot_region?: number[]; frame?: number[]; reason: string | null; x: AxisOffer; y: AxisOffer; words?: string } | null;
   palette: { colour: string; share: number }[];
   saved: SavedSeries[];
-  /** The paper's series that have no figure in this reading: listed apart, never loaded onto this one. */
+  /** The paper's series to review — it no longer draws the picture they were read from: listed apart
+   *  with that picture, never loaded onto this one, put on a figure only by a person. */
   orphans: SavedSeries[];
 }
 
@@ -58,6 +59,8 @@ interface SavedSeries {
   calibration: CalibrationDict;
   method: Record<string, unknown>;
   image: { sha256?: string };
+  /** For a series to review: the file of the picture it was read from. */
+  picture?: string | null;
   axes: { x: { label: string | null; unit: string | null }; y: { label: string | null; unit: string | null } };
   points: Pt[];
   fits: Record<string, FitResult>;
@@ -151,6 +154,17 @@ function reset(): void {
   st.dirty = false;
   st.fit = null;
   for (const id of ['dg-xlabel', 'dg-xunit', 'dg-ylabel', 'dg-yunit', 'dg-name']) $<HTMLInputElement>(id).value = '';
+}
+
+const asked: Record<string, number> = {};
+
+/** A request's place among those of its kind: `latest()` holds until another of the kind is asked
+ *  or another figure is shown. The worker answers some on threads of their own, so an earlier
+ *  request's answer can come last, and only the latest one's is taken. */
+function ticket(kind: 'axes' | 'extract' | 'fit'): () => boolean {
+  const n = (asked[kind] = (asked[kind] ?? 0) + 1);
+  const opened = st.opened;
+  return () => asked[kind] === n && st.opened === opened;
 }
 
 /** Opens what `req` names and shows it — unless another open was asked for since, or another
@@ -381,9 +395,10 @@ async function readPanel(region: number[]): Promise<void> {
   const opened = st.opened;
   if (!st.imagePath || !opened) return;
   const near = [(region[0]! + region[2]!) / 2, (region[1]! + region[3]!) / 2];
+  const latest = ticket('axes');
   try {
     const r = await request<{ auto: NonNullable<Opened['auto']> }>('digitise_axes', { image: st.imagePath, near });
-    if (st.opened !== opened) return;
+    if (!latest()) return;
     opened.auto = r.auto;
     const mine = !st.fromAuto && tryCalibration(st.cal).cal !== null;
     if (r.auto.found && !mine) {
@@ -520,19 +535,42 @@ function renderSaved(): void {
     box.append(row);
   }
   const orphans = st.opened?.orphans ?? [];
-  if (orphans.length) box.append(el('div', 'muted', 'Without a figure in this reading of the paper — kept, not this figure’s:'));
+  if (orphans.length) box.append(el('div', 'muted', 'Needs review — the paper no longer draws the picture these were read from. Kept as saved; put one on this figure if it is its own:'));
   for (const s of orphans) {
     const row = el('div', 'orphan');
+    if (s.picture) {
+      const img = el('img') as HTMLImageElement;
+      img.alt = 'the picture it was read from';
+      void thumb(s.picture).then((url) => (img.src = url));
+      row.append(img);
+    }
     const dot = el('span', 'dot');
     dot.style.background = s.colour ?? '#999';
-    row.append(dot, el('span', undefined, s.series), el('span', 'muted', `${s.points.length} points · was on ${s.figure_label ? `Figure ${s.figure_label}` : s.figure}`));
+    row.append(dot, el('span', undefined, s.series), el('span', 'muted', `${s.points.length} points · was on ${s.figure_label ? `Figure ${s.figure_label}` : 'a figure with no number'}`), el('span', 'spacer'));
+    if (st.figure) {
+      const put = el('button', 'ghost small', 'Put on this figure') as HTMLButtonElement;
+      put.title = 'This series is of the figure shown: keep it with it from now on. Its saved values are not changed';
+      put.addEventListener('click', () => void attachSaved(s.id));
+      row.append(put);
+    }
     const del = el('button', 'ghost small', '×') as HTMLButtonElement;
     del.title = 'Delete this series';
     del.addEventListener('click', () => void deleteSaved(s.id));
-    row.append(el('span', 'spacer'), del);
-    row.title = 'A later reading that finds its figure again puts it back there';
+    row.append(del);
     box.append(row);
   }
+}
+
+const thumbs = new Map<string, Promise<string>>();
+
+/** A picture file as a URL an <img> can show, read once. */
+function thumb(path: string): Promise<string> {
+  let url = thumbs.get(path);
+  if (!url) {
+    url = window.litrag.readFile(path).then((bytes) => URL.createObjectURL(new Blob([bytes], { type: 'image/png' })));
+    thumbs.set(path, url);
+  }
+  return url;
 }
 
 function loadSaved(id: number): void {
@@ -567,8 +605,8 @@ function renderPoints(): void {
   box.innerHTML = '';
   if (!pts.length) {
     const s = st.opened?.saved.find((x) => x.id === st.activeSaved);
-    if (s && !st.dirty && !onPicture(s, st.opened?.image?.sha256).same) {
-      box.append(el('div', 'warn', `The picture of this figure has changed since “${s.series}” was digitised. Its ${s.points.length} saved point${s.points.length === 1 ? '' : 's'} are kept as they were and are not drawn on this picture: confirm the axes on it before finding new points.`));
+    if (s && !onPicture(s, st.opened?.image?.sha256).same) {
+      box.append(el('div', 'warn', `The picture of this figure has changed since “${s.series}” was digitised. Its ${s.points.length} saved point${s.points.length === 1 ? '' : 's'} are kept as they were, still export, and are not drawn on this picture: confirm the axes on it before finding new points.`));
       return;
     }
     box.append(el('div', 'muted', 'No points yet: pick the series’ colour and Find points, or add them by hand.'));
@@ -661,14 +699,15 @@ async function extract(): Promise<void> {
   const cal = calibration();
   const mode = $<HTMLSelectElement>('dg-mode').value;
   const tolerance = Number($<HTMLInputElement>('dg-tol').value);
-  const opened = st.opened;
+  const colour = st.colour;
+  const latest = ticket('extract');
   try {
     const r = await request<{ mode: string; points: Pt[]; legend: number; pixels: number; region: number[] }>('digitise_extract', {
-      image: st.imagePath, colour: st.colour, tolerance, mode, region: st.region ?? undefined, calibration: cal ? cal.c : undefined,
+      image: st.imagePath, colour, tolerance, mode, region: st.region ?? undefined, calibration: cal ? cal.c : undefined,
     });
-    if (st.opened !== opened) return;
+    if (!latest()) return;
     st.points = r.points.map((p) => ({ px: p.px, py: p.py, how: 'auto' as const }));
-    st.method = { mode: r.mode, asked: mode, tolerance, region: r.region, colour: st.colour, auto_axes: st.fromAuto };
+    st.method = { mode: r.mode, asked: mode, tolerance, region: r.region, colour, auto_axes: st.fromAuto };
     changed();
     log('info', `${r.points.length} points found as ${r.mode === 'line' ? 'a line' : 'markers'} (${r.pixels} pixels of ${st.colour}${r.legend ? `; ${r.legend} legend marker${r.legend === 1 ? '' : 's'} left out` : ''})`);
   } catch (e) {
@@ -749,25 +788,54 @@ async function deleteSaved(id: number): Promise<void> {
   }
 }
 
-async function exportCsv(): Promise<void> {
-  const cal = ready('Export');
-  if (!cal) return;
-  const name = $<HTMLInputElement>('dg-name').value.trim() || 'series';
+/** A series kept for review put on the figure shown, by the person looking at both. */
+async function attachSaved(id: number): Promise<void> {
   const opened = st.opened;
-  const src = opened?.source;
-  const path = await window.litrag.saveAs(exportName(src?.paper ?? null, src?.label ?? null, st.figure ? 'digitised' : name));
-  if (!path || !opened || st.opened !== opened) return;
+  if (!ctx.lib || !opened || !st.figure) return;
+  try {
+    const r = await request<{ series: SavedSeries }>('digitise_attach', { lib: ctx.lib, series_id: id, figure: st.figure });
+    if (st.opened !== opened) return;
+    opened.orphans = opened.orphans.filter((s) => s.id !== id);
+    opened.saved = [...opened.saved, r.series];
+    const f = st.list.find((x) => x.figure === st.figure);
+    if (f) {
+      f.digitised = opened.saved.length;
+      renderList();
+    }
+    renderAll();
+  } catch (e) {
+    log('error', `review: ${rejectionText(e)}`);
+  }
+}
+
+/** A library figure's saved series are exported by their ids, as they were saved: the axes on
+ *  screen matter only for points on it that are not saved yet, and for an image file's. */
+async function exportCsv(): Promise<void> {
+  const opened = st.opened;
+  if (!opened) return;
+  const library = !!(st.figure && ctx.lib);
+  const toSave = st.points.length > 0 && (st.dirty || st.activeSaved === null);
+  const cal = !library || toSave ? ready('Export') : null;
+  if ((!library || toSave) && !cal) return;
+  if (library && !toSave && !opened.saved.length) {
+    log('error', 'Export: nothing is saved for this figure yet');
+    return;
+  }
+  const name = $<HTMLInputElement>('dg-name').value.trim() || 'series';
+  const src = opened.source;
+  const path = await window.litrag.saveAs(exportName(src.paper, src.label, library ? 'digitised' : name));
+  if (!path || st.opened !== opened) return;
   try {
     let r: { files: { csv: string; sidecar: string; fits: string[] }[]; points: number };
-    if (st.figure && ctx.lib) {
-      if (st.dirty || st.activeSaved === null) {
+    if (library) {
+      if (toSave) {
         const s = await save();
         if (!s || st.opened !== opened) return;
       }
       r = await request('digitise_export', { lib: ctx.lib, ids: opened.saved.map((s) => s.id), path });
     } else {
       const fits = st.fit ? { [st.fit.model]: st.fit } : {};
-      r = await request('digitise_export', { lib: undefined, path, source: { file: src?.file ?? null }, series: [{ series: name, colour: st.colour, calibration: cal.c, points: st.points, method: st.method ?? { mode: 'manual' }, image: opened.image, axes: axesOf(), fits }] });
+      r = await request('digitise_export', { lib: undefined, path, source: { file: src.file ?? null }, series: [{ series: name, colour: st.colour, calibration: cal!.c, points: st.points, method: st.method ?? { mode: 'manual' }, image: opened.image, axes: axesOf(), fits }] });
     }
     const fits = r.files.reduce((n, f) => n + f.fits.length, 0);
     const where = r.files.length === 1 ? `${r.files[0]!.csv}, its sidecar ${r.files[0]!.sidecar}` : `${r.files.length} files, one for each set of axes, each with its sidecar: ${r.files.map((f) => f.csv).join(', ')}`;
@@ -781,11 +849,11 @@ async function exportCsv(): Promise<void> {
  *  that fails leaves none showing. */
 async function fitSaved(id: number, model: string): Promise<void> {
   st.fit = null;
-  const opened = st.opened;
+  const latest = ticket('fit');
   try {
     const r = await request<{ fits: Record<string, FitResult> }>('fit', { lib: ctx.lib, series_id: id, model });
-    if (st.opened !== opened) return;
-    const s = opened?.saved.find((x) => x.id === id);
+    if (!latest()) return;
+    const s = st.opened?.saved.find((x) => x.id === id);
     if (s) s.fits = { ...s.fits, ...r.fits };
     if (st.activeSaved === id) st.fit = r.fits[model] ?? null;
   } catch (e) {
@@ -806,11 +874,11 @@ async function runFit(): Promise<void> {
     await fitSaved(st.activeSaved, model);
     return;
   }
-  const opened = st.opened;
+  const latest = ticket('fit');
   try {
     const pts = valued(st.points, cal).map((p) => [p.x, p.y]);
     const r = await request<{ fits: Record<string, FitResult> }>('fit', { points: pts, model });
-    if (st.opened !== opened) return;
+    if (!latest()) return;
     st.fit = r.fits[model] ?? null;
     renderFit();
   } catch (e) {

@@ -4,6 +4,7 @@ figure's own numbers, the rows a person's work is kept as and the files it is ex
 search for plots, and the fits' numbers against the curves they were drawn from."""
 
 import csv
+import hashlib
 import json
 import math
 import shutil
@@ -200,15 +201,15 @@ def test_a_figure_is_rendered_offered_found_saved_and_exported_traceably(tmp_pat
     assert Path(got["image"]["path"]).is_file() and Path(got["image"]["path"]).with_suffix(".words.json").is_file()
     assert got["source"]["how"] == "pdf" and got["source"]["drawn"] == "vector" and got["source"]["label"] == "1"
     points = [{"px": p["px"], "py": p["py"], "how": "auto"} for p in pts["points"]][:-1] + [{"px": 300.0, "py": 400.0, "how": "added"}]
-    saved = digitise.save(conn, fig, s["name"], got["auto"]["calibration"], points, colour=s["colour"],
+    saved = digitise.save(lib, conn, fig, s["name"], got["auto"]["calibration"], points, colour=s["colour"],
                           method={"mode": pts["mode"], "tolerance": pts["tolerance"]}, image=got["image"], axes={"x": got["auto"]["x"], "y": got["auto"]["y"]})
     assert saved["series"] == s["name"] and len(saved["points"]) == len(points) and saved["axes"]["x"]["unit"] == "min"
     assert [p["x"] for p in saved["points"]] == sorted(p["x"] for p in saved["points"])
     assert any(p["how"] == "added" for p in saved["points"])
     # saved again under the same name: replaced, not added
-    again = digitise.save(conn, fig, s["name"], got["auto"]["calibration"], points[:5], colour=s["colour"], image=got["image"])
+    again = digitise.save(lib, conn, fig, s["name"], got["auto"]["calibration"], points[:5], colour=s["colour"], image=got["image"])
     assert again["id"] == saved["id"] and len(digitise.of_figure(conn, fig)) == 1 and len(again["points"]) == 5
-    saved = digitise.save(conn, fig, s["name"], got["auto"]["calibration"], points, colour=s["colour"], image=got["image"], axes={"x": got["auto"]["x"], "y": got["auto"]["y"]})
+    saved = digitise.save(lib, conn, fig, s["name"], got["auto"]["calibration"], points, colour=s["colour"], image=got["image"], axes={"x": got["auto"]["x"], "y": got["auto"]["y"]})
     f = fit.fit([(p["x"], p["y"]) for p in saved["points"] if p["how"] == "auto"], "logistic")
     digitise.save_fit(conn, saved["id"], f)
     out = digitise.export(conn, [saved["id"]], tmp_path / "out" / "turbidity", library="lib")
@@ -223,24 +224,6 @@ def test_a_figure_is_rendered_offered_found_saved_and_exported_traceably(tmp_pat
     assert side["series"][0]["points"][0].keys() >= {"x", "y", "px", "py", "how"} and side["image"]["sha256"] == got["image"]["sha256"]
     assert side["series"][0]["fits"]["logistic"]["derived"]["t_half"]["value"] == pytest.approx(f["derived"]["t_half"]["value"])
     assert out["fits"] and Path(out["fits"][0]).read_text().splitlines()[0] == "model,logistic"
-
-
-def test_a_saved_series_follows_its_figure_through_a_rebuild_and_is_kept_when_none_is_like_it(tmp_path):
-    lib, conn, key, fig = _library(tmp_path)
-    got, s, pts = _digitised(lib, conn, fig)
-    saved = digitise.save(conn, fig, "a", got["auto"]["calibration"], pts["points"], image=got["image"])
-    # renumbered by another reading: found again by its caption's number
-    conn.execute("UPDATE nodes SET parent = ? WHERE node_id = ?", (f"{key}#section-1#picture-7", f"{fig}#caption-1"))
-    conn.execute("UPDATE nodes SET node_id = ? WHERE node_id = ?", (f"{key}#section-1#picture-7", fig))
-    conn.commit()
-    assert digitise.remap(conn, key) == {"moved": 1, "orphaned": 0}
-    assert digitise.one(conn, saved["id"])["figure"] == f"{key}#section-1#picture-7"
-    # a reading with no such figure: kept, marked an orphan
-    conn.execute("DELETE FROM nodes WHERE paper = ? AND type IN ('picture', 'caption')", (key,))
-    conn.commit()
-    assert digitise.remap(conn, key) == {"moved": 0, "orphaned": 1}
-    kept = digitise.one(conn, saved["id"])
-    assert kept["orphan"] and len(kept["points"]) == len(pts["points"])
 
 
 def test_an_xml_paper_without_a_pdf_says_why_it_cannot_be_drawn(tmp_path):
@@ -268,91 +251,141 @@ def _picture(conn, key, n, caption):
     return fig
 
 
+def _panel(lib, conn, key, n, box, caption, file="paper.pdf"):
+    """A picture of a PDF paper drawn from the part `box` — fractions of the page, from its top
+    left — of the first page of its file; its id."""
+    pdf = pdfium.PdfDocument(str(lib / "papers" / file))
+    w, h = pdf[0].get_size()
+    pdf.close()
+    fig = f"{key}#panel-{n}"
+    conn.executemany("INSERT INTO nodes(node_id, paper, parent, ordinal, depth, type, label, role, ancestry, text, page, bbox_l, bbox_t, bbox_r, bbox_b) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                     [(fig, key, None, 20 + n, 1, "picture", "picture", "results", "[]", "", 1, box[0] * w, box[1] * h, box[2] * w, box[3] * h),
+                      (f"{fig}#caption-1", key, fig, 0, 2, "caption", "caption", "results", "[]", caption, 1, 0.0, h - 10, w, h)])
+    conn.commit()
+    return fig
+
+
+LEFT, RIGHT, WHOLE = (0.0, 0.0, 0.5, 1.0), (0.5, 0.0, 1.0, 1.0), (0.0, 0.0, 1.0, 1.0)
+
+
+def _saved(lib, conn, fig, name, pts=PTS, cal=CAL, **kw):
+    """A series saved on a figure opened as it is drawn now."""
+    return digitise.save(lib, conn, fig, name, cal, pts, image=digitise.render(lib, conn, fig, offer=False)["image"], **kw)
+
+
+def _shown(lib, fig, data=b"a picture"):
+    """A figure's picture put where opening it writes it, for a figure no PDF here draws; what `save` is given of it."""
+    path = digitise.picture_path(lib, fig)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(data)
+    return {"width": 600, "height": 450, "scale": 2.0, "sha256": hashlib.sha256(data).hexdigest(), "path": str(path)}
+
+
 def _rename(conn, old, new):
     conn.execute("UPDATE nodes SET parent = ? WHERE parent = ?", (new, old))
     conn.execute("UPDATE nodes SET node_id = ? WHERE node_id = ?", (new, old))
 
 
-def test_series_of_the_same_name_follow_figures_that_shift_or_trade_ids(tmp_path):
-    """Two figures each hold a series under the window's default name. A reading that gives the
-    first figure's id to the second moves both series with their figures: neither is in the
-    other's way, so neither is an orphan."""
-    conn = open_store(tmp_path / "store.sqlite")
-    key = file_paper(conn, title="x", file="paper.xml", sha256="x1", fmt="jats", doi="10.1/x", pmid=None, pmcid=None, now="t").key
-    one, two = _picture(conn, key, 1, "Figure 1. Turbidity over time."), _picture(conn, key, 2, "Figure 2. Absorbance over time.")
-    a = digitise.save(conn, one, "series 1", CAL, PTS)["id"]
-    b = digitise.save(conn, two, "series 1", CAL, PTS[:5])["id"]
-    three = f"{key}#picture-3"
-    _rename(conn, two, three)  # shifted along: figure 1 is picture-2 now, figure 2 picture-3
-    _rename(conn, one, two)
+def test_a_series_stays_with_the_figure_drawn_as_its_picture_whatever_its_id_or_number(tmp_path):
+    """Two pictures whose captions both read "Figure 2", each with a series under the window's
+    default name. A reading that trades their node ids leaves each series with the picture it was
+    read from: no caption's number sends one to the other's."""
+    lib, conn, key, _ = _library(tmp_path)
+    left, right = _panel(lib, conn, key, 1, LEFT, "Figure 2. Turbidity over time."), _panel(lib, conn, key, 2, RIGHT, "Figure 2. Continued.")
+    a = _saved(lib, conn, left, "series 1")
+    b = _saved(lib, conn, right, "series 1", PTS[:5])
+    assert a["image"]["sha256"] != b["image"]["sha256"]
+    assert digitise.follow(lib, conn, key) == []
+    assert [s["id"] for s in digitise.of_figure(conn, left)] == [a["id"]] and [s["id"] for s in digitise.of_figure(conn, right)] == [b["id"]]
+    _rename(conn, left, "tmp")  # the left picture is `right` now, and the right one `left`
+    _rename(conn, right, left)
+    _rename(conn, "tmp", right)
     conn.commit()
-    assert digitise.remap(conn, key) == {"moved": 2, "orphaned": 0}
-    assert [(s["id"], s["orphan"]) for s in digitise.of_figure(conn, two)] == [(a, False)]
-    assert [(s["id"], s["orphan"]) for s in digitise.of_figure(conn, three)] == [(b, False)]
-    _rename(conn, two, "tmp")  # traded: figure 1 is picture-3, figure 2 picture-2
-    _rename(conn, three, two)
-    _rename(conn, "tmp", three)
-    conn.commit()
-    assert digitise.remap(conn, key) == {"moved": 2, "orphaned": 0}
-    assert [s["id"] for s in digitise.of_figure(conn, three)] == [a] and [s["id"] for s in digitise.of_figure(conn, two)] == [b]
-    assert len(digitise.one(conn, a)["points"]) == 8 and len(digitise.one(conn, b)["points"]) == 5
-    assert digitise.remap(conn, key) == {"moved": 0, "orphaned": 0}  # twice changes nothing
+    assert digitise.follow(lib, conn, key) == []
+    assert [(s["id"], len(s["points"])) for s in digitise.of_figure(conn, right)] == [(a["id"], 8)]
+    assert [(s["id"], len(s["points"])) for s in digitise.of_figure(conn, left)] == [(b["id"], 5)]
+    assert digitise.picture_sha(lib, conn, right) == a["image"]["sha256"]
+    assert digitise.follow(lib, conn, key) == [] and digitise.orphans(conn, key) == []  # twice changes nothing
 
 
-def test_an_orphan_is_no_figure_s_though_another_picture_takes_the_id_it_kept(tmp_path):
+def test_a_reading_that_cuts_the_figure_differently_leaves_its_series_for_review_until_it_is_cut_so_again(tmp_path):
+    lib, conn, key, _ = _library(tmp_path)
+    fig = _panel(lib, conn, key, 1, LEFT, "Figure 2. Turbidity over time.")
+    a = _saved(lib, conn, fig, "lag")
+    was = conn.execute("SELECT bbox_r FROM nodes WHERE node_id = ?", (fig,)).fetchone()[0]
+    conn.execute("UPDATE nodes SET bbox_r = ? WHERE node_id = ?", (was * 0.8, fig))
+    conn.commit()
+    said = "1 digitised series is of a picture this reading no longer draws: kept, for review in the Plots tab"
+    assert digitise.follow(lib, conn, key) == [("digitise", said)]
+    assert [r[0] for r in conn.execute("SELECT detail FROM events WHERE paper = ? AND stage = 'digitise'", (key,))] == [said]
+    assert digitise.of_figure(conn, fig) == [] and [(s["id"], len(s["points"])) for s in digitise.orphans(conn, key)] == [(a["id"], 8)]
+    assert digitise.follow(lib, conn, key) == []  # said once, not at every reading
+    conn.execute("UPDATE nodes SET bbox_r = ? WHERE node_id = ?", (was, fig))
+    conn.commit()
+    assert digitise.follow(lib, conn, key) == []
+    assert [s["id"] for s in digitise.of_figure(conn, fig)] == [a["id"]] and digitise.orphans(conn, key) == []
+
+
+def test_a_series_for_review_is_no_figure_s_until_a_person_puts_it_on_one(tmp_path):
     """Figure 1 goes from a reading and figure 2 is given its node id. The series read from
-    figure 1 is listed apart, under the figure it had; it is not among figure 2's, is not counted
-    as figure 2's, and a series saved on figure 2 under its name is a new one. When a later
-    reading has a figure 1 again, it goes to it."""
+    figure 1 is listed for review with the picture it was read from; it is not among figure 2's,
+    is not counted as figure 2's, and a series saved on figure 2 under its name is a new one.
+    Put on a figure by a person, it is that figure's through later readings, its values as saved."""
     from litrag_parser.library import Library
 
-    (tmp_path / "lib").mkdir()
+    lib_dir, conn, key, _ = _library(tmp_path)
     lib = Library(tmp_path, "lib", {})
-    conn = open_store(lib.store_path)
-    key = file_paper(conn, title="x", file="paper.xml", sha256="x1", fmt="jats", doi="10.1/x", pmid=None, pmcid=None, now="t").key
-    one, two = _picture(conn, key, 1, "Figure 1. Turbidity over time."), _picture(conn, key, 2, "Figure 2. Absorbance over time.")
-    a = digitise.save(conn, one, "lag", CAL, PTS)["id"]
-    b = digitise.save(conn, two, "other", CAL, PTS[:5])["id"]
+    get = lambda: lib  # noqa: E731
+    one, two = _panel(lib_dir, conn, key, 1, LEFT, "Figure 1. Turbidity over time."), _panel(lib_dir, conn, key, 2, RIGHT, "Figure 2. Absorbance over time.")
+    a = _saved(lib_dir, conn, one, "lag")
+    b = _saved(lib_dir, conn, two, "other", PTS[:5])
     conn.execute("DELETE FROM nodes WHERE node_id LIKE ?", (one + "%",))
     _rename(conn, two, one)
     conn.commit()
-    assert digitise.remap(conn, key) == {"moved": 1, "orphaned": 1}
-    assert [s["id"] for s in digitise.of_figure(conn, one)] == [b]
-    opened = digitise.answer("digitise_open", {"lib": "lib", "figure": one}, lambda: lib)
-    assert [s["id"] for s in opened["saved"]] == [b]
-    assert [(s["id"], s["figure_label"], s["orphan"]) for s in opened["orphans"]] == [(a, "1", True)]
-    c = digitise.answer("digitise_save", {"lib": "lib", "figure": one, "series": "lag", "calibration": CAL, "points": PTS[:3]}, lambda: lib)["series"]
-    assert c["id"] not in (a, b) and c["figure_label"] == "2" and len(c["points"]) == 3
-    lost = digitise.one(conn, a)
+    assert len(digitise.follow(lib_dir, conn, key)) == 1
+    assert [s["id"] for s in digitise.of_figure(conn, one)] == [b["id"]]
+    opened = digitise.answer("digitise_open", {"lib": "lib", "figure": one}, get)
+    assert [s["id"] for s in opened["saved"]] == [b["id"]]
+    assert [(s["id"], s["figure_label"], s["orphan"]) for s in opened["orphans"]] == [(a["id"], "1", True)]
+    kept = Path(opened["orphans"][0]["picture"])
+    assert hashlib.sha256(kept.read_bytes()).hexdigest() == a["image"]["sha256"] != opened["image"]["sha256"]  # the picture it was read from, kept
+    c = digitise.answer("digitise_save", {"lib": "lib", "figure": one, "series": "lag", "calibration": CAL, "points": PTS[:3], "image": opened["image"]}, get)["series"]
+    assert c["id"] not in (a["id"], b["id"]) and c["figure_label"] == "2" and len(c["points"]) == 3
+    assert set(c["image"]) == {"width", "height", "scale", "sha256"}  # the image's size and hash, not where it lay on this machine
+    lost = digitise.one(conn, a["id"])
     assert lost["orphan"] and len(lost["points"]) == 8 and lost["figure_label"] == "1"
-    assert [s["id"] for s in digitise.of_figure(conn, one)] == [b, c["id"]]
-    assert [f["digitised"] for f in digitise.find(conn, "")["figures"]] == [2]
-    assert digitise.remap(conn, key) == {"moved": 0, "orphaned": 1}  # still without one, and in no series' way
-    seven = _picture(conn, key, 7, "Figure 1. Turbidity over time.")
-    assert digitise.remap(conn, key) == {"moved": 1, "orphaned": 0}
-    assert [(s["id"], s["orphan"], len(s["points"])) for s in digitise.of_figure(conn, seven)] == [(a, False, 8)]
-    assert digitise.answer("digitise_open", {"lib": "lib", "figure": one}, lambda: lib)["orphans"] == []
-
-
-def test_a_series_bound_for_a_figure_that_holds_one_of_its_name_is_kept_apart(tmp_path):
-    """A stub's "series 1" of figure 1 comes to the paper it was a stub of, whose own figure 1
-    holds a "series 1" already: the paper's own stays, the stub's is kept without a figure."""
-    conn = open_store(tmp_path / "store.sqlite")
-    paper = file_paper(conn, title="the paper", file="paper.xml", sha256="xml", fmt="jats", doi="10.1/real", pmid=None, pmcid=None, now="t").key
-    own = _picture(conn, paper, 4, "Figure 1. Turbidity over time.")
-    a = digitise.save(conn, own, "series 1", CAL, PTS)["id"]
-    stub = file_paper(conn, title="its bytes", file="scan.pdf", sha256="pdf", fmt="pdf", doi=None, pmid=None, pmcid=None, now="t").key
-    b = digitise.save(conn, _picture(conn, stub, 1, "Figure 1. Turbidity over time."), "series 1", CAL, PTS[:4])["id"]
-    file_paper(conn, title="the paper", file="scan.pdf", sha256="pdf", fmt="pdf", doi="10.1/real", pmid=None, pmcid=None, now="t")
+    assert [s["id"] for s in digitise.of_figure(conn, one)] == [b["id"], c["id"]]
+    assert {f["figure"]: f["digitised"] for f in digitise.find(conn, "")["figures"]}[one] == 2
+    assert digitise.follow(lib_dir, conn, key) == [] and digitise.one(conn, a["id"])["orphan"]  # no reading puts it on a figure
+    with pytest.raises(ValueError, match="already"):  # nor may a person, over one of its name
+        digitise.answer("digitise_attach", {"lib": "lib", "series_id": a["id"], "figure": one}, get)
+    assert digitise.answer("digitise_delete", {"lib": "lib", "series_id": c["id"]}, get)["deleted"]
+    put = digitise.answer("digitise_attach", {"lib": "lib", "series_id": a["id"], "figure": one}, get)["series"]
+    assert (put["figure"], put["orphan"], put["figure_label"]) == (one, False, "2")
+    assert put["points"] == a["points"] and put["calibration"] == a["calibration"] and put["image"] == a["image"]
+    assert digitise.answer("digitise_open", {"lib": "lib", "figure": one}, get)["orphans"] == []
+    _rename(conn, one, f"{key}#panel-9")
     conn.commit()
-    assert [(s["id"], len(s["points"])) for s in digitise.of_figure(conn, own)] == [(a, 8)]
-    assert [(s["id"], s["paper"], s["figure_label"], len(s["points"])) for s in digitise.orphans(conn, paper)] == [(b, paper, "1", 4)]
+    assert digitise.follow(lib_dir, conn, key) == []
+    assert [s["id"] for s in digitise.of_figure(conn, f"{key}#panel-9")] == [a["id"], b["id"]]
+    ex = digitise.answer("digitise_export", {"lib": "lib", "ids": [a["id"], b["id"]], "path": str(tmp_path / "out.csv")}, get)
+    assert str(tmp_path / "lib") not in Path(ex["files"][0]["sidecar"]).read_text()  # the sidecar travels: no path of this library in it
 
 
-def test_the_judge_s_own_command_moves_digitised_series_with_their_figures_too(tmp_path, monkeypatch, capsys):
-    """`python -m litrag_parser.judge` replaces a paper's nodes as a rebuild does: a series saved
-    on a figure of an earlier reading goes to the figure of that number now, and one whose
-    figure is in no reading is kept and said to be without one. The model is never asked."""
+def test_a_series_is_saved_only_of_the_figure_s_picture_as_it_was_opened(tmp_path):
+    lib, conn, key, fig = _library(tmp_path)
+    with pytest.raises(ValueError, match="open the figure again"):  # never opened: no picture its pixels could be of
+        digitise.save(lib, conn, fig, "a", CAL, PTS, image={"width": 1, "height": 1, "scale": 1.0, "sha256": "0" * 64})
+    image = digitise.render(lib, conn, fig, offer=False)["image"]
+    with pytest.raises(ValueError, match="open the figure again"):
+        digitise.save(lib, conn, fig, "a", CAL, PTS, image={**image, "sha256": "0" * 64})
+    assert digitise.of_figure(conn, fig) == []
+    assert digitise.save(lib, conn, fig, "a", CAL, PTS, image=image)["image"]["sha256"] == image["sha256"]
+
+
+def test_the_judge_s_own_command_keeps_digitised_series_as_a_rebuild_does(tmp_path, monkeypatch, capsys):
+    """`python -m litrag_parser.judge` replaces a paper's nodes as a rebuild does: a series whose
+    picture the new reading does not draw is kept, and said to be for review. The model is never asked."""
     from litrag_parser import judge
     from litrag_parser.library import create_library, safe_key
 
@@ -366,15 +399,13 @@ def test_the_judge_s_own_command_moves_digitised_series_with_their_figures_too(t
     shutil.copy(FIXTURES / "PMC11278924.xml", lib.papers_dir / "paper.xml")
     shutil.copy(FIXTURES / "PMC11278924.jats.docling.json", lib.parsed_dir / f"{safe_key(key)}.docling.json")
     conn.execute("UPDATE papers SET file = 'paper.xml', status = 'parsed' WHERE key = ?", (key,))
-    a = digitise.save(conn, _picture(conn, key, 1, "Figure 1. An earlier reading's."), "a", CAL, PTS)["id"]
-    b = digitise.save(conn, _picture(conn, key, 9, "Figure 99. In no reading."), "b", CAL, PTS)["id"]
+    fig = _picture(conn, key, 1, "Figure 1. An earlier reading's.")
+    a = digitise.save(lib.dir, conn, fig, "a", CAL, PTS, image=_shown(lib.dir, fig))["id"]
     conn.close()
     judge.main(["--lib", str(lib.dir), "--key", key])
     conn = open_store(lib.store_path)
-    one = f"{key}#section-3#section-8#picture-2"  # figure 1, in this reading
-    assert (digitise.one(conn, a)["figure"], digitise.one(conn, a)["orphan"]) == (one, False)
-    assert digitise.one(conn, b)["orphan"] and len(digitise.one(conn, b)["points"]) == 8
-    said = "1 digitised series no longer has a figure in this reading: kept, marked without one"
+    assert digitise.one(conn, a)["orphan"] and len(digitise.one(conn, a)["points"]) == 8
+    said = "1 digitised series is of a picture this reading no longer draws: kept, for review in the Plots tab"
     assert [r[0] for r in conn.execute("SELECT detail FROM events WHERE paper = ? AND stage = 'digitise'", (key,))] == [said]
     assert said in capsys.readouterr().out
     conn.close()
@@ -383,12 +414,10 @@ def test_the_judge_s_own_command_moves_digitised_series_with_their_figures_too(t
 def test_series_of_different_axes_are_exported_apart_and_an_orphan_is_left_out(tmp_path):
     """Panels of one figure: time in minutes on one, concentration in mg/mL on the other. No
     value of the second is written under the first's header."""
-    conn = open_store(tmp_path / "store.sqlite")
-    key = file_paper(conn, title="x", file="paper.xml", sha256="x1", fmt="jats", doi="10.1/x", pmid=None, pmcid=None, now="t").key
-    fig = _picture(conn, key, 1, "Figure 1. Turbidity over time (A) and against concentration (B).")
+    lib, conn, key, fig = _library(tmp_path)
     time = {"x": {"label": "Time", "unit": "min"}, "y": {"label": "Absorbance", "unit": None}}
     dose = {"x": {"label": "Concentration", "unit": "mg/mL"}, "y": {"label": "Lag time", "unit": "min"}}
-    ids = [digitise.save(conn, fig, name, CAL, pts, axes=axes)["id"] for name, pts, axes in (("a1", PTS, time), ("b1", PTS[:3], dose), ("a2", PTS[:5], time), ("gone", PTS[:2], time))]
+    ids = [_saved(lib, conn, fig, name, pts, axes=axes)["id"] for name, pts, axes in (("a1", PTS, time), ("b1", PTS[:3], dose), ("a2", PTS[:5], time), ("gone", PTS[:2], time))]
     t = np.linspace(0, 60, 30)
     digitise.save_fit(conn, ids[1], fit.fit(list(zip(t, _curve("logistic", t))), "logistic"))
     conn.execute("UPDATE digitised SET orphan = 1 WHERE id = ?", (ids[3],))
@@ -408,20 +437,18 @@ def test_series_of_different_axes_are_exported_apart_and_an_orphan_is_left_out(t
     with pytest.raises(ValueError, match="no series"):
         digitise.export(conn, [ids[3]], tmp_path / "gone.csv")
     # a log axis is another set of axes, though the labels agree
-    log = digitise.save(conn, fig, "a3", {**CAL, "y": {**CAL["y"], "v1": 0.01, "log": True}}, PTS, axes=time)["id"]
+    log = _saved(lib, conn, fig, "a3", PTS, {**CAL, "y": {**CAL["y"], "v1": 0.01, "log": True}}, axes=time)["id"]
     assert len(digitise.export(conn, [ids[0], log], tmp_path / "log.csv")["files"]) == 2
 
 
 def test_each_fit_of_each_series_has_a_file_of_its_own_that_the_sidecar_names(tmp_path):
     """Two models a series, and two names that are one once made safe for a file name: four fit
     files, none written over another, each named beside its series and model."""
-    conn = open_store(tmp_path / "store.sqlite")
-    key = file_paper(conn, title="x", file="paper.xml", sha256="x1", fmt="jats", doi="10.1/x", pmid=None, pmcid=None, now="t").key
-    fig = _picture(conn, key, 1, "Figure 1. Turbidity over time.")
+    lib, conn, key, fig = _library(tmp_path)
     t = np.linspace(0, 60, 30)
     plateaus = {"a b": 0.85, "a_b": 1.7}
     for name, plateau in plateaus.items():
-        did = digitise.save(conn, fig, name, CAL, PTS)["id"]
+        did = _saved(lib, conn, fig, name)["id"]
         for model in fit.MODELS:
             digitise.save_fit(conn, did, fit.fit(list(zip(t, _curve("logistic", t) * plateau / 0.85)), model))
     out = digitise.export(conn, [s["id"] for s in digitise.of_figure(conn, fig)], tmp_path / "fig.csv")["files"][0]
@@ -462,7 +489,7 @@ def test_a_series_of_an_xml_paper_s_figure_keeps_the_page_and_box_it_was_opened_
     source = {**digitise.figure_source(conn, fig), "page": 3, "bbox": [40.0, 100.5, 300.0, 280.0]}
     assert source["how"] == "beside"
     conn.close()
-    sv = digitise.answer("digitise_save", {"lib": "lib", "figure": fig, "series": "A", "calibration": CAL, "points": PTS, "source": source}, lambda: lib)["series"]
+    sv = digitise.answer("digitise_save", {"lib": "lib", "figure": fig, "series": "A", "calibration": CAL, "points": PTS, "source": source, "image": _shown(lib.dir, fig)}, lambda: lib)["series"]
     assert (sv["page"], sv["bbox"], sv["figure_label"], sv["paper"]) == (3, [40.0, 100.5, 300.0, 280.0], "1", key)
     ex = digitise.answer("digitise_export", {"lib": "lib", "ids": [sv["id"]], "path": str(tmp_path / "a.csv")}, lambda: lib)
     side = json.loads(Path(ex["files"][0]["sidecar"]).read_text())
@@ -471,38 +498,37 @@ def test_a_series_of_an_xml_paper_s_figure_keeps_the_page_and_box_it_was_opened_
 
 def test_a_stub_s_digitised_series_go_to_the_paper_it_was_a_stub_of(tmp_path):
     """The same bytes filed first under their hash, then under their DOI: the stub's rows go, but
-    not a person's series — to the paper's own figure of that number, else kept as an orphan."""
-    conn = open_store(tmp_path / "store.sqlite")
-    paper = file_paper(conn, title="the paper", file="paper.xml", sha256="xml", fmt="jats", doi="10.1/real", pmid=None, pmcid=None, now="t").key
-    own = _picture(conn, paper, 4, "Figure 1. Turbidity over time.")
-    stub = file_paper(conn, title="its bytes", file="scan.pdf", sha256="pdf", fmt="pdf", doi=None, pmid=None, pmcid=None, now="t").key
-    a = digitise.save(conn, _picture(conn, stub, 1, "Figure 1. Turbidity over time."), "a", CAL, PTS)["id"]
-    b = digitise.save(conn, _picture(conn, stub, 2, "Figure 7. Not in the paper's reading."), "b", CAL, PTS[:4])["id"]
-    filed = file_paper(conn, title="the paper", file="scan.pdf", sha256="pdf", fmt="pdf", doi="10.1/real", pmid=None, pmcid=None, now="t")
+    not a person's series. It is the paper's, for review, and a reading of the paper that draws
+    its picture puts it on the figure drawn so."""
+    lib, conn, paper, own = _library(tmp_path)
+    stub = file_paper(conn, title="its bytes", file="paper.pdf", sha256="pdf", fmt="pdf", doi=None, pmid=None, pmcid=None, now="t").key
+    a = _saved(lib, conn, _panel(lib, conn, stub, 1, WHOLE, "Figure 1. Turbidity over time."), "a")["id"]
+    filed = file_paper(conn, title="the paper", file="paper.pdf", sha256="pdf", fmt="pdf", doi="10.1000/dig", pmid=None, pmcid=None, now="t")
     conn.commit()
     assert filed.key == paper and [r[0] for r in conn.execute("SELECT key FROM papers")] == [paper]
-    got = digitise.one(conn, a)
-    assert (got["paper"], got["figure"], got["orphan"], len(got["points"])) == (paper, own, False, 8)
-    kept = digitise.one(conn, b)
-    assert (kept["paper"], kept["orphan"], len(kept["points"])) == (paper, True, 4)
+    assert [(s["id"], s["paper"], len(s["points"])) for s in digitise.orphans(conn, paper)] == [(a, paper, 8)]
+    assert digitise.of_figure(conn, own) == []
+    assert digitise.follow(lib, conn, paper) == []
+    assert [(s["id"], s["orphan"], len(s["points"])) for s in digitise.of_figure(conn, own)] == [(a, False, 8)]
 
 
 def test_a_stub_dropped_for_a_pdf_kept_beside_an_xml_paper_hands_over_its_series(tmp_path):
     from litrag_parser.store import sha256_of
 
-    conn = open_store(tmp_path / "store.sqlite")
+    lib = tmp_path / "lib"
+    (lib / "papers").mkdir(parents=True)
+    conn = open_store(lib / "store.sqlite")
     pdf = HERE / TRUTH["turbidity_markers"]["pdf"]
     paper = file_paper(conn, title="the paper", file="paper.xml", sha256="xml", fmt="jats", doi="10.1/real", pmid=None, pmcid=None, now="t").key
-    own = _picture(conn, paper, 4, "Figure 1. Turbidity over time.")
-    shutil.copy(pdf, tmp_path / "kept.figures.pdf")
+    for name in ("kept.figures.pdf", "scan.pdf"):
+        shutil.copy(pdf, lib / "papers" / name)
     conn.execute("UPDATE papers SET figures_file = 'kept.figures.pdf' WHERE key = ?", (paper,))
     stub = file_paper(conn, title="its bytes", file="scan.pdf", sha256=sha256_of(pdf), fmt="pdf", doi=None, pmid=None, pmcid=None, now="t").key
-    a = digitise.save(conn, _picture(conn, stub, 1, "Figure 1. Turbidity over time."), "a", CAL, PTS)["id"]
-    out = figures.keep_beside(conn, tmp_path, paper, pdf, "t")
+    a = _saved(lib, conn, _panel(lib, conn, stub, 1, WHOLE, "Figure 1. Turbidity over time.", file="scan.pdf"), "a")["id"]
+    out = figures.keep_beside(conn, lib / "papers", paper, pdf, "t")
     conn.commit()
     assert out["same"] and [r[0] for r in conn.execute("SELECT key FROM papers")] == [paper]
-    got = digitise.one(conn, a)
-    assert (got["paper"], got["figure"], got["orphan"], len(got["points"])) == (paper, own, False, 8)
+    assert [(s["id"], s["paper"], s["figure_label"], len(s["points"])) for s in digitise.orphans(conn, paper)] == [(a, paper, "1", 8)]
 
 
 # -- finding plots ----------------------------------------------------------------------------------------------
@@ -552,7 +578,7 @@ def test_the_worker_answers_the_digitiser_s_ops(tmp_path):
     s = TRUTH["turbidity_markers"]["series"][0]
     ex = digitise.answer("digitise_extract", {"image": opened["image"]["path"], "colour": s["colour"], "region": opened["auto"]["plot_region"], "calibration": opened["auto"]["calibration"]}, get)
     assert ex["event"] == "extracted" and ex["mode"] == "markers" and len(ex["points"]) >= 10
-    sv = digitise.answer("digitise_save", {"lib": "lib", "figure": fig, "series": "A", "calibration": opened["auto"]["calibration"], "points": ex["points"], "colour": s["colour"]}, get)
+    sv = digitise.answer("digitise_save", {"lib": "lib", "figure": fig, "series": "A", "calibration": opened["auto"]["calibration"], "points": ex["points"], "colour": s["colour"], "image": opened["image"]}, get)
     assert sv["event"] == "digitised" and sv["series"]["series"] == "A"
     ft = digitise.answer("fit", {"lib": "lib", "series_id": sv["series"]["id"]}, get)
     assert ft["event"] == "fit" and set(ft["fits"]) == {"logistic", "gompertz"} and ft["preferred"] in ("logistic", "gompertz")

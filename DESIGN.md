@@ -874,17 +874,24 @@ differently by a later reading, or from another PDF) the window draws none of th
 series' points and takes no axes as confirmed; the saved values stay as they were
 until the person digitises it again.
 
-**A person's work is never dropped by a reading.** `digitised` rows follow their
-figure through a rebuild by its caption's number, else its page and box; one that
-finds no figure is kept and marked an orphan, never deleted, unlike the reader's own
-plots, which can be read again. An orphan keeps the id of the figure it had only as a
-record: that id may be another picture's in a later reading, so an orphan is no
-figure's — not listed with one, not counted as one's, never replaced by a series saved
-under its name (the `(figure, series)` key holds among series that have a figure) —
-and the window lists a paper's orphans apart, under the figure each had. The whole mapping is made before a row moves, as the
-plots' is, so figures that trade ids trade their series. A stub paper deleted because
-its bytes were filed again under an identifier, or kept beside an XML paper, hands its
-series to that paper first, by the same mapping.
+**A person's work is never dropped by a reading, and never moved by a guess.** A
+series belongs to the picture it was read from: the figure as it was cut when the
+person opened it, known by its hash, a copy kept beside the library's other pictures
+(`digitised/originals/<sha256>.png`). When a paper's nodes are replaced each of its
+figures is cut again, and a series is with the figure drawn as its picture, whatever
+node id that figure has now. No caption's number and no place on a page moves a
+series: two pictures can carry one number, and a box can be another figure's in the
+next reading. A series whose picture the paper no longer draws is kept — never
+deleted, unlike the reader's own plots, which can be read again — and is no
+figure's: not listed with one, not counted as one's, never replaced by a series saved
+under its name (the `(figure, series)` key holds among series that have a figure).
+The window lists it under **Needs review** with the number its figure had and the
+picture it was read from, and only a person puts it on a figure; its saved values are
+not changed by that. A stub paper deleted because its bytes were filed again under an
+identifier, or kept beside an XML paper, hands its series to that paper first, for
+review until a reading of it draws their pictures. The cost is known: a change in how
+figures are cut (a new renderer, another PDF) sends series to review that a person
+must put back.
 
 **Fits are numpy's.** Logistic and Zwietering's Gompertz, both with a baseline,
 fitted by Levenberg–Marquardt from starts read off the data; intervals from the
@@ -898,7 +905,10 @@ the JSON sidecar beside it names the paper, the figure, its page and box, the
 image's hash, the calibration, the method and every point's pixel, so a number can
 be found again on the page it came from. Series whose axes differ — panels of one
 figure — are never written under one header: each set of axes gets its own CSV,
-sidecar and fits. An orphan is not exported: its figure is not known.
+sidecar and fits. A series kept for review is not exported: its figure is not known.
+An image is recorded by its size, scale and hash, never by a path on the machine
+that digitised it. A figure's saved series export as they were saved, whatever axes
+are on the screen.
 
 Not done: error bars of digitised points; several series found at once; a
 magnifier under the cursor (the stage zooms to 8×).

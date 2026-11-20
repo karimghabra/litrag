@@ -128,10 +128,13 @@ pixel and how it came (auto, added, moved), and its value is always the
 calibration's reading of that pixel. Rows: `digitised` (the figure, its number
 and place, the series' name and colour, the calibration, the method, the
 image), `digitised_points`, `digitised_fits` (each model's plateau, maximum
-rate, time to half maximum and lag with their 95% intervals). A rebuild moves
-them with their figure — by its caption's number, else its page and box — and
-one that finds none is kept, marked an orphan — no figure's, listed apart,
-until a reading finds its figure again: a rebuild never drops a
+rate, time to half maximum and lag with their 95% intervals). A series
+belongs to the picture it was read from, known by its hash, a copy of it kept
+(`digitised/originals/`). After a rebuild each series is with the figure
+drawn as that picture now, whatever its node id; no caption's number and no
+place on a page moves one. A series whose picture the paper no longer draws
+is kept — no figure's, listed under Needs review beside its picture — until
+a person puts it on a figure: a rebuild never drops a
 person's work, and a stub paper dropped for being another filed twice hands
 its series to that one. Which figures are plots is the chart reader's answer (a frame
 with numbers beside its axes), not a model's; one not read yet is "unknown",

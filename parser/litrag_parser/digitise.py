@@ -26,8 +26,11 @@ The workflow is WebPlotDigitizer's, run here on the figure's own pixels:
 Saved, a series is rows (`digitised`, `digitised_points`, `digitised_fits`): the figure, the
 calibration, the method, every point; exported, a CSV with the axes' units in its header and a
 JSON sidecar that traces each value back to the paper, the figure, the page and the pixel
-(`export`). A person's digitisation is never dropped by a rebuild: it follows its figure into
-the new rows (`remap`) and, when no figure is like it, is kept and said to be without one.
+(`export`). A series belongs to the picture it was read from, known by its hash, and a copy of
+that picture is kept with it. A person's digitisation is never dropped by a rebuild: while the
+paper still draws that picture the series stays with the figure that draws it (`reattach`); when
+none does it is kept, listed for a person to review beside its picture, and put on a figure only
+by them (`attach`).
 """
 
 from __future__ import annotations
@@ -634,27 +637,27 @@ def _beside_region(pdf: Any, label: str, node: str) -> tuple[int, tuple[float, f
     return None
 
 
-def render(lib_dir: Path, conn: sqlite3.Connection, figure: str, *, ocr: charts.Ocr | None = None, offer: bool = True) -> dict[str, Any]:
-    """A figure's pixels as a PNG under `<library>/digitised/`, with the offer of its axes and its
-    colours: `{source, image: {path, width, height, scale, sha256}, auto, palette}`."""
+def _cut(lib_dir: Path, conn: sqlite3.Connection, figure: str) -> tuple[dict[str, Any], np.ndarray | None, list[Word] | None, float]:
+    """The figure cut from its page: `(source, pixels, words, scale)`, the pixels None with
+    `source.reason` when nothing here draws it."""
     import pypdfium2 as pdfium
 
     from . import figures
 
     src = figure_source(conn, figure)
     if src["how"] is None:
-        return {"source": src, "image": None, "auto": None, "palette": []}
+        return src, None, None, 1.0
     path = lib_dir / "papers" / src["file"]
     if not path.exists():
         src["reason"] = f"{src['file']} is not on disk"
-        return {"source": src, "image": None, "auto": None, "palette": []}
+        return src, None, None, 1.0
     pdf = pdfium.PdfDocument(str(path))
     try:
         if src["how"] == "beside":
             got = _beside_region(pdf, src["label"], figure)
             if got is None:
                 src["reason"] = f"no page of {src['file']} prints the caption of figure {src['label']}"
-                return {"source": src, "image": None, "auto": None, "palette": []}
+                return src, None, None, 1.0
             src["page"], box = got
             src["bbox"] = [round(v, 2) for v in box]
         img, words, kind, scale = figures.crop(pdf, src["page"], tuple(src["bbox"]))
@@ -662,7 +665,43 @@ def render(lib_dir: Path, conn: sqlite3.Connection, figure: str, *, ocr: charts.
         pdf.close()
     img, words, scale = _fit_side(np.ascontiguousarray(img[..., :3]), words, scale)
     src["drawn"] = kind
+    return src, img, words, scale
+
+
+def render(lib_dir: Path, conn: sqlite3.Connection, figure: str, *, ocr: charts.Ocr | None = None, offer: bool = True) -> dict[str, Any]:
+    """A figure's pixels as a PNG under `<library>/digitised/`, with the offer of its axes and its
+    colours: `{source, image: {path, width, height, scale, sha256}, auto, palette}`."""
+    src, img, words, scale = _cut(lib_dir, conn, figure)
+    if img is None:
+        return {"source": src, "image": None, "auto": None, "palette": []}
     return _finish(lib_dir, figure, img, words, scale, src, ocr, offer)
+
+
+def picture_sha(lib_dir: Path, conn: sqlite3.Connection, figure: str) -> str | None:
+    """The hash of the picture the figure is drawn as now — `render`'s `image.sha256`, nothing
+    written — or None when nothing here draws it."""
+    _, img, _, _ = _cut(lib_dir, conn, figure)
+    return hashlib.sha256(_png(img)).hexdigest() if img is not None else None
+
+
+def picture_path(lib_dir: Path, figure: str | None, file: str | None = None) -> Path:
+    """Where the picture of a figure (or of an image file) is written when it is opened."""
+    name = re.sub(r"[^A-Za-z0-9._-]+", "_", figure or file or "image")[-150:]
+    return lib_dir / DIRS / f"{name}.png"
+
+
+def original_path(lib_dir: Path, sha: str) -> Path:
+    """Where the copy of a picture that series were read from is kept, by its hash."""
+    return lib_dir / DIRS / "originals" / f"{sha}.png"
+
+
+def _png(img: np.ndarray) -> bytes:
+    import cv2
+
+    ok, png = cv2.imencode(".png", img[..., ::-1])
+    if not ok:
+        raise ValueError("the figure could not be encoded")
+    return png.tobytes()
 
 
 def open_image(path: Path, *, ocr: charts.Ocr | None = None, offer: bool = True, lib_dir: Path | None = None) -> dict[str, Any]:
@@ -682,17 +721,10 @@ def open_image(path: Path, *, ocr: charts.Ocr | None = None, offer: bool = True,
 
 
 def _finish(lib_dir: Path, figure: str | None, img: np.ndarray, words: list[Word] | None, scale: float, src: dict[str, Any], ocr: charts.Ocr | None, offer: bool) -> dict[str, Any]:
-    import cv2
-
-    ok, png = cv2.imencode(".png", img[..., ::-1])
-    if not ok:
-        raise ValueError("the figure could not be encoded")
-    data = png.tobytes()
+    data = _png(img)
     sha = hashlib.sha256(data).hexdigest()
-    d = lib_dir / DIRS
-    d.mkdir(parents=True, exist_ok=True)
-    name = re.sub(r"[^A-Za-z0-9._-]+", "_", figure or src.get("file") or "image")[-150:]
-    p = d / f"{name}.png"
+    p = picture_path(lib_dir, figure, src.get("file"))
+    p.parent.mkdir(parents=True, exist_ok=True)
     if not p.exists() or p.read_bytes() != data:
         p.write_bytes(data)
     image: dict[str, Any] = {"width": int(img.shape[1]), "height": int(img.shape[0]), "scale": round(scale, 5), "sha256": sha, "path": str(p)}
@@ -741,16 +773,17 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
 CREATE TABLE IF NOT EXISTS digitised (
   id INTEGER PRIMARY KEY,
   paper TEXT NOT NULL REFERENCES papers(key) ON DELETE CASCADE,
-  figure TEXT NOT NULL,             -- the picture node the series was read from
-  figure_label TEXT,                -- "2" when the figure's caption numbers it: how a rebuild finds it again
+  figure TEXT NOT NULL,             -- the picture node the series is with — or, for one to review, the one it was with
+  picture TEXT NOT NULL,            -- the sha256 of the picture that binds it to its figure: while the paper draws it, the series is that figure's
+  figure_label TEXT,                -- "2" when the figure's caption numbers it: said to a person, never matched on
   page INTEGER, bbox TEXT,          -- where the image was cut: the page and [left, top, right, bottom] in points from the top
   series TEXT NOT NULL,             -- the name a person gave it
   colour TEXT,                      -- the colour it was found by, #rrggbb
   calibration TEXT NOT NULL,        -- JSON {x: {p1, v1, p2, v2, log}, y: {...}}: pixels of the saved image to values
   method TEXT NOT NULL,             -- JSON {reader, mode, tolerance, region, step, auto_axes}: how the points were found
-  image TEXT NOT NULL,              -- JSON {width, height, scale, sha256}: the image the pixels are of
+  image TEXT NOT NULL,              -- JSON {width, height, scale, sha256}: the image the pixels are of, a copy kept as digitised/originals/<sha256>.png
   x_label TEXT, x_unit TEXT, y_label TEXT, y_unit TEXT,
-  orphan INTEGER NOT NULL DEFAULT 0,-- 1 when a rebuild found no figure like the one it was read from: `figure` is then the one it had, no figure's now
+  orphan INTEGER NOT NULL DEFAULT 0,-- 1 when the paper no longer draws its picture: no figure's, for a person to review
   at TEXT NOT NULL
 );
 CREATE UNIQUE INDEX IF NOT EXISTS digitised_of_figure ON digitised(figure, series) WHERE orphan = 0;
@@ -789,13 +822,23 @@ def _points(cal: Calibration, pts: Sequence[dict[str, Any]]) -> list[dict[str, A
     return out
 
 
-def save(conn: sqlite3.Connection, figure: str, series: str, calibration: dict[str, Any], points: Sequence[dict[str, Any]], *, colour: str | None = None,
-         method: dict[str, Any] | None = None, image: dict[str, Any] | None = None, axes: dict[str, Any] | None = None, source: dict[str, Any] | None = None) -> dict[str, Any]:
-    """A series saved in place of the one of that name on that figure (never of an orphan: its
-    figure is not this one, whatever id it kept): every point's value read again from its pixel
-    through `calibration`. `source` is the one the figure was opened
-    with: where the store knows no place for the figure (an XML paper's, found on the PDF kept
-    beside it only when it is rendered), its page and box are the series' place."""
+IMAGE_KEYS = ("width", "height", "scale", "sha256")
+
+
+def _image(image: dict[str, Any] | None) -> dict[str, Any]:
+    """What is kept of an image: its size, its scale and its hash — never where it lay on a disk."""
+    return {k: (image or {}).get(k) for k in IMAGE_KEYS}
+
+
+def save(lib_dir: Path, conn: sqlite3.Connection, figure: str, series: str, calibration: dict[str, Any], points: Sequence[dict[str, Any]], *, image: dict[str, Any], colour: str | None = None,
+         method: dict[str, Any] | None = None, axes: dict[str, Any] | None = None, source: dict[str, Any] | None = None) -> dict[str, Any]:
+    """A series saved in place of the one of that name on that figure (never of one kept for
+    review: it is no figure's): every point's value read again from its pixel through
+    `calibration`. `image` is the one the figure was opened as (`render`): the points are pixels
+    of it, so it must be the picture of the figure on disk still, and a copy of it is kept by its
+    hash, which binds the series to the figure. `source` is the one the figure was opened with:
+    where the store knows no place for the figure (an XML paper's, found on the PDF kept beside it
+    only when it is rendered), its page and box are the series' place."""
     from .library import now_iso
 
     ensure_schema(conn)
@@ -807,21 +850,30 @@ def save(conn: sqlite3.Connection, figure: str, series: str, calibration: dict[s
     src = figure_source(conn, figure)
     if source and src["page"] is None:
         src["page"], src["bbox"] = source.get("page"), source.get("bbox")
+    shown = picture_path(lib_dir, figure)
+    data = shown.read_bytes() if shown.is_file() else None
+    sha = hashlib.sha256(data).hexdigest() if data is not None else None
+    if sha is None or (image or {}).get("sha256") != sha:
+        raise ValueError("these points are not of the figure's picture as it is now: open the figure again")
+    kept = original_path(lib_dir, sha)
+    if not kept.exists():
+        kept.parent.mkdir(parents=True, exist_ok=True)
+        kept.write_bytes(data)
     ax = axes or {}
     x, y = ax.get("x") or {}, ax.get("y") or {}
     with conn:
         old = conn.execute("SELECT id FROM digitised WHERE figure = ? AND series = ? AND orphan = 0", (figure, name)).fetchone()
-        row = (src["paper"], figure, src.get("label"), src.get("page"), json.dumps(src.get("bbox")) if src.get("bbox") else None, name, colour,
-               json.dumps(cal.to_dict()), json.dumps({"reader": METHOD, **(method or {})}), json.dumps(image or {}),
+        row = (src["paper"], figure, sha, src.get("label"), src.get("page"), json.dumps(src.get("bbox")) if src.get("bbox") else None, name, colour,
+               json.dumps(cal.to_dict()), json.dumps({"reader": METHOD, **(method or {})}), json.dumps(_image(image)),
                x.get("label"), x.get("unit"), y.get("label"), y.get("unit"), now_iso())
         if old is not None:
             did = old["id"]
             conn.execute("DELETE FROM digitised_points WHERE digitised = ?", (did,))
             conn.execute("DELETE FROM digitised_fits WHERE digitised = ?", (did,))  # the points changed: a fit of the old ones is no fit of these
-            conn.execute("UPDATE digitised SET paper=?, figure=?, figure_label=?, page=?, bbox=?, series=?, colour=?, calibration=?, method=?, image=?, x_label=?, x_unit=?, y_label=?, y_unit=?, at=? WHERE id = ?",
+            conn.execute("UPDATE digitised SET paper=?, figure=?, picture=?, figure_label=?, page=?, bbox=?, series=?, colour=?, calibration=?, method=?, image=?, x_label=?, x_unit=?, y_label=?, y_unit=?, at=? WHERE id = ?",
                          (*row, did))
         else:
-            cur = conn.execute("INSERT INTO digitised(paper, figure, figure_label, page, bbox, series, colour, calibration, method, image, x_label, x_unit, y_label, y_unit, at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", row)
+            cur = conn.execute("INSERT INTO digitised(paper, figure, picture, figure_label, page, bbox, series, colour, calibration, method, image, x_label, x_unit, y_label, y_unit, at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", row)
             did = cur.lastrowid
         conn.executemany("INSERT INTO digitised_points(digitised, ordinal, x, y, px, py, how) VALUES (?,?,?,?,?,?,?)",
                          [(did, i, p["x"], p["y"], p["px"], p["py"], p["how"]) for i, p in enumerate(pts)])
@@ -857,14 +909,14 @@ def one(conn: sqlite3.Connection, did: int) -> dict[str, Any]:
 
 
 def of_figure(conn: sqlite3.Connection, figure: str) -> list[dict[str, Any]]:
-    """The figure's series. An orphan is no figure's: the id it kept may be another picture's now."""
+    """The figure's series. One kept for review is no figure's: the id it kept may be another picture's now."""
     ensure_schema(conn)
     return [one(conn, r[0]) for r in conn.execute("SELECT id FROM digitised WHERE figure = ? AND orphan = 0 ORDER BY id", (figure,))]
 
 
 def orphans(conn: sqlite3.Connection, paper: str) -> list[dict[str, Any]]:
-    """The paper's series that no reading since has found a figure for, each with the figure it
-    had (`figure`, `figure_label`)."""
+    """The paper's series to review — the paper no longer draws the picture each was read from —
+    each with the figure it was with (`figure`, `figure_label`)."""
     ensure_schema(conn)
     return [one(conn, r[0]) for r in conn.execute("SELECT id FROM digitised WHERE paper = ? AND orphan = 1 ORDER BY id", (paper,))]
 
@@ -875,72 +927,73 @@ def delete(conn: sqlite3.Connection, did: int) -> bool:
         return conn.execute("DELETE FROM digitised WHERE id = ?", (did,)).rowcount > 0
 
 
-def remap(conn: sqlite3.Connection, key: str) -> dict[str, Any]:
-    """After the paper's nodes were replaced: each digitised series follows its figure — to the
-    figure its caption's number names now, else to the one picture on its page whose box is
-    near the one it was cut from (`figures.SAME_PLACE`) — and one that finds none is kept,
-    marked an orphan: a person's work is never dropped by a reading. A node's id alone keeps
-    none: another reading may give it to another picture. The whole mapping is made
-    before a row moves, so two figures that trade ids trade their series. A series is an orphan
-    too when one of its name is already where it would go: one that stays there, else one that
-    came first. An orphan keeps the id of the figure it had, and is in no series' way.
-    `{moved, orphaned}`."""
+def attach(lib_dir: Path, conn: sqlite3.Connection, did: int, figure: str) -> dict[str, Any]:
+    """A person puts a series on a figure of its paper — one kept for review, its picture and the
+    figure's before them: it is that figure's from now on, bound to the picture the figure was
+    opened as. What was saved is not touched: its points and calibration stay pixels of the
+    picture it was read from."""
+    s = one(conn, did)
+    src = figure_source(conn, figure)
+    if src["paper"] != s["paper"]:
+        raise ValueError("a series is put on a figure of its own paper")
+    shown = picture_path(lib_dir, figure)
+    if not shown.is_file():
+        raise ValueError("open the figure before putting a series on it")
+    if conn.execute("SELECT 1 FROM digitised WHERE figure = ? AND series = ? AND orphan = 0 AND id != ?", (figure, s["series"], did)).fetchone() is not None:
+        raise ValueError(f"the figure has a series named {s['series']!r} already: delete one of the two first")
     with conn:
-        return _remap(conn, key)
+        conn.execute("UPDATE digitised SET figure = ?, picture = ?, figure_label = ?, orphan = 0 WHERE id = ?", (figure, hashlib.sha256(shown.read_bytes()).hexdigest(), src.get("label"), did))
+    return one(conn, did)
 
 
-def _remap(conn: sqlite3.Connection, key: str) -> dict[str, Any]:
-    from . import figures
-
+def reattach(lib_dir: Path, conn: sqlite3.Connection, key: str) -> int:
+    """After the paper's nodes were replaced: each digitised series is with the figure that is
+    drawn as its picture now — the one picture of that hash, or its own figure among several —
+    whatever id that figure has in this reading; one whose picture the paper no longer draws is
+    kept, for a person to review. No caption's number and no place on a page moves a series: two
+    figures can share either. A series is kept for review too when one of its name is already
+    where it would go. How many this reading left without a figure."""
     ensure_schema(conn)
-    rows = conn.execute("SELECT id, figure, figure_label, page, bbox, series, orphan FROM digitised WHERE paper = ? ORDER BY id", (key,)).fetchall()
+    rows = conn.execute("SELECT id, figure, picture, series, orphan FROM digitised WHERE paper = ? ORDER BY orphan, id", (key,)).fetchall()
     if not rows:
-        return {"moved": 0, "orphaned": 0}
-    numbers = figures.figure_numbers(conn, key)
-    on_page: dict[int, list[tuple[str, tuple[float, ...]]]] = {}
-    for r in figures.pictures(conn, key):
-        on_page.setdefault(r["page"], []).append((r["node_id"], figures._box(r)))
-    to: dict[int, str | None] = {}
-    for r in rows:
-        now: str | None = None
-        if r["figure_label"] and r["figure_label"] in numbers:
-            now = numbers[r["figure_label"]]
-        elif r["page"] is not None and r["bbox"]:
-            box = json.loads(r["bbox"])
-            near = [n for n, b in on_page.get(r["page"], []) if figures.overlap(box, b) >= figures.SAME_PLACE]
-            now = near[0] if len(near) == 1 else r["figure"] if r["figure"] in near else None
-        to[r["id"]] = now
+        return 0
+    drawn: dict[str, list[str]] = {}
+    for (node,) in conn.execute("SELECT node_id FROM nodes WHERE paper = ? AND type IN ('picture', 'chart') ORDER BY rowid", (key,)).fetchall():
+        try:
+            sha = picture_sha(lib_dir, conn, node)
+        except Exception:  # noqa: BLE001 — a picture that cannot be cut is no series' picture; never a reason a rebuild fails
+            sha = None
+        if sha is not None:
+            drawn.setdefault(sha, []).append(node)
+    to: dict[int, str] = {}
     taken: set[tuple[str, str]] = set()
-    for r in sorted(rows, key=lambda r: r["orphan"] or to[r["id"]] != r["figure"]):  # the ones that stay, then the rest as they came
-        now = to[r["id"]]
-        if now is None:
-            continue
-        if (now, r["series"]) in taken:
-            to[r["id"]] = None
-        taken.add((now, r["series"]))
-    conn.execute("UPDATE digitised SET orphan = 1 WHERE paper = ?", (key,))  # all out of the way, so a figure another series leaves is free when it is moved into
     for r in rows:
-        if to[r["id"]] is not None:
-            conn.execute("UPDATE digitised SET figure = ?, orphan = 0 WHERE id = ?", (to[r["id"]], r["id"]))
-    return {"moved": sum(now is not None and now != r["figure"] for r, now in zip(rows, to.values())), "orphaned": sum(now is None for now in to.values())}
+        nodes = drawn.get(r["picture"], [])
+        now = nodes[0] if len(nodes) == 1 else r["figure"] if r["figure"] in nodes else None
+        if now is not None and (now, r["series"]) not in taken:
+            taken.add((now, r["series"]))
+            to[r["id"]] = now
+    with conn:
+        conn.execute("UPDATE digitised SET orphan = 1 WHERE paper = ?", (key,))  # all out of the way, so a figure's id another series leaves is free when it is moved into
+        for did, now in to.items():
+            conn.execute("UPDATE digitised SET figure = ?, orphan = 0 WHERE id = ?", (now, did))
+    return sum(not r["orphan"] and r["id"] not in to for r in rows)
 
 
 def carry(conn: sqlite3.Connection, stub: str, key: str) -> int:
     """Before the paper `stub` is deleted for being `key` filed twice: its digitised series go to
-    `key`, each to the figure there that is its own (`remap`), else kept as an orphan — a
-    person's work does not go with a stub's rows. How many. Not committed."""
+    `key`, kept for review until a reading of `key` draws their pictures (`reattach`) or a person
+    puts them on a figure — a person's work does not go with a stub's rows. How many. Not committed."""
     if conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'digitised'").fetchone() is None:
         return 0
-    n = conn.execute("UPDATE digitised SET paper = ? WHERE paper = ?", (key, stub)).rowcount
-    if n:
-        _remap(conn, key)
-    return n
+    return conn.execute("UPDATE digitised SET paper = ?, orphan = 1 WHERE paper = ?", (key, stub)).rowcount
 
 
-def follow(conn: sqlite3.Connection, key: str) -> list[tuple[str, str]]:
+def follow(lib_dir: Path, conn: sqlite3.Connection, key: str) -> list[tuple[str, str]]:
     """Once a paper's nodes are replaced, whatever replaced them: its plots follow their figures
-    or are removed (`figures.remap`), its digitised series follow theirs or are kept as orphans
-    (`remap`). What there is to say of it, each an `events` row: `[(logger, message)]`."""
+    or are removed (`figures.remap`), its digitised series stay with the figures drawn as their
+    pictures or are kept for review (`reattach`). What there is to say of it, each an `events`
+    row: `[(logger, message)]`."""
     from . import figures
     from .library import now_iso
     from .store import log_event
@@ -949,9 +1002,9 @@ def follow(conn: sqlite3.Connection, key: str) -> list[tuple[str, str]]:
     removed = figures.removed_note(figures.remap(conn, key))
     if removed:
         said.append(("figures", removed))
-    n = remap(conn, key)["orphaned"]
+    n = reattach(lib_dir, conn, key)
     if n:
-        said.append(("digitise", f"{n} digitised series no longer {'have' if n != 1 else 'has'} a figure in this reading: kept, marked without one"))
+        said.append(("digitise", f"{n} digitised series {'are' if n != 1 else 'is'} of a picture this reading no longer draws: kept, for review in the Plots tab"))
     for logger, message in said:
         log_event(conn, key, now_iso(), logger, message)
     return said
@@ -1025,7 +1078,7 @@ def unsaved(item: dict[str, Any], source: dict[str, Any] | None = None) -> dict[
     src = source or {}
     return {"id": None, "paper": None, "figure": None, "figure_label": None, "page": None, "bbox": None, "file": src.get("file"),
             "series": str(item.get("series") or "series"), "colour": item.get("colour"), "calibration": cal.to_dict(),
-            "method": {"reader": METHOD, **(item.get("method") or {})}, "image": item.get("image") or {},
+            "method": {"reader": METHOD, **(item.get("method") or {})}, "image": _image(item.get("image")),
             "axes": {"x": {"label": (ax.get("x") or {}).get("label"), "unit": (ax.get("x") or {}).get("unit"), "log": cal.x.log},
                      "y": {"label": (ax.get("y") or {}).get("label"), "unit": (ax.get("y") or {}).get("unit"), "log": cal.y.log}},
             "orphan": False, "at": now_iso(), "points": _points(cal, item.get("points") or []), "fits": item.get("fits") or {}}
@@ -1186,7 +1239,7 @@ def answer(op: str, req: dict[str, Any], get_lib: Any) -> dict[str, Any]:
     - `plots` {lib, query, trend, limit} → `plots` {figures, total, query}: `find`.
     - `digitise_open` {lib, figure} | {path} → `digitise` {source, image, auto, palette, saved,
       orphans}: the figure rendered (or the image opened), the axes and colours offered, its
-      saved series, and its paper's series that have no figure now.
+      saved series, and its paper's series to review, each with the `picture` it was read from.
     - `digitise_axes` {image, near} → `axes` {auto}: the axes offered again, of the plot that
       holds the pixel `near` (a panel of a figure of several).
     - `digitise_extract` {image, colour, tolerance, region, mode, step, calibration} → `extracted`
@@ -1194,6 +1247,8 @@ def answer(op: str, req: dict[str, Any], get_lib: Any) -> dict[str, Any]:
     - `digitise_save` {lib, figure, series, calibration, points, colour, method, image, axes, source} →
       `digitised` {series}: saved in place of the one of that name; `source` the open's, for its place.
     - `digitise_delete` {lib, series_id} → `digitised` {deleted}.
+    - `digitise_attach` {lib, series_id, figure} → `digitised` {series}: a series put on a figure
+      of its paper by a person (`attach`).
     - `digitise_export` {lib, ids, path} | {series, source, path} → `exported` {files: [{csv,
       sidecar, fits, points}], points}: saved series by id, or unsaved ones (an image file's)
       given whole; one set of files for each set of axes.
@@ -1224,6 +1279,9 @@ def answer(op: str, req: dict[str, Any], get_lib: Any) -> dict[str, Any]:
             got = render(lib.dir, conn, str(req["figure"]))
             saved = of_figure(conn, str(req["figure"]))
             lost = orphans(conn, got["source"]["paper"])
+            for s in lost:
+                kept = original_path(lib.dir, s["image"]["sha256"])
+                s["picture"] = str(kept) if kept.is_file() else None
         finally:
             conn.close()
         got.pop("_img", None)
@@ -1265,9 +1323,11 @@ def answer(op: str, req: dict[str, Any], get_lib: Any) -> dict[str, Any]:
     conn = open_store(lib.store_path)
     try:
         if op == "digitise_save":
-            saved = save(conn, str(req["figure"]), str(req.get("series") or ""), req["calibration"], req.get("points") or [], colour=req.get("colour"),
-                         method=req.get("method"), image=req.get("image"), axes=req.get("axes"), source=req.get("source"))
+            saved = save(lib.dir, conn, str(req["figure"]), str(req.get("series") or ""), req["calibration"], req.get("points") or [], image=req.get("image") or {}, colour=req.get("colour"),
+                         method=req.get("method"), axes=req.get("axes"), source=req.get("source"))
             return {"event": "digitised", "lib": lib.id, "series": saved}
+        if op == "digitise_attach":
+            return {"event": "digitised", "lib": lib.id, "series": attach(lib.dir, conn, int(req["series_id"]), str(req["figure"]))}
         if op == "digitise_delete":
             return {"event": "digitised", "lib": lib.id, "deleted": delete(conn, int(req["series_id"]))}
         if op == "digitise_export":
