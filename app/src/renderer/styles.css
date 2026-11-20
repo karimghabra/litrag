@@ -506,6 +506,7 @@ table.chart-table th:first-child { text-align: left; font-weight: 500; }
 .dg-saved .saved { display: flex; gap: 6px; align-items: center; padding: 2px 4px; border-radius: 4px; cursor: pointer; }
 .dg-saved .saved:hover { background: var(--hover); }
 .dg-saved .orphan { display: flex; gap: 6px; align-items: center; padding: 2px 4px; }
+.dg-saved .orphan img { max-width: 96px; max-height: 64px; border: 1px solid var(--line); flex: none; }
 .dg-saved .saved.on { background: var(--soft); }
 .dg-saved .dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
 .dg-points { max-height: 220px; overflow: auto; }

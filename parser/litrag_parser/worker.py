@@ -286,12 +286,12 @@ class Worker:
     @staticmethod
     def _remap_figures(conn: Any, lib: Library, key: str, req_id: Any) -> None:
         """The paper's plots once its nodes are replaced: each follows its figure into the new
-        rows, or is removed, and a person's digitised series follow theirs or are kept without
-        one (digitise.follow); what went or was left is said — an events row and a log line —
+        rows, or is removed, and a person's digitised series stay with the figures drawn as their
+        pictures or are kept for review (digitise.follow); what went or was left is said — an events row and a log line —
         whether or not the figures are read after, so no plot is left on a node that is gone."""
         from . import digitise
 
-        for logger, message in digitise.follow(conn, key):
+        for logger, message in digitise.follow(lib.dir, conn, key):
             emit({"event": "log", "id": req_id, "lib": lib.id, "paper": key, "logger": logger, "message": message})
 
     @staticmethod
@@ -1378,7 +1378,7 @@ class Worker:
                 emit({"event": "project", "id": req_id, "project": project_rows.describe(lib, name=req.get("name"), description=req.get("description"))})
             elif op in ("search", "suggest", "query", "digitise_open", "digitise_extract", "digitise_axes"):
                 self.answer_async(req)  # the digitiser's: a page rendered, OCR run
-            elif op in ("plots", "digitise_save", "digitise_delete", "digitise_export", "fit"):
+            elif op in ("plots", "digitise_save", "digitise_attach", "digitise_delete", "digitise_export", "fit"):
                 from . import digitise
 
                 emit({"id": req_id, **digitise.answer(op, req, lambda: self._lib(req))})

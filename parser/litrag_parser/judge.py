@@ -199,7 +199,7 @@ def main(argv: list[str] | None = None) -> int:
         recover_from_pdf(doc, source if row["format"] == "pdf" else None)
         tree = build_tree(doc, row["key"], title_hint=hint, judge=judge)
         save_tree(conn, row["key"], tree, parser=f"judge {model}", parsed_at=now_iso(), seconds=0.0)
-        said = follow(conn, row["key"])  # its plots and a person's digitised series follow their figures into the new nodes, as a rebuild's do
+        said = follow(lib, conn, row["key"])  # its plots follow their figures into the new nodes and a person's digitised series stay with their pictures, as a rebuild's do
         refs, cites = link_citations(tree, source.read_bytes() if row["format"] == "jats" and source and source.exists() else None)
         save_refs(conn, row["key"], refs, cites)
         s = judge.summary()

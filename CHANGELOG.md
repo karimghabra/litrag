@@ -12,10 +12,11 @@
   `digitised_fits`), exported as CSV with a JSON sidecar that traces each value to its pixel.
   **Fit** reports a logistic or Gompertz curve's plateau, maximum rate, time to half maximum and
   lag, with 95% intervals and the residuals. New worker ops `plots`, `digitise_open`,
-  `digitise_axes`, `digitise_extract`, `digitise_save`, `digitise_delete`, `digitise_export`, `fit`;
+  `digitise_axes`, `digitise_extract`, `digitise_save`, `digitise_attach`, `digitise_delete`, `digitise_export`, `fit`;
   a benchmark, `python -m litrag_parser.digitise_bench`;
-  the Papers tab's figure pane gains **Digitise**. A rebuild moves a person's series with its
-  figure and never drops one.
+  the Papers tab's figure pane gains **Digitise**. A rebuild keeps a person's series with the
+  figure still drawn as the picture it was read from, and never drops one: a series whose picture
+  is gone is listed for review, to be put on a figure by a person.
 
 - **Nothing phones Microsoft or Google any more.** ONNX Runtime, the OCR engine the chart reader
   (and Docling) runs, sent usage events to `mobile.events.data.microsoft.com` on every figure read

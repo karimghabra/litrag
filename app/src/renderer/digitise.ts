@@ -100,7 +100,6 @@ export function valued(points: Pt[], cal: Calibration | null): Pt[] {
   return out;
 }
 
-/** The point nearest (px, py) within `reach` pixels, or -1. */
 /** What of a saved series belongs on the picture shown. Its points and its calibration are pixels
  *  of the image it was read from (`image.sha256`): on that image, both; on any other — the figure
  *  cut differently since, or from another PDF — neither, so nothing of it is drawn there and no
@@ -110,6 +109,7 @@ export function onPicture(s: { calibration: CalibrationDict; points: Pt[]; image
   return same ? { same, points: s.points.map((p) => ({ px: p.px, py: p.py, how: p.how })), calibration: { x: { ...s.calibration.x }, y: { ...s.calibration.y } } } : { same, points: [], calibration: null };
 }
 
+/** The point nearest (px, py) within `reach` pixels, or -1. */
 export function nearest(points: Pt[], px: number, py: number, reach: number): number {
   let best = -1;
   let bestD = reach;
