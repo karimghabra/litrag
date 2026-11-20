@@ -6,7 +6,7 @@
 
 import { app, BrowserWindow, dialog, ipcMain, session, shell } from 'electron';
 import { readFile } from 'node:fs/promises';
-import { closeGuard } from './closing.ts';
+import { closeGuard, pageQuestion } from './closing.ts';
 import { join } from 'node:path';
 import { runCollect, type CollectJob } from './collect.ts';
 import { displayCommand } from './launch.ts';
@@ -49,6 +49,10 @@ ipcMain.on('app:closing-asks', () => {
   asks = true;
 });
 
+/** The question asked of the page on closing, and its answer — the page's, or "may close" when it can give none. */
+const closing = pageQuestion();
+ipcMain.on('app:close-answer', (_e, ok: boolean) => closing.answer(ok !== false));
+
 /** `LITRAG_HEADLESS=1`: no window on any screen — hidden, rendered offscreen — for tests and CI. */
 const headless = process.env['LITRAG_HEADLESS'] === '1';
 
@@ -79,12 +83,20 @@ function createWindow(): void {
   // what is not saved on the Plots tab's picture is asked about before the window goes, as before anything else replaces it
   const guard = closeGuard(async () => {
     if (!asks || w.webContents.isDestroyed() || w.webContents.isCrashed()) return true;
-    const answer = new Promise<boolean>((resolve) => ipcMain.once('app:close-answer', (_e, ok: boolean) => resolve(ok !== false)));
-    w.webContents.send('app:closing');
-    const ok = await answer;
+    const ok = await closing.ask(() => w.webContents.send('app:closing'));
     if (!ok) quitting = false;
     return ok;
   });
+  // a page that is gone, hangs or is loading again will not answer: the question waiting is settled, and none is put to it until it says it answers
+  const cannotAnswer = (): void => {
+    asks = false;
+    closing.answer(true);
+  };
+  w.webContents.on('render-process-gone', cannotAnswer);
+  w.webContents.on('did-start-navigation', (details) => {
+    if (details.isMainFrame && !details.isSameDocument) cannotAnswer();
+  });
+  w.on('unresponsive', () => closing.answer(true));
   win.on('close', (e) => guard(() => e.preventDefault(), () => (quitting ? app.quit() : w.close())));
   win.on('closed', () => {
     win = null;

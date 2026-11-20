@@ -23,3 +23,28 @@ export function closeGuard(ask: () => Promise<boolean>): (prevent: () => void, c
       });
   };
 }
+
+/**
+ * The question a window puts to its page, and the one answer it takes: `ask` sends it and waits;
+ * `answer` settles the question that is waiting, and does nothing when none is. The page's own
+ * answer comes through it, and so does everything that means the page will never give one — it
+ * is gone, it hangs, it is loading again — as "may close": a window whose page cannot answer is
+ * never one that cannot be closed.
+ */
+export function pageQuestion(): { ask(send: () => void): Promise<boolean>; answer(ok: boolean): void } {
+  let waiting: ((ok: boolean) => void) | null = null;
+  return {
+    ask(send) {
+      return new Promise<boolean>((resolve) => {
+        waiting?.(true);
+        waiting = resolve;
+        send();
+      });
+    },
+    answer(ok) {
+      const settle = waiting;
+      waiting = null;
+      settle?.(ok);
+    },
+  };
+}
