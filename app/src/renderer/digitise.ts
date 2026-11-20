@@ -150,6 +150,17 @@ export function hex(r: number, g: number, b: number): string {
   return `#${[r, g, b].map((v) => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0')).join('')}`;
 }
 
+/** Whether a colour picked is the colour a series was found by, as finding its points takes it:
+ *  within `tolerance` in RGB, the distance a pixel may be from the series' colour and count as it.
+ *  A click on a curve takes one pixel's shade, so the same curve seldom gives the same `#rrggbb`
+ *  twice. A series found by no colour is no colour's. */
+export function sameCurve(found: string | null, picked: string, tolerance: number): boolean {
+  if (!found) return false;
+  const rgb = (c: string) => [1, 3, 5].map((i) => parseInt(c.slice(i, i + 2), 16));
+  const [a, b] = [rgb(found), rgb(picked)];
+  return Math.hypot(a[0]! - b[0]!, a[1]! - b[1]!, a[2]! - b[2]!) <= tolerance;
+}
+
 /** A number as a person reads it off a plot: four significant digits. */
 export function num(v: number | null | undefined, digits = 4): string {
   if (v === null || v === undefined || !Number.isFinite(v)) return '';

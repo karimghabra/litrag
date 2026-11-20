@@ -1,5 +1,6 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { Calibration, addPoint, charted, deletePoint, exportName, fitRows, fitSvg, hex, movePoint, nearest, nextName, num, onPicture, tryCalibration, valued, type FitResult, type Pt } from '../src/renderer/digitise.ts';
+import { Calibration, addPoint, charted, deletePoint, exportName, fitRows, fitSvg, hex, movePoint, nearest, nextName, num, onPicture, sameCurve, tryCalibration, valued, type FitResult, type Pt } from '../src/renderer/digitise.ts';
 
 const square = { x: { p1: [100, 400] as [number, number], v1: 0, p2: [500, 400] as [number, number], v2: 60, log: false }, y: { p1: [100, 400] as [number, number], v1: 0, p2: [100, 100] as [number, number], v2: 0.8, log: false } };
 
@@ -159,5 +160,31 @@ describe('the name a new series is offered', () => {
     expect(nextName(['a', 'series 3'])).toBe('series 4');
     const taken = ['series 1', 'series 3', 'series 4'];
     expect(taken).not.toContain(nextName(taken));
+  });
+});
+
+describe('a colour picked, and the curve the series being edited was found by', () => {
+  // the two-series turbidity fixture's curves, as the parser's truth file gives them
+  const truth = JSON.parse(readFileSync(new URL('../../parser/tests/fixtures/digitise/truth.json', import.meta.url), 'utf8')) as Record<string, { series: { colour: string }[] }>;
+  const [blue, red] = truth['turbidity_markers']!.series.map((s) => s.colour) as [string, string];
+  const tolerance = 60; // the window's default, and the parser's TOLERANCE
+
+  it('is the same curve when a second click on it takes a slightly different shade', () => {
+    expect(blue).toBe('#1f4e9c');
+    expect(sameCurve(blue, blue, tolerance)).toBe(true);
+    expect(sameCurve(blue, '#234f97', tolerance)).toBe(true); // an anti-aliased pixel of the same line
+    expect(sameCurve(blue, '#3a63a8', tolerance)).toBe(true); // a JPEG's lighter edge of it: 36 away
+  });
+
+  it('is another curve when it is the figure’s other series, or past the tolerance', () => {
+    expect(sameCurve(blue, red, tolerance)).toBe(false);
+    expect(sameCurve(red, blue, tolerance)).toBe(false);
+    expect(sameCurve('#000000', '#3c0000', 60)).toBe(true); // 60 away: within
+    expect(sameCurve('#000000', '#3d0000', 60)).toBe(false); // 61 away: past
+    expect(sameCurve(blue, '#3a63a8', 20)).toBe(false); // a tighter tolerance parts what a looser one joins
+  });
+
+  it('is another curve for a series found by no colour', () => {
+    expect(sameCurve(null, blue, tolerance)).toBe(false);
   });
 });
