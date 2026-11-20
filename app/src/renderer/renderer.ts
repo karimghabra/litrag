@@ -1217,7 +1217,13 @@ function wire() {
     }
     renderPapers();
   });
-  $<HTMLSelectElement>('library').addEventListener('change', (e) => setProject((e.target as HTMLSelectElement).value || null));
+  $<HTMLSelectElement>('library').addEventListener('change', (e) => {
+    const sel = e.target as HTMLSelectElement;
+    void hooks.mayLeavePlots().then((ok) => {
+      if (ok) setProject(sel.value || null);
+      else sel.value = ctx.lib ?? '';
+    });
+  });
   $('add').addEventListener('click', async () => ingest(await window.litrag.choosePdfs()));
   $('reparse').addEventListener('click', async () => {
     if (!ctx.lib || !state.papers.size) return;

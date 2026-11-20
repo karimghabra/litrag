@@ -173,13 +173,34 @@ test('points found while a saved series is being edited are saved beside it, or 
   await expect(rows).toHaveCount(2);
   expect(pointsOf(await rows.first().textContent())).toBe(first);
   expect(pointsOf(await rows.nth(1).textContent())).toBe(working);
-  // an edit to the axes alone leaves a saved series' points its own: New series starts with none of them
+  // nothing takes the place of points that are not saved without asking; "Cancel" (2) leaves them as they are
+  const unsaved = `${working + 1} points · not saved`;
+  await answerWith(2);
+  await rows.first().click(); // a saved series loaded
+  await expect(page.locator('#dg-count')).toContainText(unsaved);
+  await expect(page.locator('#dg-saved .saved.on')).toHaveCount(0);
+  await pickSwatch(TRUTH['turbidity_markers']!.series[1]!.colour); // another curve's colour
+  await expect(page.locator('#dg-count')).toContainText(unsaved);
+  await page.click('#dg-open-image'); // another picture
+  await expect(page.locator('#dg-count')).toContainText(unsaved);
+  await expect(page.locator('#dg-title')).toContainText('Figure 1');
+  // "Save" (0): they are saved as the new series they were, then the saved series asked for is loaded
+  await answerWith(0);
   await rows.first().click();
-  await expect(page.locator('#dg-count')).toContainText(`${first} points`);
+  await expect(rows).toHaveCount(3);
+  await expect(rows.nth(2)).toContainText('series 3');
+  expect(pointsOf(await rows.nth(2).textContent())).toBe(working + 1);
+  await expect(page.locator('#dg-saved .saved.on')).toContainText(TRUTH['turbidity_markers']!.series[0]!.name);
+  await expect(page.locator('#dg-count')).toHaveText(`${first} points`);
+  // an edit to the axes alone is a change too; "Discard" (1): New series starts with none of the saved series' points
   await page.fill('#dg-yunit', 'a.u.');
+  await expect(page.locator('#dg-count')).toContainText('not saved');
+  await answerWith(1);
   await page.click('#dg-new');
   await expect(page.locator('#dg-count')).toHaveText('');
-  await expect(rows).toHaveCount(2);
+  await expect(page.locator('#dg-name')).toHaveValue('series 4');
+  await expect(rows).toHaveCount(3);
+  expect(pointsOf(await rows.first().textContent())).toBe(first);
   expect(await page.locator('#log .log-line.error').count()).toBe(0);
 });
 

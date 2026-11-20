@@ -891,7 +891,9 @@ not changed by that. A stub paper deleted because its bytes were filed again und
 identifier, or kept beside an XML paper, hands its series to that paper first, for
 review until a reading of it draws their pictures. The cost is known: a change in how
 figures are cut (a new renderer, another PDF) sends series to review that a person
-must put back.
+must put back. A merge of projects brings a paper's series with it — points, fits and
+the kept pictures — for review in the merged library until its reading of the paper
+draws their pictures; a second merge brings none twice.
 
 **Fits are numpy's.** Logistic and Zwietering's Gompertz, both with a baseline,
 fitted by Levenberg–Marquardt from starts read off the data; intervals from the

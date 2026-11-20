@@ -135,7 +135,7 @@ drawn as that picture now, whatever its node id; no caption's number and no
 place on a page moves one. A series whose picture the paper no longer draws
 is kept — no figure's, listed under Needs review beside its picture — until
 a person puts it on a figure: a rebuild never drops a
-person's work, and a stub paper dropped for being another filed twice hands
+person's work, a merge of projects brings a paper's series with it, and a stub paper dropped for being another filed twice hands
 its series to that one. Which figures are plots is the chart reader's answer (a frame
 with numbers beside its axes), not a model's; one not read yet is "unknown",
 and its caption's words rank it.
