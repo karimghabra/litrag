@@ -10,7 +10,7 @@
  * digitise.ts's; this module draws and listens.
  */
 
-import { Calibration, addPoint, charted, deletePoint, exportName, fitRows, fitSvg, hex, movePoint, nearest, nextName, num, onPicture, tryCalibration, valued, type AxisCal, type CalibrationDict, type FitResult, type Pt } from './digitise.ts';
+import { Calibration, addPoint, charted, deletePoint, exportName, fitRows, fitSvg, hex, movePoint, nearest, nextName, num, onPicture, sameCurve, tryCalibration, valued, type AxisCal, type CalibrationDict, type FitResult, type Pt } from './digitise.ts';
 import { $, activity, ctx, el, hooks, log, onProjectChange, onViewShown, projectName, rejectionText, request, showView } from './shared.ts';
 
 interface FoundFigure {
@@ -445,11 +445,12 @@ function newSeries(): void {
   $<HTMLInputElement>('dg-name').value = nextName((st.opened?.saved ?? []).map((s) => s.series));
 }
 
-/** A colour other than the one the saved series being edited was found by is another curve's:
- *  what is found by it is a new series, not that one's points. */
+/** A colour that is not the one the saved series being edited was found by — not within the
+ *  tolerance its points are found with — is another curve's: what is found by it is a new series,
+ *  not that one's points. */
 function anotherCurve(colour: string): boolean {
   const s = st.opened?.saved.find((x) => x.id === st.activeSaved);
-  return !!s && s.colour !== colour;
+  return !!s && !sameCurve(s.colour, colour, Number($<HTMLInputElement>('dg-tol').value));
 }
 
 /** A colour a person picked. Another curve's starts a new series, unless edits to the one on the
@@ -734,7 +735,10 @@ async function extract(): Promise<void> {
       image: st.imagePath, colour, tolerance, mode, region: st.region ?? undefined, calibration: cal ? cal.c : undefined,
     });
     if (!latest()) return;
-    if (anotherCurve(colour)) newSeries();
+    if (anotherCurve(colour)) {
+      newSeries();
+      renderSaved();
+    }
     st.points = r.points.map((p) => ({ px: p.px, py: p.py, how: 'auto' as const }));
     st.method = { mode: r.mode, asked: mode, tolerance, region: r.region, colour, auto_axes: st.fromAuto };
     changed();
