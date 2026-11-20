@@ -286,30 +286,6 @@ def test_a_curve_found_again_is_saved_as_the_series_it_was(tmp_path):
     assert digitise.one(conn, b["id"])["points"] == b["points"] and len(digitise.of_figure(conn, fig)) == 2
 
 
-def test_a_store_kept_before_series_were_bound_to_their_pictures_is_brought_along(tmp_path):
-    """The tables as they were first made — no picture column, a name unique whatever became of
-    the series — hold a person's rows: they are read as they are, each bound to the image it was
-    saved with, and saved again by their ids."""
-    lib, conn, key, fig = _library(tmp_path)
-    image = digitise.render(lib, conn, fig, offer=False)["image"]
-    conn.executescript("""
-CREATE TABLE digitised (id INTEGER PRIMARY KEY, paper TEXT NOT NULL REFERENCES papers(key) ON DELETE CASCADE, figure TEXT NOT NULL, figure_label TEXT, page INTEGER, bbox TEXT,
-  series TEXT NOT NULL, colour TEXT, calibration TEXT NOT NULL, method TEXT NOT NULL, image TEXT NOT NULL, x_label TEXT, x_unit TEXT, y_label TEXT, y_unit TEXT,
-  orphan INTEGER NOT NULL DEFAULT 0, at TEXT NOT NULL, UNIQUE(figure, series));
-CREATE TABLE digitised_points (digitised INTEGER NOT NULL REFERENCES digitised(id) ON DELETE CASCADE, ordinal INTEGER NOT NULL, x REAL NOT NULL, y REAL NOT NULL, px REAL NOT NULL, py REAL NOT NULL, how TEXT NOT NULL, PRIMARY KEY(digitised, ordinal));
-CREATE TABLE digitised_fits (digitised INTEGER NOT NULL REFERENCES digitised(id) ON DELETE CASCADE, model TEXT NOT NULL, status TEXT NOT NULL, result TEXT NOT NULL, plateau REAL, max_rate REAL, t_half REAL, lag REAL, r2 REAL, at TEXT NOT NULL, PRIMARY KEY(digitised, model));
-""")
-    conn.execute("INSERT INTO digitised(id, paper, figure, figure_label, page, series, calibration, method, image, at) VALUES (4, ?, ?, '1', 1, 'lag', ?, '{}', ?, 't')",
-                 (key, fig, json.dumps(CAL), json.dumps({**image, "path": "/somewhere/else.png"})))
-    conn.executemany("INSERT INTO digitised_points(digitised, ordinal, x, y, px, py, how) VALUES (4, ?, ?, ?, ?, ?, 'auto')", [(i, float(i), 0.1 * i, 100.0 + 40 * i, 400.0 - 30 * i) for i in range(6)])
-    conn.commit()
-    kept = digitise.of_figure(conn, fig)
-    assert [(s["id"], s["series"], len(s["points"]), s["image"]["sha256"]) for s in kept] == [(4, "lag", 6, image["sha256"])]
-    assert digitise.follow(lib, conn, key) == [] and [s["id"] for s in digitise.of_figure(conn, fig)] == [4]  # bound to the picture it was saved with: still the figure's
-    named = digitise.save(lib, conn, fig, "lag at 37 °C", CAL, PTS, image=image, series_id=4)
-    assert named["id"] == 4 and len(named["points"]) == 8 and len(digitise.of_figure(conn, fig)) == 1
-
-
 def test_an_xml_paper_without_a_pdf_says_why_it_cannot_be_drawn(tmp_path):
     conn = open_store(tmp_path / "store.sqlite")
     key = file_paper(conn, title="x", file="paper.xml", sha256="x1", fmt="jats", doi="10.1/x", pmid=None, pmcid=None, now="t").key

@@ -757,16 +757,9 @@ def load_image(path: str | Path) -> np.ndarray:
 
 
 def ensure_schema(conn: sqlite3.Connection) -> None:
-    """The digitisations' tables, made on the first call that needs them. A store whose rows
-    were kept before a series was bound to its picture is brought along: each row's picture is
-    the image it was saved with, and a name is its figure's own among the series that have one."""
+    """The digitisations' tables, made on the first call that needs them."""
     have = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('digitised', 'digitised_points', 'digitised_fits')")}
     if len(have) == 3:
-        if "picture" not in {r[1] for r in conn.execute("PRAGMA table_info(digitised)")}:
-            with conn:
-                conn.execute("ALTER TABLE digitised ADD COLUMN picture TEXT NOT NULL DEFAULT ''")
-                conn.execute("UPDATE digitised SET picture = COALESCE(json_extract(image, '$.sha256'), '')")
-                conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS digitised_of_figure ON digitised(figure, series) WHERE orphan = 0")
         return
     conn.executescript(
         """
