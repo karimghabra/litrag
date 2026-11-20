@@ -906,8 +906,8 @@ image's hash, the calibration, the method and every point's pixel, so a number c
 be found again on the page it came from. Series whose axes differ — panels of one
 figure — are never written under one header: each set of axes gets its own CSV,
 sidecar and fits. A series kept for review is not exported: its figure is not known.
-An image is recorded by its size, scale and hash, never by a path on the machine
-that digitised it. A figure's saved series export as they were saved, whatever axes
+An image is recorded by its size, scale and hash, and an image file by its name,
+never by a path on the machine that digitised it. A figure's saved series export as they were saved, whatever axes
 are on the screen.
 
 Not done: error bars of digitised points; several series found at once; a

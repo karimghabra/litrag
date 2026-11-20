@@ -390,6 +390,10 @@ class Worker:
                     self.do_model_label(req)
                 elif op == "figures":
                     self.do_figures(req)
+                elif op == "digitise_open":
+                    from . import digitise
+
+                    emit({"id": req.get("id"), **digitise.answer(op, req, lambda: self._lib(req))})
                 elif op == "figures_fetch":
                     self.do_figures_fetch(req)
                 elif op == "round":
@@ -1475,8 +1479,11 @@ class Worker:
             elif op == "describe":
                 lib = self._lib(req, write=True)
                 emit({"event": "project", "id": req_id, "project": project_rows.describe(lib, name=req.get("name"), description=req.get("description"))})
+            elif op == "digitise_open" and req.get("figure"):
+                self._lib(req)  # fail fast on a bad library
+                self.ingest_queue.put(req)  # cut from its PDF: pdfium runs on the ingest thread and no other. Its answer closes the request, so no `queued`
             elif op in ("search", "suggest", "query", "ask", "models", "digitise_open", "digitise_extract", "digitise_axes"):
-                self.answer_async(req)  # the digitiser's: a page rendered, OCR run
+                self.answer_async(req)  # the digitiser's that open no PDF: an image file read, OCR run
             elif op in ("plots", "digitise_save", "digitise_attach", "digitise_delete", "digitise_export", "fit"):
                 from . import digitise
 
