@@ -20,7 +20,7 @@ import { initAsk } from './ask.ts';
 import { initQuery } from './query.ts';
 import { initPlots } from './plotstab.ts';
 import { initSearch, loadCandidates } from './search.ts';
-import { $, ROLES, activity, chooseProject, ctx, dispatch, el, escapeHtml, hooks, log, onProjectChange, onViewShown, rejectionText, rememberedProject, request, roleColor, setProject, setStatus, showView, showWorkerProblem, type ProjectSummary } from './shared.ts';
+import { $, ROLES, activity, chooseProject, ctx, dispatch, el, escapeHtml, hooks, log, onProjectChange, onViewShown, rejectionText, rememberedProject, request, roleColor, setStatus, showView, showWorkerProblem, type ProjectSummary } from './shared.ts';
 import { initTypes, renderCanonicalTree, type CanonicalTree, type Mapping } from './types.ts';
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL('./pdf.worker.min.mjs', import.meta.url).href;
@@ -206,7 +206,7 @@ async function loadLibrariesOnce() {
     const o = el('option', undefined, 'No projects yet') as HTMLOptionElement;
     o.value = '';
     sel.append(o);
-    setProject(null);
+    await chooseProject(null);
     renderPapers();
     return;
   }
@@ -216,7 +216,7 @@ async function loadLibrariesOnce() {
     sel.value = id;
     return;
   }
-  setProject(id);
+  await chooseProject(id);
 }
 
 // ---- papers -----------------------------------------------------------------------------
@@ -1171,6 +1171,7 @@ function wire() {
   initQuery();
   initGraph();
   initPlots();
+  window.litrag.onClosing(() => hooks.mayLeavePlots());
   initLabels();
   onProjectChange(() => {
     state.selectedPaper = null;

@@ -6,6 +6,7 @@
 
 import { app, BrowserWindow, dialog, ipcMain, session, shell } from 'electron';
 import { readFile } from 'node:fs/promises';
+import { closeGuard } from './closing.ts';
 import { join } from 'node:path';
 import { runCollect, type CollectJob } from './collect.ts';
 import { displayCommand } from './launch.ts';
@@ -39,6 +40,15 @@ function startWorker(): ParserWorker {
   return w;
 }
 
+/** The app was asked to quit, not only a window to close: a close let through goes on to quit. */
+let quitting = false;
+
+/** The window's page has said it answers the question asked on closing; one still loading has nothing to ask about. */
+let asks = false;
+ipcMain.on('app:closing-asks', () => {
+  asks = true;
+});
+
 /** `LITRAG_HEADLESS=1`: no window on any screen — hidden, rendered offscreen — for tests and CI. */
 const headless = process.env['LITRAG_HEADLESS'] === '1';
 
@@ -63,7 +73,19 @@ function createWindow(): void {
       spellcheck: false,
     },
   });
+  asks = false;
   win.loadFile(join(__dirname, 'index.html'));
+  const w = win;
+  // what is not saved on the Plots tab's picture is asked about before the window goes, as before anything else replaces it
+  const guard = closeGuard(async () => {
+    if (!asks || w.webContents.isDestroyed() || w.webContents.isCrashed()) return true;
+    const answer = new Promise<boolean>((resolve) => ipcMain.once('app:close-answer', (_e, ok: boolean) => resolve(ok !== false)));
+    w.webContents.send('app:closing');
+    const ok = await answer;
+    if (!ok) quitting = false;
+    return ok;
+  });
+  win.on('close', (e) => guard(() => e.preventDefault(), () => (quitting ? app.quit() : w.close())));
   win.on('closed', () => {
     win = null;
   });
@@ -147,4 +169,8 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
 
-app.on('before-quit', () => worker?.stop());
+// a quit may still be called off by the question a window asks on closing: the worker, which a Save needs, stops only once the app does quit
+app.on('before-quit', () => {
+  quitting = true;
+});
+app.on('will-quit', () => worker?.stop());
