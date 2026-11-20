@@ -1,5 +1,5 @@
 """What every test starts from: no oracle configured, no test writing verdicts into
-the user's real library root, OpenAlex and open copies off, and Europe PMC, NCBI and the PMC
+the user's real library root, OpenAlex, open copies and figure images off, and Europe PMC, NCBI and the PMC
 Cloud Service pointed at a port nothing answers on. `fake_oracle` is an oracle over a toy embedder for the tests
 that need one; `epmc` a canned Europe PMC, NCBI and PMC Cloud Service on 127.0.0.1 (`Canned`), for
 the tests that ask them."""
@@ -26,6 +26,7 @@ def _no_oracle_leaks(monkeypatch):
     for env in ("LITRAG_EPMC_URL", "LITRAG_EPMC_PDF_URL", "LITRAG_NCBI_URL", "LITRAG_PMC_CLOUD_URL"):
         monkeypatch.setenv(env, "http://127.0.0.1:9")  # nor Europe PMC, NCBI or the PMC Cloud Service: the `epmc` fixture points them at a canned one
     monkeypatch.setenv("LITRAG_OPEN_COPIES", "off")  # nor any open copy's host: those that fetch one turn it on, against a canned one
+    monkeypatch.setenv("LITRAG_FIGURE_IMAGES", "off")  # nor is an XML paper's figure images asked for: those that ask turn it on, against a canned one
     yield
     lanes._active = None
 

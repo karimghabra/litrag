@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- **An XML paper's figures are drawn as images.** A paper read from JATS showed its figures only
+  as placeholders unless a PDF of it was kept beside it. Each `<graphic>` the XML names is now
+  fetched by PMCID: from the PMC Cloud Service (its record's `media_urls`, MD5 checked), else
+  Europe PMC's zip of the article's images (CRC checked), else cut from a PDF of the paper, PMC's
+  or the open copy OpenAlex names, kept through `keep_beside` (`figure_images.py`). Images live
+  under `figures/<key>/` with `figure_images` rows (label and caption from the XML, source,
+  SHA-256, pixels), join their node by the caption's number, and are drawn in the reading with
+  where they came from. Filing an XML paper fetches them (`LITRAG_FIGURE_IMAGES=off` stops it;
+  with `LITRAG_FIGURES=off` the image files are fetched and no PDF is asked for); the `figure_images` op, **Fetch figure images** on the Papers
+  tab, does it for papers filed before: resumable, polite, retrying a request that breaks off,
+  passing by what the services and the PDF fallback each answered for good (`figure_image_asks`). The tree op carries `images`, the papers op
+  each paper's image counts, and a merge carries the images. **Read all figures** beside it reads
+  every paper whose figures are not read (the `figures` op), for a library filed with the figures
+  off.
+
 - **Nothing phones Microsoft or Google any more.** ONNX Runtime, the OCR engine the chart reader
   (and Docling) runs, sent usage events to `mobile.events.data.microsoft.com` on every figure read
   with OCR, and Electron's spellchecker fetched a dictionary from Google's CDN on every new profile:

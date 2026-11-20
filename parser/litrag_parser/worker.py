@@ -24,6 +24,8 @@ import sys
 import threading
 import time
 import traceback
+import urllib.error
+import urllib.parse
 from pathlib import Path
 from typing import Any
 
@@ -35,6 +37,7 @@ from .edges import link_edges, summarize as summarize_edges
 from .confidence import assess as assess_confidence
 from .outline import enabled as outline_enabled, judge as judge_outline
 from .figures import enabled as figures_enabled
+from .figure_images import enabled as figure_images_enabled
 from .paper_type import decide as decide_type
 from .record import jats_authors, jats_journal, lookup_record
 from .harness import pdf_title
@@ -395,6 +398,8 @@ class Worker:
                     self.do_figures(req)
                 elif op == "figures_fetch":
                     self.do_figures_fetch(req)
+                elif op == "figure_images":
+                    self.do_figure_images(req)
                 elif op == "round":
                     self.do_round(req)
                 elif op == "expand":
@@ -462,6 +467,13 @@ class Worker:
         an XML paper again from a PDF dropped on its figure is not what the drop asked. A key
         naming no paper, or a paper read from its PDF, is said as `skipped` and nothing else. An
         XML is a paper of its own whatever is known of it.
+
+        An XML paper read here, with a PMCID, has its figure images fetched first (`_images_each`,
+        figure_images.py), unless `offline`, `figures_pdf` is false or `LITRAG_FIGURE_IMAGES=off`;
+        one still lacking some has them cut from a PDF of it (`_images_fallback`): the one kept
+        beside it, PMC's as asked below, else the open copy OpenAlex names. With the figures off no
+        PDF is asked for, of PMC or of an open copy: only one on disk already is cut from, and the
+        `figure_images` op is what asks for the rest.
 
         An XML paper read here, with a PMCID, is asked of PMC for its PDF once those PDFs are kept
         (`_ask_pmc`), one paper after another, each ask shown as progress: unless `offline`, the
@@ -563,12 +575,17 @@ class Worker:
                 keys[raw] = key
                 if not kept["same"] and key not in new_beside:
                     new_beside.append(key)
+        xml_keys = list(dict.fromkeys(k for k, path in filed if path.suffix == ".xml"))
+        asking = not req.get("offline") and req.get("figures_pdf", True)
+        # each XML paper's figure images, from the services that publish its XML (figure_images.py);
+        # those still without one are cut from a PDF of the paper, below
+        lacking = self._images_each(lib, xml_keys, req_id, "ingest") if asking and figure_images_enabled() else set()
         ask: list[str] = []
-        if not req.get("offline") and figures_enabled() and req.get("figures_pdf", True):
+        if asking and figures_enabled():
             # after the PDFs that came with the request are kept: a paper one of them draws is not asked
             conn = open_store(lib.store_path)
             try:
-                for key in dict.fromkeys(k for k, path in filed if path.suffix == ".xml"):
+                for key in xml_keys:
                     row = self._askable(conn, lib, key)
                     if row is not None and row["figures_note"] is None:
                         ask.append(key)
@@ -576,6 +593,9 @@ class Worker:
                 conn.close()
         for key, answer in self._ask_pmc_each(lib, ask, req_id, "ingest").items():
             if answer == "kept" and key not in new_beside:
+                new_beside.append(key)
+        for key in self._images_fallback(lib, [k for k in xml_keys if k in lacking], req_id, "ingest", open_copies=figures_enabled()):
+            if key not in new_beside:
                 new_beside.append(key)
         figures_read = [key for key in new_beside if figures_enabled() and self.figures_of(lib, key, req_id) is not None]
         conn = open_store(lib.store_path)
@@ -717,6 +737,207 @@ class Worker:
         record(None, f"no settled answer from PMC: {why}")
         return "missed"
 
+    # ---- an XML paper's figure images (figure_images.py) ---------------------------------
+
+    def _images_each(self, lib: Library, keys: list[str], req_id: Any, op: str, *, again: bool = False) -> set[str]:
+        """Each XML paper's figure images asked of the services that publish its XML, in turn,
+        each ask a progress event, each answer an events row `figure-images` and a log line when
+        something new came or nothing settled. The first that could not reach either service stops
+        the rest, as `_ask_pmc_each` does. Returns the papers still lacking an image for some figure
+        after an answer that reached a service: those the PDF fallback is for."""
+        from . import figure_images
+
+        lacking: set[str] = set()
+        if not keys:
+            return lacking
+        conn = open_store(lib.store_path)
+        try:
+            for i, key in enumerate(keys):
+                emit({"event": "progress", "id": req_id, "op": op, "lib": lib.id, "done": i, "total": len(keys), "label": f"Fetching the figure images of paper {i + 1} of {len(keys)}"})
+                try:
+                    a = figure_images.from_services(conn, lib.dir, key, again=again)
+                except Exception as e:  # noqa: BLE001 — never a paper lost to its figures' images
+                    message = f"figure images: {type(e).__name__}: {e}"
+                    log_event(conn, key, now_iso(), "figure-images", message[:400])
+                    emit({"event": "log", "id": req_id, "lib": lib.id, "paper": key, "logger": "figures", "message": message})
+                    continue
+                if a.new or (a.missing and a.why):  # something came, or a source was asked and said why not
+                    message = self._images_said(a)
+                    log_event(conn, key, now_iso(), "figure-images", message[:400])
+                    emit({"event": "log", "id": req_id, "lib": lib.id, "paper": key, "logger": "figures", "message": message})
+                if a.unreachable:
+                    break  # a bad network costs one paper's timeouts, not one each
+                if a.missing:
+                    lacking.add(key)
+        finally:
+            conn.close()
+        return lacking
+
+    @staticmethod
+    def _images_said(a: Any) -> str:
+        """One paper's answer, as its log line says it."""
+        src = ", ".join(f"{n} from {'the PMC Cloud Service' if s == 'pmc-cloud' else 'Europe PMC' if s == 'europepmc' else s}" for s, n in a.sources.items())
+        head = f"figure images: {a.had} of {a.figures} figures have one" + (f" ({src})" if src else "")
+        return head + (f"; for the rest — {'; '.join(a.why)}" if a.missing and a.why else "")
+
+    def _images_fallback(self, lib: Library, keys: list[str], req_id: Any, op: str, *, open_copies: bool = True) -> list[str]:
+        """For each XML paper still lacking a figure's image once the services answered: a PDF of
+        it — the one kept beside its XML, else, with `open_copies`, the open copy OpenAlex names
+        (`_open_copy`, which keeps it through figures.keep_beside) — and each figure still lacking
+        an image cut from it (figure_images.from_pdf). What it came to is kept on the paper's ask
+        (figure_images.fallback_answered): answered for good when a PDF was searched, or when none
+        is to be had — PMC settled that it has none (`figures_note`; a paper with no PMCID is not
+        PMC's to ask) and no open copy is named, or the one named gives a program no PDF or is not
+        the paper's — and not when an ask broke off or was not made, which the next run makes
+        again. Returns the papers that gained a PDF here, for the figures read."""
+        from . import figure_images
+
+        kept: list[str] = []
+        if not keys:
+            return kept
+        conn = open_store(lib.store_path)
+        try:
+            for i, key in enumerate(keys):
+                emit({"event": "progress", "id": req_id, "op": op, "lib": lib.id, "done": i, "total": len(keys), "label": f"Cutting figure images from a PDF of paper {i + 1} of {len(keys)}"})
+                row = conn.execute("SELECT pmcid, figures_file, figures_note FROM papers WHERE key = ?", (key,)).fetchone()
+                if row is None:
+                    continue
+                pdf = lib.papers_dir / row["figures_file"] if row["figures_file"] else None
+                if pdf is None or not pdf.is_file():
+                    if not open_copies:
+                        continue
+                    answer = self._open_copy(conn, lib, key, req_id)
+                    if answer != "kept":
+                        figure_images.fallback_answered(conn, key, answer in ("none", "refused") and (not row["pmcid"] or row["figures_note"] is not None))
+                        continue
+                    kept.append(key)
+                    pdf = lib.papers_dir / conn.execute("SELECT figures_file FROM papers WHERE key = ?", (key,)).fetchone()["figures_file"]
+                try:
+                    out = figure_images.from_pdf(conn, lib.dir, key, pdf)
+                except Exception as e:  # noqa: BLE001
+                    out = {"cut": 0, "figures": 0, "error": f"{type(e).__name__}: {e}"}
+                figure_images.fallback_answered(conn, key, not out.get("error"))
+                if out["cut"] or out.get("error"):
+                    message = f"figure images: {out['cut']} of {out['figures']} figures without one cut from {pdf.name}" + (f" ({out['error']})" if out.get("error") else "")
+                    log_event(conn, key, now_iso(), "figure-images", message)
+                    emit({"event": "log", "id": req_id, "lib": lib.id, "paper": key, "logger": "figures", "message": message})
+        finally:
+            conn.close()
+        return kept
+
+    def _open_copy(self, conn: Any, lib: Library, key: str, req_id: Any, timeout: float = 30) -> str:
+        """The open copy OpenAlex names for an XML paper, kept beside its XML for its figures
+        (figures.keep_beside, which takes it only when its first pages name the paper): 'kept',
+        'refused', 'none' (no copy named, or its host answered with no PDF for a program: a page
+        naming none, a bot check, a 4xx other than 408 and 429), 'missed' (an ask that broke off: OpenAlex not reached or its
+        budget spent, the copy's host timing out or answering 5xx, 408 or 429, a PDF that could not be written), or 'off' (open
+        copies or OpenAlex switched off). 'refused' and 'none' are answers for good; 'missed' is
+        worth asking again. The address is the candidate's (`candidates.oa_url`), else OpenAlex's
+        for the paper's DOI: an identifier out, one request at a time, paced (openalex.GAP). Each
+        answer but 'off' is an events row `figure-images`."""
+        from . import figures, openalex
+
+        if not acquire.open_copies():
+            return "off"
+        row = conn.execute("SELECT doi FROM papers WHERE key = ?", (key,)).fetchone()
+        url = None
+        if conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'candidates'").fetchone() and \
+                "oa_url" in {r[1] for r in conn.execute("PRAGMA table_info(candidates)")}:
+            hit = conn.execute("SELECT oa_url FROM candidates WHERE paper_key = ? AND oa_url IS NOT NULL ORDER BY cand_id LIMIT 1", (key,)).fetchone()
+            url = hit["oa_url"] if hit else None
+        if url is None and row is not None and row["doi"] and openalex.enabled():
+            try:
+                w = openalex.work(f"doi:{row['doi']}", timeout=timeout)
+            except Exception as e:  # noqa: BLE001 — OpenAlex down, or its budget spent: no copy named
+                log_event(conn, key, now_iso(), "figure-images", f"no open copy: OpenAlex could not be asked: {type(e).__name__}: {e}"[:400])
+                return "missed"
+            url = openalex.hit(w)["oa_url"] if w else None
+        if url is None:
+            if not openalex.enabled():
+                return "off"
+            log_event(conn, key, now_iso(), "figure-images", "no open copy: OpenAlex names none")
+            return "none"
+
+        def say(message: str) -> None:
+            log_event(conn, key, now_iso(), "figure-images", message[:400])
+            emit({"event": "log", "id": req_id, "lib": lib.id, "paper": key, "logger": "figures", "message": message})
+
+        try:
+            body, why = acquire.open_copy_pdf(url, timeout)
+        except urllib.error.HTTPError as e:
+            say(f"no PDF from the open copy at {url}: HTTP {e.code}")
+            return "none" if 400 <= e.code < 500 and e.code not in (408, 429) else "missed"
+        except Exception as e:  # noqa: BLE001
+            say(f"no PDF from the open copy at {url}: {type(e).__name__}: {e}")
+            return "missed"
+        if body is None:
+            say(f"no PDF from the open copy at {url}: {why}")
+            return "none"
+        host = urllib.parse.urlsplit(url).netloc
+        unchecked = lib.inbox_dir / f"{safe_key(key)}.figures.pdf.unchecked"
+        try:
+            unchecked.write_bytes(body)
+            out = figures.keep_beside(conn, lib.papers_dir, key, unchecked, now_iso(), came=f"from the open copy at {host}")
+        except OSError as e:
+            say(f"the open copy's PDF could not be kept: {type(e).__name__}: {e}")
+            return "missed"
+        finally:
+            unchecked.unlink(missing_ok=True)
+        if out["kept"]:
+            say(f"{out['file']} kept for its figures, from the open copy at {host}")
+            return "kept"
+        say(f"the open copy's PDF, from {host}, not kept for its figures: {out['why']}")
+        return "refused"
+
+    def do_figure_images(self, req: dict[str, Any]) -> None:
+        """Every XML paper's figure images, or the papers named (`keys`): asked of the services
+        that publish its XML (`_images_each`), then, for a paper still lacking some, PMC asked for
+        its PDF (`_ask_pmc_each`, unless PMC settled that before, or `again`) and the open copy
+        OpenAlex names, and each figure still lacking an image cut from the PDF kept
+        (`_images_fallback`). Resumable: a paper is passed by, unless `again`, once it has every
+        figure's image on disk or both the services and the PDF fallback answered for good for the
+        rest (figure_images.wanting) — so one whose fallback broke off is tried again though the
+        services settled, a fallback that answered for good is not, and one that lost an image it
+        had is fetched again; a file on disk in its stored bytes is never fetched twice, and a run
+        broken off resumes where it stopped. With the figures on, the PDFs kept here are read after, by the figures op. The
+        off switch (`LITRAG_FIGURE_IMAGES`) is not looked at: this is asked for. `done` counts the
+        papers asked now, those passed by and the PDFs kept, then, over the library, the papers,
+        those answered, those with every figure's image and with any, the figures and those with an
+        image, the images by source, and the papers lacking images by publisher and by why
+        (figure_images.summary)."""
+        from . import figure_images
+
+        lib = self._lib(req)
+        req_id = req.get("id")
+        again = bool(req.get("again"))
+        conn = open_store(lib.store_path)
+        try:
+            figure_images.ensure_schema(conn)
+            named = [str(k) for k in req.get("keys") or []]
+            rows = conn.execute("SELECT key FROM papers WHERE format = 'jats' AND status = 'parsed' ORDER BY added_at").fetchall()
+            keys = [r["key"] for r in rows if not named or r["key"] in named]
+            states = figure_images.states(conn, lib.dir)
+        finally:
+            conn.close()
+        todo = [k for k in keys if again or figure_images.wanting(states.get(k))]
+        answered = set() if again else {k for k, st in states.items() if st["fallback"]}
+        lacking = self._images_each(lib, todo, req_id, "figure_images", again=again)
+        conn = open_store(lib.store_path)
+        try:
+            ask = [k for k in todo if k in lacking and (row := self._askable(conn, lib, k)) is not None and (row["figures_note"] is None or again)]
+        finally:
+            conn.close()
+        kept = [k for k, a in self._ask_pmc_each(lib, ask, req_id, "figure_images").items() if a == "kept"]
+        kept += [k for k in self._images_fallback(lib, [k for k in todo if k in lacking and k not in answered], req_id, "figure_images") if k not in kept]
+        conn = open_store(lib.store_path)
+        try:
+            totals = figure_images.summary(conn, lib.dir)
+        finally:
+            conn.close()
+        emit({"event": "done", "id": req_id, "op": "figure_images", "lib": lib.id, "asked": len(todo), "passed": len(keys) - len(todo), "kept": len(kept), **totals})
+        if kept and figures_enabled():
+            self.do_figures({"id": f"{req_id}-figures", "op": "figures", "lib": lib.id, "keys": kept, "force": True})
+
     @staticmethod
     def _twin(conn: Any, lib: Library, key: str, dest: Path, pmcid: str | None, req_id: Any) -> None:
         """A PDF filed as a new paper, for want of a DOI or a PMID, whose first pages print the
@@ -767,6 +988,9 @@ class Worker:
             own = row["file"] if (lib.papers_dir / row["file"]).exists() else None  # a PDF no longer on disk is kept for nothing
             if own:
                 conn.execute("UPDATE papers SET figures_file = ?, figures_note = NULL WHERE key = ?", (own, key))
+                from .figure_images import pdf_kept
+
+                pdf_kept(conn, key)
             log_event(conn, key, now_iso(), "filed", "read from its XML now" + (f": its PDF {own} is kept beside it for its figures" if own else ""))
 
     def do_reparse(self, req: dict[str, Any]) -> None:
@@ -1419,7 +1643,7 @@ class Worker:
                     emit({"event": "retrieval", "id": req_id, "lib": lib.id, **retrieve.status(conn, retrieve.OllamaEmbedder())})
                 finally:
                     conn.close()
-            elif op in ("fetch", "merge", "embed", "model_label", "figures", "figures_fetch", "round", "expand"):
+            elif op in ("fetch", "merge", "embed", "model_label", "figures", "figures_fetch", "figure_images", "round", "expand"):
                 if op != "merge":
                     self._lib(req)  # fail fast on a bad library
                 self.ingest_queue.put(req)
@@ -1429,6 +1653,7 @@ class Worker:
                 self.ingest_queue.put(req)
                 emit({"event": "queued", "id": req_id, "op": op, "ahead": self.ingest_queue.qsize() - 1})
             elif op == "papers":
+                from . import figure_images
                 from .figures import states
 
                 lib = self._lib(req)
@@ -1436,10 +1661,12 @@ class Worker:
                 try:
                     rows = list_papers(conn)
                     told = states(conn, lib.papers_dir, figures_enabled())  # SQL only: the real switch, so a paper not read with the figures off is 'off'
+                    images = figure_images.states(conn, lib.dir)  # an XML paper's figure images: how many figures have one on disk, and whether asking again would change that
                 finally:
                     conn.close()
-                emit({"event": "papers", "id": req_id, "lib": lib.id, "papers": [{**r, "figure_state": told.get(r["key"])} for r in rows]})
+                emit({"event": "papers", "id": req_id, "lib": lib.id, "papers": [{**r, "figure_state": told.get(r["key"]), "images": images.get(r["key"])} for r in rows]})
             elif op == "tree":
+                from . import figure_images
                 from .figures import outcomes
 
                 lib = self._lib(req)
@@ -1448,6 +1675,7 @@ class Worker:
                     t = paper_tree(conn, str(req["key"]))
                     if t is not None:  # what each picture and chart node came to, for its tag and its placeholder
                         t["figures"] = {node: {k: o[k] for k in ("outcome", "label", "plots", "read", "page")} for node, o in outcomes(conn, str(req["key"])).items()}
+                        t["images"] = figure_images.images_for(conn, lib.dir, str(req["key"]))  # an XML paper's figures as images, drawn in its reading
                 finally:
                     conn.close()
                 if t is None:

@@ -133,8 +133,8 @@ The Papers tab:
 | Log | the worker's stages and Docling's own log lines, as they happen |
 
 A JATS paper has no page to draw, so the page pane shows the tree as the
-paper it came from — headings, paragraphs, formulas, tables, figure
-placeholders with their captions — and a click on either side selects the
+paper it came from — headings, paragraphs, formulas, tables, figures as
+their images (a placeholder where none was had) with their captions — and a click on either side selects the
 node on both.
 
 ## What the layout model misses, read back from the page
@@ -646,6 +646,12 @@ plots pinned to it, a caption found with no chart under it, a caption the
 PDF does not print, no number to match by, no PDF. Nothing is pinned by
 order or position: a plot under no caption of the paper's is counted, not
 kept.
+
+An XML paper's figures are drawn in its reading as images
+(`figure_images.py`): each image its XML names is fetched by PMCID from the
+PMC Cloud Service, else Europe PMC, else cut from a PDF of the paper, when it
+is filed — or with **Fetch figure images** for papers filed before — and kept
+under `figures/<key>/`, each joined to its figure by the caption's number.
 
 **Where an open PDF comes from.** The PMC Cloud Service
 (`pmc-oa-opendata.s3.amazonaws.com`) is the National Library of Medicine's

@@ -34,6 +34,19 @@ when it turns out durable. Mark inference as inference.
   `held-out-2-pdf`/`held-out-2-xml` it is what the confidence score is
   calibrated on. It shows in the window's library list; delete it when the
   comparisons are no longer wanted.
+- **collagen-simulations** (outside `LITRAG_ROOT`, under the research
+  folder's own `library/`) — 402 papers filed 2026-11-17 in one bulk run:
+  340 JATS (every one with a PMCID), 62 PDF. Filed with `LITRAG_FIGURES=off`
+  (its `figures` events say "not read: LITRAG_FIGURES=off"), so no figure was
+  read and no PMC PDF asked at filing: **Read all figures** and **Fetch
+  figure images** are what it wants. On a copy (2026-11-20), figure images
+  came for 259 of its 332 XML papers with figures (1,959 of 2,463 figures),
+  all from the PMC Cloud Service but 6 cut from open-copy PDFs; the 73 left
+  are author manuscripts, which PMC publishes with no image file and whose
+  open copies OpenAlex names are PMC's own pages. The figures read over its
+  62 PDFs and 9 XML papers with a PDF beside them (the `figures` op, 27 min,
+  4 OCR threads): plots in 365 of 554 figures, 1,131 plots, 398 read into
+  4,727 values.
 
 ### What worked
 

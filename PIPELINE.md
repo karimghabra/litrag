@@ -100,9 +100,24 @@ ingest` cuts chunks into `lit.sqlite`, never a tree.
    only the pages printing one of its captions are read, and each plot is
    pinned to its float by the caption's number, never by order. What each
    figure came to — plots, no plot, no caption in the PDF, skipped — is a
-   row (`figure_outcomes`), and the window says it.
+   row (`figure_outcomes`), and the window says it. An XML paper's figures
+   are also *shown*, as images (`figure_images.py`): when the paper is filed
+   (and for a library filed before, the `figure_images` op, **Fetch figure
+   images**), each `<graphic>` its XML names is fetched by PMCID from the PMC
+   Cloud Service (each file's MD5 checked), else from Europe PMC's zip of the
+   article's images (each member's CRC), else cut from a PDF of the paper —
+   PMC's, or the open copy OpenAlex names, kept through `keep_beside` — and
+   kept under `figures/<key>/` with a `figure_images` row (label and caption
+   from the XML, source, SHA-256, pixels). An image joins its node by the
+   caption's number, never by order; what each paper's ask came to is a
+   `figure_image_asks` row — the services' answer (`settled`) and the PDF
+   fallback's (`fallback`) apart — so a run over a library resumes, an
+   answer given for good is not asked again, and a fallback that broke off
+   is. With `LITRAG_FIGURES=off` a filing fetches the image files and asks
+   for no PDF (of PMC, or of an open copy through OpenAlex); the op, asked
+   for, does. `LITRAG_FIGURE_IMAGES=off` stops the fetch at filing.
 9. **Saved.** Rows in `store.sqlite`: `papers`, `pages`, `nodes` with
-   `nodes_fts`, `refs`, `citations`, `edges`, `charts`, `chart_values`, `judgments`, `events`, and
+   `nodes_fts`, `refs`, `citations`, `edges`, `charts`, `chart_values`, `figure_images`, `figure_image_asks`, `judgments`, `events`, and
    for the figures `figure_reads` (the last read: which reader, which file, how many pages it
    looked at) and `figure_outcomes` (what each figure that read looked for came to: plots, no
    plot, no caption in the PDF, skipped). What no row says (no PDF, no number, a number taken,
