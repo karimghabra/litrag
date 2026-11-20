@@ -858,8 +858,7 @@ two share a y value and the y axis's an x value, which with the four values fixe
 an affine map (`Calibration`, mirrored in the window's `digitise.ts` so a point's
 value shows while it is dragged). The machine offers the four points from the
 numbers the chart reader reads — the text layer, else OCR — and the offer is never
-taken unconfirmed in the window; from a shell, only when the reader is confident,
-else with `--accept-axes`. A series is picked by its colour; markers are found by
+taken unconfirmed. A series is picked by its colour; markers are found by
 their cores (the pixels deeper than most of a marker's radius, so the lines joining
 them fall away), a line by its runs chained column to column, the longest track
 lengthened by the ones that continue it — so a legend's swatch, a word in the
@@ -874,7 +873,10 @@ a click and a found point mean the same place.
 **A person's work is never dropped by a reading.** `digitised` rows follow their
 figure through a rebuild by its caption's number, else its page and box; one that
 finds no figure is kept and marked an orphan, never deleted, unlike the reader's own
-plots, which can be read again.
+plots, which can be read again. The whole mapping is made before a row moves, as the
+plots' is, so figures that trade ids trade their series. A stub paper deleted because
+its bytes were filed again under an identifier, or kept beside an XML paper, hands its
+series to that paper first, by the same mapping.
 
 **Fits are numpy's.** Logistic and Zwietering's Gompertz, both with a baseline,
 fitted by Levenberg–Marquardt from starts read off the data; intervals from the
@@ -886,7 +888,9 @@ On fresh noise the 95% intervals hold the truth about 95% of the time
 **Traceable exports.** The CSV is two columns headed by each axis's name and unit;
 the JSON sidecar beside it names the paper, the figure, its page and box, the
 image's hash, the calibration, the method and every point's pixel, so a number can
-be found again on the page it came from.
+be found again on the page it came from. Series whose axes differ — panels of one
+figure — are never written under one header: each set of axes gets its own CSV,
+sidecar and fits. An orphan is not exported: its figure is not known.
 
 Not done: error bars of digitised points; several series found at once; a
 magnifier under the cursor (the stage zooms to 8×).

@@ -17,7 +17,6 @@ import { createLibrary, libraryRoot, listLibraries, modelCacheDir, openLibrary, 
 import { ollamaEmbedder, ollamaExtractor, ollamaHealth } from './ollama.ts';
 import { queryLibrary, runSql } from './query.ts';
 import { lookupEuropePmc, referencesOf, searchEuropePmc } from './sources/europepmc.ts';
-import { delegated, runDigitiser } from './digitise.ts';
 import { copyFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 
@@ -59,15 +58,6 @@ usage: lit [--root DIR] [--json] <command> [args]
   sql <lib> <select ...> [--limit N]    read-only SQL against the store
   snowball <lib> <paper-key>            stage what a paper cites
   where                                 the library root
-  digitise <figure-id --lib LIB | image> [--x PX:V,PX:V --y PY:V,PY:V] [--xlog] [--ylog]
-       [--colour #rrggbb] [--mode auto|markers|line] [--fit logistic|gompertz|both]
-       [--save NAME] [--csv OUT] [--accept-axes]
-                                        a plot read back into (x, y) points: the axes read from
-                                        its numbers (or given), the series found by its colour;
-                                        CSV with a JSON sidecar that traces each value to its pixel
-  fit <points.csv | figure-id --lib LIB [--series NAME]> [--model logistic|gompertz|both] [--csv OUT]
-                                        a sigmoid fitted: plateau, maximum rate, time to half
-                                        maximum and lag, each with a 95% interval
 
   --root DIR   defaults to $LITRAG_ROOT, else $PROTRACKER_LIBRARY, else ~/.protracker/library
   --vault DIR  the Protracker vault to resolve a project ref in (init only); defaults as pt does
@@ -111,8 +101,6 @@ function extractorFor(lib: Library) {
 }
 
 async function main(argv: string[]): Promise<number> {
-  const digitiser = delegated(argv);
-  if (digitiser) return runDigitiser(digitiser); // the parser's own arguments, read by the parser
   const { positional, flags } = parseArgs(argv);
   const json = flags['json'] === true;
   if (positional.length === 0 || flags['help'] || positional[0] === 'help') {

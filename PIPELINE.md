@@ -20,7 +20,7 @@ sync's `--extra` would swap for PyPI's (README, Quick start).
 | Part | Status | Use it for |
 |---|---|---|
 | `app/`, the window (`npm run app`) | current | eight tabs over one project at a time: **Projects** (make one, describe it, merge several), **Search** (Europe PMC, XML first — Europe PMC's, else NCBI's for an author manuscript — then open PDFs, the PMC Cloud Service's before EBI's, then the open copy OpenAlex names when it prints the paper's DOI or title, the rest listed to download by hand), **Papers** (trees, pages, citations, edges, the canonical face; **Reparse all**), **Types** (each kind of paper's canonical structure, a paper's mapping onto it), **Ask** (a question answered by the local model from the project's passages, or every project's, each sentence citing the passage it rests on, a click opening the paper there), **Query** (passages retrieved and hydrated from the tree), **Graph** (the papers and their citations drawn; citation rounds; SQL over works, authors and citations) |
-| the **Plots** tab, `lit digitise`, `lit fit` | current | the figures that are data plots, found by the words of their captions; one digitised by a person — two ticks an axis (offered from the figure's own numbers, always confirmed), a series picked by its colour, its points found and then added, moved, deleted — kept as rows, exported as CSV with a JSON sidecar, and a logistic or Gompertz curve fitted (`digitise.py`, `fit.py`; the verbs run `digitise_cli.py`, and read the tree store, not `lit.sqlite`) |
+| the **Plots** tab | current | the figures that are data plots, found by the words of their captions; one digitised by a person — two ticks an axis (offered from the figure's own numbers, always confirmed), a series picked by its colour, its points found and then added, moved, deleted — kept as rows, exported as CSV with a JSON sidecar, and a logistic or Gompertz curve fitted (`digitise.py`, `fit.py`) |
 | `npm run e2e:studio` | current | the window end to end: a search against Europe PMC stood in on 127.0.0.1, a fetch, two real PDFs through Docling, types, a hydrated query through the embedder, a cited answer from the local model (or, with none, its passages), a merge — the harness a change to the product has to pass |
 | `python -m litrag_parser.digitise_bench [--real FILE --root DIR]` | measurement | the digitiser on synthetic plots of known data (`parser/tests/fixtures/digitise`) and on figures a person measured by hand: the axes offered, the points found, each as a share of its axis's range |
 | `npm run gate:ingestion -- --pairs A:B … [--min 0.95]`, `python -m litrag_parser.bench` | measurement | the reader judged in the unit retrieval returns (a paragraph node in the right lane, against the XML twin); retrieval judged on questions with a known answering passage, the tree beside the `lit` CLI |
@@ -117,7 +117,7 @@ ingest` cuts chunks into `lit.sqlite`, never a tree.
    audit (`audit.py`) reads them when asked.
 
 **Digitised by a person.** Beside what the chart reader reads on its own, a
-person can digitise a plot in the Plots tab (or `lit digitise`): the figure
+person can digitise a plot in the Plots tab: the figure
 cut from its page as step 8 cuts it — an XML paper's from the page of the PDF
 kept beside it that prints its caption — and saved as a PNG under the library
 (`digitised/`); two points of known value an axis, linear or log, offered from
@@ -131,7 +131,8 @@ image), `digitised_points`, `digitised_fits` (each model's plateau, maximum
 rate, time to half maximum and lag with their 95% intervals). A rebuild moves
 them with their figure — by its caption's number, else its page and box — and
 one that finds none is kept, marked an orphan: a rebuild never drops a
-person's work. Which figures are plots is the chart reader's answer (a frame
+person's work, and a stub paper dropped for being another filed twice hands
+its series to that one. Which figures are plots is the chart reader's answer (a frame
 with numbers beside its axes), not a model's; one not read yet is "unknown",
 and its caption's words rank it.
 

@@ -1477,20 +1477,10 @@ The chart reader reads bars and markers by itself. When you want a curve's point
 4. Fix what the colour missed: **Add** places a point at a click, **Move** drags one, **Delete** removes one. Points you placed or moved show green, found ones red. **3 · Points** lists every point with its value and pixel.
 5. Name the series and click **Save series**. It is kept with the figure; click it in the list to edit it again.
 6. Under **4 · Fit**, choose **logistic** or **Gompertz** and click **Fit**. The table gives the plateau, maximum rate, time to half maximum, lag time and baseline, each with its 95% interval and unit, with R² and RMSE. The plot draws the points, the curve, the lag and the half-maximum time, and the residuals underneath.
-7. Click **Export CSV…** and choose where. Beside the CSV, `<name>.csv.json` traces every value to the paper, figure, page and pixel, and `<name>.<series>.<model>.fit.csv` holds each fit's quantities.
+7. Click **Export CSV…** and choose where. Beside the CSV, `<name>.csv.json` traces every value to the paper, figure, page and pixel, and `<name>.<series>.<model>.fit.csv` holds each fit's quantities. Series saved from panels with different axes are written apart, `<name>.1.csv`, `<name>.2.csv`, …, each with its own header, sidecar and fits.
 8. **Open an image…** digitises a plot from an image file the same way. Its series is not saved in the library, but it exports.
 
 A figure's pane in the **Papers** tab has a **Digitise** button that opens it here.
-
-### From a script
-
-```
-lit digitise "doi:10.1038/x#section-4#picture-2" --lib my-project --colour '#a700e1' --save "Col-Ver" --fit both
-lit digitise plot.png --x 120:0,580:60 --y 410:0,40:0.8 --csv out.csv
-lit fit out.csv --model gompertz
-```
-
-The axes are yours when given (`--x` pixel columns, `--y` pixel rows, `--xlog`, `--ylog`, or `--calibration` with a sidecar). Otherwise the ones read from the figure are taken only when the reader is confident of them, or with `--accept-axes`; the axes used are always printed. Without `--colour` the series is the figure's commonest colour that is not black or grey.
 
 ### Good to know
 

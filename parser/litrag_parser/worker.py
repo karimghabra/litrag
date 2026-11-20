@@ -284,25 +284,15 @@ class Worker:
             log_event(conn, key, now_iso(), str(note.get("kind", "note")), f"{note.get('node_id')}: {note.get('message')}")
 
     @staticmethod
-    def _remap_figures(conn: Any, lib: Library, key: str, req_id: Any) -> dict[str, Any]:
+    def _remap_figures(conn: Any, lib: Library, key: str, req_id: Any) -> None:
         """The paper's plots once its nodes are replaced: each follows its figure into the new
-        rows, or is removed (figures.remap), and a removal is said — an events row and a log line —
+        rows, or is removed, and a person's digitised series follow theirs or are kept without
+        one (digitise.follow); what went or was left is said — an events row and a log line —
         whether or not the figures are read after, so no plot is left on a node that is gone."""
-        from .figures import remap, removed_note
-
         from . import digitise
 
-        out = remap(conn, key)
-        message = removed_note(out)
-        if message:
-            log_event(conn, key, now_iso(), "figures", message)
-            emit({"event": "log", "id": req_id, "lib": lib.id, "paper": key, "logger": "figures", "message": message})
-        kept = digitise.remap(conn, key)  # a person's digitised series follow their figures too, and are never dropped
-        if kept["orphaned"]:
-            note = f"{kept['orphaned']} digitised series no longer {'have' if kept['orphaned'] != 1 else 'has'} a figure in this reading: kept, marked without one"
-            log_event(conn, key, now_iso(), "digitise", note)
-            emit({"event": "log", "id": req_id, "lib": lib.id, "paper": key, "logger": "digitise", "message": note})
-        return out
+        for logger, message in digitise.follow(conn, key):
+            emit({"event": "log", "id": req_id, "lib": lib.id, "paper": key, "logger": logger, "message": message})
 
     @staticmethod
     def _backfill(conn: Any, lib: Library, key: str) -> bool:

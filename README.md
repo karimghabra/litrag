@@ -637,9 +637,7 @@ JSON sidecar that traces every value to the paper, the figure, the page and the
 pixel. **Fit** puts a logistic or Gompertz curve through the points and reports
 the plateau, the maximum rate, the time to half maximum and the lag time, each
 with a 95% interval, with the residuals drawn under the curve; the fit goes into
-the export too. From a shell: `lit digitise <figure-id> --lib L` or `lit digitise
-plot.png [--x 120:0,580:60 --y 410:0,40:0.8] --csv out.csv --fit both`, and
-`lit fit out.csv`.
+the export too.
 
 On synthetic plots of known data (`python -m litrag_parser.digitise_bench`:
 markers and lines, linear and log axes on either side, a black series beside

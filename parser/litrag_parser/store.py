@@ -295,8 +295,12 @@ def file_paper(conn: sqlite3.Connection, *, title: str, file: str, sha256: str, 
         if sha_row is not None and sha_row["key"] != found[0]:
             # The same bytes were filed earlier under a hash, before their DOI was known:
             # that row was a stub of this paper. It goes, with its rows; the identified paper stays,
-            # and every project that held the stub holds the identified paper instead.
+            # every project that held the stub holds the identified paper instead, and it takes
+            # what a person digitised from the stub's figures.
+            from . import digitise
+
             move_memberships(conn, sha_row["key"], found[0])
+            digitise.carry(conn, sha_row["key"], found[0])
             conn.execute("DELETE FROM papers WHERE key = ?", (sha_row["key"],))
     if found is not None:
         key, by = found
