@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- **An XML paper's figures are drawn as images.** A paper read from JATS showed its figures only
+  as placeholders unless a PDF of it was kept beside it. Each `<graphic>` the XML names is now
+  fetched by PMCID: from the PMC Cloud Service (its record's `media_urls`, MD5 checked), else
+  Europe PMC's zip of the article's images (CRC checked), else cut from a PDF of the paper, PMC's
+  or the open copy OpenAlex names, kept through `keep_beside` (`figure_images.py`). Images live
+  under `figures/<key>/` with `figure_images` rows (label and caption from the XML, source,
+  SHA-256, pixels), join their node by the caption's number, and are drawn in the reading with
+  where they came from. Filing an XML paper fetches them (`LITRAG_FIGURE_IMAGES=off` stops it,
+  independent of `LITRAG_FIGURES`); the `figure_images` op, **Fetch figure images** on the Papers
+  tab, does it for papers filed before: resumable, polite, retrying a request that breaks off,
+  passing by what is settled (`figure_image_asks`). The tree op carries `images`, the papers op
+  each paper's image counts, and a merge carries the images. **Read all figures** beside it reads
+  every paper whose figures are not read (the `figures` op), for a library filed with the figures
+  off.
+
 - **Plots digitised, and sigmoids fitted to them.** Reported need: a turbidity or growth curve
   printed in a paper, turned into its (x, y) points and fitted for its lag, growth and plateau,
   and a way to find such plots in a library. An eighth tab, **Plots**, finds the figures that are
