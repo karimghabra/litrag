@@ -571,7 +571,8 @@ def from_services(conn: sqlite3.Connection, lib_dir: Path, key: str, *, timeout:
                   cloud: str | None = None, rest: str | None = None) -> Asked:
     """A paper's figure images from the services that publish its XML, the PMC Cloud Service
     first, then Europe PMC, each asked only for what the one before did not give; the rows and
-    the paper's ask written. A figure with every image on disk in its stored bytes is not asked
+    the paper's ask written. A file a service gave whole that is no image is that service's
+    answer for it: not taken, named in `why`, and the next service asked for it. A figure with every image on disk in its stored bytes is not asked
     again, and a paper whose last ask settled is passed by unless `again`; one that has lost an
     image it had since then is asked again, and the PDF fallback's answer no longer stands. A
     paper not read from XML, or whose file is gone, is asked nothing. Never raises for the network: a source that
@@ -625,6 +626,12 @@ def from_services(conn: sqlite3.Connection, lib_dir: Path, key: str, *, timeout:
             these, why, ok = {}, f"HTTP {e.code}", False
         except Exception as e:  # noqa: BLE001 — a source's fault never costs the paper
             these, why, ok = {}, f"{type(e).__name__}: {e}", False
+        for h, g in list(these.items()):
+            try:
+                _shown(g.body)
+            except ValueError as e:
+                del these[h]
+                a.why.append(f"{name}: {g.name}: {e}")
         got.update(these)
         if why:
             a.why.append(f"{name}: {why}")
@@ -637,14 +644,9 @@ def from_services(conn: sqlite3.Connection, lib_dir: Path, key: str, *, timeout:
         if not f.hrefs or not all(h in got for h in f.hrefs):
             continue
         rows = []
-        try:
-            for i, h in enumerate(f.hrefs):
-                file, sha, n, w, hgt, mime = _save(lib_dir, key, got[h].name, got[h].body)
-                rows.append((key, f.ordinal, i + 1, f.xml_id, f.key, f.label, f.caption, h, file, got[h].source, sha, n, w, hgt, mime, stamp))
-        except ValueError as e:
-            a.why.append(f"{f.label or f'figure {f.ordinal}'}: {e}")
-            settled = False
-            continue
+        for i, h in enumerate(f.hrefs):
+            file, sha, n, w, hgt, mime = _save(lib_dir, key, got[h].name, got[h].body)
+            rows.append((key, f.ordinal, i + 1, f.xml_id, f.key, f.label, f.caption, h, file, got[h].source, sha, n, w, hgt, mime, stamp))
         conn.execute("DELETE FROM figure_images WHERE paper = ? AND ordinal = ?", (key, f.ordinal))
         conn.executemany(f"INSERT INTO figure_images VALUES ({', '.join('?' * 16)})", rows)
         saved.add(f.ordinal)

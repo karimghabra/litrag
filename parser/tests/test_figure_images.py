@@ -169,18 +169,47 @@ def test_a_file_the_cloud_fails_to_give_costs_only_itself_and_one_with_no_md5_is
     assert fi.wanting(fi.states(conn, lib.dir)[key])
 
 
-def test_a_file_that_is_no_image_leaves_its_figure_missing_and_the_paper_unsettled(tmp_path, epmc):
+def test_a_file_that_is_no_image_is_its_service_s_answer_and_the_next_is_asked_for_it(tmp_path, epmc):
     lib, conn, key = library(tmp_path)
     images = {n: jpeg(i) for i, n in enumerate(NAMES)}
     images[NAMES[2]] = b"<html>not the figure</html>"  # its MD5 holds, as the record gives it, and it is no image
     cloud(epmc, images)
-    a = fi.from_services(conn, lib.dir, key)
-    assert (a.had, a.new, a.settled) == (5, 5, False)
+    a = fi.from_services(conn, lib.dir, key)  # Europe PMC, asked for the one, answers 404
+    assert (a.had, a.new, a.settled) == (5, 5, True)
     assert [f.ordinal for f in a.missing] == [3]
-    assert len(a.why) == 1 and "not an image" in a.why[0]
+    assert len(a.why) == 2 and a.why[0].startswith(f"PMC Cloud: {NAMES[2]}: not an image") and a.why[1] == "Europe PMC: HTTP 404"
     assert sorted(r[0] for r in conn.execute("SELECT ordinal FROM figure_images WHERE paper = ?", (key,))) == [1, 2, 4, 5, 6]
-    assert tuple(conn.execute("SELECT figures, had, settled FROM figure_image_asks WHERE paper = ?", (key,)).fetchone()) == (6, 5, 0)
-    assert fi.wanting(fi.states(conn, lib.dir)[key])
+    row = conn.execute("SELECT figures, had, settled, why FROM figure_image_asks WHERE paper = ?", (key,)).fetchone()
+    assert tuple(row)[:3] == (6, 5, 1) and NAMES[2] in row["why"]
+    before = len(asked(epmc))
+    b = fi.from_services(conn, lib.dir, key)
+    assert b.settled and len(asked(epmc)) == before  # answered for good: the file is not downloaded again
+
+
+def test_europe_pmc_gives_the_figure_whose_cloud_file_is_no_image(tmp_path, epmc):
+    lib, conn, key = library(tmp_path)
+    images = {n: jpeg(i) for i, n in enumerate(NAMES)}
+    images[NAMES[2]] = b"<html>not the figure</html>"
+    cloud(epmc, images)
+    epmc.routes[f"/rest/{PMCID}/supplementaryFiles"] = (200, "application/zip", THUMBS)
+    a = fi.from_services(conn, lib.dir, key)
+    assert (a.had, a.sources, a.settled, a.missing, a.why) == (6, {"pmc-cloud": 5, "europepmc": 1}, True, [], [])
+    assert conn.execute("SELECT source FROM figure_images WHERE paper = ? AND ordinal = 3", (key,)).fetchone()[0] == "europepmc"
+
+
+def test_a_member_of_europe_pmc_s_zip_that_is_no_image_is_its_answer_for_good(tmp_path, epmc):
+    lib, conn, key = library(tmp_path)  # the Cloud lists no version of it
+    packed = io.BytesIO()
+    with zipfile.ZipFile(packed, "w") as z:
+        for i, n in enumerate(NAMES):
+            z.writestr(n, b"<html>not the figure</html>" if i == 2 else jpeg(i))
+    epmc.routes[f"/rest/{PMCID}/supplementaryFiles"] = (200, "application/zip", packed.getvalue())
+    a = fi.from_services(conn, lib.dir, key)
+    assert (a.had, a.sources, a.settled) == (5, {"europepmc": 5}, True)
+    assert [f.ordinal for f in a.missing] == [3]
+    assert a.why[0] == "PMC Cloud: not in its open-access datasets" and a.why[1].startswith(f"Europe PMC: {NAMES[2]}: not an image")
+    before = len(asked(epmc))
+    assert fi.from_services(conn, lib.dir, key).settled and len(asked(epmc)) == before
 
 
 def test_of_two_files_for_a_graphic_the_full_image_is_kept_before_the_thumbnail(tmp_path, epmc):
