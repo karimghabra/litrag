@@ -119,7 +119,7 @@ ingest` cuts chunks into `lit.sqlite`, never a tree.
 **Digitised by a person.** Beside what the chart reader reads on its own, a
 person can digitise a plot in the Plots tab: the figure
 cut from its page as step 8 cuts it — an XML paper's from the page of the PDF
-kept beside it that prints its caption — and saved as a PNG under the library
+kept beside it that prints its caption — and saved as a PNG beside the store
 (`digitised/`); two points of known value an axis, linear or log, offered from
 the numbers beside the axes when the reader holds a scale and always confirmed
 by the person; a series found by its colour, along a line or as markers, never

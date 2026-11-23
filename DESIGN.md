@@ -876,7 +876,7 @@ until the person digitises it again.
 
 **A person's work is never dropped by a reading, and never moved by a guess.** A
 series belongs to the picture it was read from: the figure as it was cut when the
-person opened it, known by its hash, a copy kept beside the library's other pictures
+person opened it, known by its hash, a copy kept beside the store's other pictures
 (`digitised/originals/<sha256>.png`). When a paper's nodes are replaced each of its
 figures is cut again, and a series is with the figure drawn as its picture, whatever
 node id that figure has now. No caption's number and no place on a page moves a
