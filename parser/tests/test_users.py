@@ -30,7 +30,7 @@ def test_a_password_is_kept_only_as_a_salted_scrypt_hash(cheap):
     assert not users.check_password("x", "md5$abc") and not users.check_password("x", "garbage")
 
 
-def test_the_shipped_cost_of_a_password_is_owasp_s_floor_for_scrypt():
+def test_the_shipped_cost_of_a_password_is_at_least_scrypt_at_2_to_the_15_by_8():
     assert users.N >= 2 ** 15 and users.R >= 8
 
 
@@ -97,6 +97,45 @@ def test_each_person_s_recent_favourites_notes_and_collections_are_their_own(tmp
     assert [p["paper"] for p in u.collection_papers(ana, c["id"])] == ["doi:2"]
     u.delete_collection(ana, c["id"])
     assert [x["name"] for x in u.collections(ana)] == []
+
+
+def test_what_a_person_kept_of_a_paper_follows_it_when_the_store_gives_it_another_key(tmp_path, cheap):
+    """A PDF filed under its hash, starred and noted, then met again as the paper its DOI names:
+    the stub goes (store.file_paper), and the star, the notes, the collection entry and the
+    recent entry are the identified paper's."""
+    from litrag_parser.store import file_paper
+
+    lib = create_library(tmp_path, "Tendon", shared=True)
+    lib.ensure_dirs()
+    conn = open_store(lib.store_path)
+    filed = dict(title="A paper", file="a.pdf", fmt="pdf", pmid=None, pmcid=None, now="2026-11-22T00:00:00Z")
+    stub = file_paper(conn, **filed, sha256="a" * 64, doi=None).key
+    named = file_paper(conn, **{**filed, "file": "b.pdf"}, sha256="b" * 64, doi="10.1/one").key
+    members.add(conn, lib, [stub])
+    conn.commit()
+    assert stub.startswith("sha:") and named == "doi:10.1/one"
+    u = users.Users(tmp_path / "users.sqlite")
+    ana, ben = u.create("Ana", "password-a")["id"], u.create("Ben", "password-b")["id"]
+    u.viewed(ana, stub, "tendon")
+    u.favourite(ana, stub, True, "tendon")
+    u.favourite(ben, stub, True, "tendon")
+    u.favourite(ben, named, True, "tendon")  # Ben starred both: one star, not a refused move
+    u.save_note(ana, stub, "Check the buffer.", node_id=f"{stub}#p3", quote="crosslinked at 105 °C")
+    u.save_note(ana, stub, "On the whole paper.")
+    c = u.create_collection(ana, "To print")
+    u.add_to_collection(ana, c["id"], [stub], "tendon")
+
+    assert file_paper(conn, **filed, sha256="a" * 64, doi="10.1/one").key == named
+    conn.commit()
+    assert [r["key"] for r in conn.execute("SELECT key FROM papers")] == [named]
+    conn.close()
+
+    assert [r["paper"] for r in u.recent(ana)] == [named]
+    assert [f["paper"] for f in u.favourites(ana)] == [named] and [f["paper"] for f in u.favourites(ben)] == [named]
+    assert sorted((n["text"], n["node_id"]) for n in u.notes(ana, named)) == [("Check the buffer.", f"{named}#p3"), ("On the whole paper.", None)]
+    assert u.notes(ana, stub) == [] and u.notes(ben, named) == []
+    assert [p["paper"] for p in u.collection_papers(ana, c["id"])] == [named] and u.collections_of(ana, named) == [c["id"]]
+    u.close()
 
 
 def test_recent_keeps_the_newest_only(tmp_path, cheap, monkeypatch):

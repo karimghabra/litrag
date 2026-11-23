@@ -80,12 +80,34 @@ CREATE TABLE IF NOT EXISTS collection_papers (
 );
 """
 
-#: scrypt's cost: 2^15 × 8 × 128 bytes = 32 MiB and a few hundred milliseconds a guess, OWASP's
-#: floor for scrypt. Stored with each hash, so raising it later leaves old hashes checkable.
+#: scrypt's cost: 2^15 × 8 × 128 bytes = 32 MiB and a few hundred milliseconds a guess. Stored
+#: with each hash, so raising it later leaves old hashes checkable.
 N, R, P = 2 ** 15, 8, 1
 KEY_BYTES = 32
 MIN_PASSWORD = 8
 RECENT_KEEP = 50
+
+
+def move_paper(store: sqlite3.Connection, old: str, new: str) -> None:
+    """Every person's recent entry, favourite, notes and collection entries of paper `old` are
+    paper `new`'s: called when the store open on `store` replaces a paper's key, so what a person
+    kept of the paper follows it as the projects holding it do (store.move_memberships). The
+    accounts are found beside the libraries the store is one of (`<root>/users.sqlite`); a root
+    with none has nothing to move. A note on a passage names the same passage of `new`."""
+    file = store.execute("PRAGMA database_list").fetchone()[2]
+    path = Path(file).parent.parent / "users.sqlite" if file else None
+    if path is None or not path.exists():
+        return
+    conn = sqlite3.connect(path)
+    try:
+        with conn:
+            for table in ("recent", "favourites", "collection_papers"):
+                conn.execute(f"UPDATE OR IGNORE {table} SET paper = ? WHERE paper = ?", (new, old))
+                conn.execute(f"DELETE FROM {table} WHERE paper = ?", (old,))
+            conn.execute("UPDATE notes SET node_id = ? || substr(node_id, length(?) + 1) WHERE paper = ? AND substr(node_id, 1, length(?) + 1) = ? || '#'", (new, old, old, old, old))
+            conn.execute("UPDATE notes SET paper = ? WHERE paper = ?", (new, old))
+    finally:
+        conn.close()
 
 
 class AccountError(ValueError):
