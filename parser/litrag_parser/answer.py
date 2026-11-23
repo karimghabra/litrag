@@ -53,7 +53,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
-from . import retrieve
+from . import members, retrieve
 from .library import Library, list_libraries, open_library
 from .store import open_store
 
@@ -175,7 +175,8 @@ def gather(libs: list[Library], question: str, embedder: Any, k: int = K) -> dic
     for lib in libs:
         conn = open_store(lib.store_path)
         try:
-            out = retrieve.query(conn, question, embedder, k=k)
+            scope = members.scope(conn, lib)  # a project of the shared store is asked of its own papers only
+            out = retrieve.query(conn, question, embedder, k=k, **({"paper": scope} if scope is not None else {}))
         finally:
             conn.close()
         meaning = meaning if meaning.get("down") else out["embedder"]

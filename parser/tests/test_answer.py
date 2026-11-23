@@ -241,6 +241,36 @@ def test_several_libraries_give_a_passage_once(lib, tmp_path):
         answer.resolve(tmp_path, ["nope"])
 
 
+def test_a_project_of_the_shared_store_is_asked_of_its_own_papers_only(lib, tmp_path):
+    """DESIGN R4.6: every paper is kept once in the shared store and a project is the papers it
+    holds, so a question asked of a project that holds none of them retrieves nothing — it is
+    not answered from another project's paper lying in the same store."""
+    import shutil
+
+    from litrag_parser import members
+
+    holder = create_library(tmp_path, "Holder", shared=True)
+    other = create_library(tmp_path, "Other", shared=True)
+    holder.ensure_dirs()
+    assert holder.store_path == other.store_path
+    shutil.copy(lib.store_path, holder.store_path)  # the fixture paper, in the shared store
+    conn = open_store(holder.store_path)
+    key = conn.execute("SELECT key FROM papers").fetchone()[0]
+    members.add(conn, holder, [key])
+    conn.commit()
+    conn.close()
+
+    def never(*a, **k):
+        raise AssertionError("a project holding no paper has nothing to hand the model")
+
+    refusal = lambda *a, **k: {"content": '{"status": "not_found", "claims": [], "missing": ""}', "seconds": 0, "tokens": 1}  # noqa: E731
+    mine = answer.ask([holder], QUESTION, embedder=emb(), chat_fn=refusal)
+    assert mine["sources"] and {(s["lib"], s["paper"]) for s in mine["sources"]} == {(holder.id, key)}
+    assert answer.ask([other], QUESTION, embedder=emb(), chat_fn=never)["sources"] == []
+    both = answer.ask([other, holder], QUESTION, embedder=emb(), chat_fn=refusal)
+    assert {s["lib"] for s in both["sources"]} == {holder.id}  # cited to the project that holds it
+
+
 def test_the_model_is_the_request_then_the_environment_then_the_library(lib, monkeypatch):
     monkeypatch.delenv("LITRAG_ANSWER_MODEL", raising=False)
     assert answer.default_model(lib) == answer.DEFAULT_MODEL
