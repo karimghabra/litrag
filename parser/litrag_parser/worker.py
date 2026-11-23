@@ -291,7 +291,7 @@ class Worker:
         whether or not the figures are read after, so no plot is left on a node that is gone."""
         from . import digitise
 
-        for logger, message in digitise.follow(lib.dir, conn, key):
+        for logger, message in digitise.follow(lib.home, conn, key):
             emit({"event": "log", "id": req_id, "lib": lib.id, "paper": key, "logger": logger, "message": message})
 
     @staticmethod
@@ -1303,7 +1303,7 @@ class Worker:
             conn = open_store(lib.store_path)
             try:
                 for key in held:
-                    digitise.reattach(lib.dir, conn, key)
+                    digitise.reattach(lib.home, conn, key)
             finally:
                 conn.close()
         if not figures_enabled():

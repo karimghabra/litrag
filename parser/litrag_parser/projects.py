@@ -401,7 +401,7 @@ def _merge_paper(src: Library, sconn: sqlite3.Connection, s_tables: set[str], ta
 
     if result.existed and have is not None and (have["file"] or have["status"] == "parsed"):
         _merge_labels(sconn, s_tables, tconn, t_tables, key, tkey)
-        digitised = digitise.merge_from(src.dir, sconn, key, target.dir, tconn, tkey, src.id)  # a person's series come with either copy of the paper
+        digitised = digitise.merge_from(src.home, sconn, key, target.home, tconn, tkey, src.id)  # a person's series come with either copy of the paper
         tconn.commit()
         return {"kind": "duplicate", "key": tkey, "digitised": digitised, **_merge_beside(src, row, target, tconn, tkey, have, now)}
 
@@ -449,7 +449,7 @@ def _merge_paper(src: Library, sconn: sqlite3.Connection, s_tables: set[str], ta
             tconn.execute("INSERT OR IGNORE INTO judgments(paper, pair, same, model, at) VALUES (?,?,?,?,?)", (tkey, *tuple(j)))
     _merge_labels(sconn, s_tables, tconn, t_tables, key, tkey)
     _merge_charts(sconn, s_tables, tconn, key, tkey, dest_name, figures_name)
-    digitised = digitise.merge_from(src.dir, sconn, key, target.dir, tconn, tkey, src.id)
+    digitised = digitise.merge_from(src.home, sconn, key, target.home, tconn, tkey, src.id)
     tconn.commit()
     log_event(tconn, tkey, now, "merged", f"from {src.id} ({key}){'' if raw_came else ', no raw document: to be read again'}")
     return {"kind": "filed", "key": tkey, "digitised": digitised}

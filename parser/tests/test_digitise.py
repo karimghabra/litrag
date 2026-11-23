@@ -592,7 +592,7 @@ def test_a_merge_brings_a_paper_s_digitised_series_with_their_points_fits_and_pi
     a = digitise.one(conn, a["id"])
     rows = [tuple(r) for r in conn.execute("SELECT node_id, paper, parent, ordinal, depth, type, label, role, heading, ancestry, text, page, bbox_l, bbox_t, bbox_r, bbox_b FROM nodes WHERE paper = ?", (key,))]
     conn.close()
-    out = projects.merge(root, ["lib"], "Merged")
+    out = projects.merge(root, ["lib"], "Merged", shared=False)  # a library of its own store: the merge that copies
     target = open_library(root, out["target"]["id"])
     assert out["digitised"] == [key] and out["filed"] == 1
     tconn = open_store(target.store_path)
@@ -624,7 +624,7 @@ def _merged(tmp_path):
     a = _saved(lib, conn, fig, "lag", colour="#1f4e9c")
     rows = [tuple(r) for r in conn.execute("SELECT node_id, paper, parent, ordinal, depth, type, label, role, heading, ancestry, text, page, bbox_l, bbox_t, bbox_r, bbox_b FROM nodes WHERE paper = ?", (key,))]
     conn.close()
-    target = open_library(root, projects.merge(root, ["lib"], "Merged")["target"]["id"])
+    target = open_library(root, projects.merge(root, ["lib"], "Merged", shared=False)["target"]["id"])
     tconn = open_store(target.store_path)
     tconn.executemany("INSERT INTO nodes(node_id, paper, parent, ordinal, depth, type, label, role, heading, ancestry, text, page, bbox_l, bbox_t, bbox_r, bbox_b) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", rows)
     tconn.commit()
@@ -688,6 +688,65 @@ def test_a_series_changed_in_both_libraries_is_kept_in_each_form_and_neither_is_
     sconn.close()
     assert projects.merge(root, ["lib"], "", into=target.id)["digitised"] == [key]
     assert [(name, n) for _, name, n in _series(target, key)] == [("lag", 6), ("lag (lib)", 4), ("lag (lib)", 3)]
+
+
+def test_a_library_moved_into_the_shared_store_keeps_its_series_on_their_figures_and_draws_them_there(tmp_path):
+    """A curve digitised and fitted in a library of its own store, the library moved into the
+    shared store: the project still has the series on its figure, with every point, its fit and
+    the picture it was read from; the figure is cut from the paper where the shared store keeps
+    it; and the plots found for a project are those of the papers it holds."""
+    from litrag_parser import migrate
+    from litrag_parser.library import create_library, open_library
+
+    root = tmp_path / "root"
+    create_library(root, "lib")
+    lib, conn, key, fig = _library(root)
+    a = _saved(lib, conn, fig, "lag", colour="#1f4e9c")
+    digitise.save_fit(conn, a["id"], fit.fit([(float(i), 0.05 + 0.8 / (1 + math.exp(-0.25 * (i - 25)))) for i in range(0, 60, 2)], "logistic"))
+    a = digitise.one(conn, a["id"])
+    conn.close()
+    moved = migrate.migrate(root)["moved"]
+    assert [(m["id"], m["new"], m["digitised"]) for m in moved] == [("lib", 1, 1)]
+    project = open_library(root, "lib")
+    assert project.shared and project.home != project.dir
+    sconn = open_store(project.store_path)
+    there = digitise.of_figure(sconn, fig)
+    sconn.close()
+    assert [(s["uid"], s["series"], s["orphan"], s["points"], s["calibration"]) for s in there] == [(a["uid"], "lag", False, a["points"], a["calibration"])]
+    assert there[0]["fits"]["logistic"]["derived"] == a["fits"]["logistic"]["derived"]
+    assert hashlib.sha256(digitise.original_path(project.home, a["image"]["sha256"]).read_bytes()).hexdigest() == a["image"]["sha256"]
+    opened = digitise.answer("digitise_open", {"lib": "lib", "figure": fig}, lambda: project)
+    assert opened["image"]["sha256"] == a["image"]["sha256"] and [s["uid"] for s in opened["saved"]] == [a["uid"]] and opened["orphans"] == []
+    assert Path(opened["image"]["path"]).is_relative_to(project.home)
+    other = create_library(root, "Other", shared=True)  # a project that holds none of the store's papers
+    assert [f["figure"] for f in digitise.answer("plots", {"lib": "lib"}, lambda: project)["figures"]] == [fig]
+    assert digitise.answer("plots", {"lib": "other"}, lambda: other)["figures"] == []
+
+
+def test_a_series_of_a_paper_the_shared_store_holds_already_comes_with_its_library_onto_its_figure(tmp_path):
+    """Two libraries of their own stores hold the same paper; the series was digitised in the
+    second. Moved one after the other, the second finds its paper held: its series comes to the
+    paper there, on the figure drawn as its picture, once."""
+    from litrag_parser import migrate
+    from litrag_parser.library import create_library
+
+    root = tmp_path / "root"
+    create_library(root, "lib")
+    second = create_library(root, "second")
+    lib, conn, key, fig = _library(root)
+    conn.close()
+    shutil.copytree(lib / "papers", second.dir / "papers", dirs_exist_ok=True)
+    shutil.copy(lib / "store.sqlite", second.dir / "store.sqlite")
+    conn = open_store(second.dir / "store.sqlite")
+    a = _saved(second.dir, conn, fig, "lag", colour="#1f4e9c")
+    conn.close()
+    assert [(m["held"], m["digitised"]) for m in migrate.migrate(root, only=["lib"])["moved"]] == [(0, 0)]
+    assert [(m["held"], m["digitised"]) for m in migrate.migrate(root, only=["second"])["moved"]] == [(1, 1)]
+    assert [(uid, name, n) for uid, name, n in _series(second, key)] == [(a["uid"], "lag", 8)]  # `second` still names its own store here: untouched
+    sconn = open_store(root / "_shared" / "store.sqlite")
+    assert [(s["uid"], s["orphan"], len(s["points"])) for s in digitise.of_figure(sconn, fig)] == [(a["uid"], False, 8)]
+    assert sconn.execute("SELECT COUNT(*) FROM digitised").fetchone()[0] == 1
+    sconn.close()
 
 
 def test_a_stub_dropped_for_a_pdf_kept_beside_an_xml_paper_hands_over_its_series(tmp_path):

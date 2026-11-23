@@ -303,9 +303,11 @@ def _copy_candidates(lib: Library, sconn: sqlite3.Connection, s_tables: set[str]
 def migrate_library(lib: Library, tconn: sqlite3.Connection, now: str, on_progress: Callable[[dict[str, Any]], None] | None = None) -> dict[str, Any]:
     """One old library into the shared store (open on `tconn`); its manifest marked moved. The
     project is the same project, read from the shared store from now on."""
+    from . import digitise
+
     say = on_progress or (lambda e: None)
     target = Library(root=lib.root, id=lib.id, manifest=lib.manifest, store_dir=shared_dir(lib.root))
-    out: dict[str, Any] = {"id": lib.id, "papers": 0, "new": 0, "held": 0, "files": 0, "vectors": 0, "labels_moved": 0,
+    out: dict[str, Any] = {"id": lib.id, "papers": 0, "new": 0, "held": 0, "files": 0, "vectors": 0, "labels_moved": 0, "digitised": 0,
                            "candidates": 0, "candidates_new": 0, "cites": 0, "skipped": []}
     keys: dict[str, str] = {}
     if lib.store_path.exists():
@@ -318,6 +320,7 @@ def migrate_library(lib: Library, tconn: sqlite3.Connection, now: str, on_progre
                 out["papers"] += 1
                 key = str(row["key"])
                 tkey = _held(tconn, row)
+                copied = tkey is None
                 if tkey is not None:
                     out["held"] += 1
                     out["labels_moved"] += _move_labels(sconn, s_tables, tconn, key, tkey)
@@ -331,6 +334,13 @@ def migrate_library(lib: Library, tconn: sqlite3.Connection, now: str, on_progre
                     out["new"] += 1
                     out["files"] += got["files"]
                     out["vectors"] += got.get("vectors", 0)
+                # the series a person digitised from it: as they were with a paper copied with its reading,
+                # else for review until the reading held here draws their pictures
+                came = digitise.merge_from(lib.home, sconn, key, target.home, tconn, tkey, lib.id, as_read=copied)
+                tconn.commit()
+                if came and not copied:
+                    digitise.reattach(target.home, tconn, tkey)
+                out["digitised"] += came
                 keys[key] = tkey
                 members.add(tconn, target, [tkey], row.get("added_at") or now)
             out.update({k: v for k, v in _copy_candidates(target, sconn, s_tables, tconn, keys, now).items()})

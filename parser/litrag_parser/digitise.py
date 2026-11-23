@@ -1006,11 +1006,13 @@ def _signature(conn: sqlite3.Connection, did: int) -> str:
     return hashlib.sha256(json.dumps([list(r), pts], sort_keys=True).encode("utf-8")).hexdigest()
 
 
-def merge_from(src_dir: Path, sconn: sqlite3.Connection, key: str, target_dir: Path, tconn: sqlite3.Connection, tkey: str, origin: str) -> int:
+def merge_from(src_dir: Path, sconn: sqlite3.Connection, key: str, target_dir: Path, tconn: sqlite3.Connection, tkey: str, origin: str, *, as_read: bool = False) -> int:
     """A paper's digitised series brought from the library `origin`'s store into another's, where
     the paper is `tkey` (projects.merge): each series with its points, its fits and the copy of
     the picture it was read from. They come for review — the target's reading of the paper puts
-    each on the figure drawn as its picture (`reattach`), or a person does.
+    each on the figure drawn as its picture (`reattach`), or a person does. With `as_read` the
+    paper came with the very reading the series were saved on (migrate.py copies its rows), so
+    each stays as it was: on its figure, or for review.
 
     A series is known by its `uid` in every library. One the target does not hold comes as it
     is. One it holds is left alone, whatever was done to it there, when the source's copy is the
@@ -1036,8 +1038,8 @@ def merge_from(src_dir: Path, sconn: sqlite3.Connection, key: str, target_dir: P
             if tconn.execute("SELECT 1 FROM digitised WHERE uid = ?", (uid,)).fetchone() is not None:
                 continue
         figure = tkey + r["figure"][len(key):] if tkey != key and r["figure"].startswith(key + "#") else r["figure"]
-        cur = tconn.execute(f"INSERT INTO digitised(uid, brought, paper, figure, series, orphan, {', '.join(cols)}) VALUES (?, ?, ?, ?, ?, 1, {', '.join('?' * len(cols))})",
-                            (uid, sig, tkey, figure, name, *[r[c] for c in cols]))
+        cur = tconn.execute(f"INSERT INTO digitised(uid, brought, paper, figure, series, orphan, {', '.join(cols)}) VALUES (?, ?, ?, ?, ?, ?, {', '.join('?' * len(cols))})",
+                            (uid, sig, tkey, figure, name, r["orphan"] if as_read else 1, *[r[c] for c in cols]))
         did = cur.lastrowid
         tconn.executemany("INSERT INTO digitised_points(digitised, ordinal, x, y, px, py, how) VALUES (?,?,?,?,?,?,?)",
                           [(did, *tuple(p)) for p in sconn.execute("SELECT ordinal, x, y, px, py, how FROM digitised_points WHERE digitised = ? ORDER BY ordinal", (r["id"],))])
@@ -1213,13 +1215,14 @@ def _fts_query(q: str) -> str | None:
     return " ".join(f'"{t}"*' for t in toks)
 
 
-def find(conn: sqlite3.Connection, query: str = "", *, trend: bool = False, limit: int = 50) -> dict[str, Any]:
+def find(conn: sqlite3.Connection, query: str = "", *, trend: bool = False, limit: int = 50, keys: Sequence[str] | None = None) -> dict[str, Any]:
     """Figures that are data plots, best first, whose captions match `query` (every word, as a
     prefix). A figure is a **plot** when the chart reader found a frame with numbers beside its
     axes in it (`charts`); **no plot** when it looked and found none; else **unknown** — not
     read yet — and its caption's words say how likely it is one. A **trend** is a plot whose x
     axis has numbers (a curve over time or dose, not bars over categories), or an unread
-    figure whose caption speaks of one. `{figures: [{figure, paper, title, year, label,
+    figure whose caption speaks of one. With `keys`, only the figures of those papers — the ones
+    a project of the shared store holds (members.scope). `{figures: [{figure, paper, title, year, label,
     caption, plot, trend, plots: [...], digitised, image, score}], total}`."""
     from . import figures
 
@@ -1255,9 +1258,10 @@ def find(conn: sqlite3.Connection, query: str = "", *, trend: bool = False, limi
     for r in conn.execute(f"SELECT figure, COUNT(*) AS n FROM digitised WHERE figure IN {among} AND orphan = 0 GROUP BY figure", args):
         dig[r["figure"]] = r["n"]
     labels: dict[str, dict[str, tuple[str | None, bool]]] = {}
+    mine = None if keys is None else set(keys)
     for f in figs:
         r = info.get(f)
-        if r is None:
+        if r is None or (mine is not None and r["paper"] not in mine):
             continue
         cap = r["caption"] or ""
         ps = plots.get(f, [])
@@ -1320,31 +1324,32 @@ def answer(op: str, req: dict[str, Any], get_lib: Any) -> dict[str, Any]:
       one is named; a saved series' fits are kept with it.
     """
     from . import fit as fitting
+    from . import members
     from .store import open_store
 
     if op == "plots":
         lib = get_lib()
         conn = open_store(lib.store_path)
         try:
-            out = find(conn, str(req.get("query") or ""), trend=bool(req.get("trend")), limit=int(req.get("limit") or 50))
+            out = find(conn, str(req.get("query") or ""), trend=bool(req.get("trend")), limit=int(req.get("limit") or 50), keys=members.scope(conn, lib))
         finally:
             conn.close()
         return {"event": "plots", "lib": lib.id, **out}
     if op == "digitise_open":
         if req.get("path") and not req.get("figure"):
             lib = get_lib() if req.get("lib") else None
-            got = open_image(Path(str(req["path"])), lib_dir=lib.dir if lib else None)
+            got = open_image(Path(str(req["path"])), lib_dir=lib.home if lib else None)
             got.pop("_img", None)
             got.pop("_words", None)
             return {"event": "digitise", "lib": lib.id if lib else None, **got, "saved": [], "orphans": []}
         lib = get_lib()
         conn = open_store(lib.store_path)
         try:
-            got = render(lib.dir, conn, str(req["figure"]))
+            got = render(lib.home, conn, str(req["figure"]))
             saved = of_figure(conn, str(req["figure"]))
             lost = orphans(conn, got["source"]["paper"])
             for s in lost:
-                kept = original_path(lib.dir, s["image"]["sha256"])
+                kept = original_path(lib.home, s["image"]["sha256"])
                 s["picture"] = str(kept) if kept.is_file() else None
         finally:
             conn.close()
@@ -1387,11 +1392,11 @@ def answer(op: str, req: dict[str, Any], get_lib: Any) -> dict[str, Any]:
     conn = open_store(lib.store_path)
     try:
         if op == "digitise_save":
-            saved = save(lib.dir, conn, str(req["figure"]), str(req.get("series") or ""), req["calibration"], req.get("points") or [], image=req.get("image") or {}, colour=req.get("colour"),
+            saved = save(lib.home, conn, str(req["figure"]), str(req.get("series") or ""), req["calibration"], req.get("points") or [], image=req.get("image") or {}, colour=req.get("colour"),
                          method=req.get("method"), axes=req.get("axes"), source=req.get("source"), series_id=int(req["series_id"]) if req.get("series_id") is not None else None)
             return {"event": "digitised", "lib": lib.id, "series": saved}
         if op == "digitise_attach":
-            return {"event": "digitised", "lib": lib.id, "series": attach(lib.dir, conn, int(req["series_id"]), str(req["figure"]))}
+            return {"event": "digitised", "lib": lib.id, "series": attach(lib.home, conn, int(req["series_id"]), str(req["figure"]))}
         if op == "digitise_delete":
             return {"event": "digitised", "lib": lib.id, "deleted": delete(conn, int(req["series_id"]))}
         if op == "digitise_export":
