@@ -27,7 +27,7 @@ import traceback
 from pathlib import Path
 from typing import Any
 
-from . import __version__, acquire, boundary, lanes, members
+from . import __version__, acquire, boundary, lanes, members, users as accounts
 from . import projects as project_rows
 from .library import ALL, Library, create_library, library_root, list_libraries, now_iso, open_library, parsed_papers, safe_key
 from .citations import link_citations
@@ -431,6 +431,119 @@ class Worker:
     @staticmethod
     def _scope(conn: Any, lib: Library) -> list[str] | None:
         return members.scope(conn, lib)
+
+    # ---- accounts: who is signed in, and what each person keeps (users.py) ---------------
+
+    @property
+    def accounts(self) -> "accounts.Users":
+        if getattr(self, "_accounts", None) is None:
+            self._accounts = accounts.Users(self.root / "users.sqlite")
+            self._sessions = accounts.Sessions()
+        return self._accounts
+
+    @property
+    def sessions(self) -> "accounts.Sessions":
+        self.accounts  # noqa: B018 — opens the store and the sessions together
+        return self._sessions
+
+    def _me(self, req: dict[str, Any]) -> str:
+        return self.sessions.user(req.get("session"))
+
+    def _owner_only(self, req: dict[str, Any], lib: Library) -> None:
+        """A project an account made is renamed, described and deleted by that account alone;
+        one made before accounts, or by the worker driven without one, by anyone."""
+        owner = lib.manifest.get("owner")
+        if not owner:
+            return
+        who = self.sessions.user(req.get("session")) if req.get("session") else None
+        if who != owner:
+            raise accounts.AccountError(f"only {self.accounts.name_of(owner) or owner} can change or delete {lib.manifest.get('name', lib.id)}")
+
+    def _about(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Rows that name a paper (`paper`), with what a list shows of it — its title, year, journal
+        and format from the shared store, and the projects that hold it; a paper of a project that
+        keeps its own store, from that store. A paper no store holds any more keeps its key alone."""
+        out = [dict(r) for r in rows]
+        keys = sorted({r["paper"] for r in out})
+        found: dict[str, dict[str, Any]] = {}
+        shared = self.root / "_shared" / "store.sqlite"
+        if keys and shared.exists():
+            conn = open_store(shared)
+            try:
+                q = ",".join("?" * len(keys))
+                for r in conn.execute(f"SELECT key, title, year, journal, format, status FROM papers WHERE key IN ({q})", keys):
+                    found[r["key"]] = {**dict(r), "projects": members.projects_of(conn, r["key"])}
+            finally:
+                conn.close()
+        for r in out:
+            got = found.get(r["paper"])
+            if got is None and r.get("project"):
+                lib = open_library(self.root, str(r["project"]))
+                if lib is not None and not lib.shared and lib.store_path.exists():
+                    conn = open_store(lib.store_path)
+                    try:
+                        row = conn.execute("SELECT key, title, year, journal, format, status FROM papers WHERE key = ?", (r["paper"],)).fetchone()
+                        got = {**dict(row), "projects": [lib.id]} if row else None
+                    finally:
+                        conn.close()
+            r.update({"title": None, "year": None, "journal": None, "format": None, "status": None, "projects": []} | ({k: v for k, v in got.items() if k != "key"} if got else {}))
+        return out
+
+    def answer_account(self, op: str, req: dict[str, Any]) -> dict[str, Any]:
+        """The account ops: an account made, signed into or out of, and each person's recent
+        papers, favourites, notes and collections. Every op but `users`, `user_create` and
+        `sign_in` carries the `session` one of those handed out."""
+        u = self.accounts
+        if op == "users":
+            return {"event": "users", "users": u.list()}
+        if op in ("user_create", "sign_in"):
+            me = u.create(str(req.get("name") or ""), str(req.get("password") or "")) if op == "user_create" \
+                else u.sign_in(str(req.get("name") or ""), str(req.get("password") or ""))
+            return {"event": "signed_in", "user": me, "session": self.sessions.open(me["id"])}
+        if op == "sign_out":
+            self.sessions.close(str(req.get("session") or ""))
+            return {"event": "signed_out"}
+        me = self._me(req)
+        key = str(req.get("key") or "")
+        if op == "password":
+            u.set_password(me, str(req.get("old") or ""), str(req.get("new") or ""))
+            return {"event": "password"}
+        if op == "viewed":
+            u.viewed(me, key, req.get("lib") or None)
+            return {"event": "viewed", "key": key}
+        if op == "recent":
+            return {"event": "recent", "papers": self._about(u.recent(me, int(req.get("limit") or 20)))}
+        if op == "favourite":
+            return {"event": "favourite", "key": key, "on": u.favourite(me, key, bool(req.get("on")), req.get("lib") or None)}
+        if op == "favourites":
+            return {"event": "favourites", "papers": self._about(u.favourites(me))}
+        if op == "notes":
+            return {"event": "notes", "key": key or None, "notes": u.notes(me, key or None)}
+        if op == "note_save":
+            note = u.save_note(me, key, str(req.get("text") or ""), note_id=req.get("note_id"), node_id=req.get("node_id"), quote=req.get("quote"))
+            return {"event": "note", "note": note}
+        if op == "note_delete":
+            return {"event": "note_deleted", "note_id": int(req["note_id"]), "deleted": u.delete_note(me, int(req["note_id"]))}
+        if op == "collections":
+            return {"event": "collections", "collections": u.collections(me)}
+        if op == "collection_create":
+            return {"event": "collection", "collection": u.create_collection(me, str(req.get("name") or ""))}
+        if op == "paper_marks":
+            return {"event": "paper_marks", "key": key, "favourite": u.is_favourite(me, key), "collections": u.collections_of(me, key), "notes": len(u.notes(me, key))}
+        cid = int(req["collection_id"])  # never `id`: that is the request's own, the one its answer is matched by
+        if op == "collection_rename":
+            u.rename_collection(me, cid, str(req.get("name") or ""))
+            return {"event": "collection", "collection": {"id": cid, "name": str(req.get("name") or "").strip()}}
+        if op == "collection_delete":
+            u.delete_collection(me, cid)
+            return {"event": "collection_deleted", "collection_id": cid}
+        if op in ("collection_add", "collection_remove"):
+            keys = [str(k) for k in req.get("keys") or []]
+            n = u.add_to_collection(me, cid, keys, req.get("lib") or None) if op == "collection_add" else u.remove_from_collection(me, cid, keys)
+            return {"event": "collection_changed", "collection_id": cid, "changed": n}
+        if op == "collection":
+            return {"event": "collection_papers", "collection_id": cid, "papers": self._about(u.collection_papers(me, cid))}
+        raise ValueError(f"Unknown op {op!r}")
 
     def _close_interrupted(self, lib: Library) -> None:
         """A paper left `parsing` by a worker that died is given its terminal state back.
@@ -1285,7 +1398,7 @@ class Worker:
         (`figures_not_kept`)."""
         req_id = req.get("id")
         emit({"event": "progress", "id": req_id, "op": "merge", "done": 0, "total": 0, "label": "Merging libraries"})
-        out = project_rows.merge(self.root, [str(s) for s in req.get("sources") or []], str(req.get("name") or ""), into=req.get("into"))
+        out = project_rows.merge(self.root, [str(s) for s in req.get("sources") or []], str(req.get("name") or ""), into=req.get("into"), owner=req.get("owner"))
         target = out["target"]["id"]
         emit({"event": "stage", "id": req_id, "lib": target, "stage": "merged", "message": f"{out['filed']} papers filed, {out['duplicates']} already held, {len(out['keys_to_rebuild'])} to derive again, {len(out['keys_to_parse'])} to read again"})
         rebuilt: list[str] = []
@@ -1433,8 +1546,11 @@ class Worker:
                 emit({"event": "hello", "id": req_id, "worker": __version__, "root": str(self.root), "python": sys.version.split()[0], "docling": self.docling_version, "device": self._device, "meaning": lanes.active().summary() if lanes.active() else None, "boundary": self._scorer.summary() if self._scorer else None})
             elif op == "libraries":
                 emit({"event": "libraries", "id": req_id, "root": str(self.root), "libraries": [l.to_dict() for l in list_libraries(self.root)]})
+            elif op in ACCOUNT_OPS:
+                emit({"id": req_id, **self.answer_account(op, req)})
             elif op == "init":
-                lib = create_library(self.root, str(req["name"]), req.get("projectId"), shared=True, owner=req.get("owner") or None)
+                owner = self._me(req) if req.get("session") else None  # a project made while signed in is that account's own
+                lib = create_library(self.root, str(req["name"]), req.get("projectId"), shared=True, owner=owner)
                 conn = open_store(lib.store_path)
                 acquire.ensure_schema(conn)
                 conn.close()
@@ -1453,7 +1569,9 @@ class Worker:
                 emit({"event": "migrate", "id": req_id, **migrate.migrate(self.root, dry_run=True, only=req.get("libs") or None)})
             elif op == "delete_project":
                 lib = self._lib(req, write=True)
-                emit({"event": "deleted", "id": req_id, **project_rows.delete(lib)})
+                self._owner_only(req, lib)
+                gone = project_rows.delete(lib)
+                emit({"event": "deleted", "id": req_id, "lib": gone.pop("id"), **gone})  # `id` stays the request's: the asker matches the answer by it
             elif op in ("hold", "let_go"):
                 # a project takes papers the shared store holds, or lets them go (the papers stay)
                 lib = self._lib(req, write=True)
@@ -1473,6 +1591,7 @@ class Worker:
                 emit({"event": "held" if op == "hold" else "let_go", "id": req_id, "lib": lib.id, "keys": keys, "changed": n})
             elif op == "describe":
                 lib = self._lib(req, write=True)
+                self._owner_only(req, lib)
                 emit({"event": "project", "id": req_id, "project": project_rows.describe(lib, name=req.get("name"), description=req.get("description"))})
             elif op in ("search", "suggest", "query", "ask", "models"):
                 self.answer_async(req)
@@ -1527,6 +1646,8 @@ class Worker:
             elif op in ("fetch", "merge", "embed", "model_label", "figures", "figures_fetch", "round", "expand", "migrate"):
                 if op not in ("merge", "migrate"):
                     self._lib(req, write=op in ("fetch", "expand"))  # fail fast on a bad library, or on filing into every project
+                if op == "merge":
+                    req = {**req, "owner": self._me(req) if req.get("session") else None}  # a project made while signed in is that account's own
                 self.ingest_queue.put(req)
                 emit({"event": "queued", "id": req_id, "op": op, "ahead": self.ingest_queue.qsize() - 1})
             elif op in ("ingest", "reparse", "rebuild", "judge"):
@@ -1704,6 +1825,12 @@ class Worker:
                 raise ValueError(f"Unknown op {op!r}")
         except Exception as e:
             emit({"event": "error", "id": req_id, "op": op, "message": str(e)})
+
+
+#: The ops about accounts and what each person keeps (Worker.answer_account).
+ACCOUNT_OPS = frozenset({"users", "user_create", "sign_in", "sign_out", "password", "viewed", "recent", "favourite", "favourites",
+                         "notes", "note_save", "note_delete", "collections", "collection_create", "collection_rename", "collection_delete",
+                         "collection_add", "collection_remove", "collection", "paper_marks"})
 
 
 def request_lines():

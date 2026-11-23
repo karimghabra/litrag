@@ -15,6 +15,7 @@ Three parts do the work.
 - **The window** is an Electron app with seven tabs, listed down its left edge: Projects, Search, Papers, Types, Ask, Query and Graph. A log pane runs along the bottom. It shows and asks. It never writes the store itself.
 - **The worker** is a Python process the window starts. It reads papers with Docling, writes the store, and answers every request as one line of JSON. An assistant or a script can send it the same requests.
 - **The shared store** (`_shared/` under the library root) keeps every paper once, by its identifier: the DOI, else the PMID, else the file's hash. Its `store.sqlite` holds the rows, `parsed/` each paper's raw Docling document, and `papers/` the files. A paper read for one project is the same paper in every other project that takes it, and a query can ask one project, several, or all of them.
+- **An account** is how the window knows who is reading. It opens on a sign-in dialogue; each account keeps its own recent papers, favourites, notes and collections, and the projects it made are its own to rename and delete. Every account reads every project's papers (Accounts and what is yours).
 - **A project** is a folder under the library root holding its manifest and its inbox, and the list of papers it holds (rows of `project_papers` in the shared store). A project made before the shared store keeps its own `store.sqlite`, `papers/` and `parsed/` in its folder until you move it (The shared store, below).
 
 Five rules from the project's own guide shape everything this tutorial shows.
@@ -204,6 +205,43 @@ A project that keeps its own store still works as before, alone: a query that na
 - **A worker that stops is not restarted.** A pink band says **The worker is not running.** with the reason, and the dot turns red. Quit and start litrag again (see Troubleshooting and known limits).
 - **The log lives only in the window.** It keeps the last 400 lines and writes nothing to disk. Warnings from the chart reader's OCR keep their terminal colour codes, so stray marks like `[33m` appear; they are harmless.
 
+## Accounts and what is yours
+
+The window opens on a sign-in dialogue. On a machine with no account yet it offers **New account**: a name, a password of 8 characters or more, the password again, **Create account**. Later it lists the accounts kept here; click your name, type your password, **Sign in**. A wrong password and a name with no account get the same answer: "that name and password do not match an account".
+
+**What an account protects.** Accounts tell the people who share this machine, or a library folder on a shared drive, apart, and keep each person's own things out of the others' way. They are **not** a lock. Anyone who can open the library folder can read `users.sqlite`, notes included, and change it. Every account reads every project and every paper. The password stops one person signing in as another through the window, nothing more. It is kept only as a salted scrypt hash, never as itself, and nothing about an account leaves the machine.
+
+**The user menu.** Your name sits at the right of the header. Click it for **Change password…** (it asks for the current password, then the new one twice) and **Sign out**, which opens the dialogue again for the next person. Closing the app signs everyone out.
+
+**Yours, in the sidebar.** Below the tabs, the **Yours** group lists:
+
+- **Recent**: the papers you opened, the latest first, the last 50 kept;
+- **Favourites**: the papers you starred;
+- each of your **collections**, and **+ New collection**. A collection is a folder of papers of your own, independent of any project: a reading list, the papers to print.
+
+Each list shows a paper's title, year, journal and the projects that hold it. **Open** opens it in the project you last saw it in, or in one that holds it now. **Unstar** and **Remove from collection** take it off the list and leave the paper where it was. A collection's view has **Rename…** and **Delete…**; deleting one leaves its papers in their projects.
+
+**On a paper.** Above the tree of the paper you are reading:
+
+- **☆** stars it (**★** when it is a favourite);
+- **Add to collection…** lists your collections (a ✓ before the ones holding it: choose one again to take it out) and **New collection…**;
+- **Notes** opens your notes on the paper. Type in the box and click **Note on the paper**, or select a passage in the tree first and click **Note on the passage**: the note keeps the passage's first words, and clicking them shows the passage again. **Edit** and **Delete** sit under each note. Only you see your notes.
+
+**Your projects.** A project you make while signed in is yours: its card says **yours**, and only you can **Describe…**, **Rename…** or **Delete…** it. **Only yours**, above the cards, hides the rest. A project made before accounts belongs to no one, and anyone may change it. Deleting a project lets go of its papers: they stay in the shared store and in every other project that holds them, and the project's folder is moved to `_deleted/` under the library root, not erased.
+
+**Where it is kept.** `users.sqlite` at the library root holds the accounts and each person's recent papers, favourites, notes and collections, apart from the papers. The window reaches it only through the worker's account requests, each carrying the session that signing in handed out (see Driving litrag from an assistant or script).
+
+**A forgotten password.** The window cannot reset one: changing a password asks for the current one. Until it can, whoever keeps the library folder does it by hand, with litrag closed:
+
+- *To let the person back in*, write the hash of a new password over the old one, in one command from a checkout, with the path of the library's `users.sqlite`, the account's id and the new password as its last three words:
+
+  ```
+  uv run --project parser --no-sync python -c 'import sqlite3, sys; from litrag_parser.users import hash_password; c = sqlite3.connect(sys.argv[1]); n = c.execute("UPDATE users SET pw_hash = ? WHERE id = ?", (hash_password(sys.argv[3]), sys.argv[2])).rowcount; c.commit(); print(n, "account changed")' ~/.protracker/library/users.sqlite 'ana lopez' 'a new password'
+  ```
+
+  It prints `1 account changed`; `0` means no account has that id. An id is the name in lower case without its accents: `sqlite3 ~/.protracker/library/users.sqlite 'SELECT id, name FROM users'` lists them. Their recent papers, favourites, notes and collections are as they left them.
+- *To free a project of theirs* without the account, delete the `"owner"` line from `<root>/<project>/library.json`: the project then belongs to no one, and anyone may describe, rename or delete it.
+
 ## Projects
 
 A project is one library of papers gathered for one research question. Every other tab works inside the project chosen in the header, so you make one before your first search. The window says "project" and the worker's files say "library": they are the same thing.
@@ -240,15 +278,9 @@ Beyond the card, the description feeds **Suggest from the project** on the Searc
 
 ### Renaming, describing and removing a project
 
-The window has no rename and no delete. The card's **Describe…** button does not work in this version: it asks for a browser prompt that Electron does not provide. No dialog opens; the log shows the error in red.
+The card's **Describe…** asks, in the window, what the project is about, and **Rename…** asks for its new name. The id and the folder never change. An empty name, or one another project uses, is refused. **Delete…** asks to confirm, then lets go of the project's papers (they stay in the shared store and in every other project holding them) and moves its folder to `_deleted/`. These buttons appear on a project of yours, or on one no account made (Accounts and what is yours). A project that still keeps its own store has no **Delete…**: move it into the shared store first.
 
-![After a click on Describe…, no dialog opens and the log shows “unhandled: prompt() is not supported.”](tutorial/05-projects-describe-click.png)
-
-The workarounds:
-
-- **Describe** a project with a `describe` request to the worker, or edit `description` in its `library.json` with the app closed. With the app open, choose **View › Toggle Developer Tools**, open its Console and type `await window.litrag.request('describe', { lib: 'archive', description: '…' })`. From a script, send the same request (see Driving litrag from an assistant or script).
-- **Rename** it with the same request and a `name`. The id and the folder never change. An empty name, or one another project uses, is refused.
-- **Remove** it by quitting the app and moving its folder out of the library root: the worker lists only folders holding a `library.json`. Nothing in litrag deletes a project.
+From a script, send the same requests (see Driving litrag from an assistant or script). A project an account made takes them only with that account's `session`.
 
 ```json
 {"op":"describe","lib":"archive","description":"The 226-paper archive beside the checkout."}
@@ -311,6 +343,7 @@ The manifest is written sorted and indented. Here is Looped ligament after two s
 | `queries` | every search run: `query`, `at`, `total`, `added` | each search; a merge unites the sources' |
 | `mergedFrom` | the ids a merge drew from | Merge |
 | `projectId` | the notebook's project id | an `init` request only |
+| `owner` | the id of the account that made it; absent on a project that is no one's | New project and Merge, while signed in |
 | `includes` | always `[]` | New project, Merge |
 
 - **Saved searches.** There is no Save button: every search from the Search tab is appended to `queries`. They return on the card and as the Search tab's "Searches so far:" chips, the last 12 distinct ones; a click runs one again.
@@ -2025,9 +2058,9 @@ The store adds new columns itself when next opened. Then rebuild every library. 
 | --- | --- | --- |
 | `npm run check:all` | the CLI's typecheck and tests, the app's typecheck, tests and build, the parser's pytest on saved Docling documents | no network, no models; the parser's tests take about two minutes on four CPU cores |
 | `npm run check`, `npm run app:check`, `npm run parser:check` | one part of `check:all` each: the CLI's typecheck and tests; the app's typecheck, tests and build; the parser's pytest | as `check:all` |
-| `xvfb-run npm --prefix app run smoke` | builds the app, starts it, waits for the worker, opens a read paper, saves screenshots to `SMOKE_OUT` | a display (`xvfb-run` on a server); a project under `LITRAG_ROOT`, holding a read paper unless `SMOKE_PDF` names one to read first |
+| `xvfb-run npm --prefix app run smoke` | builds the app, starts it, waits for the worker, opens a read paper, saves screenshots to `SMOKE_OUT` | a display (`xvfb-run` on a server); a project under `LITRAG_ROOT`, holding a read paper unless `SMOKE_PDF` names one to read first, and `LITRAG_USER` and `LITRAG_PASSWORD` naming an account of that library to sign in as (the run makes none there, and stops when they are unset). With no root named (`LITRAG_ROOT`, `PROTRACKER_LIBRARY`) and no account, it makes a temporary library and an account in it, reads `SMOKE_PDF` there, and removes the library when it ends |
 | `xvfb-run node app/tests/installed.mjs <install root> [out dir]` | starts an installed litrag as a person would, waits for the worker, asks `hello` and saves a screenshot to `installed-out`; prints the log and exits 1 when the worker did not start | an install made by the install script; a display; Playwright from `npm --prefix app install` |
-| `xvfb-run node app/tests/shots.mjs <out dir> [project id]` | screenshots of Projects, Search, Papers (printed and canonical), Types and Query, then the log's error lines; with `SHOT_QUESTION` set, Query asks it first | the app built (`npm --prefix app run build`); a display; Playwright |
+| `xvfb-run node app/tests/shots.mjs <out dir> [project id]` | screenshots of Projects, Search, Papers (printed and canonical), Types and Query, then the log's error lines; with `SHOT_QUESTION` set, Query asks it first | the app built (`npm --prefix app run build`); a display; Playwright; `LITRAG_USER` and `LITRAG_PASSWORD` naming an account of the library to sign in as (the run makes none, and stops when they are unset) |
 | `LITRAG_HEADLESS=1 npm --prefix app run e2e -- app.spec.ts` | the real window and worker on the JATS fixture, about 15 s | no models; `LITRAG_E2E_PAPERS=<folder>` runs it on your own papers, which needs Docling's models |
 | `LITRAG_HEADLESS=1 npm run e2e:studio` | the product end to end: a project, a search, fetches, Collect, Papers, Types, Query, Ask, a merge, suggested queries | Docling's models; Ollama with `nomic-embed-text`, and `qwen3.5:9b` (Ask) and `qwen3:14b` (suggested queries) unless `LITRAG_E2E_MODELS=0`; two PDFs from the archive beside the checkout, or `LITRAG_E2E_PDF_OPEN` and `LITRAG_E2E_PDF_CLOSED`. Europe PMC is stood in by a local server |
 | `npm --prefix app run e2e:report` | opens the HTML report of the last end-to-end run, kept in `app/e2e-report`, with a trace of each test that failed | an earlier `e2e` run |
@@ -2093,7 +2126,6 @@ This is the place to look when something goes wrong. Make the four checks below,
 | A card keeps a grey **queued** badge after a restart, with its file name as its title. The project card counts it in "papers" but not in "read" | The worker stopped after filing the paper and before reading it. Nothing resumes a queued paper | Click **Add papers…** and pick the same file again: it is in the library's `papers/` folder. Or send `reparse` with its key. **Reparse all** works too, but reads every paper again |
 | A **failed** card, and the tree pane says "Parsing failed: the worker stopped while reading this paper" | The worker quit or crashed in the middle of that paper; the next worker marked it failed | Add the file again, or reparse it by key |
 | A **failed** card with "the layout child took more than 300s", "and again in a fresh child", or "Docling read nothing from the file: no text, no tables" | Docling hung or crashed twice on the file, or found no text: a scanned page (OCR is off) or not a paper | Reparse it alone, by key. For a very long PDF, raise `LITRAG_LAYOUT_TIMEOUT` (300 s by default). For a scan, find the paper's XML or a PDF with a text layer |
-| **Describe…** on a project card does nothing, and the log says "unhandled: prompt() is not supported." **Suggest from the project** then answers "The project has no description to draft queries from: describe it first." | The button opens a browser prompt, which Electron does not support | Write the description in **What it is about** when you click **New project**. For an existing project, send `{"op":"describe","lib":"<id>","description":"…"}` (see Maintenance for sending a request from the window) |
 | A PDF reads badly: the title is the file name, the confidence chip is low, "No methods section detected", or sections hang under the wrong heading | A scan with text on few pages, a heading the layout model missed, or a running header. "doi\_10.1097\_00002480-199609000-00075" (ASAIO J, 1996) has text on page 2 only and scores 0.063 | Hover the confidence chip for its reasons and compare the boxes on the page. If Europe PMC has the paper's XML, read that instead: send `ingest` with its path and `"reread": true`. A plain add keeps the old reading ("seen before (by DOI), kept") |
 | A figure's numbers do not match the chart on the page | One of the chart reader's failure patterns (see Figures below) | Compare the table with the page, and check the caption for a second y axis. Reading again gives the same rows, and nothing in the window corrects or hides a value: leave that plot out |
 | A figure says "No numbers read from this figure" | The line under it, and the figure's tag in the tree, say which. **No PDF** (the card says "6 figures · no PDF"): JATS XML names its figures but holds no image, and no PDF of the paper is kept. **Not read**: the paper's figures were never read, because the reading was cut off or `LITRAG_FIGURES` was `off`. **Not in PDF**: the PDF kept beside the XML prints no caption with the figure's number. **No chart**: its caption was found, or it is a PDF's picture, and nothing under it is a chart the reader knows. **No number**, **number taken**, **small**: there is nothing to match a PDF's caption by, or too little to read | No PDF: click **Ask PMC for its PDF**, drop the paper's PDF on the figure, or run **Collect PDFs** on the Search tab; a PDF is kept beside the XML and read when its first pages print the paper's DOI or title (the log says when it is refused). Not read: click **Read the figures**, which reads all of that paper's figures. Not in PDF: the PDF prints its captions in a style the reader does not know yet (Springer's "Fig. 1 Title"), or it is another paper's; a PDF dropped on the figure replaces it when it prints more of the captions. No chart, no number, small: nothing to do; a photograph stays without numbers |
@@ -2192,7 +2224,7 @@ Run these from the root of a checkout, the folder that holds `package.json`, `ap
 | Start the app | `npm run app` | Builds the window with esbuild and starts Electron, which starts the worker |
 | Start it on other libraries | `LITRAG_ROOT=/path/to/root npm run app` | The default root is `~/.protracker/library` |
 | Run every check | `npm run check:all` | The CLI's typecheck and tests, the app's typecheck, tests and build, and the parser's pytest; no network, no models |
-| Smoke run | `npm --prefix app run smoke` | Needs a display (`xvfb-run` on Linux); `SMOKE_PDF` names a paper to read first, `SMOKE_OUT` a folder for the screenshots; passes only on a root that already holds a library |
+| Smoke run | `npm --prefix app run smoke` | Needs a display (`xvfb-run` on Linux); `SMOKE_PDF` names a paper to read first, `SMOKE_OUT` a folder for the screenshots; on a root of yours it needs `LITRAG_USER` and `LITRAG_PASSWORD` (it makes no account there), and with no root named it uses a temporary library of its own, which needs `SMOKE_PDF` |
 | End-to-end run | `npm run e2e -- app.spec.ts` | The real window and worker on the JATS fixture; `LITRAG_E2E_PAPERS=<folder>` runs it on your own papers; a bare `npm run e2e` runs the studio suite too |
 | The product end to end | `LITRAG_HEADLESS=1 npm run e2e:studio` | Needs Docling's models, Ollama with `nomic-embed-text`, and two PDFs from the archive beside the checkout; its Ask and query-drafting steps also need the chat models, unless `LITRAG_E2E_MODELS=0` |
 | Measure the reader on a library | `npm run harness -- --lib <root>/<library>` | Add `--json run.json`, kept outside the checkout; after a change, `--baseline run.json --gate` |
@@ -2206,7 +2238,8 @@ Each tab works on the project chosen in the header's **Project** picker, and the
 
 | Tab | Main controls | Ops behind them |
 | --- | --- | --- |
-| **Projects** | **New project** (**Name**, **What it is about**, **Create**, **Cancel**); **Merge libraries…** (a box per project, **Name of the merged project**, **Merge**, **Cancel**); on each card **Papers**, **Search**, **Types**, **Query**, and **Describe…** (no effect in this version); **What would move?** and **Move them**, while a project keeps its own store | `projects`, `init`, `merge`, `migrate` |
+| **Projects** | **New project** (**Name**, **What it is about**, **Create**, **Cancel**); **Merge libraries…** (a box per project, **Name of the merged project**, **Merge**, **Cancel**); **Only yours**; **Move into the shared store** (**What would move?**, **Move them**) while a project keeps its own store; on each card **Papers**, **Search**, **Types**, **Query**, and on a project of yours (or no one's) **Describe…**, **Rename…**, **Delete…** | `projects`, `init`, `merge`, `describe`, `delete_project`, `migrate` |
+| **Yours** (sidebar) | **Recent**, **Favourites**, each collection, **+ New collection**; on a list **Open**, **Unstar**, **Remove from collection**; a collection's **Rename…**, **Delete…**. Above a paper's tree **☆**, **Add to collection…**, **Notes** (**Note on the paper**, **Note on the passage**, **Edit**, **Delete**). In the header your name: **Change password…**, **Sign out** | `recent`, `favourites`, `favourite`, `collections`, `collection*`, `notes`, `note_save`, `note_delete`, `paper_marks`, `sign_out`, `password` |
 | **Search** | The query box, **Search**, **Suggest from the project**; under **Results**: a tick box on each hit, **all**, **Fetch & read selected** (**Fetch & read 1** with one hit ticked), **More results**; under **Candidates**: status chips, **Fetch** on a candidate, **Collect PDFs**, which shows its counts, as in **Collect PDFs (117 for figures)**, and **Ask PMC for N figure PDFs** beside it | `search`, `suggest`, `candidates`, `wanted`, `fetch`, `ingest`, `figures_fetch` |
 | **Papers** | **Add papers…**, **Reparse all**, **Label links**; **Sort** ("as added", "format", "type", "title", "year, newest first", "confidence, lowest first") and format, type and confidence chips; **Printed** and **Canonical** over the tree, with lane chips; **‹** and **›** over the page; **Label** on a finding, **Read the figures** on a figure whose paper was never read, **Ask PMC for its PDF** or **Ask PMC again** on a figure of an XML paper with no PDF beside it; in the labelling panel **Let the model label**, **Close**, **Skip**, **Save & next** | `papers`, `tree`, `mapping`, `refs`, `edges`, `charts`, `file`, `ingest`, `reparse`, `figures`, `figures_fetch`, `label_queue`, `label`, `model_label`, `truth` |
 | **Types** | One tab per type with its count; **Canonical structure**; **How each paper maps onto it**, with a paper picker and **Open in Papers** | `types`, `mapping` |
@@ -2218,15 +2251,15 @@ Each tab works on the project chosen in the header's **Project** picker, and the
 
 ### Worker ops
 
-The worker answers these 51 ops, each sent as one JSON line with an `id`; a queued op answers `queued` at once and ends with `done` or `error`.
+The worker answers these ops, each sent as one JSON line with an `id`; a queued op answers `queued` at once and ends with `done` or `error`. The account ops (`users`, `sign_in`, `recent`, `favourite`, `notes`, `collections` and the rest, each with the `session` signing in handed out) are listed in `AGENT.md`, beside these.
 
 | Op | Mode | Key fields | Answers with |
 | --- | --- | --- | --- |
 | `hello` | now | none | `hello`: `worker`, `root`, `python`, `docling`, `device`, `meaning`, `boundary` |
 | `libraries` | now | none | `libraries`: `root`, `libraries[]` with `id`, `name`, `dir`, `projectId`, `createdAt` |
 | `projects` | now | none | `projects`: each library with `description`, `store` (`shared` or `own`), `queries` and `counts`; `own_store`, the ids of those that keep their own store |
-| `init` | now | `name`; opt. `projectId`, `description`, `owner` | `library`, a project of the shared store; a name whose id is already taken is an `error` |
-| `describe` | now | `lib`; opt. `name`, `description` | `project`: the library's `projects` entry |
+| `init` | now | `name`; opt. `projectId`, `description`, `session` | `library`, a project of the shared store, the account's whose `session` it carries; a name whose id is already taken is an `error` |
+| `describe` | now | `lib`; opt. `name`, `description`; the owner's `session` for a project an account made | `project`: the library's `projects` entry |
 | `search` | own thread | `lib`, `query`; opt. `cursor` (`*`), `size` (25) | `search`: `hits[]` with `cand_id`, `status` and `held_here`, `total`, `next_cursor`, `added` |
 | `suggest` | own thread | `lib` | `suggestions`: `queries[]`, `model`, and `error` when none were drafted |
 | `candidates` | now | `lib`; opt. `status`, `query` | `candidates[]` |
@@ -2239,7 +2272,7 @@ The worker answers these 51 ops, each sent as one JSON line with an `id`; a queu
 | `rebuild` | queued | `lib`; opt. `keys` (every parsed paper with its saved Docling document) | `progress`, `tree` per paper; `done` with `rebuilt[]`, `refused[]` |
 | `judge` | queued | `lib`; opt. `keys` | as `rebuild`, with the local chat model reading the open pairs |
 | `figures` | queued | `lib`; opt. `keys`, `force` | `progress` per paper; `done` with `papers`, `figures`, `plots`, `read`, `values` |
-| `merge` | queued | `sources[]` and `name`, or `sources[]` and `into` | `done` with `target`, `filed`, `duplicates`, `skipped`, `rebuilt`, `reparsed`, `candidates_merged`, `migrated`; only `into` a project that keeps its own store, first a rebuild under the id `<id>-rebuild` and a reparse under `<id>-reparse` |
+| `merge` | queued | `sources[]` and `name`, or `sources[]` and `into`; opt. `session` (a new project is then that account's) | `done` with `target`, `filed`, `duplicates`, `skipped`, `rebuilt`, `reparsed`, `candidates_merged`, `migrated`; only `into` a project that keeps its own store, first a rebuild under the id `<id>-rebuild` and a reparse under `<id>-reparse` |
 | `embed` | queued | `lib` | `done` with `model`, `units`, `embedded`, `already`, `seconds`, and `error` when the embedder is down |
 | `round` | queued | `lib`; opt. `papers[]`, `citations`, `again`, `openalex`, `references` (true) | `stage` `round`; `done` with `papers`, `entries`, `held`, `identified`, `unidentified`, `asked`, `added`, `errors`, `openalex` |
 | `expand` | queued | `lib`; opt. `most` (10), `min_cited` (1), `citations`, `openalex` | a round, then a fetch stream per pass; `done` with `round`, `chosen`, `read`, `passages`, `passed`, `for_a_person` |
@@ -2271,7 +2304,7 @@ The worker answers these 51 ops, each sent as one JSON line with an `id`; a queu
 | `migrate` | now with `dry_run`, else queued | opt. `dry_run`, `libs[]` | `migrate`: the `plan`, nothing written; else `progress` per paper and `done` with `backup` and `moved` |
 | `hold` | now | `lib`, `keys[]` | `held`: `keys`, `changed`; the project takes papers the shared store holds |
 | `let_go` | now | `lib`, `keys[]` | `let_go`: `keys`, `changed`; the papers stay in the shared store |
-| `delete_project` | now | `lib` | `deleted`: `id`, `papers`, `candidates`, `aside` (its folder, moved to `_deleted/`); refused for a project that keeps its own store |
+| `delete_project` | now | `lib`; the owner's `session` for a project an account made | `deleted`: `lib`, `papers`, `candidates`, `aside` (its folder, moved to `_deleted/`); refused for a project that keeps its own store |
 | `quit` | now | none | `bye`, then the worker exits |
 
 ### Switches for everyone
@@ -2315,6 +2348,7 @@ These serve tests, experiments and measurement; for a reading rule that is on by
 | Switch | Default | What it changes |
 | --- | --- | --- |
 | `LITRAG_HEADLESS` | unset | `1`: the window is never shown and renders offscreen |
+| `LITRAG_USER`, `LITRAG_PASSWORD` | unset | The account `smoke.mjs` and `shots.mjs` sign in as; neither script makes an account in a library it did not make |
 | `LITRAG_LAYOUT_CHILD` | on | `off`: Docling runs in the worker's own process, unsupervised |
 | `LITRAG_LANES_REFRESH` | off | `on`: a stored verdict without a ranking is asked of the embedder again the next time its paper is read |
 | `LITRAG_VOCABULARY` | on | `off`: the embedder alone names every heading |

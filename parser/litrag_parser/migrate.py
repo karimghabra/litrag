@@ -46,6 +46,7 @@ from typing import Any, Callable
 from . import acquire, graph, members
 from .library import Library, library_root, list_libraries, now_iso, safe_key, shared_dir, update_manifest
 from .store import find_paper, open_store
+from .users import move_paper
 
 #: The tables whose rows belong to one paper, by their `paper` column, copied with it in this
 #: order (a row's foreign key names its paper, which is copied first). `vectors` belong to a paper
@@ -321,6 +322,8 @@ def migrate_library(lib: Library, tconn: sqlite3.Connection, now: str, on_progre
                 if tkey is not None:
                     out["held"] += 1
                     out["labels_moved"] += _move_labels(sconn, s_tables, tconn, key, tkey)
+                    if tkey != key:
+                        move_paper(tconn, key, tkey)
                 else:
                     try:
                         got = _copy_paper(lib, sconn, s_tables, tconn, row, now)
