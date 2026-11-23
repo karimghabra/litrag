@@ -110,7 +110,7 @@ class Calibration:
 
     def value(self, px: float, py: float) -> tuple[float, float]:
         u, v = self.m @ np.array([px, py, 1.0])
-        return (10 ** u if self.x.log else float(u)), (10 ** v if self.y.log else float(v))
+        return float(10 ** u if self.x.log else u), float(10 ** v if self.y.log else v)
 
     def to_dict(self) -> dict[str, Any]:
         return {"x": self.x.to_dict(), "y": self.y.to_dict()}
@@ -1417,4 +1417,4 @@ def _r(v: float) -> float:
 
 
 def _fmt(v: float) -> str:
-    return repr(v) if isinstance(v, float) else str(v)
+    return repr(float(v)) if isinstance(v, float) else str(v)

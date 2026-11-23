@@ -856,6 +856,22 @@ def test_words_read_from_one_cut_of_a_picture_do_not_stay_beside_another(tmp_pat
     assert digitise.load_words(path) is None
 
 
+@pytest.mark.parametrize("logs", [(True, False), (False, True), (True, True)])
+def test_an_image_file_s_points_on_a_log_axis_are_written_as_numbers(tmp_path, logs):
+    """Every cell of an exported CSV is a number a spreadsheet reads, on a log axis as on a linear
+    one: x by decades from 1 at pixel 100 to 100 at pixel 500, y from 0.01 at pixel 400 to 10 at
+    pixel 100, so the pixel (300, 200) is x = 10 and y = 1."""
+    cal = {"x": {"p1": [100, 400], "v1": 1 if logs[0] else 0, "p2": [500, 400], "v2": 100 if logs[0] else 60, "log": logs[0]},
+           "y": {"p1": [100, 400], "v1": 0.01 if logs[1] else 0, "p2": [100, 100], "v2": 10 if logs[1] else 0.9, "log": logs[1]}}
+    item = {"series": "a", "calibration": cal, "points": [{"px": 100, "py": 400, "how": "auto"}, {"px": 300, "py": 200, "how": "auto"}, {"px": 500, "py": 100, "how": "added"}]}
+    ex = digitise.answer("digitise_export", {"path": str(tmp_path / "out.csv"), "source": {"file": "scan.jpg"}, "series": [item]}, None)
+    rows = list(csv.reader(open(ex["files"][0]["csv"])))
+    values = [(float(x), float(y)) for x, y in rows[1:]]
+    assert values[1] == pytest.approx((10.0 if logs[0] else 30.0, 1.0 if logs[1] else 0.6))
+    assert values[0] == pytest.approx((1.0 if logs[0] else 0.0, 0.01 if logs[1] else 0.0)) and values[2] == pytest.approx((100.0 if logs[0] else 60.0, 10.0 if logs[1] else 0.9))
+    assert all(type(v) is float for v in Calibration.from_dict(cal).value(300, 200))
+
+
 def test_an_image_file_s_export_names_the_file_not_where_it_lay(tmp_path):
     item = {"series": "a", "calibration": CAL, "points": PTS, "image": {"width": 600, "height": 450, "scale": 1.0, "sha256": "ab", "path": "/home/someone/plots/digitised/scan.png"}}
     ex = digitise.answer("digitise_export", {"path": str(tmp_path / "out.csv"), "source": {"file": "/home/someone/plots/scan.jpg"}, "series": [item]}, None)
