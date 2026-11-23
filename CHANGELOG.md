@@ -4,7 +4,7 @@
 
 - **Plots digitised, and sigmoids fitted to them.** Reported need: a turbidity or growth curve
   printed in a paper, turned into its (x, y) points and fitted for its lag, growth and plateau,
-  and a way to find such plots in a library. A seventh tab, **Plots**, finds the figures that are
+  and a way to find such plots in a library. An eighth tab, **Plots**, finds the figures that are
   data plots by their captions (the chart reader's frame test says which are plots; unread ones
   rank by their caption's words) and digitises one: two ticks an axis, linear or log, offered from
   the figure's own numbers and confirmed by a person; a series picked by its colour and found as

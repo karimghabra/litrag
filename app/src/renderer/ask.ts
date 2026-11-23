@@ -8,7 +8,7 @@
  * answer, the cited ones first.
  */
 
-import { $, ctx, el, hooks, log, onProjectChange, onViewShown, onWorkerEvent, projectName, request, roleColor, setProject } from './shared.ts';
+import { $, chooseProject, ctx, el, hooks, log, onProjectChange, onViewShown, onWorkerEvent, projectName, request, roleColor } from './shared.ts';
 
 export interface AskSource {
   n: number;
@@ -211,9 +211,9 @@ async function ask(): Promise<void> {
 }
 
 /** Open a cited passage: in the Papers tab, on its page with its box — switching project first
- *  when the passage came from another one. */
-function openSource(s: AskSource): void {
-  if (s.lib && s.lib !== ctx.lib) setProject(s.lib);
+ *  when the passage came from another one, which asks about a Plots picture not saved. */
+async function openSource(s: AskSource): Promise<void> {
+  if (s.lib && !(await chooseProject(s.lib))) return;
   hooks.openPaper(s.paper, s.node_id);
 }
 
@@ -225,7 +225,7 @@ function cite(n: number, byN: Map<number, AskSource>): HTMLElement {
   if (s) {
     b.dataset['node'] = s.node_id;
     b.title = `${citationText(s)}\nOpen the paper at this passage`;
-    b.addEventListener('click', () => openSource(s));
+    b.addEventListener('click', () => void openSource(s));
   }
   return b;
 }
@@ -282,7 +282,7 @@ export function renderAnswer(a: AskAnswer): void {
     card.append(el('div', 'ask-source-text', s.text.length > 900 ? `${s.text.slice(0, 900)}…` : s.text));
     const foot = el('div', 'qhit-foot');
     const open = el('button', 'ghost small', 'Open at this passage');
-    open.addEventListener('click', () => openSource(s));
+    open.addEventListener('click', () => void openSource(s));
     foot.append(open);
     if (s.doi) foot.append(el('span', 'muted', `doi:${s.doi}`));
     card.append(foot);

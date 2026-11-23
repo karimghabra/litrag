@@ -21,7 +21,7 @@ Where things are:
   papers in the shared store; `migrate.py` moves a library that still keeps
   its own store into it; `worker.py` speaks JSON lines over stdio.
 - `app/` — Electron, TypeScript, built with esbuild. `src/main` spawns the
-  worker and relays its events; `src/renderer` is the window: seven tabs
+  worker and relays its events; `src/renderer` is the window: eight tabs
   over one project — Projects, Search, Papers (tree, page with boxes,
   canonical face), Types, Ask (cited answers from the local model), Query,
   Graph (citations, rounds, SQL), Plots (figures found by caption, one

@@ -112,7 +112,7 @@ published release, installs each once on a clean runner, and attaches them.
 
 ## What you see
 
-Seven tabs over one project at a time, picked at the top:
+Eight tabs over one project at a time, picked at the top:
 
 | Tab | What it is for |
 |---|---|
