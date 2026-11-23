@@ -20,7 +20,7 @@ export interface AskOptions {
 let pending: ((answer: string | null) => void) | null = null;
 
 function close(answer: string | null): void {
-  $('ask').hidden = true;
+  $('prompt').hidden = true;
   const done = pending;
   pending = null;
   done?.(answer);
@@ -29,29 +29,29 @@ function close(answer: string | null): void {
 /** Asks `question`; resolves with what was typed, or null when cancelled. */
 export function askText(question: string, opts: AskOptions = {}): Promise<string | null> {
   if (pending) close(null);
-  $('ask-question').textContent = question;
-  const line = $<HTMLInputElement>('ask-line');
-  const long = $<HTMLTextAreaElement>('ask-long');
+  $('prompt-question').textContent = question;
+  const line = $<HTMLInputElement>('prompt-line');
+  const long = $<HTMLTextAreaElement>('prompt-long');
   line.hidden = Boolean(opts.long);
   long.hidden = !opts.long;
   line.type = opts.secret ? 'password' : 'text';
   const box = opts.long ? long : line;
   box.value = opts.value ?? '';
-  $('ask-ok').textContent = opts.ok ?? 'OK';
-  $('ask').hidden = false;
+  $('prompt-ok').textContent = opts.ok ?? 'OK';
+  $('prompt').hidden = false;
   box.focus();
   box.select();
   return new Promise((resolve) => (pending = resolve));
 }
 
 export function initDialog(): void {
-  $<HTMLFormElement>('ask-form').addEventListener('submit', (e) => {
+  $<HTMLFormElement>('prompt-form').addEventListener('submit', (e) => {
     e.preventDefault();
-    const long = !$('ask-long').hidden;
-    close(long ? $<HTMLTextAreaElement>('ask-long').value : $<HTMLInputElement>('ask-line').value);
+    const long = !$('prompt-long').hidden;
+    close(long ? $<HTMLTextAreaElement>('prompt-long').value : $<HTMLInputElement>('prompt-line').value);
   });
-  $('ask-cancel').addEventListener('click', () => close(null));
-  $('ask').addEventListener('keydown', (e) => {
+  $('prompt-cancel').addEventListener('click', () => close(null));
+  $('prompt').addEventListener('keydown', (e) => {
     if (e.key === 'Escape') close(null);
   });
 }

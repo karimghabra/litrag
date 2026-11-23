@@ -397,8 +397,8 @@ test('10. Yours: a paper starred, noted and filed in a collection, seen by its r
   await page.click('#note-paper');
   await expect(page.locator('#notes-list .note')).toContainText('Check the genipin concentration.');
   await page.selectOption('#paper-collection', 'new');
-  await page.fill('#ask-line', 'To print'); // the window's own question: Electron gives a page no prompt()
-  await page.click('#ask-ok');
+  await page.fill('#prompt-line', 'To print'); // the window's own question: Electron gives a page no prompt()
+  await page.click('#prompt-ok');
   await expect(page.locator('#nav-collections button')).toHaveText(['To print'], { timeout: 10_000 });
   await page.locator('#nav-mine button[data-mine="recent"]').click();
   await expect(page.locator(`#mine-list .mine-row[data-key="${key}"]`)).toBeVisible();
