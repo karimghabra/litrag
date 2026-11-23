@@ -16,6 +16,7 @@ import { initLabels, openLabelling } from './labels.ts';
 import { BANDS, SORT_KEYS, arrived, bandOf, countBy, filedLine, filterPapers, readFiguresOf, sortPapers, validFilters, type SortKey } from './papers.ts';
 import { initProjects, renderMoveBand, renderProjects } from './projects.ts';
 import { initGraph } from './graphtab.ts';
+import { initAsk } from './ask.ts';
 import { initQuery } from './query.ts';
 import { initSearch, loadCandidates } from './search.ts';
 import { $, ROLES, activity, ctx, dispatch, el, escapeHtml, hooks, log, onProjectChange, onViewShown, rejectionText, rememberedProject, request, roleColor, setProject, setStatus, showView, showWorkerProblem, type ProjectSummary } from './shared.ts';
@@ -1157,6 +1158,7 @@ function wire() {
   initProjects(loadLibraries);
   initSearch();
   initTypes();
+  initAsk();
   initQuery();
   initGraph();
   initLabels();

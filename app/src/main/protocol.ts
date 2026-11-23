@@ -56,6 +56,8 @@ export const TERMINAL = new Set([
   'graph', 'passages',
   // the shared store: a move's plan, a project deleted, papers a project takes or lets go
   'migrate', 'deleted', 'held', 'let_go',
+  // a cited answer from the local model, and the models it can be asked of
+  'answer', 'models',
 ]);
 
 /** `tree` answers a `tree` request and also streams during ingest; only the former closes a request. */

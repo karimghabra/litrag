@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- **Cited answers from a local model** (`DESIGN.md` R4.6). A question is answered by a chat model
+  running on this machine through Ollama, from the passages a `query` retrieves and nothing else:
+  the `ask` op (`answer.py`), the window's **Ask** tab, and `lit ask <lib | all> "<question>"
+  [--json]`, the first CLI verb that reads the tree store (through the worker). Every claim names
+  the passages it rests on, and is held against them before it is shown: a claim citing nothing it
+  was given is left out and counted, one whose numbers or most of whose words its passage does not
+  print is marked to be checked, and a question the passages do not answer reads "Not in the
+  library". A citation opens the paper at its passage, on its page with its box, switching project
+  when the passage came from another; **Over** asks every project at once. With Ollama down or the
+  model not pulled the passages still come back, with the command that would fix it. The model is
+  the tab's **Model**, else `LITRAG_ANSWER_MODEL`, else a library's `ollama.answer`, else the one
+  the grounding set chose (`campaign/answers/grounding.jsonl`, `python -m litrag_parser.answer
+  --measure`; the bake-off is in `NOTES.md`). The studio e2e asks a question and follows a citation.
 - **One store for every project** (`DESIGN.md` R4.6). Every paper is kept once in
   `<root>/_shared`, by its DOI, PMID or file hash, and a project is the list of papers it holds:
   one paper can be in several projects, read once, and a query asks this project or all of them

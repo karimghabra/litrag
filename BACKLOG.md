@@ -174,9 +174,19 @@ Each one wants a fixture or a test before its fix, as the spot-check does.
 - **Section-aware chunk sizes** as in the lab's own scripts: conclusions
   kept whole, methods grouped by adjacent paragraphs, ~450-token target.
   Worth an A/B on the test set before copying.
-- **`lit ask`**: the fully offline answerer — send the retrieved chunks to
+- ~~**`lit ask`**: the fully offline answerer — send the retrieved chunks to
   Ollama and print the answer with `[S1]` labels, as the lab's LM Studio
-  script does — for a corpus that should never reach a cloud assistant.
+  script does — for a corpus that should never reach a cloud assistant.~~
+  *Built 2026-11-19*: the `ask` op over the tree store (`answer.py`), the Ask
+  tab and `lit ask`; every claim checked against the passage it cites
+  (DESIGN.md R4.6).
+- **Ask with the graph**: a cited answer whose passages include the methods a
+  finding was measured by and the passages a cited paper holds (`edges`,
+  `passage_cites`), measured on the grounding set against passages alone
+  before it is the default.
+- **Bench questions of the lab's own for `ask`**: `campaign/answers/grounding.jsonl`
+  holds an assistant's proxies on one library; questions a person asks, with
+  the passage that answers them, are the measure that counts.
 - **Synonym edges** between entity nodes by name embedding (HippoRAG 2's
   synonym edges): "EDC" and "carbodiimide" are one node's worth of meaning.
 
@@ -810,8 +820,9 @@ Each one wants a fixture or a test before its fix, as the spot-check does.
   it gets campus IP ranges blocked. The tool catches what a person clicks.
 - No second store: the graph is built from the tables at query time. A
   graph database would be a second thing to keep true.
-- No prose from the tool. `query` returns passages with citations; the
-  answer is the assistant's, or `lit ask`'s when that exists.
+- No prose from the tool that a passage does not hold. `query` returns
+  passages with citations; `ask` writes claims from them and checks each one
+  against the passage it cites, leaving out what cites nothing.
 
 ## Found by the publisher-drawn corpus (2026-09-21)
 

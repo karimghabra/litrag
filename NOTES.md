@@ -44,6 +44,11 @@ when it turns out durable. Mark inference as inference.
 
 ### What worked
 
+- **qwen3.5:9b for cited answers** (2026-11-19, `ask`): on a 10 GB card it sits beside
+  nomic-embed-text with ~2.8 GB to spare, answers in ~2 s, and refused every question of the
+  grounding set the library cannot answer. gemma4:12b is as careful but does not fit beside the
+  embedder there; ministral-3:8b once answered from passages about something else. Short-term
+  memory, 2026-11-19, has the table.
 - **Docling 2.126** on the CPU (4 cores, no GPU): ~15 s for an 8-page and a
   14-page PDF alike once the models are loaded (~3 s), ~0.5 GB of models
   fetched from Hugging Face on the first paper. JATS through the same
@@ -95,6 +100,65 @@ when it turns out durable. Mark inference as inference.
   a login.
 
 ## Short-term memory
+
+- **2026-11-19: which local model writes cited answers (`ask`, DESIGN.md R4.6)** — Three
+  open-weights chat models, all Apache 2.0, were run on `campaign/answers/grounding.jsonl` (20
+  questions on collagen-simulations whose answering passage is known, by DOI and the words it must
+  hold; 10 it cannot answer), 8 passages each, on the RTX 3080 (10 GB) with nomic-embed-text
+  loaded beside them, against a copy of the 402-paper library with every passage embedded
+  (`python -m litrag_parser.answer --measure`):
+
+  | | qwen3.5:9b | ministral-3:8b | gemma4:12b |
+  | --- | --- | --- | --- |
+  | download | 6.6 GB | 6.0 GB | 8.0 GB |
+  | card, by nvidia-smi, with the embedder (another process's 1 GB taken off) | 7.2 GB | 7.5 GB | 8.8 GB alone: the embedder is unloaded for it |
+  | absent questions refused | 10/10 | 9/10 | 10/10 |
+  | answering passage retrieved · cited | 18 · 18 | 18 · 18 | 18 · 18 |
+  | present questions answered | 20 | 20 | 19 |
+  | claims kept · supported · weak · left out | 32 · 30 · 2 · 0 | 45 · 38 · 7 · 0 | 49 · 48 · 1 · 0 |
+  | seconds a question, mean (median) | 2.5 (2.0) | 2.5 (2.1) | 24.6 (13.5) |
+  | tokens a second | 83 | 85 | 102 |
+
+  qwen3.5:9b is the default: it fits beside the embedder with room to spare, refuses what the
+  library does not hold, and writes the fewest, tightest claims. gemma4:12b is the most careful —
+  it also declined the question whose passage retrieval missed — but on this card it and
+  nomic-embed-text take turns: every question reloads the embedder (3.4 s of retrieval) and then
+  gemma (18.5 s on average). On a card with ~12 GB it is the one to try (`LITRAG_ANSWER_MODEL`).
+
+  Retrieval found the answering passage for 18 of the 20 whatever the model; every model cited it
+  in all 18. What separated them: qwen3.5:9b refused all 10 absent questions, and its refusals say
+  what the passages did cover; ministral-3:8b answered "How do tardigrade disordered proteins
+  protect collagen during desiccation?" by stitching together passages on casein chaperones and
+  charged disordered proteins — four claims, each passing the word check, none about tardigrades.
+  The check cannot catch that (the words are in the passages); refusing is the model's job. qwen
+  and ministral answered the two questions retrieval missed "partly" from another paper, correctly
+  cited but about another study (asked about "the force field limitations study", the constant-pH
+  method of a different paper); ministral wrote that paper's numbers as the named study's, and the
+  check marked them weak; gemma declined that one. Hand-checking every kept claim of qwen3.5:9b's
+  run against its passages: all 32 are stated by a passage they cite (one a unit conversion of a
+  printed value); 3 also cite a passage that does not hold them — (POG)10's Rh = 1.9 nm [1, 3],
+  only [1]; Bester sturgeon swim bladder 32.9 °C [2, 8], where [8] is another sturgeon's; 225 nm
+  [1, 2, 4, 5], where [1] is a spectrum's peak, not a melt — so of a sentence's several citations,
+  not every one holds it. Of the claims marked weak, most were right: a unit conversion the model
+  did itself (10 °C/h ≈ 0.167 °C/min) is rightly marked; "melting temperature" for the passage's
+  "Tm" is not. gemma4:12b's first run had 11 of 49 claims weak, all but one because it writes the
+  citation into the claim's text as well ("… 26.8 °C [2].") and the 2 was read as a number the
+  passage does not print; markers are now taken out of a claim's text before it is checked (and
+  shown: the prose adds them). Two false marks were fixed before that: a digit glued to a letter
+  ("α2", "H4") now counts as the number, and the cited papers' titles and headings count for words
+  (a claim names "the type III collagen cold gel" where its paragraph says "C3Gel"); before them
+  qwen's run had 27 of 32 claims supported, after, 30. Speed: about 2 s a question on the card
+  (83–86 tokens/s; the first after Ollama starts loads the model, 12 s from a warm disk, about a
+  minute cold); on the CPU alone (12 threads, `num_gpu: 0`) about 100 s, 6.5 tokens/s, the
+  prompt's 2,700 tokens most of it. qwen3.5:9b with the embedder held 7.2 GB of the card by
+  nvidia-smi (Ollama counts 5.5 + 0.3 GB). The proxies are an assistant's, on one library:
+  inference, not the lab's bench questions (BACKLOG.md).
+  Setting up on this machine: Ollama runs as the user (`~/.local/ollama`), and the network here
+  drops TLS mid-transfer (`ollama pull` lost its progress every time, `uv sync` failed on torch);
+  the models were fetched from registry.ollama.ai in byte ranges by curl, eight at once, each
+  resumed after a drop and checked against its sha256, the manifest written into
+  `~/.ollama/models`; the same for the five large wheels, installed with `uv pip install
+  --no-deps` (a plain `uv sync` would fetch them again: use `--no-sync`).
 
 - **2026-10-13: two calls invariant 1 never allowed, found by M11's run and stopped** — Run under
   strace, the studio e2e showed (1) ONNX Runtime 1.30, RapidOCR's engine in the chart reader (and
