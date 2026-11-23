@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { citationText, metaLine, orderedSources, statusLine, weakReason, type AskAnswer, type AskSource } from '../src/renderer/ask';
+import { citationText, metaLine, modelChoices, orderedSources, passagesAsked, statusLine, weakReason, type AskAnswer, type AskSource } from '../src/renderer/ask';
 
 const source = (n: number, extra: Partial<AskSource> = {}): AskSource => ({
   n, lib: 'collagen', node_id: `doi:10.1/x#p-${n}`, paper: 'doi:10.1/x', title: 'Thermal stability of fish collagen', year: '2022',
@@ -34,6 +34,26 @@ describe('the Ask tab', () => {
     expect(orderedSources(answer()).map((s) => s.n)).toEqual([2, 1, 3]);
     const meta = metaLine(answer({ claims: [{ text: 'x', sources: [1], support: 'weak' }], dropped: [{ text: 'y', reason: 'cites nothing' }] }));
     expect(meta).toEqual(['qwen3.5:9b', '12.3 s', '41.5 tokens/s', '3 passages from 2 papers', '1 sentence to check', '1 sentence left out: it cited no passage given']);
+  });
+
+  it('selects the project\'s default model unless the person chose another', () => {
+    const held = { models: [{ name: 'gemma4:12b' }, { name: 'qwen3.5:9b' }] };
+    expect(modelChoices({ ...held, default: 'qwen3.5:9b' }, '', false).selected).toBe('qwen3.5:9b');
+    // the picker showed project A's default; project B's library.json names gemma4:12b
+    expect(modelChoices({ ...held, default: 'gemma4:12b' }, 'qwen3.5:9b', false).selected).toBe('gemma4:12b');
+    expect(modelChoices({ ...held, default: 'gemma4:12b' }, 'qwen3.5:9b', true).selected).toBe('qwen3.5:9b');
+    expect(modelChoices({ ...held, default: 'gemma4:12b' }, 'gone:1b', true).selected).toBe('gemma4:12b');
+  });
+
+  it('knows a default named without a tag as the :latest Ollama lists', () => {
+    const pulled = modelChoices({ default: 'gemma4', models: [{ name: 'gemma4:latest' }, { name: 'qwen3.5:9b' }] }, '', false);
+    expect(pulled).toEqual({ names: ['gemma4:latest', 'qwen3.5:9b'], default: 'gemma4:latest', held: true, selected: 'gemma4:latest' });
+    const missing = modelChoices({ default: 'gemma4', models: [{ name: 'gemma4:12b' }] }, '', false);
+    expect(missing).toEqual({ names: ['gemma4', 'gemma4:12b'], default: 'gemma4', held: false, selected: 'gemma4' });
+  });
+
+  it('holds the passages asked for to 1..20, and to 8 only when the field says nothing', () => {
+    expect([passagesAsked('12'), passagesAsked('0'), passagesAsked('-3'), passagesAsked('99'), passagesAsked(''), passagesAsked('abc')]).toEqual([12, 1, 1, 20, 8, 8]);
   });
 
   it('carries the warning an answer came with in its footing', () => {

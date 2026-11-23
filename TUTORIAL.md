@@ -1131,7 +1131,7 @@ Any chat model Ollama holds can be picked. A model too large for the card runs p
 
 | Stage | What it does |
 | --- | --- |
-| Retrieve | each project's `query` retrieval (words and meaning, fused; see Asking the library (Query)); with several projects, the hits are merged by fused score, a paper held in two of them is given once, and the best `k` are kept |
+| Retrieve | each project's `query` retrieval (words and meaning, fused; see Asking the library (Query)); several projects are asked together, in one retrieval over the papers they hold between them, so the best `k` are the best of all of them and a paper two projects hold is given once. A project that still keeps its own store is retrieved from on its own and its hits merged with the rest by fused score, which only says each passage's rank in its own store: move it into the shared store to have it ranked with the others |
 | Number | each passage becomes "[n] paper (year) — headings — p. N", followed by its text, cut to 1,500 characters; with more than 8 passages each is cut shorter (12,000 characters between them), so the prompt still fits the window |
 | Ask | Ollama's `/api/chat` at `LITRAG_OLLAMA_URL` (127.0.0.1:11434): a fixed set of rules, the question and the numbered passages; a JSON schema for the reply (status, claims each with their passage numbers, what is missing), thinking off, temperature 0, seed 7, an 8,192-token window |
 | Check | each claim held against the passages it cites, as above |
@@ -1149,7 +1149,7 @@ npm run lit -- ask all "…" --json                      # every project; the an
 npm run lit -- ask archive "…" --with collagen-simulations --model gemma4:12b --limit 12
 ```
 
-The progress lines go to stderr and the answer goes to stdout. A cited passage is marked `*`, followed by its DOI and node id. `lit ask` exits with 1 when the answer is `unanswered`. `--limit` is the number of passages, held to 1 to 20.
+The progress lines go to stderr and the answer goes to stdout. A cited passage is marked `*`, followed by its DOI and node id. `lit ask` exits with 1 when the answer is `unanswered`. `--limit` is the number of passages, held to 1 to 20; a value that is not a number is an error.
 
 ### From a script
 

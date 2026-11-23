@@ -271,6 +271,33 @@ def test_a_project_of_the_shared_store_is_asked_of_its_own_papers_only(lib, tmp_
     assert {s["lib"] for s in both["sources"]} == {holder.id}  # cited to the project that holds it
 
 
+def test_several_projects_of_the_shared_store_are_ranked_in_one_list(tmp_path):
+    """Two projects that hold the store's two papers between them, asked together, get the
+    passages a question asked of the whole store gets, in that order: one ranking, not each
+    project's best beside the other's."""
+    from litrag_parser import members
+
+    on, off = create_library(tmp_path, "On topic", shared=True), create_library(tmp_path, "Off topic", shared=True)
+    on.ensure_dirs()
+    conn = open_store(on.store_path)
+    keys = []
+    for name, doi in (("PMC11278924", "10.3390/mi15070851"), ("PMC3258128", "10.1/other")):
+        key = file_paper(conn, title=name, file=f"{name}.pdf", sha256=name, fmt="pdf", doi=doi, pmid=None, pmcid=None, now="t").key
+        save_tree(conn, key, build_tree(json.loads((FIXTURES / f"{name}.docling.json").read_text()), key), parser="test", parsed_at="t", seconds=1.0)
+        keys.append(key)
+    members.add(conn, on, keys[:1])
+    members.add(conn, off, keys[1:])
+    conn.commit()
+    retrieve.embed_library(conn, emb())
+    whole = [h["hit"]["node_id"] for h in retrieve.query(conn, QUESTION, emb(), k=8)["hits"]]
+    conn.close()
+    refusal = lambda *a, **k: {"content": '{"status": "not_found", "claims": [], "missing": ""}', "seconds": 0, "tokens": 1}  # noqa: E731
+    both = answer.ask([off, on], QUESTION, embedder=emb(), chat_fn=refusal)
+    assert [s["node_id"] for s in both["sources"]] == whole
+    assert {s["lib"] for s in both["sources"] if s["paper"] == keys[0]} == {on.id}
+    assert sum(s["paper"] == keys[0] for s in both["sources"]) > 4  # the paper the question is about, not half and half
+
+
 def test_the_model_is_the_request_then_the_environment_then_the_library(lib, monkeypatch):
     monkeypatch.delenv("LITRAG_ANSWER_MODEL", raising=False)
     assert answer.default_model(lib) == answer.DEFAULT_MODEL
@@ -405,7 +432,7 @@ def test_the_worker_answers_ask_over_its_wire(lib, monkeypatch):
         proc = subprocess.Popen([sys.executable, "-m", "litrag_parser.worker", f"--root={lib.root}"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                 stderr=subprocess.PIPE, text=True, encoding="utf-8", env=env, cwd=Path(__file__).parent.parent)
         proc.stdin.write(json.dumps({"id": "m", "op": "models", "lib": lib.id}) + "\n")
-        proc.stdin.write(json.dumps({"id": "a", "op": "ask", "lib": lib.id, "question": QUESTION, "model": "stand-in:9b", "k": 4}) + "\n")
+        proc.stdin.write(json.dumps({"id": "a", "op": "ask", "lib": lib.id, "question": QUESTION, "model": "stand-in:9b", "k": 0}) + "\n")
         proc.stdin.flush()
         events = []
         for line in proc.stdout:
@@ -422,6 +449,6 @@ def test_the_worker_answers_ask_over_its_wire(lib, monkeypatch):
     assert models["event"] == "models" and [m["name"] for m in models["models"]] == ["stand-in:9b"]
     done = events[-1]
     assert done["event"] == "answer", done
-    assert done["status"] == "answered" and len(done["sources"]) <= 4 and done["claims"][0]["sources"] == [1]
+    assert done["status"] == "answered" and len(done["sources"]) == 1 and done["claims"][0]["sources"] == [1]
     assert done["retrieval"]["embedder"]["meaning"] == "ok"  # the question was embedded through the stand-in
     assert {e["stage"] for e in events if e["event"] == "asking"} >= {"retrieve", "model"}

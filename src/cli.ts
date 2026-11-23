@@ -441,7 +441,9 @@ async function main(argv: string[]): Promise<number> {
         const libs = [first, ...list(flags['with'])];
         for (const extra of libs.slice(1)) need(openLibrary(root, extra), extra);
         const limit = one(flags['limit']);
-        const answer = await askWorker(workerCommand(), root, { libs, question, model: one(flags['model']), k: limit ? Number(limit) : undefined }, (ev) => log(String(ev['message'] ?? '')));
+        const k = limit === undefined ? undefined : Number(limit);
+        if (k !== undefined && (!limit?.trim() || !Number.isFinite(k))) throw new Error(`--limit takes a number of passages, 1 to 20: ${limit}`);
+        const answer = await askWorker(workerCommand(), root, { libs, question, model: one(flags['model']), k }, (ev) => log(String(ev['message'] ?? '')));
         if (json) return out(answer), answer.status === 'unanswered' ? 1 : 0;
         out(formatAnswer(answer));
         return answer.status === 'unanswered' ? 1 : 0;

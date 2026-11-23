@@ -69,6 +69,7 @@ describe('lit ask', () => {
 
   it('leaves out what was not given', () => {
     expect(askRequest('a1', { libs: ['x'], question: 'q' })).toEqual({ id: 'a1', op: 'ask', libs: ['x'], question: 'q' });
+    expect(askRequest('a1', { libs: ['x'], question: 'q', k: 0 })['k']).toBe(0);
   });
 
   it('marks what to check and what was left out for a person', () => {

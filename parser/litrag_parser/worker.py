@@ -1408,7 +1408,7 @@ class Worker:
                     from . import answer
 
                     libs = answer.resolve(self.root, req.get("libs") or [req.get("lib") or ""])
-                    out = answer.ask(libs, str(req.get("question") or ""), model=req.get("model") or None, k=int(req.get("k") or answer.K),
+                    out = answer.ask(libs, str(req.get("question") or ""), model=req.get("model") or None, k=int(req["k"]) if req.get("k") is not None else answer.K,
                                      on_progress=lambda e: emit({"event": "asking", "id": req_id, "op": "ask", **e}))
                     emit({"event": "answer", "id": req_id, **out})
                 elif op == "models":

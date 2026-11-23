@@ -50,7 +50,7 @@ export interface AskAnswer {
   warning?: string;
 }
 
-interface Models {
+export interface Models {
   default: string;
   down: boolean;
   error?: string | null;
@@ -101,7 +101,32 @@ export function orderedSources(a: AskAnswer): AskSource[] {
   return [...a.sources].sort((x, y) => Number(!!y.cited) - Number(!!x.cited) || x.n - y.n);
 }
 
+/** A model's name as Ollama lists it: one given without a tag is its `latest`. */
+function tagged(name: string): string {
+  return name.includes(':') ? name : `${name}:latest`;
+}
+
+/**
+ * The Model picker's entries and the one selected: the models Ollama holds, the default first
+ * when it is not among them, under the name Ollama lists it by when it is. The default is
+ * selected unless the person chose another that is still listed.
+ */
+export function modelChoices(r: Pick<Models, 'default' | 'models'>, was: string, chosen: boolean): { names: string[]; default: string; held: boolean; selected: string } {
+  const listed = r.models.find((m) => tagged(m.name) === tagged(r.default))?.name;
+  const dflt = listed ?? r.default;
+  const names = r.models.map((m) => m.name);
+  if (listed === undefined) names.unshift(dflt);
+  return { names, default: dflt, held: listed !== undefined, selected: chosen && names.includes(was) ? was : dflt };
+}
+
+/** The number of passages asked for: what the field says, held to 1..20; 8 when it says nothing. */
+export function passagesAsked(field: string): number {
+  const n = Number(field);
+  return field.trim() === '' || !Number.isFinite(n) ? 8 : Math.max(1, Math.min(20, Math.trunc(n)));
+}
+
 let pending = false;
+let modelChosen = false;
 
 export function initAsk(): void {
   $<HTMLFormElement>('ask-form').addEventListener('submit', (e) => {
@@ -113,6 +138,9 @@ export function initAsk(): void {
       e.preventDefault();
       void ask();
     }
+  });
+  $<HTMLSelectElement>('ask-model').addEventListener('change', () => {
+    modelChosen = true;
   });
   onProjectChange(() => {
     $('ask-project').textContent = projectName();
@@ -135,17 +163,16 @@ async function loadModels(): Promise<void> {
   try {
     const r = await request<Models>('models', ctx.lib ? { lib: ctx.lib } : {});
     sel.innerHTML = '';
-    const names = r.models.map((m) => m.name);
-    if (!names.includes(r.default)) names.unshift(r.default);
-    for (const name of names) {
+    const pick = modelChoices(r, was, modelChosen);
+    for (const name of pick.names) {
       const m = r.models.find((x) => x.name === name);
-      const label = `${name}${m?.parameters ? ` · ${m.parameters}` : ''}${name === r.default ? ' · default' : ''}${m ? '' : ' · not pulled'}`;
+      const label = `${name}${m?.parameters ? ` · ${m.parameters}` : ''}${name === pick.default ? ' · default' : ''}${m ? '' : ' · not pulled'}`;
       const o = el('option', undefined, label) as HTMLOptionElement;
       o.value = name;
       sel.append(o);
     }
-    sel.value = names.includes(was) ? was : r.default;
-    $('ask-models').textContent = r.down ? r.error ?? 'Ollama is not answering' : r.models.some((m) => m.name === r.default) ? '' : `${r.default} is not pulled: ollama pull ${r.default}`;
+    sel.value = pick.selected;
+    $('ask-models').textContent = r.down ? r.error ?? 'Ollama is not answering' : pick.held ? '' : `${r.default} is not pulled: ollama pull ${r.default}`;
   } catch (e) {
     $('ask-models').textContent = `models: ${(e as Error).message}`;
   }
@@ -158,7 +185,7 @@ async function ask(): Promise<void> {
   }
   const question = $<HTMLTextAreaElement>('ask-q').value.trim();
   if (!question || pending) return;
-  const k = Math.max(1, Math.min(20, Number($<HTMLInputElement>('ask-k').value) || 8));
+  const k = passagesAsked($<HTMLInputElement>('ask-k').value);
   const scope = $<HTMLSelectElement>('ask-scope').value;
   const model = $<HTMLSelectElement>('ask-model').value || undefined;
   const box = $('ask-answer');

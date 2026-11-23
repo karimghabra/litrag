@@ -781,8 +781,12 @@ returns passages with their context; the answer was the assistant's (`AGENT.md` 
 The `ask` op (`answer.py`; the Ask tab; `lit ask`) writes it locally.
 
 **Retrieve first, then write only from what was retrieved.** The passages are a
-`query`'s (words and meaning fused, hydrated from the tree), over one library or
-several merged by fused score, the best eight numbered and handed to the model with
+`query`'s (words and meaning fused, hydrated from the tree), over one project or
+several: the projects of the shared store are asked in one retrieval over the papers
+they hold between them, so the passages are ranked in one list (a fused score is a
+rank inside one retrieval, and merging two retrievals by it gives each project's
+best, not the best). Only a project that still keeps its own store is retrieved from
+apart and merged by that score, until it is moved. The best eight are numbered and handed to the model with
 their paper, section path and page. The model answers in a fixed JSON shape (Ollama's
 structured output): a status, claims each naming the passages it rests on, and what
 the passages leave out. Nothing retrieved is `not_found` without asking.

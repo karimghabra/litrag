@@ -165,24 +165,33 @@ def _citation(lib: Library, h: dict[str, Any]) -> dict[str, Any]:
 
 
 def gather(libs: list[Library], question: str, embedder: Any, k: int = K) -> dict[str, Any]:
-    """The `k` best passages across `libs`: each library's `retrieve.query`, merged by fused
-    score. A passage the same paper holds in two libraries is given once. Returns `{sources,
-    embedder, counts, seconds}`; `sources` carry no number yet."""
+    """The `k` best passages across `libs`. The projects of the shared store are asked together:
+    one `retrieve.query` over the papers they hold between them (`members.scope_of`), so the
+    passages are ranked in one list, each cited to the first project named that holds its paper.
+    A project that keeps its own store has its own ranking: its `retrieve.query` is merged with
+    the rest by fused score, which says a passage's rank in its own store and no more, and a
+    passage the same paper holds in two stores is given once. Returns `{sources, embedder,
+    counts, seconds}`; `sources` carry no number yet."""
     t0 = time.monotonic()
     pooled: list[dict[str, Any]] = []
     meaning: dict[str, Any] = {}
     counts: dict[str, int] = {}
-    for lib in libs:
-        conn = open_store(lib.store_path)
+    together = [l for l in libs if l.shared]
+    for group in ([together] if together else []) + [[l] for l in libs if not l.shared]:
+        conn = open_store(group[0].store_path)
         try:
-            scope = members.scope(conn, lib)  # a project of the shared store is asked of its own papers only
+            scope = members.scope_of(conn, group)
+            holder: dict[str, Library] = {}
+            for lib in group:
+                for key in members.scope(conn, lib) or []:
+                    holder.setdefault(key, lib)
             out = retrieve.query(conn, question, embedder, k=k, **({"paper": scope} if scope is not None else {}))
         finally:
             conn.close()
         meaning = meaning if meaning.get("down") else out["embedder"]
         for name, n in (out.get("counts") or {}).items():
             counts[name] = counts.get(name, 0) + int(n or 0)
-        pooled += [_citation(lib, h) for h in out["hits"]]
+        pooled += [_citation(holder.get((h.get("paper") or {}).get("key") or h["hit"].get("paper"), group[0]), h) for h in out["hits"]]
     pooled.sort(key=lambda s: -(s["score"] or 0.0))
     seen: set[tuple[str, str]] = set()
     sources: list[dict[str, Any]] = []

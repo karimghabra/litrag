@@ -61,7 +61,7 @@ export function workerCommand(env: Record<string, string | undefined> = process.
 
 /** The request line `lit ask` sends. */
 export function askRequest(id: string, p: AskParams): Record<string, unknown> {
-  return { id, op: 'ask', libs: p.libs, question: p.question, ...(p.model ? { model: p.model } : {}), ...(p.k ? { k: p.k } : {}) };
+  return { id, op: 'ask', libs: p.libs, question: p.question, ...(p.model ? { model: p.model } : {}), ...(p.k !== undefined ? { k: p.k } : {}) };
 }
 
 /**
