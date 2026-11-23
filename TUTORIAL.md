@@ -1111,7 +1111,7 @@ A sentence to check is not necessarily wrong. On the grounding set below, one wa
 
 ### Choosing the model
 
-The model comes from, in order: the **Model** picker (or `--model`, or the op's `model`), `LITRAG_ANSWER_MODEL`, the project's `library.json` key `ollama.answer`, then qwen3.5:9b.
+The model comes from, in order: the **Model** picker (or `--model`, or the op's `model`), `LITRAG_ANSWER_MODEL`, the project's `library.json` key `ollama.answer`, then qwen3.5:9b. The picker starts on the project's default and goes back to the new project's default when you switch project, until you pick a model yourself; after that it keeps your choice while Ollama still lists it. A default named without a tag (`gemma4`) is the model Ollama lists as `gemma4:latest`.
 
 Three open-weights models were compared on the grounding set, all under the Apache 2.0 licence, which allows lab use. NOTES.md has the full table. qwen3.5:9b is the default:
 
@@ -1131,7 +1131,7 @@ Any chat model Ollama holds can be picked. A model too large for the card runs p
 
 | Stage | What it does |
 | --- | --- |
-| Retrieve | each project's `query` retrieval (words and meaning, fused; see Asking the library (Query)); several projects are asked together, in one retrieval over the papers they hold between them, so the best `k` are the best of all of them and a paper two projects hold is given once. A project that still keeps its own store is retrieved from on its own and its hits merged with the rest by fused score, which only says each passage's rank in its own store: move it into the shared store to have it ranked with the others |
+| Retrieve | the `query` retrieval (words and meaning, fused; see Asking the library (Query)) over the project's papers; several projects are asked together, in one retrieval over the papers they hold between them, so the best `k` are the best of all of them and a paper two projects hold is given once. A project that still keeps its own store is retrieved from on its own and its hits merged with the rest by fused score, which only says each passage's rank in its own store: move it into the shared store to have it ranked with the others |
 | Number | each passage becomes "[n] paper (year) — headings — p. N", followed by its text, cut to 1,500 characters; with more than 8 passages each is cut shorter (12,000 characters between them), so the prompt still fits the window |
 | Ask | Ollama's `/api/chat` at `LITRAG_OLLAMA_URL` (127.0.0.1:11434): a fixed set of rules, the question and the numbered passages; a JSON schema for the reply (status, claims each with their passage numbers, what is missing), thinking off, temperature 0, seed 7, an 8,192-token window |
 | Check | each claim held against the passages it cites, as above |
