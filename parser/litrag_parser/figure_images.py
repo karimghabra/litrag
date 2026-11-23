@@ -17,7 +17,7 @@ files are published beside the XML, and are fetched from there, by PMCID, nothin
    the caption claims is cut out at its own resolution. A figure drawn as vector graphics is not
    an image there, and stays without one.
 
-Each image is a file under the library's `figures/<safe key>/` and a row in `figure_images`:
+Each image is a file beside the store that holds the paper (the library's own folder, or the shared store), in `figures/<safe key>/` and a row in `figure_images`:
 the figure's place among the XML's figures, its label and caption as the XML prints them, the
 file, where it came from, its SHA-256, size and pixels. What a paper's ask came to is a row in
 `figure_image_asks`: how many images the XML names, how many are on disk, and whether asking again
@@ -771,19 +771,22 @@ PUBLISHERS = {"10.1021": "ACS", "10.3390": "MDPI", "10.1016": "Elsevier", "10.10
               "10.1042": "Portland Press", "10.1083": "Rockefeller", "10.1146": "Annual Reviews", "10.1103": "APS", "10.1364": "Optica"}
 
 
-def summary(conn: sqlite3.Connection, lib_dir: Path) -> dict[str, Any]:
-    """What a library's XML papers came to: papers, those with any image and with every figure's,
+def summary(conn: sqlite3.Connection, lib_dir: Path, within: list[str] | None = None) -> dict[str, Any]:
+    """What a library's XML papers (those of `within`, a project's in the shared store) came to: papers, those with any image and with every figure's,
     figures and figures with an image, by source, and the papers without, by publisher (a DOI's
     registrant) and by why. SQL and the files' presence only."""
     from .truth import registrant
 
     ensure_schema(conn)
     papers = conn.execute("SELECT key, doi FROM papers WHERE format = 'jats' AND status = 'parsed'").fetchall()
+    mine = None if within is None else set(within)
+    if mine is not None:
+        papers = [p for p in papers if p["key"] in mine]
     asks = {r["paper"]: r for r in conn.execute("SELECT * FROM figure_image_asks")}
     imgs: dict[str, set[int]] = {}
     src: dict[str, int] = {}
     for r in conn.execute("SELECT paper, ordinal, source, file FROM figure_images WHERE part = 1"):
-        if (Path(lib_dir) / r["file"]).is_file():
+        if (mine is None or r["paper"] in mine) and (Path(lib_dir) / r["file"]).is_file():
             imgs.setdefault(r["paper"], set()).add(r["ordinal"])
             src[r["source"]] = src.get(r["source"], 0) + 1
     out: dict[str, Any] = {"papers": len(papers), "with_figures": 0, "any": 0, "every": 0, "figures": 0, "had": 0, "sources": src, "answered": 0,

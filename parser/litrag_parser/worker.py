@@ -893,7 +893,7 @@ class Worker:
             for i, key in enumerate(keys):
                 emit({"event": "progress", "id": req_id, "op": op, "lib": lib.id, "done": i, "total": len(keys), "label": f"Fetching the figure images of paper {i + 1} of {len(keys)}"})
                 try:
-                    a = figure_images.from_services(conn, lib.dir, key, again=again)
+                    a = figure_images.from_services(conn, lib.home, key, again=again)
                 except Exception as e:  # noqa: BLE001 — never a paper lost to its figures' images
                     message = f"figure images: {type(e).__name__}: {e}"
                     log_event(conn, key, now_iso(), "figure-images", message[:400])
@@ -951,7 +951,7 @@ class Worker:
                     kept.append(key)
                     pdf = lib.papers_dir / conn.execute("SELECT figures_file FROM papers WHERE key = ?", (key,)).fetchone()["figures_file"]
                 try:
-                    out = figure_images.from_pdf(conn, lib.dir, key, pdf)
+                    out = figure_images.from_pdf(conn, lib.home, key, pdf)
                 except Exception as e:  # noqa: BLE001
                     out = {"cut": 0, "figures": 0, "error": f"{type(e).__name__}: {e}"}
                 figure_images.fallback_answered(conn, key, not out.get("error"))
@@ -1053,8 +1053,9 @@ class Worker:
             figure_images.ensure_schema(conn)
             named = [str(k) for k in req.get("keys") or []]
             rows = conn.execute("SELECT key FROM papers WHERE format = 'jats' AND status = 'parsed' ORDER BY added_at").fetchall()
-            keys = [r["key"] for r in rows if not named or r["key"] in named]
-            states = figure_images.states(conn, lib.dir)
+            mine = self._scope(conn, lib)  # every XML paper of the project, when none is named
+            keys = [r["key"] for r in members.only([dict(r) for r in rows], None if named else mine) if not named or r["key"] in named]
+            states = figure_images.states(conn, lib.home)
         finally:
             conn.close()
         todo = [k for k in keys if again or figure_images.wanting(states.get(k))]
@@ -1069,7 +1070,7 @@ class Worker:
         kept += [k for k in self._images_fallback(lib, [k for k in todo if k in lacking and k not in answered], req_id, "figure_images") if k not in kept]
         conn = open_store(lib.store_path)
         try:
-            totals = figure_images.summary(conn, lib.dir)
+            totals = figure_images.summary(conn, lib.home, mine)
         finally:
             conn.close()
         emit({"event": "done", "id": req_id, "op": "figure_images", "lib": lib.id, "asked": len(todo), "passed": len(keys) - len(todo), "kept": len(kept), **totals})
@@ -1910,7 +1911,7 @@ class Worker:
                 try:
                     rows = members.only(list_papers(conn), self._scope(conn, lib))
                     told = states(conn, lib.papers_dir, figures_enabled())  # SQL only: the real switch, so a paper not read with the figures off is 'off'
-                    images = figure_images.states(conn, lib.dir)  # an XML paper's figure images: how many figures have one on disk, and whether asking again would change that
+                    images = figure_images.states(conn, lib.home)  # an XML paper's figure images: how many figures have one on disk, and whether asking again would change that
                 finally:
                     conn.close()
                 emit({"event": "papers", "id": req_id, "lib": lib.id, "papers": [{**r, "figure_state": told.get(r["key"]), "images": images.get(r["key"])} for r in rows]})
@@ -1924,7 +1925,7 @@ class Worker:
                     t = paper_tree(conn, str(req["key"]))
                     if t is not None:  # what each picture and chart node came to, for its tag and its placeholder
                         t["figures"] = {node: {k: o[k] for k in ("outcome", "label", "plots", "read", "page")} for node, o in outcomes(conn, str(req["key"])).items()}
-                        t["images"] = figure_images.images_for(conn, lib.dir, str(req["key"]))  # an XML paper's figures as images, drawn in its reading
+                        t["images"] = figure_images.images_for(conn, lib.home, str(req["key"]))  # an XML paper's figures as images, drawn in its reading
                 finally:
                     conn.close()
                 if t is None:

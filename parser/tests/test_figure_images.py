@@ -551,7 +551,80 @@ def test_a_merge_brings_a_paper_s_figure_images_and_its_settled_ask(tmp_path, ep
     t = open_library(tmp_path, "merged")
     tconn = open_store(t.store_path)
     rows = tconn.execute("SELECT file, sha256 FROM figure_images WHERE paper = ? ORDER BY ordinal", (key,)).fetchall()
-    assert len(rows) == 6 and all(hashlib.sha256((t.dir / r[0]).read_bytes()).hexdigest() == r[1] for r in rows)
+    assert len(rows) == 6 and all(hashlib.sha256((t.home / r[0]).read_bytes()).hexdigest() == r[1] for r in rows)
     assert (lib.dir / "figures").is_dir()  # the source keeps its own
     seen = len(epmc.seen)
-    assert fi.from_services(tconn, t.dir, key).settled and len(epmc.seen) == seen  # nothing asked again
+    assert fi.from_services(tconn, t.home, key).settled and len(epmc.seen) == seen  # nothing asked again
+
+
+# -- the shared store: a paper's images live with the paper, and a project asks for its own -------------------
+
+
+def test_a_project_of_the_shared_store_keeps_its_images_with_the_paper_and_asks_only_for_its_own(tmp_path, monkeypatch, capsys, epmc):
+    """The images are the paper's, so they are stored where its rows and files are (`<root>/_shared`),
+    the tree draws them from there, and another project's Fetch figure images neither asks for this
+    paper nor counts it (DESIGN.md R4.6: a project is the papers it holds)."""
+    from litrag_parser.library import shared_dir
+    from litrag_parser.worker import Worker
+
+    monkeypatch.setenv("LITRAG_FIGURE_IMAGES", "off")  # filed with no images: the op is what fetches them
+    monkeypatch.setenv("LITRAG_FIGURES", "off")
+    _parse_as_reader(monkeypatch)
+    images = {n: jpeg(i) for i, n in enumerate(NAMES)}
+    cloud(epmc, images)
+    mine = create_library(tmp_path, "Mine", shared=True)
+    create_library(tmp_path, "Other", shared=True)
+    (mine.inbox_dir / "PMC11278924.xml").write_bytes(XML)
+    w = Worker(tmp_path)
+    w.do_ingest({"id": "i", "op": "ingest", "lib": mine.id, "paths": [str(mine.inbox_dir / "PMC11278924.xml")], "figures_pdf": False})
+    capsys.readouterr()
+    seen = len(asked(epmc))
+    w.do_figure_images({"id": "o", "op": "figure_images", "lib": "other"})
+    done = [e for e in _events(capsys) if e["event"] == "done"][-1]
+    assert (done["asked"], done["passed"], done["papers"], done["had"], done["sources"]) == (0, 0, 0, 0, {}) and len(asked(epmc)) == seen  # not its paper
+    w.do_figure_images({"id": "m", "op": "figure_images", "lib": "mine"})
+    done = [e for e in _events(capsys) if e["event"] == "done"][-1]
+    assert (done["asked"], done["papers"], done["every"], done["had"], done["sources"]) == (1, 1, 1, 6, {"pmc-cloud": 6})
+    conn = open_store(mine.store_path)
+    key = conn.execute("SELECT key FROM papers").fetchone()[0]
+    files = [r[0] for r in conn.execute("SELECT file FROM figure_images WHERE paper = ? ORDER BY ordinal", (key,))]
+    conn.close()
+    assert [(shared_dir(tmp_path) / f).read_bytes() for f in files] == [images[n] for n in NAMES]  # beside the store that names them
+    assert not (mine.dir / "figures").exists()
+    w.answer({"id": "t", "op": "tree", "lib": "mine", "key": key})
+    tree = _events(capsys)[-1]
+    assert [Path(tree["images"][f"{key}#s#picture-{i}"][0]["path"]).read_bytes() for i in range(1, 7)] == [images[n] for n in NAMES]
+    w.do_figure_images({"id": "o2", "op": "figure_images", "lib": "other"})
+    done = [e for e in _events(capsys) if e["event"] == "done"][-1]
+    assert (done["papers"], done["had"], done["sources"]) == (0, 0, {})  # another project's images are not this one's to count
+
+
+def test_a_library_moved_into_the_shared_store_brings_its_figure_images_and_its_settled_ask(tmp_path, capsys, epmc):
+    """migrate.py moves a paper "with every row derived from it and its files": its images are both."""
+    from litrag_parser import migrate
+    from litrag_parser.library import open_library, shared_dir
+    from litrag_parser.worker import Worker
+
+    lib, conn, key = library(tmp_path)
+    images = {n: jpeg(i) for i, n in enumerate(NAMES)}
+    cloud(epmc, images)
+    assert fi.from_services(conn, lib.dir, key).had == 6
+    conn.close()
+    out = migrate.migrate(tmp_path)
+    assert out["moved"][0]["new"] == 1
+    moved = open_library(tmp_path, lib.id)
+    assert moved.shared
+    tconn = open_store(moved.store_path)
+    files = [r[0] for r in tconn.execute("SELECT file FROM figure_images WHERE paper = ? ORDER BY ordinal", (key,))]
+    tconn.close()
+    assert [(shared_dir(tmp_path) / f).read_bytes() for f in files] == [images[n] for n in NAMES]
+    assert (lib.dir / files[0]).is_file()  # the old files left where they were
+    capsys.readouterr()
+    seen = len(asked(epmc))
+    w = Worker(tmp_path)
+    w.do_figure_images({"id": "f", "op": "figure_images", "lib": lib.id})
+    done = [e for e in _events(capsys) if e["event"] == "done"][-1]
+    assert (done["asked"], done["passed"], done["every"], done["had"]) == (0, 1, 1, 6) and len(asked(epmc)) == seen  # nothing asked again
+    w.answer({"id": "t", "op": "tree", "lib": lib.id, "key": key})
+    tree = _events(capsys)[-1]
+    assert [Path(tree["images"][f"{key}#s#picture-{i}"][0]["path"]).read_bytes() for i in range(1, 7)] == [images[n] for n in NAMES]

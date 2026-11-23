@@ -453,7 +453,7 @@ def _merge_paper(src: Library, sconn: sqlite3.Connection, s_tables: set[str], ta
     digitised = digitise.merge_from(src.home, sconn, key, target.home, tconn, tkey, src.id)
     from .figure_images import merge_into
 
-    merge_into(src.dir, sconn, target.dir, tconn, key, tkey)  # an XML paper's figure images, files and rows
+    merge_into(src.home, sconn, target.home, tconn, key, tkey)  # an XML paper's figure images, files and rows
     tconn.commit()
     log_event(tconn, tkey, now, "merged", f"from {src.id} ({key}){'' if raw_came else ', no raw document: to be read again'}")
     return {"kind": "filed", "key": tkey, "digitised": digitised}
