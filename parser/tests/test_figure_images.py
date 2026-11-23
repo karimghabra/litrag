@@ -149,7 +149,24 @@ def test_a_file_failing_its_md5_is_not_taken_and_europe_pmc_s_zip_is_asked_for_i
     rows = conn.execute("SELECT file, source, mime, width FROM figure_images WHERE paper = ? ORDER BY ordinal", (key,)).fetchall()
     assert rows[0][0].endswith("micromachines-15-00851-g001.gif") and {r[1] for r in rows} == {"europepmc"} and rows[0][2] == "image/gif"
     assert f"/rest/{PMCID}/supplementaryFiles?includeInlineImage=yes" in epmc.seen
-    assert not list((lib.dir / "inbox").glob("*.zip*"))  # the zip gone once read
+    assert not list((lib.dir / "figures").glob("*.zip*"))  # the zip gone once read
+    assert not list((lib.dir / "inbox").glob("*.zip*"))  # and never in the inbox, where a store's papers wait to be filed
+
+
+def test_a_file_the_cloud_fails_to_give_costs_only_itself_and_one_with_no_md5_is_not_taken(tmp_path, epmc):
+    lib, conn, key = library(tmp_path)
+    images = {n: jpeg(i) for i, n in enumerate(NAMES)}
+    cloud(epmc, images)
+    epmc.routes[f"/cloud/{PMCID}.1/{NAMES[2]}"] = (500, "text/plain", b"slow down")
+    meta = json.loads(epmc.routes[f"/cloud/{PMCID}.1/{PMCID}.1.json"][2])
+    meta["media_urls"] = [u.split("?")[0] if NAMES[4] in u else u for u in meta["media_urls"]]  # listed with nothing to check it by
+    epmc.json(f"/cloud/{PMCID}.1/{PMCID}.1.json", meta)
+    a = fi.from_services(conn, lib.dir, key)
+    assert (a.had, a.sources, a.settled) == (4, {"pmc-cloud": 4}, False)  # the four fetched kept; the two not taken asked again
+    assert a.why[0] == f"PMC Cloud: 2 not taken: {NAMES[2]}: HTTP 500; {NAMES[4]} is listed with no MD5"
+    assert f"/cloud/{PMCID}.1/{NAMES[4]}" not in epmc.seen  # not even fetched
+    assert sorted(r[0] for r in conn.execute("SELECT ordinal FROM figure_images WHERE paper = ?", (key,))) == [1, 2, 4, 6]
+    assert fi.wanting(fi.states(conn, lib.dir)[key])
 
 
 def test_of_two_files_for_a_graphic_the_full_image_is_kept_before_the_thumbnail(tmp_path, epmc):
@@ -471,6 +488,34 @@ def test_an_open_copy_s_host_refusing_a_program_is_an_answer_for_good(tmp_path, 
     w.do_figure_images({"id": "b", "op": "figure_images", "lib": lib.id})
     done = [e for e in _events(capsys) if e["event"] == "done"][-1]
     assert (done["asked"], done["passed"]) == (0, 1) and len(epmc.seen) == seen  # the host that refused is not asked again
+
+
+def test_a_fallback_passed_by_with_open_copies_off_stands_while_off_and_is_asked_once_on(tmp_path, monkeypatch, capsys, epmc):
+    from litrag_parser.worker import Worker
+
+    lib, key = _manuscript_with_no_pdf_anywhere(tmp_path, monkeypatch, epmc, None)
+    work = "/openalex/works/doi:10.3390/mi15070851"
+    w = Worker(tmp_path)
+    for switch, value in (("LITRAG_OPEN_COPIES", "off"), ("LITRAG_OPENALEX", "off")):
+        monkeypatch.setenv("LITRAG_OPEN_COPIES", "on")
+        monkeypatch.setenv("LITRAG_OPENALEX", "on")
+        monkeypatch.setenv(switch, value)
+        w.do_figure_images({"id": f"a{switch}", "op": "figure_images", "lib": lib.id, "again": True})
+        state = _state(lib, key)
+        assert (state["settled"], state["fallback"]) == (True, True) and not fi.wanting(state), switch  # nothing more to ask while it is off
+        capsys.readouterr()
+        seen = len(epmc.seen)
+        w.do_figure_images({"id": f"b{switch}", "op": "figure_images", "lib": lib.id})
+        done = [e for e in _events(capsys) if e["event"] == "done"][-1]
+        assert (done["asked"], done["passed"]) == (0, 1) and len(epmc.seen) == seen, switch  # neither counted nor asked again
+    assert not [p for p in epmc.seen if p.startswith(work)]
+    monkeypatch.setenv("LITRAG_OPENALEX", "on")  # both on again: the answer given with a switch off no longer stands
+    state = _state(lib, key)
+    assert not state["fallback"] and fi.wanting(state)
+    w.do_figure_images({"id": "c", "op": "figure_images", "lib": lib.id})
+    assert [p for p in epmc.seen if p.startswith(work)]
+    state = _state(lib, key)
+    assert state["fallback"] and not fi.wanting(state)  # OpenAlex names no open copy: for good
 
 
 def test_a_pdf_kept_beside_a_paper_after_the_fallback_answered_is_cut_from(tmp_path, monkeypatch, capsys, epmc):

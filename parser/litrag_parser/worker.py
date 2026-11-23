@@ -926,8 +926,9 @@ class Worker:
         (figure_images.fallback_answered): answered for good when a PDF was searched, or when none
         is to be had — PMC settled that it has none (`figures_note`; a paper with no PMCID is not
         PMC's to ask) and no open copy is named, or the one named gives a program no PDF or is not
-        the paper's — and not when an ask broke off or was not made, which the next run makes
-        again. Returns the papers that gained a PDF here, for the figures read."""
+        the paper's — and not when an ask broke off, which the next run makes again. With open
+        copies or OpenAlex switched off no open copy is asked for, which is an answer while the
+        switch stays off and none once it is on again. Returns the papers that gained a PDF here, for the figures read."""
         from . import figure_images
 
         kept: list[str] = []
@@ -946,7 +947,8 @@ class Worker:
                         continue
                     answer = self._open_copy(conn, lib, key, req_id)
                     if answer != "kept":
-                        figure_images.fallback_answered(conn, key, answer in ("none", "refused") and (not row["pmcid"] or row["figures_note"] is not None))
+                        came = {"none": figure_images.FINAL, "refused": figure_images.FINAL, "copies-off": figure_images.COPIES_OFF, "openalex-off": figure_images.OPENALEX_OFF}.get(answer, figure_images.TRY)
+                        figure_images.fallback_answered(conn, key, came if not row["pmcid"] or row["figures_note"] is not None else figure_images.TRY)
                         continue
                     kept.append(key)
                     pdf = lib.papers_dir / conn.execute("SELECT figures_file FROM papers WHERE key = ?", (key,)).fetchone()["figures_file"]
@@ -954,7 +956,7 @@ class Worker:
                     out = figure_images.from_pdf(conn, lib.home, key, pdf)
                 except Exception as e:  # noqa: BLE001
                     out = {"cut": 0, "figures": 0, "error": f"{type(e).__name__}: {e}"}
-                figure_images.fallback_answered(conn, key, not out.get("error"))
+                figure_images.fallback_answered(conn, key, figure_images.TRY if out.get("error") else figure_images.FINAL)
                 if out["cut"] or out.get("error"):
                     message = f"figure images: {out['cut']} of {out['figures']} figures without one cut from {pdf.name}" + (f" ({out['error']})" if out.get("error") else "")
                     log_event(conn, key, now_iso(), "figure-images", message)
@@ -968,15 +970,15 @@ class Worker:
         (figures.keep_beside, which takes it only when its first pages name the paper): 'kept',
         'refused', 'none' (no copy named, or its host answered with no PDF for a program: a page
         naming none, a bot check, a 4xx other than 408 and 429), 'missed' (an ask that broke off: OpenAlex not reached or its
-        budget spent, the copy's host timing out or answering 5xx, 408 or 429, a PDF that could not be written), or 'off' (open
-        copies or OpenAlex switched off). 'refused' and 'none' are answers for good; 'missed' is
+        budget spent, the copy's host timing out or answering 5xx, 408 or 429, a PDF that could not be written), or 'copies-off' and
+        'openalex-off' (open copies, or OpenAlex with no address known already, switched off: nothing asked). 'refused' and 'none' are answers for good; 'missed' is
         worth asking again. The address is the candidate's (`candidates.oa_url`), else OpenAlex's
         for the paper's DOI: an identifier out, one request at a time, paced (openalex.GAP). Each
-        answer but 'off' is an events row `figure-images`."""
+        answer but those two is an events row `figure-images`."""
         from . import figures, openalex
 
         if not acquire.open_copies():
-            return "off"
+            return "copies-off"
         row = conn.execute("SELECT doi FROM papers WHERE key = ?", (key,)).fetchone()
         url = None
         if conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'candidates'").fetchone() and \
@@ -992,7 +994,7 @@ class Worker:
             url = openalex.hit(w)["oa_url"] if w else None
         if url is None:
             if not openalex.enabled():
-                return "off"
+                return "openalex-off"
             log_event(conn, key, now_iso(), "figure-images", "no open copy: OpenAlex names none")
             return "none"
 

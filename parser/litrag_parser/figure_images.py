@@ -98,7 +98,7 @@ CREATE TABLE IF NOT EXISTS figure_image_asks (
   sources TEXT,                     -- where those came from, ", "-joined
   settled INTEGER NOT NULL,         -- 1 when asking the services again would change nothing: every figure had, or each of the two answered for the rest
   why TEXT,                         -- each source's answer, for the figures not had
-  fallback INTEGER NOT NULL DEFAULT 0  -- 1 when the PDF fallback answered for good: a PDF of the paper searched, or none to be had (worker._images_fallback)
+  fallback INTEGER NOT NULL DEFAULT 0  -- what the PDF fallback came to (worker._images_fallback): 1 answered for good, a PDF of the paper searched or none to be had; 2, 3 no open copy asked for with open copies, or OpenAlex, switched off, an answer while that stays off; 0 to be tried
 );
 """
 
@@ -302,8 +302,11 @@ _VERSION = r"<Prefix>{}\.(\d+)/</Prefix>"
 def from_cloud(pmcid: str, hrefs: list[str], timeout: float, base: str | None = None) -> tuple[dict[str, Got], str, bool]:
     """The PMC Cloud Service's files for these hrefs: `({href: Got}, why the rest were not had,
     settled)`. Settled when the service answered for every href it did not give: it holds no
-    version of the article, or a version listing no file of that name. A file failing its MD5 is
-    not taken, and not settled. Raises `Unreachable` when the service could not be asked."""
+    version of the article, or a version listing no file of that name. A file failing its MD5, or
+    listed with none to check it by, is not taken, and not settled. A file whose request fails
+    costs only itself, the files had before it kept and nothing settled; one that could not be
+    asked at all ends the asking there. Raises `Unreachable` when the service could not be asked
+    for the article's record."""
     b = acquire.pmc_cloud_base(base)
     pmcid = pmcid.upper()
     listing = fetch(f"{b}/?{urllib.parse.urlencode({'list-type': 2, 'prefix': f'{pmcid}.', 'delimiter': '/'})}", timeout, host="cloud", most=4 << 20)
@@ -327,16 +330,30 @@ def from_cloud(pmcid: str, hrefs: list[str], timeout: float, base: str | None = 
         pick = _best(list(files))
         if pick is None:
             continue
-        body = bytes(fetch(f"{b}/{pick}", timeout, host="cloud", most=IMAGE_MOST))
-        if files[pick] and hashlib.md5(body).hexdigest() != files[pick].lower():
-            bad.append(Path(pick).name)
+        name = Path(pick).name
+        if not files[pick]:
+            bad.append(f"{name} is listed with no MD5")
             continue
-        got[href] = Got(body, Path(pick).name, "pmc-cloud")
+        try:
+            body = bytes(fetch(f"{b}/{pick}", timeout, host="cloud", most=IMAGE_MOST))
+        except urllib.error.HTTPError as e:
+            bad.append(f"{name}: HTTP {e.code}")
+            continue
+        except Unreachable as e:
+            bad.append(f"{name} could not be asked for: {e}")
+            break
+        except ValueError as e:
+            bad.append(f"{name}: {e}")
+            continue
+        if hashlib.md5(body).hexdigest() != files[pick].lower():
+            bad.append(f"{name} failed its MD5")
+            continue
+        got[href] = Got(body, name, "pmc-cloud")
     missing = len(hrefs) - len(got)
     if not missing:
         return got, "", True
     if bad:
-        return got, f"{len(bad)} failed their MD5", False
+        return got, f"{len(bad)} not taken: " + "; ".join(bad[:3]) + ("; …" if len(bad) > 3 else ""), False
     what = MANUSCRIPT if meta.get("is_manuscript") and not media else "no file of that name"
     return got, f"{missing} of {len(hrefs)}: {what}", True
 
@@ -507,12 +524,31 @@ def _record(conn: sqlite3.Connection, key: str, a: Asked, now: str, sources: lis
     )
 
 
-def fallback_answered(conn: sqlite3.Connection, key: str, final: bool) -> None:
-    """What the PDF fallback came to for a paper asked, kept on its ask: `final` when it answered
-    for good (a PDF of the paper searched, or none to be had), so the next run passes it by; not
-    when it broke off (a host not reached, a budget spent), so the next run tries it again."""
-    conn.execute("UPDATE figure_image_asks SET fallback = ? WHERE paper = ?", (int(final), key))
+#: What the PDF fallback came to (`figure_image_asks.fallback`): to be tried, answered for good, or
+#: no open copy asked for because open copies, or OpenAlex, were switched off.
+TRY, FINAL, COPIES_OFF, OPENALEX_OFF = 0, 1, 2, 3
+
+
+def fallback_answered(conn: sqlite3.Connection, key: str, came: int) -> None:
+    """What the PDF fallback came to for a paper asked, kept on its ask: `FINAL` when it answered
+    for good (a PDF of the paper searched, or none to be had), so the next run passes it by;
+    `COPIES_OFF` or `OPENALEX_OFF` when no open copy was asked for with that switched off, which
+    stands only while it is (`_stands`); `TRY` when it broke off (a host not reached, a budget
+    spent), so the next run tries it again."""
+    conn.execute("UPDATE figure_image_asks SET fallback = ? WHERE paper = ?", (came, key))
     conn.commit()
+
+
+def _stands(came: int) -> bool:
+    """Whether what the PDF fallback came to is an answer now: one for good is; one given with a
+    switch off is while the switch is off, and not once it is on again."""
+    from . import openalex
+
+    if came == FINAL:
+        return True
+    if came == COPIES_OFF:
+        return not acquire.open_copies()
+    return came == OPENALEX_OFF and not (acquire.open_copies() and openalex.enabled())
 
 
 def pdf_kept(conn: sqlite3.Connection, key: str) -> None:
@@ -571,7 +607,7 @@ def from_services(conn: sqlite3.Connection, lib_dir: Path, key: str, *, timeout:
     got: dict[str, Got] = {}
     settled = True
     for name, ask in (("PMC Cloud", lambda hs: from_cloud(row["pmcid"], hs, timeout, cloud)),
-                      ("Europe PMC", lambda hs: from_europepmc(row["pmcid"], hs, timeout, Path(lib_dir) / "inbox" / f".{_safe(key)}.images.zip.part", rest))):
+                      ("Europe PMC", lambda hs: from_europepmc(row["pmcid"], hs, timeout, Path(lib_dir) / "figures" / f".{_safe(key)}.images.zip.part", rest))):
         rest_hrefs = [h for h in wanted if h not in got]
         if not rest_hrefs or (name == "Europe PMC" and a.why and a.why[-1].endswith(MANUSCRIPT)):
             break
@@ -740,8 +776,9 @@ def states(conn: sqlite3.Connection, lib_dir: Path) -> dict[str, dict[str, Any]]
     """Each XML paper's images, from the rows and the files' presence: `{figures, had, settled,
     fallback, sources, why, at}` for a paper asked, nothing for one never asked. `had` counts the
     figures with an image on disk now, at the size it was stored at; `settled` is whether the
-    services answered for the rest and `fallback` whether the PDF fallback did for good, neither
-    standing once an image had at the last ask is gone."""
+    services answered for the rest and `fallback` whether the PDF fallback did — for good, or
+    with the open-copy route switched off and off still (`_stands`) — neither standing once an
+    image had at the last ask is gone."""
     if not conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'figure_image_asks'").fetchone():
         return {}
     ensure_schema(conn)
@@ -753,7 +790,7 @@ def states(conn: sqlite3.Connection, lib_dir: Path) -> dict[str, dict[str, Any]]
     for r in conn.execute("SELECT * FROM figure_image_asks"):
         had = len(there.get(r["paper"], ()))
         whole = had >= r["had"]
-        out[r["paper"]] = {"figures": r["figures"], "had": had, "settled": bool(r["settled"]) and whole, "fallback": bool(r["fallback"]) and whole,
+        out[r["paper"]] = {"figures": r["figures"], "had": had, "settled": bool(r["settled"]) and whole, "fallback": _stands(r["fallback"]) and whole,
                            "sources": r["sources"], "why": r["why"], "at": r["at"]}
     return out
 
