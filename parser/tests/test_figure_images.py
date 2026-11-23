@@ -30,7 +30,7 @@ NAMES = [f"micromachines-15-00851-g00{i}.jpg" for i in range(1, 7)]
 @pytest.fixture(autouse=True)
 def _quick(monkeypatch):
     monkeypatch.setattr(fi, "BACKOFF", 0)
-    monkeypatch.setattr(fi, "GAP", {})
+    monkeypatch.setattr(fi, "GAP", {"cloud": 0, "epmc": 0})
 
 
 def jpeg(seed: int, size=(40, 30)) -> bytes:
@@ -266,6 +266,32 @@ def test_services_that_cannot_be_reached_settle_nothing(tmp_path):
     a = fi.from_services(conn, lib.dir, key)
     assert (a.had, a.settled, a.unreachable) == (0, False, True)
     assert conn.execute("SELECT settled FROM figure_image_asks WHERE paper = ?", (key,)).fetchone()[0] == 0
+
+
+def test_europe_pmc_is_not_asked_in_the_ask_that_found_the_cloud_unreachable(tmp_path, monkeypatch, epmc):
+    lib, conn, key = library(tmp_path)
+    epmc.routes[f"/rest/{PMCID}/supplementaryFiles"] = (200, "application/zip", THUMBS)  # Europe PMC has them all
+    monkeypatch.setenv("LITRAG_PMC_CLOUD_URL", "http://127.0.0.1:9/cloud")  # nothing answers there
+    a = fi.from_services(conn, lib.dir, key)
+    assert (a.had, a.settled, a.unreachable) == (0, False, True)
+    assert asked(epmc) == []  # the network is the trouble: the second service is left for the next ask
+    assert fi.wanting(fi.states(conn, lib.dir)[key])
+    monkeypatch.setenv("LITRAG_PMC_CLOUD_URL", f"{epmc.url}/cloud")  # the Cloud answering again
+    b = fi.from_services(conn, lib.dir, key)
+    assert (b.had, b.settled, b.sources) == (6, True, {"europepmc": 6})
+
+
+def test_a_cloud_file_that_keeps_breaking_off_keeps_the_files_before_it_and_ends_the_ask(tmp_path, epmc):
+    lib, conn, key = library(tmp_path)
+    images = {n: jpeg(i) for i, n in enumerate(NAMES)}
+    cloud(epmc, images)
+    epmc.routes[f"/rest/{PMCID}/supplementaryFiles"] = (200, "application/zip", THUMBS)
+    epmc.routes[f"/cloud/{PMCID}.1/{NAMES[2]}"] = (200, "image/jpeg", b"cut", {"Content-Length": "999"})  # every answer cut short
+    a = fi.from_services(conn, lib.dir, key)
+    assert (a.had, a.sources, a.settled, a.unreachable) == (2, {"pmc-cloud": 2}, False, True)
+    assert not [p for p in asked(epmc) if p.startswith("/rest/")]
+    assert all(f"/cloud/{PMCID}.1/{n}" not in epmc.seen for n in NAMES[3:])  # nor the files after it
+    assert sorted(r[0] for r in conn.execute("SELECT ordinal FROM figure_images WHERE paper = ?", (key,))) == [1, 2]
 
 
 def test_no_pmcid_is_asked_nothing_and_a_pdf_paper_has_no_images(tmp_path, epmc):

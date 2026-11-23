@@ -189,7 +189,12 @@ def jats_figures(raw: bytes) -> list[XmlFigure]:
 
 
 class Unreachable(RuntimeError):
-    """A service that could not be asked at all: nothing listening, or every try broke off."""
+    """A service that could not be asked at all: nothing listening, or every try broke off. `got`
+    is what it gave before that."""
+
+    def __init__(self, *args: object, got: dict[str, Got] | None = None) -> None:
+        super().__init__(*args)
+        self.got = got or {}
 
 
 _last: dict[str, float] = {}
@@ -304,9 +309,9 @@ def from_cloud(pmcid: str, hrefs: list[str], timeout: float, base: str | None = 
     settled)`. Settled when the service answered for every href it did not give: it holds no
     version of the article, or a version listing no file of that name. A file failing its MD5, or
     listed with none to check it by, is not taken, and not settled. A file whose request fails
-    costs only itself, the files had before it kept and nothing settled; one that could not be
-    asked at all ends the asking there. Raises `Unreachable` when the service could not be asked
-    for the article's record."""
+    costs only itself, the files had before it kept and nothing settled. Raises `Unreachable`
+    when the service could not be asked, for the article's record or for a file, carrying the
+    files had before it."""
     b = acquire.pmc_cloud_base(base)
     pmcid = pmcid.upper()
     listing = fetch(f"{b}/?{urllib.parse.urlencode({'list-type': 2, 'prefix': f'{pmcid}.', 'delimiter': '/'})}", timeout, host="cloud", most=4 << 20)
@@ -340,8 +345,7 @@ def from_cloud(pmcid: str, hrefs: list[str], timeout: float, base: str | None = 
             bad.append(f"{name}: HTTP {e.code}")
             continue
         except Unreachable as e:
-            bad.append(f"{name} could not be asked for: {e}")
-            break
+            raise Unreachable(f"{name}: {e}", got=got) from e
         except ValueError as e:
             bad.append(f"{name}: {e}")
             continue
@@ -571,7 +575,8 @@ def from_services(conn: sqlite3.Connection, lib_dir: Path, key: str, *, timeout:
     again, and a paper whose last ask settled is passed by unless `again`; one that has lost an
     image it had since then is asked again, and the PDF fallback's answer no longer stands. A
     paper not read from XML, or whose file is gone, is asked nothing. Never raises for the network: a source that
-    could not be asked is `unreachable`, and what it would have given is not settled."""
+    could not be asked is `unreachable`, what it would have given is not settled, and the source
+    after it is not asked in this ask."""
     from .library import now_iso
 
     ensure_schema(conn)
@@ -614,7 +619,7 @@ def from_services(conn: sqlite3.Connection, lib_dir: Path, key: str, *, timeout:
         try:
             these, why, ok = ask(rest_hrefs)
         except Unreachable as e:
-            these, why, ok = {}, f"could not be asked: {e}", False
+            these, why, ok = e.got, f"could not be asked: {e}", False
             a.unreachable = True
         except urllib.error.HTTPError as e:
             these, why, ok = {}, f"HTTP {e.code}", False
@@ -624,6 +629,8 @@ def from_services(conn: sqlite3.Connection, lib_dir: Path, key: str, *, timeout:
         if why:
             a.why.append(f"{name}: {why}")
         settled = settled and ok
+        if a.unreachable:
+            break
     stamp = now_iso()
     for f in a.missing:
         if not f.hrefs or not all(h in got for h in f.hrefs):
