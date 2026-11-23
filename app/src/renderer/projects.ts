@@ -7,7 +7,7 @@
 
 import { me, session } from './account.ts';
 import { askText } from './dialog.ts';
-import { $, activity, chooseProject, ctx, el, fmtInt, log, onWorkerEvent, queryText, rejectionText, request, setProject, showView, type ProjectSummary } from './shared.ts';
+import { $, activity, chooseProject, ctx, el, fmtInt, hooks, log, onWorkerEvent, queryText, rejectionText, request, setProject, showView, type ProjectSummary } from './shared.ts';
 
 const TYPE_COLORS: Record<string, string> = {
   research: 'var(--methods)', review: 'var(--abstract)', letter: 'var(--results)', editorial: 'var(--discussion)',
@@ -195,6 +195,7 @@ export function mayChange(p: ProjectSummary): boolean {
 
 async function deleteProject(p: ProjectSummary): Promise<void> {
   if (!window.confirm(`Delete the project “${p.name}”? Its papers stay in the shared store, and in every other project that holds them; its folder is moved aside, not erased.`)) return;
+  if (ctx.lib === p.id && !(await hooks.mayLeavePlots())) return;
   try {
     await request('delete_project', { lib: p.id, session: session() });
     log('stage', `Deleted the project ${p.name}`);

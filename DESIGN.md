@@ -836,7 +836,7 @@ none yet; `BACKLOG.md`); the methods a finding was measured by as passages of th
 own (more context for "how was it measured", a longer prompt; unmeasured); saving
 answers (a person's history belongs with sign-in).
 
-## R4.6 A plot digitised by a person, and a curve fitted to it
+## R4.8 A plot digitised by a person, and a curve fitted to it
 
 *Built 2026-11-20.* Feedback asked for plots turned back into numbers — a
 turbidity curve's points as CSV, and a sigmoid fitted to them for its lag and

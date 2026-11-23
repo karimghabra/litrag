@@ -13,6 +13,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { signIn } from './account.ts';
 
 const APP_DIR = resolve(import.meta.dirname, '..', '..');
 const PARSER = resolve(APP_DIR, '..', 'parser');
@@ -59,6 +60,7 @@ test.beforeAll(async () => {
   page = await app.firstWindow();
   await page.waitForLoadState('domcontentloaded');
   await page.waitForSelector('#worker-status.ok', { timeout: 60_000 });
+  await signIn(page);
   await app.evaluate(({ dialog }, files) => {
     dialog.showSaveDialog = (async () => ({ canceled: false, filePath: files.csv })) as unknown as typeof dialog.showSaveDialog;
     dialog.showOpenDialog = (async () => ({ canceled: false, filePaths: [files.image] })) as unknown as typeof dialog.showOpenDialog;
