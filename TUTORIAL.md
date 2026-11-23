@@ -1099,7 +1099,7 @@ Ask "What is the tensile strength of hagfish slime threads?" and the status read
 | `not_found` | "Not in the library" | the passages do not answer it; the model says what they cover instead |
 | `unanswered` | "No answer from the model" | Ollama or the model could not be had, or it replied in a broken shape; the reason is shown, and the passages still come back |
 
-When the question and its passages fill the model's 8,192-token window, the line under the status says so, and `lit ask` prints it: part of them may not have been read, so ask again with fewer passages.
+When the question and its passages fill the model's 8,192-token window, the footing line says so, and `lit ask` prints it: part of them may not have been read, so ask again with fewer passages.
 
 The model's citations are checked before anything is shown:
 
