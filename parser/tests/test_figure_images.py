@@ -169,6 +169,20 @@ def test_a_file_the_cloud_fails_to_give_costs_only_itself_and_one_with_no_md5_is
     assert fi.wanting(fi.states(conn, lib.dir)[key])
 
 
+def test_a_file_that_is_no_image_leaves_its_figure_missing_and_the_paper_unsettled(tmp_path, epmc):
+    lib, conn, key = library(tmp_path)
+    images = {n: jpeg(i) for i, n in enumerate(NAMES)}
+    images[NAMES[2]] = b"<html>not the figure</html>"  # its MD5 holds, as the record gives it, and it is no image
+    cloud(epmc, images)
+    a = fi.from_services(conn, lib.dir, key)
+    assert (a.had, a.new, a.settled) == (5, 5, False)
+    assert [f.ordinal for f in a.missing] == [3]
+    assert len(a.why) == 1 and "not an image" in a.why[0]
+    assert sorted(r[0] for r in conn.execute("SELECT ordinal FROM figure_images WHERE paper = ?", (key,))) == [1, 2, 4, 5, 6]
+    assert tuple(conn.execute("SELECT figures, had, settled FROM figure_image_asks WHERE paper = ?", (key,)).fetchone()) == (6, 5, 0)
+    assert fi.wanting(fi.states(conn, lib.dir)[key])
+
+
 def test_of_two_files_for_a_graphic_the_full_image_is_kept_before_the_thumbnail(tmp_path, epmc):
     lib, conn, key = library(tmp_path)
     buf = io.BytesIO()

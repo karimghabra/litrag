@@ -632,6 +632,7 @@ def from_services(conn: sqlite3.Connection, lib_dir: Path, key: str, *, timeout:
         if a.unreachable:
             break
     stamp = now_iso()
+    saved: set[int] = set()
     for f in a.missing:
         if not f.hrefs or not all(h in got for h in f.hrefs):
             continue
@@ -646,11 +647,12 @@ def from_services(conn: sqlite3.Connection, lib_dir: Path, key: str, *, timeout:
             continue
         conn.execute("DELETE FROM figure_images WHERE paper = ? AND ordinal = ?", (key, f.ordinal))
         conn.executemany(f"INSERT INTO figure_images VALUES ({', '.join('?' * 16)})", rows)
+        saved.add(f.ordinal)
         a.new += 1
         for r in rows:
             a.sources[r[9]] = a.sources.get(r[9], 0) + 1
     a.had += a.new
-    a.missing = [f for f in a.missing if not (f.hrefs and all(h in got for h in f.hrefs))]
+    a.missing = [f for f in a.missing if f.ordinal not in saved]
     a.settled = not a.missing or settled
     if not a.missing:
         a.why = []
