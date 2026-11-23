@@ -902,7 +902,9 @@ anywhere, and a wrong name costs as long as a wrong password.
 
 **Each person's things are rows apart from the papers** (`<root>/users.sqlite`: `users`,
 `recent`, `favourites`, `notes`, `collections`, `collection_papers`), keyed by the paper's key,
-which since R4.6 names the same paper in every project. A note can name a passage (`node_id`)
+which since R4.6 names the same paper in every project; when the store replaces a paper's key
+(a hash-keyed stub met again as the paper it is, a moved library's paper held under another
+key) the rows follow it, as the projects holding it do (`users.move_paper`). A note can name a passage (`node_id`)
 and keeps its first words, so a reread that renumbers the tree leaves the note findable.
 Projects stay folders, every account reads all of them; a project made while signed in carries
 its `owner`, and only that account renames, describes or deletes it. Deleting a project lets its
