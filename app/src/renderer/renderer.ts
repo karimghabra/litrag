@@ -1177,7 +1177,7 @@ function wire() {
   initAccount();
   initMine({
     async open(lib, key, nodeId) {
-      if (ctx.lib !== lib) setProject(lib);
+      if (!(await chooseProject(lib))) return;
       await openPaper(key, nodeId);
     },
     current() {
