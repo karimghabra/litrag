@@ -767,8 +767,8 @@ renumbers the nodes moves each plot, and what its figure came to, to the figure 
 the same caption number (a PDF's picture by its page and box), or removes it with a
 note; a reread replaces the paper's rows.
 
-Not done, and why: the figure images the PMC Cloud Service lists beside each PDF
-(they need invariant 1's Cloud line to name them, Karim's to write); charts read
+Not done here: the figures' images, fetched and drawn since 2026-11-20
+(`figure_images.py`; `PIPELINE.md` stage 8). Not done, and why: charts read
 from images (slower, and every record with images has a PDF); captions with no stop
 after the number, Springer's "Fig. 1 Title", which leave such a PDF's figures at "not
 in PDF" until the reader learns them (`BACKLOG.md`).

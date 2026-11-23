@@ -1498,7 +1498,7 @@ from charts group by paper, figure order by plots desc
 - **Panel letters can be misread.** "(b)" was stored as Q, so Query cannot match "Figure 2b".
 - **Not read yet:** curves without markers, box, violin and dot plots, horizontal bars. A curve may still give stray points, like Figure 2's "(A) Stress (MPa)".
 - **A cut-off read leaves no numbers.** Run `figures` without `keys`, or click **Read the figures**.
-- **`LITRAG_FIGURES=off`** skips the figures stage and the ask of PMC for an XML paper's PDF, at a fetch or a drop. The window offers no figure action: a figure not read says "Figures are off (LITRAG_FIGURES=off)", and its card has no chip. The `figures` op still reads, and `figures_fetch` still asks. A PDF you drop for an XML paper is kept, not read, until you ask.
+- **`LITRAG_FIGURES=off`** skips the figures stage and the ask of PMC for an XML paper's PDF, at a fetch or a drop. A figure offers no action: one not read says "Figures are off (LITRAG_FIGURES=off)", and its card has no figures chip. The `figures` op still reads (**Read all figures** on the Papers tab), and `figures_fetch` still asks. A PDF you drop for an XML paper is kept, not read, until you ask.
 
 ## Digitising a plot (the Plots tab)
 
@@ -2418,6 +2418,8 @@ The rows live in the shared store, `_shared/store.sqlite`, and a project made be
 | `chart_values` | A value read from a plot | `paper`, `figure`, `plot`, `series`, `name`, `category`, `x`, `y`, `err_lo`, `err_hi` |
 | `figure_reads` | A paper's last reading of its charts | `paper`, `figures`, `plots`, `read`, `values_`, `seconds`, `file`, `unmatched`, `pages`, `pages_read` |
 | `figure_outcomes` | A figure that reading looked for | `paper`, `figure`, `figure_label`, `outcome` (`plots`, `no-plot`, `no-caption`, `skipped`), `page`, `bbox`, `detail` |
+| `figure_images` | An image of an XML paper's figure, the file under `figures/<key>/` | `paper`, `ordinal`, `part`, `figure_label`, `label`, `caption`, `file`, `source` (`pmc-cloud`, `europepmc`, `pdf`), `width`, `height` |
+| `figure_image_asks` | What asking for an XML paper's figure images came to | `paper`, `figures`, `had`, `sources`, `settled`, `why`, `fallback` |
 | `digitised` | A series a person digitised from a figure (made, with the two below, when the Plots tab first needs them) | `id`, `uid`, `paper`, `figure`, `picture` (the hash of the picture it was read from), `figure_label`, `page`, `bbox`, `series` (its name), `colour`, `calibration`, `method`, `image`, `x_label`, `x_unit`, `y_label`, `y_unit`, `orphan` (1 while it waits under **Needs review**) |
 | `digitised_points` | A point of a digitised series | `digitised`, `ordinal`, `x`, `y`, `px`, `py`, `how` (`auto`, `added`, `moved`) |
 | `digitised_fits` | A curve fitted to a digitised series | `digitised`, `model` (`logistic`, `gompertz`), `status` (`fit`, `unfit`), `plateau`, `max_rate`, `t_half`, `lag`, `r2`, `result` |
