@@ -7,7 +7,7 @@
 
 import { me, session } from './account.ts';
 import { askText } from './dialog.ts';
-import { $, activity, ctx, el, fmtInt, log, onWorkerEvent, queryText, rejectionText, request, setProject, showView, type ProjectSummary } from './shared.ts';
+import { $, activity, chooseProject, ctx, el, fmtInt, hooks, log, onWorkerEvent, queryText, rejectionText, request, setProject, showView, type ProjectSummary } from './shared.ts';
 
 const TYPE_COLORS: Record<string, string> = {
   research: 'var(--methods)', review: 'var(--abstract)', letter: 'var(--results)', editorial: 'var(--discussion)',
@@ -53,7 +53,7 @@ export function initProjects(loadAll: () => Promise<void>): void {
       const figures = kept || notKept ? `, ${kept} PDF${kept === 1 ? '' : 's'} kept beside an XML paper for its figures, ${notKept} not kept` : '';
       log('stage', `Merged into ${target}: ${ev['filed']} papers filed, ${ev['duplicates']} already there, ${(ev['rebuilt'] as unknown[] | undefined)?.length ?? 0} rebuilt${figures}`);
       void reload?.().then(() => {
-        if (target) setProject(target);
+        if (target) void chooseProject(target);
       });
     }
     if (ev['event'] === 'done' && ev['op'] === 'migrate') {
@@ -82,7 +82,7 @@ async function createProject(): Promise<void> {
     $<HTMLTextAreaElement>('np-description').value = '';
     log('stage', `Created project ${r.library.id}`);
     await reload?.();
-    setProject(r.library.id);
+    await chooseProject(r.library.id);
   } catch (e) {
     log('error', (e as Error).message);
     window.alert((e as Error).message);
@@ -195,6 +195,7 @@ export function mayChange(p: ProjectSummary): boolean {
 
 async function deleteProject(p: ProjectSummary): Promise<void> {
   if (!window.confirm(`Delete the project “${p.name}”? Its papers stay in the shared store, and in every other project that holds them; its folder is moved aside, not erased.`)) return;
+  if (ctx.lib === p.id && !(await hooks.mayLeavePlots())) return;
   try {
     await request('delete_project', { lib: p.id, session: session() });
     log('stage', `Deleted the project ${p.name}`);
@@ -256,8 +257,7 @@ function card(p: ProjectSummary): HTMLElement {
     const b = el('button', primary ? 'primary small' : 'ghost small', label);
     b.addEventListener('click', (e) => {
       e.stopPropagation();
-      setProject(p.id);
-      showView(view);
+      void chooseProject(p.id).then((ok) => ok && showView(view));
     });
     actions.append(b);
   };
@@ -301,9 +301,6 @@ function card(p: ProjectSummary): HTMLElement {
     }
   }
   c.append(actions);
-  c.addEventListener('click', () => {
-    setProject(p.id);
-    showView('papers');
-  });
+  c.addEventListener('click', () => void chooseProject(p.id).then((ok) => ok && showView('papers')));
   return c;
 }

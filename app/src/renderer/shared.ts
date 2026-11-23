@@ -90,6 +90,15 @@ export function setProject(id: string | null): void {
   for (const fn of projectListeners) fn(id);
 }
 
+/** Another project chosen — by a person, or for them when one is made or merged: first what is
+ *  not saved on the Plots tab's picture is asked about (`hooks.mayLeavePlots`), since it goes with
+ *  the project. Whether the project is the one chosen now. */
+export async function chooseProject(id: string | null): Promise<boolean> {
+  if (ctx.lib !== id && !(await hooks.mayLeavePlots())) return false;
+  setProject(id);
+  return true;
+}
+
 export function rememberedProject(): string | null {
   try {
     return window.localStorage.getItem('litrag.project');
@@ -197,6 +206,11 @@ export const activity = {
 export const hooks = {
   openPaper: (_key: string, _node?: string): void => undefined,
   search: (_query: string): void => undefined,
+  /** open a figure in the Plots tab's digitiser */
+  digitise: (_figure: string): void => undefined,
+  /** whether the Plots tab's series may be left: asked before another project is chosen, since
+   *  what is on its picture and not saved goes with the project */
+  mayLeavePlots: async (): Promise<boolean> => true,
 };
 
 export function fmtInt(n: number | null | undefined): string {

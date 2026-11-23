@@ -284,18 +284,15 @@ class Worker:
             log_event(conn, key, now_iso(), str(note.get("kind", "note")), f"{note.get('node_id')}: {note.get('message')}")
 
     @staticmethod
-    def _remap_figures(conn: Any, lib: Library, key: str, req_id: Any) -> dict[str, Any]:
+    def _remap_figures(conn: Any, lib: Library, key: str, req_id: Any) -> None:
         """The paper's plots once its nodes are replaced: each follows its figure into the new
-        rows, or is removed (figures.remap), and a removal is said — an events row and a log line —
+        rows, or is removed, and a person's digitised series stay with the figures drawn as their
+        pictures or are kept for review (digitise.follow); what went or was left is said — an events row and a log line —
         whether or not the figures are read after, so no plot is left on a node that is gone."""
-        from .figures import remap, removed_note
+        from . import digitise
 
-        out = remap(conn, key)
-        message = removed_note(out)
-        if message:
-            log_event(conn, key, now_iso(), "figures", message)
-            emit({"event": "log", "id": req_id, "lib": lib.id, "paper": key, "logger": "figures", "message": message})
-        return out
+        for logger, message in digitise.follow(lib.home, conn, key):
+            emit({"event": "log", "id": req_id, "lib": lib.id, "paper": key, "logger": logger, "message": message})
 
     @staticmethod
     def _backfill(conn: Any, lib: Library, key: str) -> bool:
@@ -393,6 +390,10 @@ class Worker:
                     self.do_model_label(req)
                 elif op == "figures":
                     self.do_figures(req)
+                elif op == "digitise_open":
+                    from . import digitise
+
+                    emit({"id": req.get("id"), **digitise.answer(op, req, lambda: self._lib(req))})
                 elif op == "figures_fetch":
                     self.do_figures_fetch(req)
                 elif op == "round":
@@ -1407,6 +1408,17 @@ class Worker:
             rebuilt = out["keys_to_rebuild"]
         if out["keys_to_parse"]:
             self.do_reparse({"id": f"{req_id}-reparse", "op": "reparse", "lib": target, "keys": out["keys_to_parse"]})
+        held = [k for k in out.get("digitised", []) if k not in out["keys_to_rebuild"] and k not in out["keys_to_parse"]]
+        if held:  # a paper the target read before the merge: its reading draws the pictures now, and no rebuild will ask
+            from . import digitise
+
+            lib = self._lib({"lib": target})
+            conn = open_store(lib.store_path)
+            try:
+                for key in held:
+                    digitise.reattach(lib.home, conn, key)
+            finally:
+                conn.close()
         if not figures_enabled():
             if out["keys_to_read_figures"]:
                 emit({"event": "stage", "id": req_id, "lib": target, "stage": "figures", "message": f"{len(out['keys_to_read_figures'])} kept for their figures; not read: LITRAG_FIGURES=off"})
@@ -1529,6 +1541,10 @@ class Worker:
 
                     lib = open_library(self.root, str(req.get("lib") or "")) if req.get("lib") else None
                     emit({"event": "models", "id": req_id, "default": answer.default_model(lib), **answer.models()})
+                elif op in ("digitise_open", "digitise_extract", "digitise_axes"):
+                    from . import digitise
+
+                    emit({"id": req_id, **digitise.answer(op, req, lambda: self._lib(req))})
                 else:
                     raise ValueError(f"Unknown op {op!r}")
             except Exception as e:  # noqa: BLE001 — the answer to a failed read is the reason
@@ -1593,8 +1609,15 @@ class Worker:
                 lib = self._lib(req, write=True)
                 self._owner_only(req, lib)
                 emit({"event": "project", "id": req_id, "project": project_rows.describe(lib, name=req.get("name"), description=req.get("description"))})
-            elif op in ("search", "suggest", "query", "ask", "models"):
-                self.answer_async(req)
+            elif op == "digitise_open" and req.get("figure"):
+                self._lib(req)  # fail fast on a bad library
+                self.ingest_queue.put(req)  # cut from its PDF: pdfium runs on the ingest thread and no other. Its answer closes the request, so no `queued`
+            elif op in ("search", "suggest", "query", "ask", "models", "digitise_open", "digitise_extract", "digitise_axes"):
+                self.answer_async(req)  # the digitiser's that open no PDF: an image file read, OCR run
+            elif op in ("plots", "digitise_save", "digitise_attach", "digitise_delete", "digitise_export", "fit"):
+                from . import digitise
+
+                emit({"id": req_id, **digitise.answer(op, req, lambda: self._lib(req))})
             elif op in ("candidates", "wanted", "dismiss", "stage"):
                 lib = self._lib(req, write=op in ("dismiss", "stage"))
                 conn = open_store(lib.store_path)

@@ -21,10 +21,12 @@ Where things are:
   papers in the shared store; `migrate.py` moves a library that still keeps
   its own store into it; `worker.py` speaks JSON lines over stdio.
 - `app/` — Electron, TypeScript, built with esbuild. `src/main` spawns the
-  worker and relays its events; `src/renderer` is the window: seven tabs
+  worker and relays its events; `src/renderer` is the window: eight tabs
   over one project — Projects, Search, Papers (tree, page with boxes,
   canonical face), Types, Ask (cited answers from the local model), Query,
-  Graph (citations, rounds, SQL) — and the log.
+  Graph (citations, rounds, SQL), Plots (figures found by caption, one
+  digitised by a person, a sigmoid fitted: `digitise.py`, `fit.py`) — and
+  the log.
 - The shared store is `<root>/_shared`: a project is its `project_papers`
   rows, and every worker read of "the library" is narrowed with
   `members.scope` (DESIGN.md R4.6). Tests make old-shape libraries with
@@ -87,7 +89,9 @@ the app's typecheck, tests and build, and the parser's pytest (fixtures are
 saved Docling documents; nothing touches the network or the models). A real
 run of the app is `npm run app`; a headless one is `app/tests/smoke.mjs`;
 the product end to end is `LITRAG_HEADLESS=1 npm run e2e:studio` (Docling's
-models, Ollama, and two PDFs from the archive beside the checkout).
+models, Ollama, and two PDFs from the archive beside the checkout); the Plots
+tab end to end, without models, is `npx playwright test digitise.spec.ts` in
+`app/`. A request's `id` is the wire's own: an op naming a row takes another key.
 The libraries live outside the repository (`LITRAG_ROOT`, default
 `~/.protracker/library`) and never enter it.
 

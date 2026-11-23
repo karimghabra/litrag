@@ -61,6 +61,7 @@
       <button data-view="ask" title="A question answered by the local model from the project's passages, every sentence cited">Ask</button>
       <button data-view="query" title="Retrieve passages and hydrate them with their context">Query</button>
       <button data-view="graph" title="The papers and the citations between them; citation rounds; SQL over works, authors and citations">Graph</button>
+      <button data-view="plots" title="Figures that are data plots, found by their captions; a plot digitised into numbers, and a sigmoid fitted to them">Plots</button>
       <div id="nav-mine" class="nav-group" hidden>
         <h2>Yours</h2>
         <button data-view="mine" data-mine="recent" title="The papers you opened lately, the latest first">Recent</button>
@@ -277,6 +278,109 @@
         </form>
         <div id="query-meta" class="summary"></div>
         <div id="query-results" class="scroll results"></div>
+      </section>
+
+      <!-- plots: figures that are data plots, a plot digitised into numbers, a curve fitted to them -->
+      <section id="view-plots" class="view" hidden>
+        <div class="view-head">
+          <h1>Plots</h1>
+          <span id="plots-project" class="muted"></span>
+          <div class="spacer"></div>
+          <button id="dg-open-image" class="ghost" title="Digitise a plot from an image file rather than a paper's figure">Open an image…</button>
+        </div>
+        <form id="plots-form" class="searchbar">
+          <input id="plots-q" placeholder="Words in the caption: turbidity, absorbance, fibril formation, time…" />
+          <label class="check" title="Only plots of a numeric x — a curve over time or dose — or figures whose caption speaks of one"><input type="checkbox" id="plots-trend" checked /> trends only</label>
+          <button type="submit" class="primary">Find plots</button>
+        </form>
+        <div class="plots-layout">
+          <div class="col plots-list-col">
+            <div class="col-head"><h2>Figures</h2><span id="plots-total" class="muted"></span></div>
+            <div id="plots-list" class="scroll"><div class="empty">Find the figures that are data plots by the words of their captions. A figure the chart reader found axes with numbers in is a <b>plot</b>; one not read yet is <b>unknown</b>, and opening it tells.</div></div>
+          </div>
+          <div class="col dg-stage-col">
+            <div class="col-head">
+              <h2 id="dg-title">Digitise</h2>
+              <span id="dg-hint" class="muted"></span>
+              <div class="spacer"></div>
+              <div class="chips" id="dg-tools">
+                <button type="button" class="ghost small" data-tool="colour" title="Click the series' line or marker to take its colour">Pick colour</button>
+                <button type="button" class="ghost small" data-tool="add" title="Click to add a point">Add</button>
+                <button type="button" class="ghost small" data-tool="move" title="Drag a point to move it">Move</button>
+                <button type="button" class="ghost small" data-tool="delete" title="Click a point to delete it">Delete</button>
+                <button type="button" class="ghost small" data-tool="region" title="Drag a box over one plot of the figure: its axes are read again, and the series is looked for only inside it">Region</button>
+                <span class="sep"></span>
+                <button type="button" class="ghost small" id="dg-zoom-out" title="Zoom out">−</button>
+                <button type="button" class="ghost small" id="dg-zoom-fit" title="Fit the figure to the pane">Fit</button>
+                <button type="button" class="ghost small" id="dg-zoom-in" title="Zoom in">+</button>
+              </div>
+            </div>
+            <div id="dg-stage" class="dg-stage">
+              <div id="dg-empty" class="empty">Choose a figure on the left, or open an image.</div>
+              <div id="dg-canvas-wrap" class="dg-canvas-wrap" hidden>
+                <canvas id="dg-canvas"></canvas>
+                <svg id="dg-overlay" class="dg-overlay"></svg>
+              </div>
+            </div>
+            <div id="dg-caption" class="dg-caption muted"></div>
+          </div>
+          <div class="col dg-side">
+            <div class="scroll dg-panel">
+              <section class="dg-sec">
+                <div class="dg-sec-head"><h2>1 · Axes</h2><span id="dg-auto" class="muted"></span></div>
+                <div class="dg-axes">
+                  <div class="dg-axis" data-axis="x">
+                    <span class="dg-axis-name">x</span>
+                    <button type="button" class="ghost small dg-place" data-point="x1" title="Click on the figure where the first x value is: a tick on the x axis">X1</button>
+                    <input type="number" step="any" class="dg-val" data-val="x1" title="X1’s value" />
+                    <button type="button" class="ghost small dg-place" data-point="x2" title="Click on the figure where the second x value is">X2</button>
+                    <input type="number" step="any" class="dg-val" data-val="x2" title="X2’s value" />
+                    <label class="check" title="The x axis goes by powers of ten"><input type="checkbox" class="dg-log" data-log="x" /> log</label>
+                  </div>
+                  <div class="dg-axis" data-axis="y">
+                    <span class="dg-axis-name">y</span>
+                    <button type="button" class="ghost small dg-place" data-point="y1" title="Click on the figure where the first y value is: a tick on the y axis">Y1</button>
+                    <input type="number" step="any" class="dg-val" data-val="y1" title="Y1’s value" />
+                    <button type="button" class="ghost small dg-place" data-point="y2" title="Click on the figure where the second y value is">Y2</button>
+                    <input type="number" step="any" class="dg-val" data-val="y2" title="Y2’s value" />
+                    <label class="check" title="The y axis goes by powers of ten"><input type="checkbox" class="dg-log" data-log="y" /> log</label>
+                  </div>
+                  <div class="dg-labels">
+                    <label class="field"><span>x label</span><input id="dg-xlabel" placeholder="Time" /></label><label class="field"><span>unit</span><input id="dg-xunit" class="narrow" placeholder="min" /></label>
+                    <label class="field"><span>y label</span><input id="dg-ylabel" placeholder="Absorbance" /></label><label class="field"><span>unit</span><input id="dg-yunit" class="narrow" placeholder="OD" /></label>
+                  </div>
+                  <div class="row"><button type="button" id="dg-use-auto" class="ghost small" title="Set the four points and their values from the numbers read beside the axes">Use the axes read from the figure</button><span id="dg-cal-state" class="muted"></span></div>
+                </div>
+              </section>
+              <section class="dg-sec">
+                <div class="dg-sec-head"><h2>2 · Series</h2></div>
+                <div id="dg-palette" class="chips dg-palette" title="The figure’s own colours: click one to take it"></div>
+                <div class="row dg-series-row">
+                  <span id="dg-swatch" class="dg-swatch" title="The colour the series is found by"></span>
+                  <label class="field" title="How far a pixel’s colour may be from the series’ to count as it"><span>tolerance</span><input id="dg-tol" type="range" min="10" max="140" value="60" /></label>
+                  <label class="field"><span>as</span><select id="dg-mode"><option value="auto">auto</option><option value="markers">markers</option><option value="line">a line</option></select></label>
+                  <button type="button" id="dg-extract" class="primary small" title="Find the series’ points by its colour">Find points</button>
+                </div>
+                <div class="row"><label class="field"><span>name</span><input id="dg-name" placeholder="e.g. Collagen 37 °C" /></label>
+                  <button type="button" id="dg-save" class="ghost small" title="Keep this series with the figure: its points, the calibration and how they were found">Save series</button>
+                  <button type="button" id="dg-new" class="ghost small" title="Start another series: the saved ones stay as they are. Points on the picture that are not saved yet become the new series’">New series</button>
+                  <button type="button" id="dg-clear" class="ghost small" title="Remove every point">Clear</button></div>
+                <div id="dg-saved" class="dg-saved"></div>
+              </section>
+              <section class="dg-sec">
+                <div class="dg-sec-head"><h2>3 · Points</h2><span id="dg-count" class="muted"></span><div class="spacer"></div>
+                  <button type="button" id="dg-export" class="ghost small" title="Write the points as CSV, with a JSON sidecar that traces each value to the paper, the figure and its pixel">Export CSV…</button></div>
+                <div id="dg-points" class="dg-points"></div>
+              </section>
+              <section class="dg-sec">
+                <div class="dg-sec-head"><h2>4 · Fit</h2><div class="spacer"></div>
+                  <label class="field"><select id="dg-model"><option value="logistic">logistic</option><option value="gompertz">Gompertz</option></select></label>
+                  <button type="button" id="dg-fit" class="ghost small" title="Fit a sigmoid to the points: plateau, maximum rate, time to half maximum and lag, each with a 95% interval">Fit</button></div>
+                <div id="dg-fit-out" class="dg-fit"></div>
+              </section>
+            </div>
+          </div>
+        </div>
       </section>
 
       <!-- graph: the papers, the citations between them, the rounds, and SQL over them -->

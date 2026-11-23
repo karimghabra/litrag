@@ -836,6 +836,92 @@ none yet; `BACKLOG.md`); the methods a finding was measured by as passages of th
 own (more context for "how was it measured", a longer prompt; unmeasured); saving
 answers (a person's history belongs with sign-in).
 
+## R4.8 A plot digitised by a person, and a curve fitted to it
+
+*Built 2026-11-20.* Feedback asked for plots turned back into numbers — a
+turbidity curve's points as CSV, and a sigmoid fitted to them for its lag and
+growth — and for a way to find the plots worth it. The chart reader (R4.5,
+`charts.py`) reads bars and markers on its own, and says curves without markers
+unread; this is the other half: a person drives, the machine helps.
+
+**Which figures are plots is the chart reader's answer, not a model's.** A data
+plot is a frame with numbers beside its axes — the same test `charts.read` already
+runs on every figure it reads, deterministic and measured on the chart fixtures.
+A small vision model would have to be fetched, would answer differently on a
+re-run, and could say nothing the frame test cannot. A figure not read yet is
+`unknown`, ranked by its caption's words (time, kinetics, turbidity, versus) and
+never called a plot; the search is FTS over the captions already in `nodes_fts`.
+
+**WebPlotDigitizer's workflow, on the figure's own pixels.** Two points of known
+value an axis, linear or log each, need not be square to the image: the x axis's
+two share a y value and the y axis's an x value, which with the four values fixes
+an affine map (`Calibration`, mirrored in the window's `digitise.ts` so a point's
+value shows while it is dragged). The machine offers the four points from the
+numbers the chart reader reads — the text layer, else OCR — and the offer is never
+taken unconfirmed. A series is picked by its colour; markers are found by
+their cores (the pixels deeper than most of a marker's radius, so the lines joining
+them fall away), a line by its runs chained column to column, the longest track
+lengthened by the ones that continue it — so a legend's swatch, a word in the
+series' colour or a crossing curve is not jumped to. Long straight strokes (axes,
+gridlines) are never a series.
+
+**The pixels are the truth.** Every point keeps its pixel and how it came (auto,
+added, moved); its value is always the calibration's reading of the pixel, read
+again by the worker when it is saved. Pixel indices are taken at their middles, so
+a click and a found point mean the same place. The pixels are of one image, whose
+hash is kept with the series: on a picture that has changed since (the figure cut
+differently by a later reading, or from another PDF) the window draws none of the
+series' points and takes no axes as confirmed; the saved values stay as they were
+until the person digitises it again.
+
+**A person's work is never dropped by a reading, and never moved by a guess.** A
+series belongs to the picture it was read from: the figure as it was cut when the
+person opened it, known by its hash, a copy kept beside the store's other pictures
+(`digitised/originals/<sha256>.png`). When a paper's nodes are replaced each of its
+figures is cut again, and a series is with the figure drawn as its picture, whatever
+node id that figure has now. No caption's number and no place on a page moves a
+series: two pictures can carry one number, and a box can be another figure's in the
+next reading. A series whose picture the paper no longer draws is kept — never
+deleted, unlike the reader's own plots, which can be read again — and is no
+figure's: not listed with one, not counted as one's, never replaced by a series saved
+under its name (the `(figure, series)` key holds among series that have a figure).
+The window lists it under **Needs review** with the number its figure had and the
+picture it was read from, and only a person puts it on a figure; its saved values are
+not changed by that. A stub paper deleted because its bytes were filed again under an
+identifier, or kept beside an XML paper, hands its series to that paper first, for
+review until a reading of it draws their pictures. The cost is known: a change in how
+figures are cut (a new renderer, another PDF) sends series to review that a person
+must put back. A merge of projects brings a paper's series with it — points, fits and
+the kept pictures — for review in the merged library until its reading of the paper
+draws their pictures. A series is one series in every library, known by a `uid` given
+when it is made: a merge repeated brings none twice, whatever was done to the copy in
+the merged library; a series changed in its source since it was brought comes beside
+the merged library's, named after the library it came from, and neither is written over.
+Libraries merged back and forth can so gather copies named after one another, but no merge
+loses a series or writes over one.
+
+**Fits are numpy's.** Logistic and Zwietering's Gompertz, both with a baseline,
+fitted by Levenberg–Marquardt from starts read off the data; intervals from the
+fit's covariance on Student's t, the derived quantities (plateau, maximum rate, time
+to half maximum, lag as the tangent's crossing of the baseline) by the delta method.
+On fresh noise the 95% intervals hold the truth about 95% of the time
+(`test_digitise.py`). No scipy: the environment has no need of it otherwise.
+
+**Traceable exports.** The CSV is two columns headed by each axis's name and unit;
+the JSON sidecar beside it names the paper and the figure, and for each series its
+page and box, its image's hash, the calibration, the method and every point's pixel,
+so a number can be found again on the page it came from; each series carries its
+own, since one put on a figure by a person is pixels of another picture than the
+series saved on it since. Series whose axes differ — panels of one
+figure — are never written under one header: each set of axes gets its own CSV,
+sidecar and fits. A series kept for review is not exported: its figure is not known.
+An image is recorded by its size, scale and hash, and an image file by its name,
+never by a path on the machine that digitised it. A figure's saved series export as they were saved, whatever axes
+are on the screen.
+
+Not done: error bars of digitised points; several series found at once; a
+magnifier under the cursor (the stage zooms to 8×).
+
 ---
 
 # Revision 1 — the retrieval loop (2026-09-03)

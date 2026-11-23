@@ -123,7 +123,7 @@ library folder; they are not a lock — anyone who can read the folder can read
 `users.sqlite` — and a password is kept only as a salted scrypt hash
 (TUTORIAL.md, Accounts and what is yours).
 
-Seven tabs over one project at a time, picked at the top:
+Eight tabs over one project at a time, picked at the top:
 
 | Tab | What it is for |
 |---|---|
@@ -134,6 +134,7 @@ Seven tabs over one project at a time, picked at the top:
 | Ask | a question answered by a chat model running on this machine from the project's passages (or every project's): every sentence closed by the passages it rests on — paper, section, page — and a click on one opens the paper at that passage, its box drawn on its page; a sentence whose numbers or words are not in its passage is marked to be checked, and a question the library does not answer is said to be one. The passages given to the model are listed under the answer |
 | Query | a question, and the passages that answer it, each hydrated from its tree: the headings above it, the paragraphs either side, the methods a finding was measured by (the paragraph it rests on, where the method is described in another paper, statistics and materials apart), the findings a method measured, the figures and references it cites — a figure with the numbers read from its charts; **Open in the tree** lands on it |
 | Graph | the papers and the citations between them, drawn as a graph with the works they cite most beside them; **Citation round** files what the papers cite (and what cites them) as the next round's candidates; SQL over `works`, `authors` and `cites`, its candidates fetched and read from the results |
+| Plots | the figures that are data plots, found by the words of their captions; one digitised into its (x, y) points, exported as CSV, and a sigmoid fitted to it (below, "A plot digitised by hand, and a curve fitted") |
 
 The Papers tab:
 
@@ -633,6 +634,34 @@ said unread), and they agree with the bars as printed; on an Advanced
 Healthcare Materials paper of images, its grouped gene-expression bars read
 within about 0.05. Curves without markers, box plots and horizontal bars are
 not read yet.
+
+**A plot digitised by hand, and a curve fitted.** The **Plots** tab finds the
+figures that are data plots by the words of their captions ("turbidity",
+"absorbance", "fibril formation"), trends first, and digitises one the way
+WebPlotDigitizer does, on the figure cut from its own page: two ticks an axis,
+linear or log, offered from the numbers the reader reads beside the axes and
+confirmed by a person (or placed by hand); a series picked by a click on its
+line or marker, or one of the figure's own colours; its points found by that
+colour — markers by their centres, a line followed along its length — then
+added, moved and deleted by hand. Saved, the series is rows (`digitised`,
+`digitised_points`); exported, a CSV headed by the axes' names and units and a
+JSON sidecar that traces every value to the paper, the figure, the page and the
+pixel. **Fit** puts a logistic or Gompertz curve through the points and reports
+the plateau, the maximum rate, the time to half maximum and the lag time, each
+with a 95% interval, with the residuals drawn under the curve; the fit goes into
+the export too.
+
+On synthetic plots of known data (`python -m litrag_parser.digitise_bench`:
+markers and lines, linear and log axes on either side, a black series beside
+black axes, gridlines, a blurred, speckled JPEG scan) the axes are offered on
+all nine readings and confidently on eight, within 0.15 % of each axis's range;
+lines are found within 0.1 % on average (0.45 % at the 95th percentile), markers
+within 0.26 % on average and 0.9 % at worst, every marker that shows is found and
+the legend's is left out. On three figures of a collagen library measured by hand
+— a turbidity curve, an absorbance curve and a log–log viscosity panel of
+markers — the points found lie within 0.16–0.33 % of the hand-traced curve on
+average, 1.4 % at worst, each curve followed over the whole of its traced
+length (its steep rise included), and all 17 markers were found.
 
 **An XML paper's figures come from a PDF of it.** JATS names its figures
 (`<graphic xlink:href="…g001.jpg"/>`) and holds none; Europe PMC's figure

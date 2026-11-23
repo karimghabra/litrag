@@ -61,6 +61,8 @@ export const TERMINAL = new Set([
   // accounts, and each person's recent papers, favourites, notes and collections
   'users', 'signed_in', 'signed_out', 'password', 'viewed', 'recent', 'favourite', 'favourites', 'notes', 'note', 'note_deleted',
   'collections', 'collection', 'collection_deleted', 'collection_changed', 'collection_papers', 'paper_marks',
+  // the digitiser: plots found, a figure opened, a series found, saved, exported, fitted
+  'plots', 'digitise', 'axes', 'extracted', 'digitised', 'exported', 'fit',
 ]);
 
 /** `tree` answers a `tree` request and also streams during ingest; only the former closes a request. */
