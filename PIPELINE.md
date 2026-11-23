@@ -2,8 +2,10 @@
 
 This repository holds two generations of code. The current one reads papers
 into trees: the window in `app/` and the Python worker in `parser/`, which
-meet only on JSON lines and keep everything in each library's
-`store.sqlite`. The older one, the `lit` CLI in `src/`, is revision 1's
+meet only on JSON lines and keep everything in the shared store,
+`<root>/_shared/store.sqlite`, where every paper is kept once and a project
+is the list of papers it holds (`members.py`; a project made before it keeps
+its own `store.sqlite` until moved, `migrate.py`). The older one, the `lit` CLI in `src/`, is revision 1's
 retrieval loop over its own `lit.sqlite`. It still runs and its tests still
 pass, but nothing it does reaches the tree, and it is deprecated. This page
 says which code is which, how a paper moves through the current pipeline,
@@ -38,8 +40,10 @@ ingest` cuts chunks into `lit.sqlite`, never a tree.
 
 ## A paper through the pipeline
 
-1. **Filed.** The file is stored in `papers/` under its key (the DOI, else
-   the PMID, else the file's hash) with a row in `papers`. A paper already
+1. **Filed.** The file is stored in the shared store's `papers/` under its
+   key (the DOI, else the PMID, else the file's hash) with a row in
+   `papers`, and the project it arrived through holds it (`project_papers`);
+   a paper another project read already is held, not read again. A paper already
    read stays as it was read; `reread` replaces it. For a paper with a DOI
    or PMID, Europe PMC's record is fetched once: publication types,
    authors, journal, year.

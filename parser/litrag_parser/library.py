@@ -34,6 +34,18 @@ def safe_key(key: str) -> str:
     return re.sub(r"[^A-Za-z0-9._-]+", "_", key)
 
 
+#: The shared store's folder under the root: every paper filed once, by its identifier, whichever
+#: projects hold it. A project's id is a slug of [a-z0-9-], so no project can be called this.
+SHARED_DIR = "_shared"
+
+#: The scope that names every paper in the shared store, all projects together.
+ALL = "*"
+
+
+def shared_dir(root: Path) -> Path:
+    return Path(root) / SHARED_DIR
+
+
 def parsed_papers(lib_dir: Path, keys: list[str] | None = None) -> list[dict[str, Any]]:
     """Every parsed paper of a library that still has its raw Docling document:
     `{key, format, file, source, raw, pub_types, type, journal}`, in the order they were added.
@@ -72,13 +84,33 @@ def slugify(name: str) -> str:
 
 @dataclass
 class Library:
+    """A project. Its folder holds its manifest and its inbox; its papers live in the shared store
+    (`store_dir`, `<root>/_shared`) when the manifest says `"store": "shared"`, else — a library
+    from before the shared store, not moved yet (migrate.py) — in its own folder, as they did.
+    `home` is where its store, papers and parsed documents are; `scoped` says whether the store
+    holds other projects' papers too, so that a read of "the library" means its members."""
+
     root: Path
     id: str
     manifest: dict[str, Any]
+    store_dir: Path | None = None
 
     @property
     def dir(self) -> Path:
         return self.root / self.id
+
+    @property
+    def home(self) -> Path:
+        return self.store_dir if self.store_dir is not None else self.dir
+
+    @property
+    def shared(self) -> bool:
+        return self.store_dir is not None
+
+    @property
+    def scoped(self) -> bool:
+        """A project in the shared store: its papers are the store's rows it is a member of."""
+        return self.store_dir is not None and self.id != ALL
 
     @property
     def manifest_path(self) -> Path:
@@ -86,26 +118,40 @@ class Library:
 
     @property
     def store_path(self) -> Path:
-        return self.dir / "store.sqlite"
+        return self.home / "store.sqlite"
 
     @property
     def papers_dir(self) -> Path:
-        return self.dir / "papers"
+        return self.home / "papers"
 
     @property
     def parsed_dir(self) -> Path:
-        return self.dir / "parsed"
+        return self.home / "parsed"
 
     @property
     def inbox_dir(self) -> Path:
         return self.dir / "inbox"
 
     def ensure_dirs(self) -> None:
-        for d in (self.papers_dir, self.parsed_dir, self.inbox_dir):
+        dirs = [self.papers_dir, self.parsed_dir]
+        if self.id != ALL:
+            dirs.append(self.inbox_dir)
+        for d in dirs:
             d.mkdir(parents=True, exist_ok=True)
 
     def to_dict(self) -> dict[str, Any]:
-        return {"id": self.id, "name": self.manifest.get("name", self.id), "dir": str(self.dir), "projectId": self.manifest.get("projectId"), "createdAt": self.manifest.get("createdAt")}
+        return {"id": self.id, "name": self.manifest.get("name", self.id), "dir": str(self.dir), "projectId": self.manifest.get("projectId"),
+                "createdAt": self.manifest.get("createdAt"), "store": "shared" if self.shared else "own", "owner": self.manifest.get("owner")}
+
+
+def is_shared_manifest(manifest: dict[str, Any]) -> bool:
+    return manifest.get("store") == "shared"
+
+
+def every_paper(root: Path) -> Library:
+    """The shared store as one scope: every paper any project holds, and every one filed with no
+    project. Reads only; nothing is filed into it."""
+    return Library(root=Path(root), id=ALL, manifest={"id": ALL, "name": "All projects"}, store_dir=shared_dir(root))
 
 
 _MANIFEST_LOCK = threading.RLock()
@@ -157,7 +203,7 @@ def list_libraries(root: Path) -> list[Library]:
             except json.JSONDecodeError:
                 continue
             if manifest.get("id") and manifest.get("name"):
-                out.append(Library(root=root, id=entry.name, manifest=manifest))
+                out.append(Library(root=root, id=entry.name, manifest=manifest, store_dir=shared_dir(root) if is_shared_manifest(manifest) else None))
     return sorted(out, key=lambda l: l.manifest.get("name", l.id).lower())
 
 
@@ -165,6 +211,8 @@ def open_library(root: Path, key: str) -> Library | None:
     """By id first, then by name, then by Protracker project id — so a project renamed to
     another's id can never capture that one's requests."""
     wanted = key.strip().lower()
+    if wanted == ALL:
+        return every_paper(root)
     libs = list_libraries(root)
     for match in (lambda l: l.id == wanted, lambda l: l.manifest.get("name", "").lower() == wanted,
                   lambda l: str(l.manifest.get("projectId", "")).lower() == wanted):
@@ -174,14 +222,21 @@ def open_library(root: Path, key: str) -> Library | None:
     return None
 
 
-def create_library(root: Path, name: str, project_id: str | None = None) -> Library:
+def create_library(root: Path, name: str, project_id: str | None = None, *, shared: bool = False, owner: str | None = None) -> Library:
+    """A new project: in the shared store with `shared` — what the worker's `init` and a merge
+    make — else a library of the old shape, its papers in its own folder, which every reader still
+    reads and migrate.py moves across (the tests make them to read one paper's rows alone)."""
     lib_id = slugify(name)
     if open_library(root, lib_id) is not None:
         raise ValueError(f"A library with that id already exists: {lib_id}")
     manifest: dict[str, Any] = {"id": lib_id, "name": name.strip(), "createdAt": now_iso(), "includes": [], "queries": []}
     if project_id:
         manifest["projectId"] = project_id
-    lib = Library(root=root, id=lib_id, manifest=manifest)
+    if shared:
+        manifest["store"] = "shared"
+    if owner:
+        manifest["owner"] = owner
+    lib = Library(root=root, id=lib_id, manifest=manifest, store_dir=shared_dir(root) if shared else None)
     lib.ensure_dirs()
     lib.manifest_path.write_text(json.dumps(dict(sorted(manifest.items())), indent=2) + "\n", "utf-8")
     return lib

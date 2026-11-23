@@ -35,7 +35,8 @@ def test_hello_init_and_parse_json(tmp_path):
     assert hello["event"] == "hello" and hello["docling"] is None  # not imported until a paper needs it
     lib = by(events, "2")[0]["library"]
     assert lib["id"] == "looped-ligament" and (tmp_path / "looped-ligament" / "library.json").exists()
-    assert (tmp_path / "looped-ligament" / "store.sqlite").exists()
+    assert lib["store"] == "shared" and (tmp_path / "_shared" / "store.sqlite").exists()  # a new project's papers live in the shared store
+    assert not (tmp_path / "looped-ligament" / "store.sqlite").exists()
     assert [l["id"] for l in by(events, "3")[0]["libraries"]] == ["looped-ligament"]
     tree = by(events, "4")[0]
     assert tree["event"] == "tree" and tree["has_methods"] and tree["roles"]["methods"] == 23

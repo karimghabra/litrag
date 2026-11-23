@@ -14,6 +14,8 @@ import { askingLabel, fetchedFigures } from './figstate.ts';
 
 export interface Candidate {
   cand_id: number;
+  /** in the shared store, whether this project holds the paper the candidate became: false for one read for another project only */
+  held_here?: boolean;
   query?: string | null;
   pmid?: string | null;
   pmcid?: string | null;
@@ -153,7 +155,7 @@ function soon(): void {
       const by = new Map(state.candidates.map((c) => [c.cand_id, c]));
       for (const h of state.hits) {
         const c = by.get(h.cand_id);
-        if (c) Object.assign(h, { status: c.status, paper_key: c.paper_key, error: c.error });
+        if (c) Object.assign(h, { status: c.status, paper_key: c.paper_key, error: c.error, held_here: c.held_here });
       }
       renderHits();
     });
@@ -162,7 +164,15 @@ function soon(): void {
 
 // `needs-pdf` is fetchable again: a route that came later (NCBI's XML for an author manuscript,
 // 2026-09-30) may have what an earlier fetch could not find.
-const fetchable = (c: Candidate) => ['found', 'failed', 'dismissed', 'staged', 'needs-pdf'].includes(c.status);
+// A paper read for another project only (`held_here` false) is fetchable too: fetching it adds it to
+// this project from the shared store, with nothing downloaded or read again.
+export const heldElsewhere = (c: Candidate): boolean => c.status === 'ingested' && c.held_here === false;
+export const fetchable = (c: Candidate): boolean => ['found', 'failed', 'dismissed', 'staged', 'needs-pdf'].includes(c.status) || heldElsewhere(c);
+
+export function statusLabel(c: Candidate): string {
+  if (heldElsewhere(c)) return 'read in another project';
+  return { found: 'found', staged: 'staged', fetching: 'fetching…', fetched: 'fetched', 'needs-pdf': 'needs PDF', ingested: 'in library', failed: 'failed', dismissed: 'dismissed' }[c.status] ?? c.status;
+}
 
 /** The project's searches so far, as chips: a click runs one again (nothing is added twice). */
 function renderPast(): void {
@@ -223,7 +233,7 @@ function availability(c: Candidate): HTMLElement[] {
 }
 
 function statusPill(c: Candidate): HTMLElement {
-  const label = { found: 'found', staged: 'staged', fetching: 'fetching…', fetched: 'fetched', 'needs-pdf': 'needs PDF', ingested: 'in library', failed: 'failed', dismissed: 'dismissed' }[c.status] ?? c.status;
+  const label = statusLabel(c);
   const p = el('span', `pill st-${c.status}`, label);
   if (c.error) p.title = c.error;
   return p;

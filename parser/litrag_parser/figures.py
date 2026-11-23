@@ -721,11 +721,12 @@ def _drop_stub(conn: sqlite3.Connection, key: str, kept: Path) -> str | None:
     """The paper the bytes kept for `key`'s figures were filed as before, which only their hash
     could meet (no DOI, no PMID): a stub of `key`, deleted with its rows, as filing drops one
     (store.file_paper). Its key, or None. Not committed."""
-    from .store import sha256_of
+    from .store import move_memberships, sha256_of
 
     stub = conn.execute("SELECT key FROM papers WHERE sha256 = ? AND key != ? AND doi IS NULL AND pmid IS NULL", (sha256_of(kept), key)).fetchone()
     if stub is None:
         return None
+    move_memberships(conn, str(stub["key"]), key)  # a project that held the stub holds the paper now
     conn.execute("DELETE FROM papers WHERE key = ?", (stub["key"],))
     return str(stub["key"])
 

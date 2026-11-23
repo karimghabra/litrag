@@ -17,7 +17,8 @@ export interface GraphNode {
   paper: string | null;
   /** the candidate's id when it is one */
   cand_id: number | null;
-  state: 'held' | 'candidate';
+  /** `elsewhere`: a paper the shared store holds, read for another project, that this project's papers cite */
+  state: 'held' | 'candidate' | 'elsewhere';
   /** a held paper's parse status ("parsed", …) or a candidate's ("found", "needs-pdf", "staged", …) */
   status: string;
   title: string | null;

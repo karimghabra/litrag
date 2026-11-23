@@ -52,11 +52,18 @@
         </form>
         <form id="merge-form" class="card form" hidden>
           <h2>Merge libraries</h2>
-          <p class="muted">Every paper of the chosen projects is filed once in a new project (the same DOI in two libraries files once), and its rows are derived again from the saved readings. The sources are left as they are.</p>
+          <p class="muted">The new project holds every paper of the chosen ones. Each paper is stored once in the shared store, so nothing is copied or read again; a project that still keeps its own store is moved into the shared store first. The sources keep their papers.</p>
           <div id="merge-sources" class="checks"></div>
           <label>Name of the merged project <input id="merge-name" required /></label>
           <div class="row"><button type="submit" class="primary">Merge</button><button type="button" id="merge-cancel" class="ghost">Cancel</button></div>
         </form>
+        <div id="migrate-band" class="card band" hidden>
+          <div>
+            <b>Move into the shared store</b>
+            <p id="migrate-text" class="muted"></p>
+          </div>
+          <div class="row"><button id="migrate-plan" class="ghost">What would move?</button><button id="migrate-go" class="primary" hidden>Move them</button></div>
+        </div>
         <div id="projects" class="grid"></div>
       </section>
 
@@ -183,6 +190,7 @@
         <form id="query-form" class="searchbar">
           <textarea id="query-q" rows="2" placeholder="Ask the library, e.g. at what temperature and for how long is collagen crosslinked dehydrothermally?"></textarea>
           <label class="field"><span>Passages</span><input id="query-k" type="number" min="1" max="30" value="8" /></label>
+          <label class="field"><span>From</span><select id="query-scope" title="Ask this project's papers, or every paper in the shared store"><option value="project">This project</option><option value="all">All projects</option></select></label>
           <button type="submit" class="primary">Ask</button>
         </form>
         <div id="query-meta" class="summary"></div>

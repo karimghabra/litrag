@@ -38,6 +38,8 @@ export function initProjects(loadAll: () => Promise<void>): void {
     e.preventDefault();
     void mergeProjects();
   });
+  $('migrate-plan').addEventListener('click', () => void planMove());
+  $('migrate-go').addEventListener('click', () => void move());
   onWorkerEvent((ev) => {
     if (ev['event'] === 'done' && ev['op'] === 'merge') {
       activity.hide();
@@ -50,6 +52,17 @@ export function initProjects(loadAll: () => Promise<void>): void {
       void reload?.().then(() => {
         if (target) setProject(target);
       });
+    }
+    if (ev['event'] === 'done' && ev['op'] === 'migrate') {
+      activity.hide();
+      const moved = (ev['moved'] as { id: string; new: number; held: number; skipped?: { paper: string; reason: string }[] }[] | undefined) ?? [];
+      for (const m of moved) {
+        log('stage', `Moved ${m.id} into the shared store: ${m.new} papers new there, ${m.held} held there already`);
+        for (const s of m.skipped ?? []) log('failed', `Not moved from ${m.id}: ${s.paper} — ${s.reason}`);
+      }
+      if (ev['backup']) log('stage', `Backup of the stores as they were: ${String(ev['backup'])}`);
+      $('migrate-go').hidden = true;
+      void reload?.();
     }
   });
 }
@@ -104,6 +117,53 @@ async function mergeProjects(): Promise<void> {
   }
 }
 
+interface MovePlan {
+  libraries: { id: string; name: string; papers: number; new: number; held: number; candidates: number; vectors: number; files: number; bytes: number }[];
+  totals: { papers: number; new: number; held: number; candidates: number; vectors: number; files: number; bytes: number };
+}
+
+/** The projects that still keep their own store, as the `projects` op names them (`own_store`): the band that offers to move them. */
+export function renderMoveBand(own: string[]): void {
+  const band = $('migrate-band');
+  band.hidden = own.length === 0;
+  if (!own.length) return;
+  const names = own.map((id) => ctx.projects.find((p) => p.id === id)?.name ?? id);
+  $('migrate-text').textContent =
+    `${names.join(', ')} ${own.length === 1 ? 'keeps its' : 'keep their'} own store. In the shared store every paper is kept once, ` +
+    'whichever projects hold it, and a query can ask several projects at once. A move copies every paper with its reading, ' +
+    'its passages and its candidates (nothing is read again), after a backup, and leaves the old stores where they are.';
+  $('migrate-go').hidden = true;
+}
+
+/** Says what a move would do (`migrate` with `dry_run`), writing nothing; then offers it. */
+async function planMove(): Promise<void> {
+  try {
+    const r = await request<{ plan: MovePlan }>('migrate', { dry_run: true });
+    const t = r.plan.totals;
+    const mb = (t.bytes / 1e6).toFixed(1);
+    $('migrate-text').textContent =
+      `${fmtInt(t.papers)} papers in ${r.plan.libraries.length} project${r.plan.libraries.length === 1 ? '' : 's'}: ` +
+      `${fmtInt(t.new)} new to the shared store, ${fmtInt(t.held)} held there already (kept as they were read there); ` +
+      `${fmtInt(t.candidates)} candidates, ${fmtInt(t.vectors)} passages embedded, ${fmtInt(t.files)} files (${mb} MB) to copy. ` +
+      'A backup of every store is made first; the old stores are left where they are.';
+    $('migrate-go').hidden = r.plan.libraries.length === 0;
+  } catch (e) {
+    log('error', (e as Error).message);
+  }
+}
+
+async function move(): Promise<void> {
+  try {
+    activity.show('Moving projects into the shared store');
+    await request('migrate', {});
+    $('migrate-go').hidden = true;
+  } catch (e) {
+    activity.hide();
+    log('error', (e as Error).message);
+    window.alert((e as Error).message);
+  }
+}
+
 export function renderProjects(): void {
   const box = $('projects');
   box.innerHTML = '';
@@ -118,7 +178,9 @@ export function renderProjects(): void {
 function card(p: ProjectSummary): HTMLElement {
   const c = el('div', `card project${p.id === ctx.lib ? ' current' : ''}`);
   c.dataset['id'] = p.id;
-  c.append(el('div', 'name', p.name));
+  const name = el('div', 'name', p.name);
+  if (p.store === 'own') name.append(el('span', 'tag', 'own store'));
+  c.append(name);
   c.append(el('div', `desc${p.description ? '' : ' none'}`, p.description || 'No description yet.'));
   const n = p.counts ?? {};
   const stats = el('div', 'stats');

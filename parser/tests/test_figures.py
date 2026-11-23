@@ -12,6 +12,7 @@ import pytest
 from PIL import Image
 
 from litrag_parser import figures, retrieve
+from litrag_parser.library import create_library
 from litrag_parser.store import file_paper, open_store
 
 CHARTS = Path(__file__).parent / "fixtures" / "charts"
@@ -140,7 +141,7 @@ def test_the_worker_reads_a_library_s_figures_and_answers_for_one(tmp_path, caps
 
     from test_worker import by, talk
 
-    assert by(talk(tmp_path, [{"id": "1", "op": "init", "name": "Figures"}]), "1")[0]["event"] == "library"
+    create_library(tmp_path, "Figures")  # a library of the old shape: the test writes its store directly
     lib = tmp_path / "figures"
     conn, key, pdf_path = _store(lib, ["panels_two"])
     conn.execute("UPDATE papers SET file = ? WHERE key = ?", ("paper.pdf", key))
@@ -439,7 +440,7 @@ def test_a_pdf_arriving_for_an_xml_paper_is_kept_for_its_figures_and_read(tmp_pa
 
     from test_worker import by, talk
 
-    assert by(talk(tmp_path, [{"id": "1", "op": "init", "name": "Threads"}]), "1")[0]["event"] == "library"
+    create_library(tmp_path, "Threads")  # a library of the old shape: the test writes its store directly
     lib = tmp_path / "threads"
     conn = open_store(lib / "store.sqlite")
     key = _xml_paper(conn, title=PRINTED)  # a line page_paper.pdf prints, which prints no DOI: its first pages name the paper by its title
@@ -1741,7 +1742,7 @@ def test_a_rebuild_moves_each_plot_by_its_number_and_removes_the_one_it_has_no_f
 
     from test_worker import FIXTURES, by, talk
 
-    assert by(talk(tmp_path, [{"id": "1", "op": "init", "name": "Micromachines"}]), "1")[0]["event"] == "library"
+    create_library(tmp_path, "Micromachines")  # a library of the old shape: the test writes its store directly
     lib = tmp_path / "micromachines"
     conn = open_store(lib / "store.sqlite")
     key = file_paper(conn, title="x", file="", sha256="aa", fmt="jats", doi="10.3390/mi15070851", pmid=None, pmcid=None, now="t").key
@@ -1779,7 +1780,7 @@ def test_a_rebuild_records_what_the_figures_of_a_read_made_before_it_was_kept_ca
 
     from test_worker import FIXTURES, by, talk
 
-    assert by(talk(tmp_path, [{"id": "1", "op": "init", "name": "Micromachines"}]), "1")[0]["event"] == "library"
+    create_library(tmp_path, "Micromachines")  # a library of the old shape: the test writes its store directly
     lib = tmp_path / "micromachines"
     conn = open_store(lib / "store.sqlite")
     key = file_paper(conn, title="x", file="", sha256="aa", fmt="jats", doi="10.3390/mi15070851", pmid=None, pmcid=None, now="t").key
@@ -2284,7 +2285,7 @@ def test_what_reads_made_before_it_was_kept_came_to_is_recorded_reading_no_chart
 
     from test_worker import by, talk
 
-    assert by(talk(tmp_path, [{"id": "1", "op": "init", "name": "Figures"}]), "1")[0]["event"] == "library"
+    create_library(tmp_path, "Figures")  # a library of the old shape: the test writes its store directly
     lib = tmp_path / "figures"
     conn, pdf_key, pdf_path = _store(lib, ["panels_two", "bars_grouped"])
     shutil.copy(pdf_path, lib / "papers" / "paper.pdf")
@@ -2514,7 +2515,7 @@ def test_the_figures_op_records_first_and_record_reads_no_chart(tmp_path, capsys
 
     from test_worker import by, talk
 
-    assert by(talk(tmp_path, [{"id": "1", "op": "init", "name": "Figures"}]), "1")[0]["event"] == "library"
+    create_library(tmp_path, "Figures")  # a library of the old shape: the test writes its store directly
     lib = tmp_path / "figures"
     conn, key, pdf_path = _store(lib, ["panels_two", "bars_grouped"])
     shutil.copy(pdf_path, lib / "papers" / "paper.pdf")

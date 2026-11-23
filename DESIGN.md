@@ -785,6 +785,43 @@ combines the structured data with the intelligence* — the tracker is the
 structured half of his own work; this is the structured half of everyone
 else's.
 
+## R4.6 One store for every project
+
+*Built 2026-11-19.* Feedback asks for litrag to serve a lab rather than one person: papers
+tracked by their identifier so that one paper can sit in several projects, and questions that
+draw on one project, several, or all of them. Each project kept its own store, so a paper two
+projects held was filed, read, embedded and figure-read twice, could be read differently in
+each, and no query could reach across two.
+
+**Every paper is stored once, in `<root>/_shared`** (`members.py`). The identity is the one
+filing always used — DOI, then PMID, then the file's hash (invariant 4) — applied across the
+whole root instead of inside one folder. A project is a folder holding its manifest and its
+inbox, and the list of the papers it holds (`project_papers`); candidates are kept once by
+identifier too, and a project's are those its searches found (`project_candidates`) and those
+its papers cite or are cited by. Holding a paper is a row, so a merge is a union of rows and
+letting a project go deletes rows, never a paper.
+
+**The pipeline did not change; its scope did.** Every stage still reads and writes one store
+through a `Library`, whose `store_path`, `papers_dir` and `parsed_dir` now point into the shared
+store; the reads the worker answers for "the library" (papers, types, candidates, the graph,
+passages, rounds, a query, a rebuild or reparse with no keys) are narrowed to the project's
+keys at the op (`members.scope`). The alternative, a scope threaded through every query in every
+module, would have touched some 126 statements that read a whole store, most of them in
+measurement tools for which "every paper" is the right answer anyway.
+
+**The older libraries are moved, never converted in place** (`migrate.py`). A library of the
+old shape keeps working, alone, until a person asks for it to be moved; the move copies every
+row derived from a paper (its tree, vectors, labels, charts) rather than deriving them again,
+because a rebuild under today's reader may not reproduce yesterday's reading, and copying asks
+neither Docling nor the embedder. A paper the shared store holds already stays as it was read
+there. A backup of every store comes first, the sources are opened read-only and their files
+copied, and only the manifest changes; the old files are a person's to delete. A dry run says
+what would move, and the move is idempotent, so one cut short runs again to the same end.
+
+**Not done here:** a candidate's status (staged, dismissed) is the store's, not a project's, so
+dismissing a work in one project dismisses it in all; and the measurement tools that take
+`--lib DIR` read the shared store as one library (`--lib <root>/_shared`).
+
 This document records the decisions and the plan. It began life inside the
 Protracker repository as `LITERATURE.md` and moved here with the code on
 2026-09-03; Protracker's backlog holds the original ask and its design
