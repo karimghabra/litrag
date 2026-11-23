@@ -27,6 +27,14 @@ Where things are:
   Graph (citations, rounds, SQL), Plots (figures found by caption, one
   digitised by a person, a sigmoid fitted: `digitise.py`, `fit.py`) — and
   the log.
+- The shared store is `<root>/_shared`: a project is its `project_papers`
+  rows, and every worker read of "the library" is narrowed with
+  `members.scope` (DESIGN.md R4.6). Tests make old-shape libraries with
+  `create_library(...)`; the worker's `init` makes shared ones.
+- Accounts and each person's recent papers, favourites, notes and collections
+  are `<root>/users.sqlite` (`users.py`), reached only through the worker's
+  account ops with a `session` (`app/src/renderer/account.ts`); they tell
+  people apart and are not a security boundary (DESIGN.md R4.7).
 - `src/`, `tests/` — the `lit` CLI (Node): Europe PMC, chunks, embeddings,
   hybrid retrieval. Deprecated, and not wired to the tree store but for
   `lit ask`, which sends the worker one `ask`; kept until its verbs are

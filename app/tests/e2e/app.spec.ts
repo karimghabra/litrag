@@ -21,6 +21,7 @@ import { copyFileSync, existsSync, mkdtempSync, readdirSync, statSync, writeFile
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { askedDone, figureLabel, figuresOn, paneButton, paneNote, placeholder, stateChip, treeTag, type FigureOutcome, type FigureState, type FigureTag } from '../../src/renderer/figstate.ts';
+import { signIn } from './account.ts';
 import { startFixture, type Fixture } from './epmc-fixture.ts';
 
 const APP_DIR = resolve(import.meta.dirname, '..', '..');
@@ -108,6 +109,7 @@ test('the window opens and the worker answers', async () => {
   await expect(page).toHaveTitle('litrag');
   await expect(page.locator('#worker-status.ok, #worker-status.bad')).toBeVisible({ timeout: 60_000 });
   await expect(page.locator('#worker-status')).toHaveClass(/ok/);
+  await signIn(page);
   const hello = (await request(page, 'hello')) as { worker: string; python: string };
   expect(hello.worker).toMatch(/^\d+\.\d+/);
 });

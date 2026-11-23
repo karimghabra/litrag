@@ -14,6 +14,9 @@ import { droppedOn, figuresFor, ingestParams } from './figuredrop.ts';
 import { askedDone, dropLabel, figureLabel, figuresDone, figuresOn, overlayText, paneButton, paneNote, placeholder, stateChip, treeTag, type FigureOutcome, type FigureState, type FigureTag } from './figstate.ts';
 import { initLabels, openLabelling } from './labels.ts';
 import { BANDS, SORT_KEYS, arrived, bandOf, countBy, filedLine, filterPapers, readFiguresOf, sortPapers, validFilters, type SortKey } from './papers.ts';
+import { initAccount, onAccountChange, showSignIn } from './account.ts';
+import { initDialog } from './dialog.ts';
+import { initMine, passageShown, paperShown } from './mine.ts';
 import { initProjects, renderMoveBand, renderProjects } from './projects.ts';
 import { initGraph } from './graphtab.ts';
 import { initAsk } from './ask.ts';
@@ -403,12 +406,14 @@ async function loadTreeOnce(key: string) {
   const p = state.papers.get(key);
   if (!p || p.status !== 'parsed') {
     state.tree = null;
+    paperShown(null);
     renderTree();
     return;
   }
   try {
     const r = (await window.litrag.request('tree', { lib: ctx.lib, key })) as unknown as Tree;
     state.tree = r;
+    paperShown(key); // this person's recent paper now; its star, collections and notes drawn
     state.nodesById = new Map();
     const walk = (n: Node) => {
       state.nodesById.set(n.node_id, n);
@@ -441,6 +446,7 @@ async function loadTreeOnce(key: string) {
     const first = firstPage(r.root);
     if (first) await showPage(first);
   } catch (e) {
+    if (state.tree?.paper.key !== key) paperShown(null);
     log('error', String((e as Error).message), key);
   }
 }
@@ -690,6 +696,7 @@ function highlightReading(id: string) {
 }
 
 function renderDetail(n: Node) {
+  passageShown();
   const d = $('node-detail');
   d.innerHTML = '';
   const crumbs = el('div', 'crumbs');
@@ -1130,6 +1137,8 @@ function onEvent(ev: Record<string, unknown>) {
     case 'error':
       // a queued op that fails (a merge into a name taken) closes nothing: the bar must not stay up
       activity.hide();
+      // a refused sign-in or password is said in its own dialogue, not logged as a fault
+      if (['sign_in', 'user_create', 'password'].includes(String(ev['op']))) break;
       log('error', String(ev['message']));
       break;
     case 'worker-error':
@@ -1164,6 +1173,20 @@ function wire() {
     dispatch(ev);
   });
   hooks.openPaper = (key, node) => void openPaper(key, node);
+  initDialog();
+  initAccount();
+  initMine({
+    async open(lib, key, nodeId) {
+      if (ctx.lib !== lib) setProject(lib);
+      await openPaper(key, nodeId);
+    },
+    current() {
+      if (!state.selectedPaper) return null;
+      const n = state.selectedNode ? state.nodesById.get(state.selectedNode) : undefined;
+      return { key: state.selectedPaper, nodeId: n ? n.node_id : null, quote: n ? (n.heading ?? n.text ?? '').slice(0, 200) : null };
+    },
+  });
+  onAccountChange(() => renderProjects());
   initProjects(loadLibraries);
   initSearch();
   initTypes();
@@ -1181,6 +1204,7 @@ function wire() {
     state.formatFilter = null;
     state.typeFilter = null;
     state.bandFilter = null;
+    paperShown(null);
     renderTree();
     renderPapers();
     renderProjects();
@@ -1190,7 +1214,7 @@ function wire() {
     if (v === 'projects') void loadLibraries();
     if (v === 'papers' && state.pdf) void showPage(state.page);
   });
-  for (const b of document.querySelectorAll<HTMLButtonElement>('#nav button')) b.addEventListener('click', () => showView(b.dataset['view']!));
+  for (const b of document.querySelectorAll<HTMLButtonElement>('#nav > button[data-view]')) b.addEventListener('click', () => showView(b.dataset['view']!));
   for (const b of document.querySelectorAll<HTMLButtonElement>('#tree-mode button')) b.addEventListener('click', () => setTreeMode(b.dataset['mode'] as 'printed' | 'canonical'));
   const sortSelect = $<HTMLSelectElement>('papers-sort');
   for (const { key, label } of SORT_KEYS) {
@@ -1204,7 +1228,7 @@ function wire() {
     const kept = window.localStorage.getItem('litrag.papers.sort');
     if (kept && SORT_KEYS.some((k) => k.key === kept)) state.sort = kept as SortKey;
     const view = window.localStorage.getItem('litrag.view');
-    if (view && ['projects', 'search', 'papers', 'types', 'query', 'graph'].includes(view)) startView = view;
+    if (view && ['projects', 'search', 'papers', 'types', 'query', 'graph', 'mine'].includes(view)) startView = view === 'mine' ? 'projects' : view;
   } catch {
     // no storage: the list starts in the order the papers were added, on the Projects tab
   }
@@ -1275,6 +1299,7 @@ function wire() {
   window.litrag.request('hello').then(() => {
     setStatus('ok', 'worker ready');
     void loadLibraries();
+    void showSignIn(); // nothing of anyone's own is shown until someone signs in
   }).catch((e) => {
     if (!$('worker-problem').hidden) return; // its event came first and said it already
     const why = rejectionText(e);

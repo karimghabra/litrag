@@ -35,6 +35,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { collectLabel, collectList, type FiguresWanted } from '../../src/renderer/collectlist.ts';
 import { stateChip, type FigureState } from '../../src/renderer/figstate.ts';
+import { signIn } from './account.ts';
 import { startFixture, type Fixture } from './epmc-fixture.ts';
 
 const APP_DIR = resolve(import.meta.dirname, '..', '..');
@@ -123,6 +124,7 @@ async function makeProject(name: string, description: string): Promise<void> {
 test('1. the window opens on Projects, and a project is made there', async () => {
   await expect(page).toHaveTitle('litrag');
   await expect(page.locator('#worker-status')).toHaveClass(/ok/, { timeout: 60_000 });
+  await signIn(page);
   await expect(page.locator('#view-projects')).toBeVisible();
   await makeProject('E2E Studio', 'Electrochemically aligned collagen threads for tendon and ligament repair: crosslinking with genipin, mechanical properties, and stem-cell tenoinduction.');
   await expect(page.locator('#library')).toHaveValue(LIB, { timeout: 20_000 });
@@ -382,7 +384,39 @@ test('9. the local model drafts searches from the project’s description', asyn
   await expect(page.locator('#search-suggestions .chip').first()).toBeVisible({ timeout: 4 * 60 * 1000 });
 });
 
-test('10. nothing went to the log as an error', async () => {
+test('10. Yours: a paper starred, noted and filed in a collection, seen by its reader alone', async () => {
+  await page.selectOption('#library', LIB);
+  await tab('papers');
+  await page.locator('#papers .paper').first().click();
+  await expect(page.locator('#paper-mine')).toBeVisible({ timeout: 20_000 });
+  const key = await page.locator('#papers .paper').first().getAttribute('data-key');
+  await page.click('#paper-star');
+  await expect(page.locator('#paper-star')).toHaveText('★');
+  await page.click('#paper-notes-toggle');
+  await page.fill('#note-text', 'Check the genipin concentration.');
+  await page.click('#note-paper');
+  await expect(page.locator('#notes-list .note')).toContainText('Check the genipin concentration.');
+  await page.selectOption('#paper-collection', 'new');
+  await page.fill('#prompt-line', 'To print'); // the window's own question: Electron gives a page no prompt()
+  await page.click('#prompt-ok');
+  await expect(page.locator('#nav-collections button')).toHaveText(['To print'], { timeout: 10_000 });
+  await page.locator('#nav-mine button[data-mine="recent"]').click();
+  await expect(page.locator(`#mine-list .mine-row[data-key="${key}"]`)).toBeVisible();
+  await page.locator('#nav-mine button[data-mine="favourites"]').click();
+  await expect(page.locator(`#mine-list .mine-row[data-key="${key}"]`)).toBeVisible();
+  await page.locator('#nav-collections button').first().click();
+  await expect(page.locator(`#mine-list .mine-row[data-key="${key}"]`)).toBeVisible();
+  // another reader: the same papers, none of the first reader's own
+  await page.click('#user-button');
+  await page.click('#user-pop button[data-act="signout"]');
+  await signIn(page, 'E2E Second Reader', 'e2e-password-2');
+  await expect(page.locator('#nav-collections button')).toHaveCount(0);
+  await page.locator('#nav-mine button[data-mine="favourites"]').click();
+  await expect(page.locator('#mine-list .mine-row')).toHaveCount(0);
+  expect((await papersOf(LIB)).length).toBe(3);
+});
+
+test('11. nothing went to the log as an error', async () => {
   const errors = await page.locator('#log .log-line.error, #log .log-line.failed').allTextContents();
   expect(errors).toEqual([]);
 });

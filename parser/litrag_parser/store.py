@@ -278,11 +278,16 @@ def find_paper(conn: sqlite3.Connection, *, doi: str | None, pmid: str | None, s
 
 
 def move_memberships(conn: sqlite3.Connection, old: str, new: str) -> None:
-    """Every project that held paper `old` holds `new` instead (members.py): called before a stub
-    is deleted for the paper it turned out to be, so no project loses the paper with it.
-    `project_papers` names a key with no foreign key, so nothing else would follow the stub."""
+    """Every project that held paper `old` holds `new` instead (members.py), and what each person
+    kept of `old` is kept of `new` (users.move_paper): called before a stub is deleted for the
+    paper it turned out to be, so no project and no person loses the paper with it.
+    `project_papers` and the accounts name a key with no foreign key, so nothing else would
+    follow the stub."""
+    from .users import move_paper
+
     conn.execute("UPDATE OR IGNORE project_papers SET paper = ? WHERE paper = ?", (new, old))
     conn.execute("DELETE FROM project_papers WHERE paper = ?", (old,))
+    move_paper(conn, old, new)
 
 
 def file_paper(conn: sqlite3.Connection, *, title: str, file: str, sha256: str, fmt: str, doi: str | None, pmid: str | None, pmcid: str | None, now: str) -> Filed:

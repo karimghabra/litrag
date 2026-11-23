@@ -5,6 +5,14 @@ wants as they are voiced.
 
 ## Named priorities
 
+- **A lab's litrag, further** (after 2026-11-19: the shared store, DESIGN.md R4.6, and accounts,
+  R4.7, built) — highlights on a passage beside notes, and a paper exported for printing with its
+  notes; a candidate's status (staged, dismissed) per project rather than per store; a server
+  keeping `users.sqlite` and the shared store behind the same ops, for a lab not on one machine;
+  the measurement tools' `--lib`
+  taking a project of the shared store, not only a folder; a way back into an account whose
+  password is forgotten (a reset, or an owner's project released to no one): today it is done by
+  hand in `users.sqlite` and `library.json` (TUTORIAL.md, Accounts and what is yours).
 - **Reading faults the link test found** (2026-10-04; *the title and reference faults fixed
   2026-10-05*, CHANGELOG) — what is left: (1) the Micromachines PDF's introduction opens with
   "Academic Editor: Dmitry Volodkin" joined into its first paragraph (MDPI's first-page box read
@@ -193,8 +201,6 @@ Each one wants a fixture or a test before its fix, as the spot-check does.
 ## Observed, not urgent
 
 - **The installer, left for later** (2026-09-30):
-  - `app/tests/smoke.mjs` still answers a `prompt()` for New project, which the Projects tab
-    replaced with a form, so it only passes against a root that already holds a library.
   - An install into a root other than the default (`LITRAG_INSTALL_ROOT`) gets a Start Menu
     entry that does not carry `LITRAG_VENV`, so the window looks in the default root; the
     Linux `.desktop` entry does carry it.
