@@ -435,10 +435,13 @@ def test_the_worker_answers_ask_over_its_wire(lib, monkeypatch):
         proc.stdin.write(json.dumps({"id": "a", "op": "ask", "lib": lib.id, "question": QUESTION, "model": "stand-in:9b", "k": 0}) + "\n")
         proc.stdin.flush()
         events = []
+        answered = listed = False  # `models` and `ask` each answer on their own thread, in either order
         for line in proc.stdout:
             ev = json.loads(line)
             events.append(ev)
-            if ev.get("id") == "a" and ev["event"] in ("answer", "error"):
+            answered = answered or (ev.get("id") == "a" and ev["event"] in ("answer", "error"))
+            listed = listed or ev.get("id") == "m"
+            if answered and listed:
                 break
         proc.stdin.write(json.dumps({"id": "q", "op": "quit"}) + "\n")
         proc.stdin.flush()
@@ -447,7 +450,7 @@ def test_the_worker_answers_ask_over_its_wire(lib, monkeypatch):
         fake.close()
     models = next(e for e in events if e.get("id") == "m")
     assert models["event"] == "models" and [m["name"] for m in models["models"]] == ["stand-in:9b"]
-    done = events[-1]
+    done = next(e for e in events if e.get("id") == "a" and e["event"] in ("answer", "error"))
     assert done["event"] == "answer", done
     assert done["status"] == "answered" and len(done["sources"]) == 1 and done["claims"][0]["sources"] == [1]
     assert done["retrieval"]["embedder"]["meaning"] == "ok"  # the question was embedded through the stand-in
