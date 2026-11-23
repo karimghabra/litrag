@@ -872,9 +872,15 @@ async function save(): Promise<SavedSeries | null> {
   }
 }
 
+/** A saved series deleted, for good: its points and its fits go with it, so it is asked first,
+ *  naming it. */
 async function deleteSaved(id: number): Promise<void> {
   const opened = st.opened;
   if (!ctx.lib || !opened) return;
+  const s = [...opened.saved, ...opened.orphans].find((x) => x.id === id);
+  if (!s) return;
+  const answer = await window.litrag.choose(`Delete “${s.series}” and its ${s.points.length} point${s.points.length === 1 ? '' : 's'}? A deleted series cannot be brought back.`, ['Delete', 'Cancel']);
+  if (answer !== 0 || st.opened !== opened) return;
   try {
     await request('digitise_delete', { lib: ctx.lib, series_id: id });
     if (st.opened !== opened) return;

@@ -211,7 +211,7 @@ def real(spec: Path, root: Path) -> dict[str, Any]:
         lib = open_library(root, item["lib"])
         conn = open_store(lib.store_path)
         try:
-            r = digitise.render(lib.dir, conn, item["figure"])
+            r = digitise.render(lib.home, conn, item["figure"])
         finally:
             conn.close()
         if r["image"] is None:

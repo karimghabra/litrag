@@ -1215,34 +1215,36 @@ def _fts_query(q: str) -> str | None:
     return " ".join(f'"{t}"*' for t in toks)
 
 
-def find(conn: sqlite3.Connection, query: str = "", *, trend: bool = False, limit: int = 50, keys: Sequence[str] | None = None) -> dict[str, Any]:
+def find(conn: sqlite3.Connection, query: str = "", *, trend: bool = False, limit: int = 50, project: str | None = None) -> dict[str, Any]:
     """Figures that are data plots, best first, whose captions match `query` (every word, as a
     prefix). A figure is a **plot** when the chart reader found a frame with numbers beside its
     axes in it (`charts`); **no plot** when it looked and found none; else **unknown** — not
     read yet — and its caption's words say how likely it is one. A **trend** is a plot whose x
     axis has numbers (a curve over time or dose, not bars over categories), or an unread
-    figure whose caption speaks of one. With `keys`, only the figures of those papers — the ones
-    a project of the shared store holds (members.scope). `{figures: [{figure, paper, title, year, label,
+    figure whose caption speaks of one. With `project`, only the figures of the papers that
+    project of the shared store holds (`project_papers`): the store's other projects' are not
+    looked at, nor counted toward how many matches are ranked. `{figures: [{figure, paper, title, year, label,
     caption, plot, trend, plots: [...], digitised, image, score}], total}`."""
     from . import figures
 
     figures.ensure_schema(conn)
     ensure_schema(conn)
     fq = _fts_query(query)
+    held, whose = ("", ()) if project is None else (" AND {}.paper IN (SELECT paper FROM project_papers WHERE project = ?)", (project,))
     if fq:
         rows = conn.execute(
             "SELECT c.parent AS figure, bm25(nodes_fts) AS rank FROM nodes_fts JOIN nodes c ON c.rowid = nodes_fts.rowid "
-            "WHERE nodes_fts MATCH ? AND c.type = 'caption' ORDER BY rank LIMIT 2000", (fq,)).fetchall()
+            f"WHERE nodes_fts MATCH ? AND c.type = 'caption'{held.format('c')} ORDER BY rank LIMIT 2000", (fq, *whose)).fetchall()
         ranked: dict[str, float] = {}
         for r in rows:
             ranked.setdefault(r["figure"], float(r["rank"]))
         figs = list(ranked)
         # the figures as a query of their own, not a list of ids: a library has more than a statement binds
-        among, args = "(SELECT c.parent FROM nodes_fts JOIN nodes c ON c.rowid = nodes_fts.rowid WHERE nodes_fts MATCH ? AND c.type = 'caption' ORDER BY bm25(nodes_fts) LIMIT 2000)", (fq,)
+        among, args = f"(SELECT c.parent FROM nodes_fts JOIN nodes c ON c.rowid = nodes_fts.rowid WHERE nodes_fts MATCH ? AND c.type = 'caption'{held.format('c')} ORDER BY bm25(nodes_fts) LIMIT 2000)", (fq, *whose)
     else:
         ranked = {}
-        figs = [r[0] for r in conn.execute("SELECT node_id FROM nodes WHERE type IN ('picture', 'chart') ORDER BY rowid")]
-        among, args = "(SELECT node_id FROM nodes WHERE type IN ('picture', 'chart'))", ()
+        figs = [r[0] for r in conn.execute(f"SELECT node_id FROM nodes WHERE type IN ('picture', 'chart'){held.format('nodes')} ORDER BY rowid", whose)]
+        among, args = f"(SELECT node_id FROM nodes WHERE type IN ('picture', 'chart'){held.format('nodes')})", whose
     if not figs:
         return {"figures": [], "total": 0, "query": query}
     out = []
@@ -1258,10 +1260,9 @@ def find(conn: sqlite3.Connection, query: str = "", *, trend: bool = False, limi
     for r in conn.execute(f"SELECT figure, COUNT(*) AS n FROM digitised WHERE figure IN {among} AND orphan = 0 GROUP BY figure", args):
         dig[r["figure"]] = r["n"]
     labels: dict[str, dict[str, tuple[str | None, bool]]] = {}
-    mine = None if keys is None else set(keys)
     for f in figs:
         r = info.get(f)
-        if r is None or (mine is not None and r["paper"] not in mine):
+        if r is None:
             continue
         cap = r["caption"] or ""
         ps = plots.get(f, [])
@@ -1324,14 +1325,13 @@ def answer(op: str, req: dict[str, Any], get_lib: Any) -> dict[str, Any]:
       one is named; a saved series' fits are kept with it.
     """
     from . import fit as fitting
-    from . import members
     from .store import open_store
 
     if op == "plots":
         lib = get_lib()
         conn = open_store(lib.store_path)
         try:
-            out = find(conn, str(req.get("query") or ""), trend=bool(req.get("trend")), limit=int(req.get("limit") or 50), keys=members.scope(conn, lib))
+            out = find(conn, str(req.get("query") or ""), trend=bool(req.get("trend")), limit=int(req.get("limit") or 50), project=lib.id if lib.scoped else None)
         finally:
             conn.close()
         return {"event": "plots", "lib": lib.id, **out}

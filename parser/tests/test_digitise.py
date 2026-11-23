@@ -863,6 +863,27 @@ def test_an_image_file_s_export_names_the_file_not_where_it_lay(tmp_path):
     assert json.loads(text)["figure"]["file"] == "scan.jpg" and "someone" not in text
 
 
+def test_a_project_s_plots_are_found_whatever_the_store_s_other_projects_hold(tmp_path):
+    """One store, two projects. Another project's captions hold the word asked for more than
+    2000 times and rank ahead; the project asked about still lists its own figure, counts only
+    its own, and lists none of the other's."""
+    lib, conn, key, fig = _library(tmp_path)
+    other = file_paper(conn, title="Another project's", file="other.pdf", sha256="o1", fmt="pdf", doi="10.1000/other", pmid=None, pmcid=None, now="t").key
+    rows = []
+    for i in range(2100):
+        pic = f"{other}#picture-{i}"
+        rows += [(pic, other, None, 2 * i, 1, "picture", "picture", "results", "[]", ""), (f"{pic}#caption-1", other, pic, 2 * i + 1, 2, "caption", "caption", "results", "[]", "Turbidity")]
+    conn.executemany("INSERT INTO nodes(node_id, paper, parent, ordinal, depth, type, label, role, ancestry, text) VALUES (?,?,?,?,?,?,?,?,?,?)", rows)
+    conn.executemany("INSERT INTO project_papers(project, paper, added_at) VALUES (?,?,'t')", [("mine", key), ("theirs", other)])
+    conn.commit()
+    got = digitise.find(conn, "turbidity", project="mine")
+    assert [f["figure"] for f in got["figures"]] == [fig] and got["total"] == 1
+    assert digitise.find(conn, "turbidity", project="theirs", limit=3)["total"] == 2000  # theirs alone, ranked to the cap
+    listed = digitise.find(conn, "", project="mine")
+    assert [f["figure"] for f in listed["figures"]] == [fig] and listed["total"] == 1
+    assert digitise.find(conn, "", limit=1)["total"] == 2101  # no project named: the whole store
+
+
 def test_the_worker_answers_the_digitiser_s_ops(tmp_path):
     from litrag_parser.library import Library
 
