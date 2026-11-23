@@ -52,7 +52,8 @@ from .users import move_paper
 #: order (a row's foreign key names its paper, which is copied first). `vectors` belong to a paper
 #: through their node, and are copied apart.
 PAPER_TABLES = ("pages", "nodes", "refs", "citations", "outlines", "judgments", "edges", "link_labels", "model_labels",
-                "events", "charts", "chart_values", "figure_outcomes", "figure_reads", "ref_lists")
+                "events", "charts", "chart_values", "figure_outcomes", "figure_reads", "ref_lists",
+                "figure_images", "figure_image_asks")
 
 #: Derived again by `graph.sync` from the rows above, so never copied: a copy would carry the
 #: source's candidate ids.
@@ -142,7 +143,8 @@ def plan(root: Path, only: list[str] | None = None) -> dict[str, Any]:
 
 def _files_of(lib: Library, row: dict[str, Any]) -> list[Path]:
     """A paper's files in an old library: under `papers/` every file named for its key — the paper
-    itself, the PDF kept beside its XML, any set aside — and its raw Docling document."""
+    itself, the PDF kept beside its XML, any set aside — its raw Docling document, and under
+    `figures/<key>/` an XML paper's figure images (figure_images.py)."""
     safe = safe_key(str(row["key"]))
     out: list[Path] = []
     named = {row.get("file"), row.get("figures_file")} - {None, ""}
@@ -153,6 +155,9 @@ def _files_of(lib: Library, row: dict[str, Any]) -> list[Path]:
     raw = lib.parsed_dir / f"{safe}.docling.json"
     if raw.is_file():
         out.append(raw)
+    images = lib.home / "figures" / safe
+    if images.is_dir():
+        out.extend(f for f in sorted(images.iterdir()) if f.is_file())
     return out
 
 
@@ -210,7 +215,7 @@ def _copy_paper(lib: Library, sconn: sqlite3.Connection, s_tables: set[str], tco
     files = 0
     try:
         for f in _files_of(lib, row):
-            dest = (shared.parsed_dir if f.parent == lib.parsed_dir else shared.papers_dir) / f.name
+            dest = shared.home / f.relative_to(lib.home)  # the same place under the shared store: papers/, parsed/, figures/<key>/
             if not dest.exists():
                 created.append(dest)
             _copy(f, dest)
@@ -376,9 +381,10 @@ def migrate(root: Path, *, dry_run: bool = False, only: list[str] | None = None,
     tconn = open_store(shared_dir(root) / "store.sqlite")
     acquire.ensure_schema(tconn)
     graph.ensure_schema(tconn)
-    from . import figures, retrieve
+    from . import figure_images, figures, retrieve
 
     figures.ensure_schema(tconn)
+    figure_images.ensure_schema(tconn)
     retrieve.ensure_schema(tconn)
     moved = []
     try:

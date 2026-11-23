@@ -11,6 +11,7 @@ import * as pdfjs from 'pdfjs-dist';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { renderPlots, type Plot } from './charts.ts';
 import { droppedOn, figuresFor, ingestParams } from './figuredrop.ts';
+import { imageAlt, imageNote, imagesButton, imagesChip, imagesDone, readAllButton, type FigureImage, type ImageState } from './figimages.ts';
 import { askedDone, dropLabel, figureLabel, figuresDone, figuresOn, overlayText, paneButton, paneNote, placeholder, stateChip, treeTag, type FigureOutcome, type FigureState, type FigureTag } from './figstate.ts';
 import { initLabels, openLabelling } from './labels.ts';
 import { BANDS, SORT_KEYS, arrived, bandOf, countBy, filedLine, filterPapers, readFiguresOf, sortPapers, validFilters, type SortKey } from './papers.ts';
@@ -43,6 +44,8 @@ interface Paper {
   figures_note?: string | null;
   /** what the paper's figures came to (figures.states); null for a paper the worker has no row of */
   figure_state?: FigureState | null;
+  /** an XML paper's figure images (figure_images.states); null for one never asked */
+  images?: ImageState | null;
   pages: number | null;
   status: string;
   error: string | null;
@@ -151,6 +154,8 @@ interface Tree {
   root: Node;
   /** each picture and chart node by what it came to */
   figures?: Record<string, FigureTag>;
+  /** an XML paper's figures as images, by the node each joins (figure_images.images_for) */
+  images?: Record<string, FigureImage[]>;
 }
 
 // ---- state ------------------------------------------------------------------------------
@@ -303,6 +308,33 @@ function renderListTools(all: Paper[]) {
   $('papers-tools').hidden = all.length < 2;
 }
 
+/** the project-wide figure runs under way, by op: each button waits for its own `done` or `error` */
+const figureRuns = new Set<string>();
+
+/** The Papers tab's two figure buttons (figimages.ts): fetch the XML papers' figure images, read every figure not read. */
+function renderFigureButtons(all: Paper[]) {
+  for (const [id, b] of [['fetch-images', imagesButton(all, figureRuns.has('figure_images'))], ['read-figures', readAllButton(all, figureRuns.has('figures'))]] as const) {
+    const button = $<HTMLButtonElement>(id);
+    button.textContent = b.label;
+    button.title = b.title;
+    button.disabled = b.disabled || !ctx.lib;
+  }
+}
+
+/** A project-wide figure run asked of the worker, its button held until it ends. */
+async function runFigures(op: 'figures' | 'figure_images') {
+  if (!ctx.lib || figureRuns.has(op)) return;
+  figureRuns.add(op);
+  renderFigureButtons([...state.papers.values()]);
+  try {
+    await window.litrag.request(op, { lib: ctx.lib });
+  } catch (e) {
+    figureRuns.delete(op);
+    log('error', `${op}: ${(e as Error).message}`);
+    renderFigureButtons([...state.papers.values()]);
+  }
+}
+
 function renderPapers() {
   const box = $('papers');
   box.innerHTML = '';
@@ -313,6 +345,7 @@ function renderPapers() {
   state.bandFilter = valid.band ?? null;
   const papers = sortPapers(filterPapers(all, valid), state.sort);
   $('papers-count').textContent = all.length ? (papers.length === all.length ? `${all.length}` : `${papers.length} of ${all.length}`) : '';
+  renderFigureButtons(all);
   renderListTools(all);
   if (!ctx.lib) {
     box.append(el('div', 'empty', 'Create a library to start.'));
@@ -339,6 +372,12 @@ function renderPapers() {
     if (figs) {
       const chip = el('span', `figs k-${p.figure_state!.kind}`, figs.text);
       chip.title = figs.title;
+      kind.append(chip);
+    }
+    const imgs = imagesChip(p); // an XML paper's figure images (figimages.ts)
+    if (imgs) {
+      const chip = el('span', `figs k-${imgs.whole ? 'read' : 'no-pdf'}`, imgs.text);
+      chip.title = imgs.title;
       kind.append(chip);
     }
     card.append(kind);
@@ -610,10 +649,35 @@ async function selectNode(id: string) {
 
 // ---- an XML paper, read back from its tree --------------------------------------------------
 
-/** Headings, paragraphs, formulas, tables, figures as placeholders — every one a node a click selects. */
+/** the object URLs the reading's images are drawn from, let go when it is drawn again */
+let imageUrls: string[] = [];
+
+/** One of a figure's images: read from disk through the main process and drawn from a blob, as
+ *  the page's PDF is; an image that will not read says so in its place. */
+function figureImage(image: FigureImage): HTMLElement {
+  const img = document.createElement('img');
+  img.className = 'rv-image';
+  img.alt = imageAlt(image);
+  img.title = image.file;
+  if (image.width && image.height) img.style.aspectRatio = `${image.width} / ${image.height}`;
+  void window.litrag.readFile(image.path).then(
+    (bytes) => {
+      const url = URL.createObjectURL(new Blob([bytes], { type: image.mime }));
+      imageUrls.push(url);
+      img.src = url;
+    },
+    () => img.replaceWith(el('div', 'placeholder', `${image.file} could not be read`)),
+  );
+  return img;
+}
+
+/** Headings, paragraphs, formulas, tables, figures — drawn from their images where the paper has them, else as
+ *  placeholders — every one a node a click selects. */
 function renderReading() {
   const box = $('page-reading');
   box.innerHTML = '';
+  for (const url of imageUrls) URL.revokeObjectURL(url);
+  imageUrls = [];
   const t = state.tree;
   if (!t) return;
   $('page-stage').hidden = true;
@@ -649,6 +713,13 @@ function renderReading() {
             table.append(tr);
           }
           fig.append(table);
+        } else if (t.images?.[c.node_id]?.length) {
+          // the figure itself, from the service that published the XML or cut from a PDF of the paper (figimages.ts)
+          const images = t.images[c.node_id]!;
+          for (const image of images) fig.append(figureImage(image));
+          fig.append(el('div', 'placeholder', imageNote(images, t.figures?.[c.node_id], state.papers.get(t.paper.key) ?? t.paper)));
+          const forFigures = figuresFor(t.paper);
+          if (forFigures) fig.dataset['figuresFor'] = forFigures;
         } else {
           fig.append(el('div', 'placeholder', placeholder(t.figures?.[c.node_id], state.papers.get(t.paper.key) ?? t.paper)));
           const forFigures = figuresFor(t.paper);
@@ -1113,6 +1184,9 @@ function onEvent(ev: Record<string, unknown>) {
       setStatus('ok', 'idle');
       activity.hide();
       if (ev['op'] === 'figures') log('stage', figuresDone(ev));
+      if (ev['op'] === 'figure_images') log('stage', imagesDone(ev));
+      if (typeof ev['op'] === 'string' && ev['id'] !== undefined && !String(ev['id']).endsWith('-figures')) figureRuns.delete(ev['op']); // a run's own done, not the figures read it goes on to
+      if (!foreign && ev['op'] === 'figure_images' && state.selectedPaper) void loadTree(state.selectedPaper); // the shown paper's images
       if (ev['op'] === 'figures_fetch') log('stage', askedDone(ev)); // PMC's answers, before the PDFs it gave are read
       if (!foreign) {
         // the papers' chips and the shown paper's tree (its figures' tags) come again with the list; the figure shown is
@@ -1137,6 +1211,7 @@ function onEvent(ev: Record<string, unknown>) {
     case 'error':
       // a queued op that fails (a merge into a name taken) closes nothing: the bar must not stay up
       activity.hide();
+      if (typeof ev['op'] === 'string') figureRuns.delete(ev['op']);
       // a refused sign-in or password is said in its own dialogue, not logged as a fault
       if (['sign_in', 'user_create', 'password'].includes(String(ev['op']))) break;
       log('error', String(ev['message']));
@@ -1249,6 +1324,8 @@ function wire() {
     });
   });
   $('add').addEventListener('click', async () => ingest(await window.litrag.choosePdfs()));
+  $('fetch-images').addEventListener('click', () => void runFigures('figure_images'));
+  $('read-figures').addEventListener('click', () => void runFigures('figures'));
   $('reparse').addEventListener('click', async () => {
     if (!ctx.lib || !state.papers.size) return;
     if (!window.confirm(`Read all ${state.papers.size} papers again with Docling?`)) return;

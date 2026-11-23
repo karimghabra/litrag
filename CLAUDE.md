@@ -55,6 +55,11 @@ Invariants:
    never a paper's text — Karim, 2026-10-04), and the host of an open copy
    OpenAlex names (a publisher's or a repository's: the request for that
    PDF and nothing else, a bot check left to a person — Karim, 2026-10-04).
+   For an XML paper's figure images: the PMC Cloud Service and Europe PMC
+   (the image files its XML names, by PMCID), OpenAlex (which open copy of
+   the paper there is, to cut its figures from: its DOI out, one request at
+   a time, paced), and that open copy's host (the request for that PDF and
+   nothing else).
    Nothing reads a paper for a cloud service.
 2. **Two languages, one wire.** Python owns parsing and the store; TypeScript
    owns the window. They meet only on the JSON-lines protocol in

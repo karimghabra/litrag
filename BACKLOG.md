@@ -652,25 +652,19 @@ Each one wants a fixture or a test before its fix, as the spot-check does.
   a jumble (columns interleaved) and no title can be found.
 - **Equations that are only images** — a JATS `<disp-formula>` with a
   `<graphic>` and no maths. The PMC Cloud Service lists each article's
-  media files beside its PDF (see "Figures for XML papers"); fetching the
-  equation's image, opt-in, would let the reading view show it where its
+  media files beside its PDF (`figure_images.py` fetches a figure's from
+  there); fetching the equation's image the same way would let the reading view show it where its
   placeholder stands, and a formula OCR could read it into text.
 
-- **Figures for XML papers** (Karim, 2026-09-11; the charts part done
-  2026-10-13, `DESIGN.md` R4.5) — a JATS names each figure's file
-  (`<graphic xlink:href="micromachines-15-00851-g001"/>`) but carries no
-  pixels. The charts are now read from a PDF kept beside the XML; the
-  images themselves are still not kept, so the reading view shows a
-  placeholder where each figure stands. The route is the PMC Cloud
-  Service's record (`media_urls`, each checked by its MD5, about 100 MB for
-  117 papers), not Europe PMC's `/bin/` (behind a bot check from a
-  datacenter) or EBI's zips (which hold only the PDF). It needs invariant
-  1's Cloud line to name the images ("…an open-access paper's PDF and its
-  figure images by PMCID"), Karim's to write, and would be opt-in
-  (`figures_fetch` with `images`), into one per-figure table with
-  `figure_outcomes`. Charts from the images: not planned (slower, two
-  misread labels on PMC11278924's Figure 5, and every record with images
-  also has a PDF).
+- ~~**Figures for XML papers**~~ (Karim, 2026-09-11; the charts part done
+  2026-10-13, `DESIGN.md` R4.5) — *built 2026-11-20*: a JATS names each
+  figure's file and carries no pixels; the charts are read from a PDF kept
+  beside the XML, and the images are fetched and drawn in the reading
+  (`figure_images.py`, the `figure_images` op; `PIPELINE.md` stage 8,
+  `AGENT.md`). Left: an author manuscript's figures, which PMC publishes
+  with no image file, stay placeholders unless a PDF of it is kept. Charts
+  from the images: not planned (slower, two misread labels on PMC11278924's
+  Figure 5, and every record with images also has a PDF).
 - **Captions with no stop after the number** (found planning the XML
   figures work, 2026-10-11) — a PDF kept beside an XML paper is read only
   on the pages that print one of its captions, and `figures.captions` takes

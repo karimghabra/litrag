@@ -432,6 +432,8 @@ A fetch tries each route in order and stops at the first that gives the paper. R
 
 OpenAlex names open copies for candidates a citation round has met (see The citation graph). An XML paper, once filed, is asked of routes 3 and 4 for its PDF, for its figures (see Figures as numbers), as a dropped XML is; PMC's answer when it has none is kept on the paper, so it is asked once. Papers filed before are asked with **Ask PMC for N figure PDFs** beside **Collect PDFs** (the `figures_fetch` op), and one paper again from its figure's pane. `LITRAG_FIGURES=off` stops the ask at filing; `LITRAG_OPEN_COPIES=off` skips route 5.
 
+An XML paper's figures are drawn in its reading as images. When it is filed, each image its XML names is fetched by PMCID from the PMC Cloud Service, else from Europe PMC, else cut from a PDF of the paper (PMC's, or the open copy OpenAlex names); the card says "6 images" or "2 of 6 images". For papers filed before, click **Fetch figure images** on the Papers tab (the `figure_images` op); it passes by papers already answered and picks up where a broken run stopped. With `LITRAG_FIGURES=off`, filing fetches the image files only; the PDF to cut the rest from (PMC's, or an open copy's) is asked for by **Fetch figure images**. An author manuscript has no image anywhere PMC serves to a program, so its figures stay placeholders unless a PDF of it arrives: once one is kept beside it, **Fetch figure images** counts the paper again and cuts its figures from that PDF.
+
 When every route misses, the candidate needs a PDF, and its error lists each route's reason. When Europe PMC, NCBI or the Cloud Service could not be reached, it is "failed" instead: fetch it again later. A bot check ends route 5 with "the site asks for a browser (a bot check)".
 
 ### Collect PDFs
@@ -721,7 +723,7 @@ The Papers tab shows every paper of the current project as litrag read it. Come 
 
 ![Clicking a paragraph selects it in three places: its row in the tree, a bold box on page 2, and the detail with its crumbs, lane, type, Docling label, page, box and text.](tutorial/21-papers-pdf-node-detail.png)
 
-11. Click an XML paper, such as "Microfluidically Aligned Collagen to Maintain the Phenotype of Tenocytes In Vitro". It has no pages, so the page pane reads "XML · the paper as read" and lays the paper out from its tree, each block edged in its lane's colour. Figures are placeholders. Click a block to select its node; **‹** and **›** do nothing here.
+11. Click an XML paper, such as "Microfluidically Aligned Collagen to Maintain the Phenotype of Tenocytes In Vitro". It has no pages, so the page pane reads "XML · the paper as read" and lays the paper out from its tree, each block edged in its lane's colour. A figure is drawn as its image where one was fetched (see The acquisition routes), else as a placeholder. Click a block to select its node; **‹** and **›** do nothing here.
 
 ![An XML paper selected: its tree with lane colours, item counts and citation arrows, and the paper laid out from that tree under "XML · the paper as read".](tutorial/18-papers-xml-tree.png)
 
@@ -1496,7 +1498,7 @@ from charts group by paper, figure order by plots desc
 - **Panel letters can be misread.** "(b)" was stored as Q, so Query cannot match "Figure 2b".
 - **Not read yet:** curves without markers, box, violin and dot plots, horizontal bars. A curve may still give stray points, like Figure 2's "(A) Stress (MPa)".
 - **A cut-off read leaves no numbers.** Run `figures` without `keys`, or click **Read the figures**.
-- **`LITRAG_FIGURES=off`** skips the figures stage and the ask of PMC for an XML paper's PDF, at a fetch or a drop. The window offers no figure action: a figure not read says "Figures are off (LITRAG_FIGURES=off)", and its card has no chip. The `figures` op still reads, and `figures_fetch` still asks. A PDF you drop for an XML paper is kept, not read, until you ask.
+- **`LITRAG_FIGURES=off`** skips the figures stage and the ask of PMC for an XML paper's PDF, at a fetch or a drop. A figure offers no action: one not read says "Figures are off (LITRAG_FIGURES=off)", and its card has no figures chip. The `figures` op still reads (**Read all figures** on the Papers tab), and `figures_fetch` still asks. A PDF you drop for an XML paper is kept, not read, until you ask.
 
 ## Digitising a plot (the Plots tab)
 
@@ -2101,6 +2103,7 @@ A bare `npm run e2e` runs every suite in `app/tests/e2e`, the studio one include
 | `LITRAG_ROOT` | `$PROTRACKER_LIBRARY`, else `~/.protracker/library` | where the libraries, `lanes.sqlite` and `models/docling` live |
 | `LITRAG_OLLAMA_URL` | `http://127.0.0.1:11434` | where the embedder and the chat models are asked |
 | `LITRAG_FIGURES` | on | `off` skips chart reading as papers are read; `figures` reads them later |
+| `LITRAG_FIGURE_IMAGES` | on | `off` stops fetching an XML paper's figure images when it is filed; `figure_images` still fetches them |
 | `LITRAG_LAYOUT_TIMEOUT` | `300` | seconds Docling's layout may take for one paper |
 | `LITRAG_PARSER` | found by the app | the worker command the window starts |
 
@@ -2267,7 +2270,7 @@ Each tab works on the project chosen in the header's **Project** picker, and the
 | **Projects** | **New project** (**Name**, **What it is about**, **Create**, **Cancel**); **Merge libraries…** (a box per project, **Name of the merged project**, **Merge**, **Cancel**); **Only yours**; **Move into the shared store** (**What would move?**, **Move them**) while a project keeps its own store; on each card **Papers**, **Search**, **Types**, **Query**, and on a project of yours (or no one's) **Describe…**, **Rename…**, **Delete…** | `projects`, `init`, `merge`, `describe`, `delete_project`, `migrate` |
 | **Yours** (sidebar) | **Recent**, **Favourites**, each collection, **+ New collection**; on a list **Open**, **Unstar**, **Remove from collection**; a collection's **Rename…**, **Delete…**. Above a paper's tree **☆**, **Add to collection…**, **Notes** (**Note on the paper**, **Note on the passage**, **Edit**, **Delete**). In the header your name: **Change password…**, **Sign out** | `recent`, `favourites`, `favourite`, `collections`, `collection*`, `notes`, `note_save`, `note_delete`, `paper_marks`, `sign_out`, `password` |
 | **Search** | The query box, **Search**, **Suggest from the project**; under **Results**: a tick box on each hit, **all**, **Fetch & read selected** (**Fetch & read 1** with one hit ticked), **More results**; under **Candidates**: status chips, **Fetch** on a candidate, **Collect PDFs**, which shows its counts, as in **Collect PDFs (117 for figures)**, and **Ask PMC for N figure PDFs** beside it | `search`, `suggest`, `candidates`, `wanted`, `fetch`, `ingest`, `figures_fetch` |
-| **Papers** | **Add papers…**, **Reparse all**, **Label links**; **Sort** ("as added", "format", "type", "title", "year, newest first", "confidence, lowest first") and format, type and confidence chips; **Printed** and **Canonical** over the tree, with lane chips; **‹** and **›** over the page; **Label** on a finding, **Read the figures** on a figure whose paper was never read, **Ask PMC for its PDF** or **Ask PMC again** on a figure of an XML paper with no PDF beside it; in the labelling panel **Let the model label**, **Close**, **Skip**, **Save & next** | `papers`, `tree`, `mapping`, `refs`, `edges`, `charts`, `file`, `ingest`, `reparse`, `figures`, `figures_fetch`, `label_queue`, `label`, `model_label`, `truth` |
+| **Papers** | **Add papers…**, **Fetch figure images** (with the count of XML papers still wanting some), **Read all figures** (with the count of papers whose figures are not read), **Reparse all**, **Label links**; **Sort** ("as added", "format", "type", "title", "year, newest first", "confidence, lowest first") and format, type and confidence chips; **Printed** and **Canonical** over the tree, with lane chips; **‹** and **›** over the page; **Label** on a finding, **Read the figures** on a figure whose paper was never read, **Ask PMC for its PDF** or **Ask PMC again** on a figure of an XML paper with no PDF beside it; in the labelling panel **Let the model label**, **Close**, **Skip**, **Save & next** | `papers`, `tree`, `mapping`, `refs`, `edges`, `charts`, `file`, `ingest`, `reparse`, `figures`, `figures_fetch`, `figure_images`, `label_queue`, `label`, `model_label`, `truth` |
 | **Types** | One tab per type with its count; **Canonical structure**; **How each paper maps onto it**, with a paper picker and **Open in Papers** | `types`, `mapping` |
 | **Ask** | **Model** (the chat models Ollama holds), the question box, **Over** ("this project" or "every project"), **Passages** (8), **Ask** (Ctrl+Enter); a numbered citation after each sentence and **Open at this passage** on each passage, both opening the Papers tab at the passage | `ask`, `models` |
 | **Query** | The question box, **Passages** (8), **From** ("This project", "All projects"), **Ask**; **Embed passages** with its count of passages embedded; **Open in the tree** on each hit | `query`, `retrieval`, `embed` |
@@ -2350,7 +2353,8 @@ Set a switch in the environment before you start the app or the worker, since th
 | `LITRAG_LANES` | on | `off`: no embedder, so what the rules do not name reads `other`, and nothing is embedded at save |
 | `LITRAG_LANES_MODEL` | `nomic-embed-text` | The embedder, for headings and passages |
 | `LITRAG_EMBED` | on | `off`: passages are not embedded as each paper is saved; **Embed passages** still works |
-| `LITRAG_FIGURES` | on | `off`: no chart reading as papers are read, no PMC ask for an XML paper's PDF when it is filed, and no figure entries on Collect PDFs; a PDF dropped for an XML paper is kept, not read; the `figures` op still reads them, and `figures_fetch` still asks PMC |
+| `LITRAG_FIGURES` | on | `off`: no chart reading as papers are read, no PMC ask for an XML paper's PDF when it is filed, nor an open copy fetched for its figure images, and no figure entries on Collect PDFs; a PDF dropped for an XML paper is kept, not read; the `figures` op still reads them, and `figures_fetch` still asks PMC |
+| `LITRAG_FIGURE_IMAGES` | on | `off`: an XML paper's figure images are not fetched when it is filed (from the PMC Cloud Service or Europe PMC, nor cut from a PDF of the paper); **Fetch figure images** (`figure_images`) still fetches them |
 | `LITRAG_JUDGE` | off | `1`: the chat model judges page-break pairs on every ingest and reparse |
 | `LITRAG_JUDGE_MODEL` | `qwen3:14b` | The judge's model, unless `library.json` names one under `ollama.chat` |
 | `LITRAG_OUTLINE` | off | `on`: the outline judge reads every paper on ingest and reparse |
@@ -2414,6 +2418,8 @@ The rows live in the shared store, `_shared/store.sqlite`, and a project made be
 | `chart_values` | A value read from a plot | `paper`, `figure`, `plot`, `series`, `name`, `category`, `x`, `y`, `err_lo`, `err_hi` |
 | `figure_reads` | A paper's last reading of its charts | `paper`, `figures`, `plots`, `read`, `values_`, `seconds`, `file`, `unmatched`, `pages`, `pages_read` |
 | `figure_outcomes` | A figure that reading looked for | `paper`, `figure`, `figure_label`, `outcome` (`plots`, `no-plot`, `no-caption`, `skipped`), `page`, `bbox`, `detail` |
+| `figure_images` | An image of an XML paper's figure, the file under `figures/<key>/` | `paper`, `ordinal`, `part`, `figure_label`, `label`, `caption`, `file`, `source` (`pmc-cloud`, `europepmc`, `pdf`), `width`, `height` |
+| `figure_image_asks` | What asking for an XML paper's figure images came to | `paper`, `figures`, `had`, `sources`, `settled`, `why`, `fallback` |
 | `digitised` | A series a person digitised from a figure (made, with the two below, when the Plots tab first needs them) | `id`, `uid`, `paper`, `figure`, `picture` (the hash of the picture it was read from), `figure_label`, `page`, `bbox`, `series` (its name), `colour`, `calibration`, `method`, `image`, `x_label`, `x_unit`, `y_label`, `y_unit`, `orphan` (1 while it waits under **Needs review**) |
 | `digitised_points` | A point of a digitised series | `digitised`, `ordinal`, `x`, `y`, `px`, `py`, `how` (`auto`, `added`, `moved`) |
 | `digitised_fits` | A curve fitted to a digitised series | `digitised`, `model` (`logistic`, `gompertz`), `status` (`fit`, `unfit`), `plateau`, `max_rate`, `t_half`, `lag`, `r2`, `result` |
